@@ -7,6 +7,12 @@ import time
 import os
 import random
 import textwrap
+import copy
+import re
+
+# --- Combat Constants ---
+CRIT_CHANCE = 15 # Percentage chance for a critical hit
+MISS_CHANCE = 10 # Percentage chance for a miss
 from datetime import datetime
 
 # --- Logging ---
@@ -17,8 +23,26 @@ def log_to_file(filename, content):
             f.write(f"--- {datetime.now()} ---\n")
             f.write(content)
             f.write("\n\n")
-    except IOError:
-        pass # Fail silently
+    except IOError as e:
+        print(f"ERROR: Could not write to log file {filename}: {e}", file=sys.stderr)
+
+def dump_game_state_to_file(game_state):
+    """Dumps the current game_state to a JSON file for inspection."""
+    dump_filename = "ui_dump.json"
+    try:
+        # Use a custom default function for json.dumps to handle non-serializable objects
+        def default_serializer(obj):
+            if isinstance(obj, set):
+                return list(obj)
+            raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+
+        with open(dump_filename, 'w', encoding='utf-8') as f:
+            json.dump(game_state, f, indent=2, default=default_serializer)
+        log_to_file("gamestate_log.txt", f"Game state dumped to {dump_filename}")
+    except IOError as e:
+        log_to_file("gamestate_log.txt", f"ERROR: Could not dump game state to file: {e}")
+    except TypeError as e:
+        log_to_file("gamestate_log.txt", f"ERROR: Game state contains non-serializable objects: {e}")
 
 # --- Game Logic ---
 def roll_dice(sides):
@@ -27,26 +51,52 @@ def roll_dice(sides):
 
 def handle_combat(player_stats, monster):
     """
-    Handles a round of combat, calculating damage and XP.
+    Handles a round of combat, calculating damage and XP, including misses and critical hits.
     Returns a string summarizing the combat round.
     """
     summary = []
+    player_name = "You" # Assuming player's name for narrative
+
+    log_to_file("gamestate_log.txt", f"COMBAT START - Player HP: {player_stats['hp']}, Monster HP: {monster['hp']}")
+
     # Player's turn
-    player_damage = random.randint(2, player_stats['attack_dice'])
-    monster['hp'] -= player_damage
-    summary.append(f"You hit the {monster['name']} for {player_damage} damage.")
+    player_roll = random.randint(1, 100)
+    if player_roll <= MISS_CHANCE:
+        summary.append(f"{player_name} attacked the {monster['name']} but missed!")
+    else:
+        player_damage = random.randint(2, player_stats['attack_dice'])
+        log_to_file("gamestate_log.txt", f"Player attack: {player_name} rolled {player_roll}, base damage {player_damage}.")
+        if player_roll >= 100 - CRIT_CHANCE: # Critical hit
+            player_damage *= 2
+            monster['hp'] -= player_damage
+            summary.append(f"{player_name} critically hit the {monster['name']} for {player_damage} damage!")
+        else:
+            monster['hp'] -= player_damage
+            summary.append(f"{player_name} hit the {monster['name']} for {player_damage} damage.")
+        log_to_file("gamestate_log.txt", f"Monster HP after player attack: {monster['hp']}")
 
     if monster['hp'] <= 0:
-        xp_gain = monster.get('max_hp', 10)
+        xp_gain = monster.get('max_hp', 10) # Use max_hp as base XP
         player_stats['xp'] += xp_gain
-        summary.append(f"The {monster['name']} is defeated! You gain {xp_gain} score.")
-        # Monster is defeated, so it doesn't attack back.
+        summary.append(f"The {monster['name']} is defeated! {player_name} gained {xp_gain} score.")
     else:
-        # Monster's turn
-        monster_damage = random.randint(1, monster['attack_dice'])
-        player_stats['hp'] -= monster_damage
-        summary.append(f"The {monster['name']} retaliates for {monster_damage} damage.")
+        # Monster's turn (only if not defeated)
+        monster_roll = random.randint(1, 100)
+        if monster_roll <= MISS_CHANCE:
+            summary.append(f"The {monster['name']} attacked {player_name} but missed!")
+        else:
+            monster_damage = random.randint(1, monster['attack_dice'])
+            log_to_file("gamestate_log.txt", f"Monster attack: {monster['name']} rolled {monster_roll}, base damage {monster_damage}.")
+            if monster_roll >= 100 - CRIT_CHANCE: # Critical hit
+                monster_damage *= 2
+                player_stats['hp'] -= monster_damage
+                summary.append(f"The {monster['name']} critically hit {player_name} for {monster_damage} damage!")
+            else:
+                player_stats['hp'] -= monster_damage
+                summary.append(f"The {monster['name']} hit {player_name} for {monster_damage} damage.")
+        log_to_file("gamestate_log.txt", f"Player HP after monster attack: {player_stats['hp']}")
 
+    log_to_file("gamestate_log.txt", f"COMBAT END - Player HP: {player_stats['hp']}, Monster HP: {monster['hp']}")
     return " ".join(summary)
 
 def handle_player_action(action, game_state):
@@ -54,26 +104,39 @@ def handle_player_action(action, game_state):
     log_to_file("gamestate_log.txt", f"Player action: {action}")
 
     # Handle combat actions
-    if action in ["attack", "fight", "hit"] and game_state.get('current_monster'):
-        monster = game_state['current_monster']
-        combat_summary = handle_combat(game_state, action) # This updates HP
-
-        # Check for monster death
-        if monster['hp'] <= 0:
-            xp_gain = monster['max_hp']
-            monster_name = monster['name']
-            game_state['player_stats']['xp'] += xp_gain
-            game_state['current_monster'] = None
-            
-            prompt = f"The player has defeated the {monster_name}! {combat_summary}. They gain {xp_gain} score. Narrate this victory and describe the scene now that the threat is gone. Provide new choices for exploration."
+    action_lower = action.lower()
+    
+    if game_state.get('current_monster'):
+        # If in combat, assume most actions are attacks unless explicitly fleeing or using a non-attack item
+        if "flee" in action_lower:
+            # Handle fleeing (not implemented yet, but would go here)
+            prompt = f"The player attempted to '{action}'. Narrate the attempt to flee. Provide choices for success/failure."
+            response_json = get_llm_response(game_state, prompt)
+        elif "use health potion" in action_lower:
+            # Handle using health potion (not implemented yet, but would go here)
+            # For now, let LLM narrate, but eventually client should handle
+            prompt = f"The player attempted to '{action}'. Narrate the use of a health potion. Provide choices for next move."
             response_json = get_llm_response(game_state, prompt)
         else:
-            # Monster is still alive, provide a detailed update to the LLM
-            prompt = f"The player's action was to '{action}'. {combat_summary}. The {monster['name']} now has {monster['hp']} HP remaining. Narrate this moment in the battle and give the player choices for their next move (e.g., attack again, try to flee, use an item)."
-            response_json = get_llm_response(game_state, prompt)
+            # Default to attack if in combat and not fleeing/using specific item
+            monster = game_state['current_monster']
+            combat_summary = handle_combat(game_state['player_stats'], monster) # This updates HP
 
-    # Handle non-combat actions or actions when no monster is present
+            # Check for monster death
+            if monster['hp'] <= 0:
+                xp_gain = monster['max_hp']
+                monster_name = monster['name']
+                game_state['player_stats']['xp'] += xp_gain
+                game_state['current_monster'] = None
+                
+                prompt = f"The player has defeated the {monster_name}! {combat_summary}. Narrate this victory and describe the scene now that the threat is gone. Provide new choices for exploration."
+                response_json = get_llm_response(game_state, prompt)
+            else:
+                # Monster is still alive, provide a detailed update to the LLM
+                prompt = f"The player's action was to '{action}'. {combat_summary}. Narrate this moment in the battle and give the player choices for their next move (e.g., attack again, try to flee, use an item)."
+                response_json = get_llm_response(game_state, prompt)
     else:
+        # Not in combat, normal action
         response_json = get_llm_response(game_state, action)
 
     # Update game state from LLM response
@@ -88,6 +151,11 @@ def handle_player_action(action, game_state):
                 # Use deepcopy to ensure we don't modify the monster_db template
                 game_state['current_monster'] = copy.deepcopy(monster_data)
                 log_to_file("gamestate_log.txt", f"Monster '{response_json['monster_key']}' created.")
+        # Process loot from LLM response
+        if "loot" in response_json and isinstance(response_json["loot"], list):
+            for item in response_json["loot"]:
+                game_state['player_stats']['inventory'].append(item)
+                log_to_file("gamestate_log.txt", f"Player received loot: {item}")
     else:
         # Handle cases where the LLM response is not structured as expected
         fallback_description = "An unexpected event occurred. The path forward is unclear."
@@ -100,15 +168,47 @@ def handle_player_action(action, game_state):
 # --- LLM & Prompting ---
 def get_game_master_prompt():
     return """
-You are a JSON-only fantasy RPG Game Master. You MUST respond with a valid JSON object.
+You are a JSON-only fantasy RPG Game Master. You MUST **ALWAYS** respond with a valid JSON object, and **ONLY** a JSON object. Do not include any conversational text outside the JSON.
 The user's message will contain the current game state and a summary of the player's last action.
 Your job is to narrate the result of that action in a compelling way.
 
 **CRITICAL INSTRUCTIONS:**
-1.  **Use the Game State:** The user will provide a `[GAME_STATE]` block. Use this data to inform your narration.
+1.  **Use the Game State:** The user will provide a `[GAME_STATE]` block containing a JSON object. Parse this JSON object to understand the current game state and use this data to inform your narration.
 2.  **Narrate Combat:** For combat turns, the `[ACTION]` block will describe the mechanical results (damage dealt, etc.). Your `description` MUST be a creative narration of these events.
-3.  **Introduce Monsters:** To introduce a new monster, you MUST include a `monster_key` in your JSON response. Available keys are: "goblin", "hobgoblin", "orc", "troll", "ogre".
-4.  **Provide New Choices:** Your response must always contain a `choices` array.
+3.  **Introduce Monsters:** To introduce a new monster, you MUST include a `monster_key` as a TOP-LEVEL KEY in your JSON response. Available keys are: "goblin", "hobgoblin", "orc", "troll", "ogre". When the player enters a dangerous area or performs an action that should logically lead to combat, you MUST introduce a monster.
+4.  **Ongoing Combat:** If a `current_monster` is present in the `[GAME_STATE]`, you are in combat. Narrate the ongoing battle, reflecting the damage dealt and received. Continue to provide combat-relevant choices (e.g., "Attack again", "Try to flee", "Use item"). Do NOT introduce a new `monster_key` if a monster is already present.
+5.  **Combat Conclusion:** When a monster is defeated (its HP drops to 0 or below), the `[ACTION]` block will indicate this. Narrate the monster's defeat and the end of combat. Crucially, do NOT include a `monster_key` in your JSON response when a monster is defeated, as the game system will handle its removal. Provide choices for post-combat actions (e.g., "Loot the body", "Explore further"). If the player finds loot, include it as per instruction 6.
+6.  **Loot:** When the player discovers items (e.g., after defeating a monster, searching a chest, finding a hidden stash), you MUST include a `loot` key as a TOP-LEVEL KEY in your JSON response. The value of `loot` MUST be a JSON array of strings, where each string is the name of an item. For example: `"loot": ["Gold Coin", "Rusty Sword"]`. The game system will automatically add these items to the player's inventory. **IMPORTANT:** If you include a `loot` array in your JSON response, DO NOT include choices such as "Pick up X" or "Take Y", as the items are automatically added. Instead, provide choices for subsequent actions (e.g., "Continue exploring", "Examine the area").
+
+**EXAMPLE OF A COMPLETE JSON RESPONSE:**
+```json
+{
+ "type": "narrative",
+ "title": "Forest Clearing",
+ "description": "You emerge into a small clearing, sunlight dappling through the leaves. A defeated goblin lies at your feet, and a shimmering potion catches your eye.",
+ "choices": ["Examine the potion", "Continue deeper into the forest"],
+ "monster_key": null,
+ "loot": ["Healing Potion"]
+}
+```
+
+EXAMPLE OF INTRODUCING A MONSTER IN COMBAT:
+- USER MESSAGE:
+[GAME_STATE]
+Player: HP 20/20, Score: 0, Inventory: []
+[ACTION]
+Player action: Attack the shadowy figure.
+
+- YOUR JSON RESPONSE:
+```json
+{
+ "type": "narrative",
+ "title": "Ambush!",
+ "description": "As you lunge forward, the shadowy figure solidifies into a snarling goblin! It parries your attack and lunges back, its eyes glinting with malice.",
+ "monster_key": "goblin",
+ "choices": ["Attack the goblin", "Try to flee", "Use Health Potion"]
+}
+```
 
 EXAMPLE OF NARRATING A COMBAT ACTION:
 - USER MESSAGE:
@@ -146,20 +246,49 @@ Player action: Enter the spooky forest.
 }
 ```
 Your first task is to describe the starting area. The user will provide the first message.
+3.  **Ongoing Combat:** If a `current_monster` is present in the `[GAME_STATE]`, you are in combat. Narrate the ongoing battle, reflecting the damage dealt and received. Continue to provide combat-relevant choices (e.g., "Attack again", "Try to flee", "Use item"). Do NOT introduce a new `monster_key` if a monster is already present.
+4.  **Combat Conclusion:** When a monster is defeated (its HP drops to 0 or below), the `[ACTION]` block will indicate this. Narrate the monster's defeat and the end of combat. Crucially, do NOT include a `monster_key` in your JSON response when a monster is defeated, as the game system will handle its removal. Provide choices for post-combat actions (e.g., "Loot the body", "Explore further").
 """
+
+def format_game_state_for_llm(game_state):
+    """Formats the current game state into a JSON string for the LLM."""
+    formatted_state = {
+        "player_stats": {
+            "hp": game_state['player_stats']['hp'],
+            "max_hp": game_state['player_stats']['max_hp'],
+            "xp": game_state['player_stats']['xp'],
+            "level": game_state['player_stats']['level'],
+            "inventory": game_state['player_stats']['inventory']
+        },
+        "current_location": game_state['current_event'].get('title', 'Unknown Location'),
+        "current_choices": game_state['current_choices']
+    }
+
+    if game_state.get('current_monster'):
+        formatted_state["current_monster"] = {
+            "name": game_state['current_monster']['name'],
+            "hp": game_state['current_monster']['hp'],
+            "max_hp": game_state['current_monster']['max_hp'],
+            "attack_dice": game_state['current_monster']['attack_dice']
+        }
+    
+    # Wrap the JSON in the [GAME_STATE] tags as before
+    return f"[GAME_STATE]\n{json.dumps(formatted_state, indent=2)}\n[/GAME_STATE]"
 
 def get_llm_response(game_state, new_user_message=None, json_mode=True):
     if new_user_message:
         # For the main game, append to chat history
         if json_mode:
-            game_state['chat_history'].append({'role': 'user', 'content': new_user_message})
+            formatted_state = format_game_state_for_llm(game_state)
+            full_user_message = f"{formatted_state}\n[ACTION]\n{new_user_message}"
+            game_state['chat_history'].append({'role': 'user', 'content': full_user_message})
             system_prompt = get_game_master_prompt()
             messages = [{'role': 'system', 'content': system_prompt}] + game_state['chat_history']
         # For the intro, create a temporary message list
         else:
             messages = [{'role': 'system', 'content': new_user_message}]
 
-    payload = {"model": game_state['llm_config']['model'], "messages": messages, "max_tokens": 1000, "temperature": 0.7}
+    payload = {"model": game_state['llm_config']['model'], "messages": messages, "max_tokens": 8000, "temperature": 0.9}
     
     log_to_file("llm_log.txt", f"REQUEST (json_mode={json_mode}):\n{json.dumps(payload, indent=2)}")
 
@@ -174,17 +303,54 @@ def get_llm_response(game_state, new_user_message=None, json_mode=True):
         if not json_mode:
             return llm_message
 
-        start_index = llm_message.find('{')
-        end_index = llm_message.rfind('}')
-        if start_index != -1 and end_index != -1 and end_index > start_index:
-            json_str = llm_message[start_index:end_index+1]
-            parsed_json = json.loads(json_str)
+        # Use regex to find the JSON object, making it more robust to extra text
+        json_match = re.search(r'```json\s*(\{.*\})\s*```', llm_message, re.DOTALL)
+        if not json_match:
+            json_match = re.search(r'(\{.*\})', llm_message, re.DOTALL)
+
+        parsed_json = None
+        # Attempt to find JSON object
+        json_match = re.search(r'```json\s*(\{.*\})\s*```', llm_message, re.DOTALL)
+        if not json_match:
+            json_match = re.search(r'(\{.*\})', llm_message, re.DOTALL)
+
+        if json_match:
+            json_str = json_match.group(1)
+            try:
+                parsed_json = json.loads(json_str)
+            except json.JSONDecodeError as e:
+                log_to_file("llm_log.txt", f"JSON DECODE ERROR: {e}\nAttempted to parse:\n{json_str}")
+                # Fallback to plain text parsing if JSON is malformed
+                pass # parsed_json remains None
+
+        if parsed_json:
             game_state['chat_history'].append({'role': 'assistant', 'content': parsed_json.get('description', '')})
             log_to_file("llm_log.txt", f"PARSED JSON:\n{json.dumps(parsed_json, indent=2)}")
             return parsed_json
         else:
-            raise json.JSONDecodeError("No JSON object found in LLM response", llm_message, 0)
-    except (requests.exceptions.RequestException, json.JSONDecodeError, KeyError) as e:
+            # Fallback: LLM did not return valid JSON, attempt to parse plain text
+            log_to_file("llm_log.txt", f"NO VALID JSON OBJECT FOUND in LLM response. Attempting plain text parsing:\n{llm_message}")
+            
+            # Extract narrative (the whole message)
+            narrative_description = llm_message.strip()
+            
+            # Extract choices using regex for numbered lists
+            choices = []
+            choice_matches = re.findall(r'^\s*(?:\d+\.|\-)\s*(.*)', llm_message, re.MULTILINE)
+            for choice in choice_matches:
+                choices.append(choice.strip())
+
+            fallback_json = {
+                "type": "narrative",
+                "title": "Narrative Event", # Generic title
+                "description": narrative_description,
+                "choices": choices if choices else ["Continue..."] # Provide a default choice if none found
+            }
+            game_state['chat_history'].append({'role': 'assistant', 'content': fallback_json.get('description', '')})
+            log_to_file("llm_log.txt", f"FALLBACK PARSED JSON (from plain text):\n{json.dumps(fallback_json, indent=2)}")
+            return fallback_json
+
+    except (requests.exceptions.RequestException, KeyError) as e:
         log_to_file("llm_log.txt", f"ERROR:\n{e}")
         if json_mode:
             fallback_json["description"] = f"The world shimmers... (Error: {e})"
@@ -387,13 +553,14 @@ def main_game_loop(stdscr, config):
     if "monster_key" in response_json:
         monster_data = game_state['monster_db'].get(response_json["monster_key"])
         if monster_data:
-            game_state['current_monster'] = monster_data.copy()
+            game_state['current_monster'] = copy.deepcopy(monster_data) # Now deepcopy
+
+    log_to_file("gamestate_log.txt", json.dumps(game_state, indent=2, default=str)) # Log initial state
 
     input_str = ""
     needs_redraw = True
     while True:
         if needs_redraw:
-            log_to_file("gamestate_log.txt", json.dumps(game_state, indent=2, default=str))
             draw_ui(stdscr, win_art, win_stats, win_narrative, win_input, game_state, input_str)
             win_input.move(1, 3 + len(sanitize_for_curses(input_str)))
             needs_redraw = False
@@ -413,6 +580,10 @@ def main_game_loop(stdscr, config):
                 windows = [win_art, win_stats, win_narrative, win_input]
                 stdscr.clear() # Clear the whole screen to avoid artifacts
             
+            elif key == curses.KEY_F1:
+                dump_game_state_to_file(game_state)
+                # Optionally, display a message to the user that the state was dumped
+                # For now, just log it.
             elif key in (curses.KEY_ENTER, 10, 13):
                 if input_str.lower() == "quit": break
                 if not input_str: continue
@@ -425,6 +596,7 @@ def main_game_loop(stdscr, config):
                 
                 draw_ui(stdscr, win_art, win_stats, win_narrative, win_input, game_state, input_str, is_loading=True)
                 handle_player_action(action_text, game_state)
+                log_to_file("gamestate_log.txt", json.dumps(game_state, indent=2, default=str)) # Log state after action
                 input_str = ""
             elif key in (curses.KEY_BACKSPACE, '\b', '\x7f'):
                 input_str = input_str[:-1]

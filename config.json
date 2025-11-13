@@ -1,0 +1,6 @@
+{
+    "name": "chubrock",
+    "url": "http://172.31.192.1:1234",
+    "model": "openai/gpt-oss-20b",
+    "api_key": "blank"
+}

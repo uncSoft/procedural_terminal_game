@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 Stat = Literal["might", "agility", "wits", "none"]
 Difficulty = Literal["trivial", "easy", "medium", "hard", "absurd"]
 Effect = Literal[
-    "damage_small", "damage_medium", "damage_large", "stun", "pacify", "escape",
+    "damage_small", "damage_medium", "damage_large", "stun", "pacify", "escape", "evade",
     "reveal_secret", "find_item", "find_gold", "heal_small",
     "hurt_self_small", "hurt_self_medium", "nothing",
 ]
@@ -19,8 +19,9 @@ EFFECT_HELP: dict[str, str] = {
     "damage_medium": "hurt the monster solidly",
     "damage_large": "hurt the monster badly (only for hard or absurd attempts)",
     "stun": "the monster is dazed and loses its next two attacks",
-    "pacify": "an intelligent monster stops fighting (talking, bribing, bluffing)",
+    "pacify": "the monster stops fighting (talking, bribing, bluffing, or distracting a beast with food)",
     "escape": "get out of the fight to the previous room",
+    "evade": "duck, hide or dive aside so the monster's next attack misses (perfect against a heavy blow)",
     "reveal_secret": "uncover something hidden in this room, if anything is hidden",
     "find_item": "scrounge up a minor useful item (once per room)",
     "find_gold": "find a few coins (once per room)",
@@ -40,6 +41,8 @@ class Intent(BaseModel):
     difficulty: Difficulty = "medium"
     success_effects: list[Effect] = Field(default_factory=list)
     failure_effects: list[Effect] = Field(default_factory=list)
+    uses: list[str] = Field(default_factory=list)
+    consumes: list[str] = Field(default_factory=list)
     summary: str = ""
 
 
@@ -55,8 +58,11 @@ def intent_schema() -> dict:
             "difficulty": {"type": "string", "enum": list(DC)},
             "success_effects": {"type": "array", "items": effect},
             "failure_effects": {"type": "array", "items": effect},
+            "uses": {"type": "array", "items": {"type": "string"}},
+            "consumes": {"type": "array", "items": {"type": "string"}},
             "summary": {"type": "string"},
         },
-        "required": ["kind", "action_id", "stat", "difficulty", "success_effects", "failure_effects", "summary"],
+        "required": ["kind", "action_id", "stat", "difficulty", "success_effects", "failure_effects",
+                     "uses", "consumes", "summary"],
         "additionalProperties": False,
     }

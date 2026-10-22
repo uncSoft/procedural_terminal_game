@@ -4,19 +4,23 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import random
 import sys
 
 from .config import DEFAULT_URLS, Config, load_config, load_game
+from .content import load_content
 from .game import Game
+from .layout import plain_lines
 from .llm import LLMError, make_llm
 from .llm.narrator import intro
-from .world import generate, render_map
+from .meta import share_card, start_run
+from .profile import Profile
+from .world import render_map
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="ptg", description="A seeded dungeon crawl narrated by a language model.")
     parser.add_argument("--seed", type=int, help="dungeon seed (same seed, same dungeon)")
+    parser.add_argument("--daily", action="store_true", help="today's daily descent (same for everyone)")
     parser.add_argument("--continue", dest="resume", action="store_true", help="resume the autosave")
     parser.add_argument("--setup", action="store_true", help="open the settings screen first")
     parser.add_argument("--plain", action="store_true", help="plain text mode, no full-screen UI")
@@ -44,16 +48,19 @@ def main(argv: list[str] | None = None) -> None:
     config = build_config(args)
     if args.plain:
         try:
-            asyncio.run(play_plain(config or Config(url=DEFAULT_URLS["lmstudio"]), args.seed, args.resume))
+            asyncio.run(play_plain(config or Config(url=DEFAULT_URLS["lmstudio"]), args.seed, args.resume, args.daily))
         except (KeyboardInterrupt, EOFError):
             print("\nGame saved. Bye.")
         return
     from .ui.app import PTGApp
 
-    PTGApp(config, seed=args.seed, setup=args.setup, resume=args.resume).run()
+    PTGApp(config, seed=args.seed, setup=args.setup, resume=args.resume, daily=args.daily).run()
 
 
-async def play_plain(config: Config, seed: int | None, resume: bool) -> None:
+PLAIN_HELP = "Type a number or anything you like. Also: map, look, inv, char, help, quit."
+
+
+async def play_plain(config: Config, seed: int | None, resume: bool, daily: bool = False) -> None:
     llm = make_llm(config)
     if llm is not None:
         try:
@@ -62,46 +69,70 @@ async def play_plain(config: Config, seed: int | None, resume: bool) -> None:
         except LLMError as e:
             print(f"[no narrator: {e}. Playing offline.]")
             llm = None
+    profile = Profile.open()
+    content = load_content()
     state = load_game() if resume else None
     fresh = state is None
     if fresh:
-        state = generate(seed if seed is not None else random.randrange(1_000_000), config.player_name)
-    game = Game(state, config, llm)
-    print(f"\n=== {game.theme.name} (seed {state.seed}) ===\n")
+        state = start_run(profile, content, config.player_name, seed=seed, daily=daily)
+    game = Game(state, config, llm, content, profile)
+    print(f"\n=== {game.theme.name} (seed {state.seed}) · ☽ {profile.souls} souls banked ===\n{PLAIN_HELP}\n")
 
     def write(chunk: str) -> None:
         sys.stdout.write(chunk)
         sys.stdout.flush()
-
-    def show_rolls(events) -> None:
-        for event in events:
-            if event.roll:
-                print(f"  [{event.roll}]")
 
     if fresh:
         await intro(llm, state.player.name, game.theme.name, write)
         print("\n")
         await game.opening(write)
     else:
-        print(state.log[-1].text if state.log else "")
+        print("Previously… " + await game.recap())
     try:
-        while not state.over:
-            p = state.player
-            print(f"\n\nHP {p.hp}/{p.max_hp} · Level {p.level} · Gold {p.gold}")
-            for i, action in enumerate(game.actions, 1):
-                print(f"  {i}. {action.label}")
+        while not game.state.over:
+            await game.refresh_suggestion()
+            p = game.state.player
+            print(f"\n\n♥ {p.hp}/{p.max_hp}  ✦ {p.fate}  ¤ {p.gold}  ☽ {game.state.souls}  Lv {p.level}  "
+                  f"Floor {game.state.floor}/{game.state.floors_total}")
+            for i, action in enumerate(game.choices(), 1):
+                hint = f"  [{action.hint}]" if action.hint else ""
+                print(f"  {i}. {action.label}{hint}")
             raw = input("> ").strip()
-            if raw in ("quit", "exit"):
+            command = raw.lower()
+            if command in ("quit", "exit"):
                 print("Game saved.")
                 return
-            if raw == "map":
-                print("\n".join(render_map(state)))
+            if command in ("map", "m"):
+                print("\n".join(render_map(game.state)))
+                continue
+            if command in ("look", "l"):
+                print("\n".join(plain_lines(game.state, content)))
+                continue
+            if command in ("inv", "i", "inventory"):
+                print(", ".join(content.item(k).name for k in [p.weapon, p.armor, *p.inventory] if k))
+                continue
+            if command in ("char", "c"):
+                print(f"Perks: {', '.join(p.perks) or '-'}  Traits: {', '.join(p.traits) or '-'}")
+                continue
+            if command in ("help", "?"):
+                print(PLAIN_HELP)
                 continue
             if not raw:
                 continue
-            result = await game.act(raw, write, show_rolls)
+            pending = await game.begin(raw)
+            while game.can_reroll():
+                print(f"  [{pending.primary.roll}]")
+                answer = input(f"  Failed. Spend Fate to reroll? ({game.fate_left()} left) [y/N] ")
+                if answer.strip().lower() != "y":
+                    break
+                pending = game.reroll()
+            for event in pending.events:
+                if event.roll:
+                    print(f"  [{event.roll}]")
+            result = await game.finish(write)
             for error in result.errors:
                 print(f"\n  ({error})")
-        print("\n\n*** VICTORY! ***" if state.status == "won" else "\n\n*** YOU DIED ***")
+        print("\n\n" + share_card(game.state))
+        print(f"\nSouls banked: ☽ {profile.souls}. Spend them at the campfire: run `ptg` without --plain.")
     finally:
         await game.aclose()

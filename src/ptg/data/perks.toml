@@ -1,0 +1,77 @@
+# Level-up perks: pick one of three. `effect` keys are implemented in rules.py.
+# `color` is the card accent in the level-up screen.
+
+[perk.tough]
+name = "Tough as Boots"
+desc = "+8 max HP, and heal 8 right now."
+color = "green"
+
+[perk.brawler]
+name = "Brawler"
+desc = "+1 might: harder hits and better shoves."
+color = "red"
+
+[perk.nimble]
+name = "Nimble"
+desc = "+1 agility: dodge, flee and aim better."
+color = "cyan"
+
+[perk.sharp_mind]
+name = "Sharp Mind"
+desc = "+1 wits: talk, trick and search better."
+color = "magenta"
+
+[perk.ruthless]
+name = "Ruthless"
+desc = "Every 3rd attack that hits deals double damage."
+color = "red"
+
+[perk.acrobatics]
+name = "Acrobatics"
+desc = "Evade the first damaging hit you take in every room."
+color = "green"
+
+[perk.lucky]
+name = "Born Lucky"
+desc = "+1 Fate now, and you can hold one more."
+color = "yellow"
+
+[perk.vampiric]
+name = "Vampiric"
+desc = "Heal 3 HP whenever you defeat a monster."
+color = "red"
+
+[perk.improviser]
+name = "Improviser"
+desc = "+2 to every creative check."
+color = "magenta"
+
+[perk.alchemist]
+name = "Alchemist"
+desc = "Healing items restore 50% more."
+color = "cyan"
+
+[perk.bully]
+name = "Bully"
+desc = "+3 damage against stunned monsters."
+color = "red"
+
+[perk.iron_skin]
+name = "Iron Skin"
+desc = "+1 defense. Things bounce off you slightly more often."
+color = "blue"
+
+[perk.second_wind]
+name = "Second Wind"
+desc = "Once per floor, a killing blow leaves you at 1 HP instead."
+color = "green"
+
+[perk.glass_cannon]
+name = "Glass Cannon"
+desc = "+3 damage on every hit, but -6 max HP."
+color = "yellow"
+
+[perk.scavenger]
+name = "Scavenger"
+desc = "Searching finds extra gold, and you can scrounge twice per room."
+color = "yellow"

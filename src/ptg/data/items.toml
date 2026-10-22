@@ -1,81 +1,147 @@
-# kind: weapon | armor | consumable | key
+# kind: weapon | armor | consumable | key | trinket
 # Weapons roll `damage` and add the player's might. Armor adds `defense`.
 # Consumables restore `heal` HP, or let you escape a fight if `escape = true`.
+# `tags` matter for creative actions: using a tagged thing earns a flair bonus,
+# and a tag a monster is weak to gives advantage and bigger effects.
 
 [item.rusty_sword]
 name = "Rusty Sword"
 kind = "weapon"
 damage = "1d6"
 tier = 0
+tags = ["sharp", "metal"]
+desc = "More rust than sword. It has opinions about tetanus."
 
 [item.hand_axe]
 name = "Hand Axe"
 kind = "weapon"
 damage = "1d8"
 tier = 1
+tags = ["sharp", "heavy", "metal"]
+desc = "A woodcutter's axe that took up a more exciting career."
 
 [item.war_pick]
 name = "War Pick"
 kind = "weapon"
 damage = "1d10"
 tier = 2
+tags = ["heavy", "metal"]
+desc = "Built for opening armor the way a can opener opens cans."
 
 [item.silvered_blade]
 name = "Silvered Blade"
 kind = "weapon"
 damage = "2d6"
 tier = 3
+tags = ["sharp", "holy", "shiny", "metal"]
+desc = "Silver-chased steel. The undead hate it, which says a lot about the undead."
 
 [item.leather_jerkin]
 name = "Leather Jerkin"
 kind = "armor"
 defense = 1
 tier = 1
+tags = []
+desc = "Smells like a cow that had a hard life."
 
 [item.chain_shirt]
 name = "Chain Shirt"
 kind = "armor"
 defense = 2
 tier = 2
+tags = ["metal", "loud"]
+desc = "Jingles when you sneak. You will not be sneaking."
 
 [item.scale_hauberk]
 name = "Scale Hauberk"
 kind = "armor"
 defense = 3
 tier = 3
+tags = ["metal", "shiny"]
+desc = "Overlapping scales from something you hope is extinct."
 
 [item.healing_potion]
 name = "Healing Potion"
 kind = "consumable"
 heal = 8
 tier = 1
+tags = ["glass", "liquid", "throwable"]
+desc = "Red, fizzy, tastes like pennies. Restores 8 HP."
 
 [item.greater_healing_potion]
 name = "Greater Healing Potion"
 kind = "consumable"
 heal = 16
 tier = 2
+tags = ["glass", "liquid", "throwable"]
+desc = "The good stuff. Restores 16 HP."
 
 [item.stale_bread]
 name = "Stale Bread"
 kind = "consumable"
 heal = 3
 tier = 0
+tags = ["food", "throwable", "heavy"]
+desc = "Technically food. Technically a weapon. Restores 3 HP."
+
+[item.cheese_wheel]
+name = "Wheel of Cheese"
+kind = "consumable"
+heal = 6
+tier = 1
+tags = ["food", "throwable", "heavy", "smelly"]
+desc = "A whole wheel. Beasts find it irresistible. Restores 6 HP."
 
 [item.smoke_bomb]
 name = "Smoke Bomb"
 kind = "consumable"
 escape = true
 tier = 1
+tags = ["smoke", "throwable"]
+desc = "Throw it, then leave dramatically. Guaranteed escape."
+
+[item.oil_flask]
+name = "Flask of Lamp Oil"
+kind = "trinket"
+tier = 1
+tags = ["fire", "liquid", "glass", "throwable"]
+desc = "Flammable, throwable, regrettable. Plants and trolls fear fire."
+
+[item.holy_water]
+name = "Vial of Holy Water"
+kind = "trinket"
+tier = 1
+tags = ["holy", "liquid", "glass", "throwable"]
+desc = "Blessed by a priest who was mostly sober. The undead hate it."
+
+[item.bag_of_marbles]
+name = "Bag of Marbles"
+kind = "trinket"
+tier = 1
+tags = ["slippery", "throwable", "shiny"]
+desc = "Hundreds of tiny ankle-betrayers."
+
+[item.lucky_charm]
+name = "Lucky Rabbit's Foot"
+kind = "trinket"
+tier = 1
+tags = ["lucky"]
+desc = "Less lucky for the rabbit. Raises your Fate limit by 1 while carried."
 
 [item.reliquary_key]
 name = "Barnacled Reliquary Key"
 kind = "key"
+tags = ["metal"]
+desc = "Opens the Abbot's sanctum. Crusted with things that used to be alive."
 
 [item.warren_key]
 name = "Greasy Throne-Room Key"
 kind = "key"
+tags = ["metal"]
+desc = "Opens the Goblin King's throne cave. Sticky in a way you'd rather not investigate."
 
 [item.seed_key]
 name = "Living Seed-Key"
 kind = "key"
+tags = ["plant"]
+desc = "Opens the Heartwood. It occasionally sprouts."

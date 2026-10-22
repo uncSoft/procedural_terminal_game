@@ -1,46 +1,84 @@
-"""Seeded dungeon generation. The same seed always builds the same dungeon."""
+"""Seeded dungeon generation. A run is three floors, each a different theme; the same seed always builds
+the same run. Floors are built one at a time as you descend."""
 
 from __future__ import annotations
 
 import random
 from collections import deque
 
-from . import dice
+from . import dice, layout
 from .content import Content, load_content
-from .models import DELTA, DIRECTIONS, OPPOSITE, Exit, Feature, GameState, MonsterState, Player, Room
+from .models import DELTA, DIRECTIONS, FLOORS, OPPOSITE, Exit, Feature, GameState, MonsterState, Player, Room
 
 HIDDEN_FEATURES = ["a loose flagstone", "a hollow-sounding wall", "a hidden alcove", "a false-bottomed niche"]
+ELITES = {
+    "Frenzied": {"attack_mod": 2},
+    "Armored": {"defense_mod": 2},
+    "Hulking": {"hp_mult": 1.5, "damage_mod": 1},
+    "Cursed": {"reward_mult": 2.0},
+}
+THEME_TRINKETS = {"sunken_crypt": "holy_water", "goblin_warren": "bag_of_marbles", "overgrown_ruins": "oil_flask"}
 
 
-def generate(seed: int, player_name: str = "Adventurer", size: int = 10, content: Content | None = None) -> GameState:
+def generate(seed: int, player_name: str = "Adventurer", content: Content | None = None,
+             player: Player | None = None, ghost: dict | None = None) -> GameState:
+    """Start a new run on floor 1."""
     content = content or load_content()
-    rng = dice.stream(seed, "world")
-    theme = content.themes[rng.choice(sorted(content.themes))]
+    rng = dice.stream(seed, "run")
+    themes = sorted(content.themes)
+    rng.shuffle(themes)
+    themes = (themes * FLOORS)[:FLOORS]
+    state = GameState(seed=seed, theme=themes[0], themes=themes, rooms=[],
+                      player=player or Player(name=player_name), ghost=ghost)
+    build_floor(state, content)
+    return state
+
+
+def build_floor(state: GameState, content: Content) -> None:
+    """Replace state.rooms with a freshly generated floor for state.floor."""
+    ghost = state.ghost
+    rng = dice.stream(state.seed, "floor", state.floor)
+    theme = content.themes[state.themes[state.floor - 1]]
+    state.theme = theme.key
+    final = state.floor >= state.floors_total
+    size = 8 if final else 7
 
     coords, edges = _layout(rng, size)
     neighbors = _adjacency(len(coords), edges)
     distance = _bfs(neighbors, 0)
-
-    # The boss waits in the farthest dead end, behind the dungeon's only locked door.
     leaves = [i for i in range(1, len(coords)) if len(neighbors[i]) == 1]
-    boss_id = max(leaves or range(1, len(coords)), key=lambda i: (distance[i], i))
-    _add_loops(rng, coords, edges, exclude=boss_id)
+    end_id = max(leaves or range(1, len(coords)), key=lambda i: (distance[i], i))
+    _add_loops(rng, coords, edges, exclude=end_id)
     neighbors = _adjacency(len(coords), edges)
     distance = _bfs(neighbors, 0)
     max_distance = max(distance.values())
 
-    rooms = _build_rooms(rng, content, theme.key, coords, neighbors, distance, boss_id)
-    gate = next(iter(neighbors[boss_id]))
-    for exit_ in rooms[gate].exits.values():
-        if exit_.to == boss_id:
-            exit_.locked = True
+    rooms = _build_rooms(rng, content, theme, coords, neighbors, distance, end_id, final)
+    if final:
+        gate = next(iter(neighbors[end_id]))
+        for exit_ in rooms[gate].exits.values():
+            if exit_.to == end_id:
+                exit_.locked = True
+    else:
+        rooms[end_id].fixture = "stairs"
 
-    _place_monsters(rng, content, theme, rooms, max_distance, boss_id)
-    _place_loot(rng, theme, rooms, boss_id, max_distance)
+    others = [r for r in rooms if r.id not in (0, end_id)]
+    for room, fixture in zip(rng.sample(others, min(2, len(others))), rng.sample(["shrine", "chest", "fountain"], 2)):
+        room.fixture = fixture
 
-    state = GameState(seed=seed, theme=theme.key, rooms=rooms, player=Player(name=player_name))
-    state.room.visited = True
-    return state
+    _place_monsters(rng, content, state, theme, rooms, max_distance, end_id, final)
+    _place_loot(rng, state, theme, rooms, end_id, max_distance, final)
+    if ghost and ghost.get("floor", 1) == state.floor:
+        _place_ghost(rng, content, rooms, end_id, ghost)
+
+    for room in rooms:
+        layout.build(dice.stream(state.seed, "layout", state.floor, room.id), room,
+                     content.archetypes[room.archetype].decor)
+
+    state.rooms = rooms
+    state.room_id = 0
+    state.prev_room_id = None
+    rooms[0].visited = True
 
 
 def _layout(rng: random.Random, size: int) -> tuple[list[tuple[int, int]], set[frozenset[int]]]:
@@ -93,13 +131,13 @@ def _bfs(neighbors: dict[int, set[int]], start: int) -> dict[int, int]:
     return distance
 
 
-def _build_rooms(rng, content, theme_key, coords, neighbors, distance, boss_id) -> list[Room]:
-    theme = content.themes[theme_key]
+def _build_rooms(rng, content, theme, coords, neighbors, distance, end_id, final) -> list[Room]:
     pool: list[str] = []
     used_names: set[str] = set()
     rooms = []
     for i, (x, y) in enumerate(coords):
-        if i == boss_id:
+        boss_room = final and i == end_id
+        if boss_room:
             archetype = content.archetypes[theme.boss_room]
         else:
             if not pool:
@@ -109,10 +147,10 @@ def _build_rooms(rng, content, theme_key, coords, neighbors, distance, boss_id) 
         names = [n for n in archetype.names if n not in used_names] or archetype.names
         name = rng.choice(names)
         used_names.add(name)
-        count = len(archetype.features) if i == boss_id else rng.randint(1, min(2, len(archetype.features)))
+        count = len(archetype.features) if boss_room else rng.randint(1, min(2, len(archetype.features)))
         features = [Feature(name=f) for f in rng.sample(archetype.features, count)]
         room = Room(id=i, x=x, y=y, name=name, archetype=archetype.key, distance=distance[i],
-                    features=features, is_boss=i == boss_id)
+                    features=features, is_boss=boss_room)
         for j in sorted(neighbors[i]):
             dx, dy = coords[j][0] - x, coords[j][1] - y
             direction = next(d for d, delta in DELTA.items() if delta == (dx, dy))
@@ -124,39 +162,61 @@ def _build_rooms(rng, content, theme_key, coords, neighbors, distance, boss_id) 
     return rooms
 
 
-def monster_for(rng: random.Random, content: Content, theme_key: str, tier: int) -> MonsterState:
+def monster_for(rng: random.Random, content: Content, theme_key: str, tier: int, elite: str = "") -> MonsterState:
     theme = content.themes[theme_key]
-    pool = [m for m in content.monsters.values() if not m.boss and set(m.tags) & set(theme.monster_tags)]
+    pool = [m for m in content.monsters.values()
+            if not (m.boss or m.ghost) and set(m.tags) & set(theme.monster_tags)]
     exact = [m for m in pool if m.tier == tier] or [m for m in pool if m.tier <= tier] or pool
     chosen = rng.choice(sorted(exact, key=lambda m: m.key))
-    return MonsterState(key=chosen.key, name=chosen.name, hp=chosen.hp, max_hp=chosen.hp)
+    monster = MonsterState(key=chosen.key, name=chosen.name, hp=chosen.hp, max_hp=chosen.hp)
+    if elite:
+        mods = ELITES[elite]
+        monster.elite = elite
+        monster.name = f"{elite} {chosen.name}"
+        monster.max_hp = monster.hp = round(chosen.hp * mods.get("hp_mult", 1.0))
+        monster.attack_mod = mods.get("attack_mod", 0)
+        monster.defense_mod = mods.get("defense_mod", 0)
+        monster.damage_mod = mods.get("damage_mod", 0)
+        monster.reward_mult = mods.get("reward_mult", 1.5)
+    return monster
 
 
-def tier_for(distance: int, max_distance: int) -> int:
-    return max(1, min(3, 1 + round(2 * distance / max(1, max_distance))))
+def tier_for(distance: int, max_distance: int, floor: int = 1) -> int:
+    """Floor 1 ramps from tier 1 to 2, floor 2 from 2 to 3, floor 3 is tier 3 nearly everywhere."""
+    depth = distance / max(1, max_distance)
+    return max(1, min(3, floor + (1 if depth > 0.6 else 0)))
 
 
-def _place_monsters(rng, content, theme, rooms: list[Room], max_distance: int, boss_id: int) -> None:
-    boss = content.monster(theme.boss)
-    rooms[boss_id].monster = MonsterState(key=boss.key, name=boss.name, hp=boss.hp, max_hp=boss.hp)
+def _place_monsters(rng, content, state, theme, rooms: list[Room], max_distance: int, end_id: int, final: bool) -> None:
+    if final:
+        boss = content.monster(theme.boss)
+        rooms[end_id].monster = MonsterState(key=boss.key, name=boss.name, hp=boss.hp, max_hp=boss.hp)
+    else:
+        # Every staircase has a warden; from floor 2 on, it's an elite.
+        elite = rng.choice(sorted(ELITES)) if state.floor > 1 else ""
+        rooms[end_id].monster = monster_for(rng, content, theme.key, min(3, state.floor + 1), elite=elite)
 
-    candidates = [r for r in rooms if r.id not in (0, boss_id)]
+    candidates = [r for r in rooms if r.id not in (0, end_id) and r.fixture != "shrine"]
     rng.shuffle(candidates)
-    wanted = max(3, round(len(candidates) * 0.45))
-    for room in candidates[:wanted]:
-        room.monster = monster_for(rng, content, theme.key, tier_for(room.distance, max_distance))
+    elite_chance = {1: 0.0, 2: 0.25, 3: 0.4}.get(state.floor, 0.4)
+    for room in candidates[:max(2, round(len(candidates) * 0.5))]:
+        elite = rng.choice(sorted(ELITES)) if rng.random() < elite_chance else ""
+        room.monster = monster_for(rng, content, theme.key, tier_for(room.distance, max_distance, state.floor), elite)
 
 
-def _place_loot(rng, theme, rooms: list[Room], boss_id: int, max_distance: int) -> None:
-    others = [r for r in rooms if r.id not in (0, boss_id)]
+def _place_loot(rng, state: GameState, theme, rooms: list[Room], end_id: int, max_distance: int, final: bool) -> None:
+    others = [r for r in rooms if r.id not in (0, end_id)]
+    if final:
+        # The key sits in a visible feature somewhere past the halfway point (never in the boss room).
+        deep = [r for r in others if r.distance >= max(1, max_distance // 2)] or others
+        rng.choice(rng.choice(deep).features).loot.append(theme.key_item)
 
-    # The key sits in a visible feature somewhere past the halfway point (but never in the boss room).
-    deep = [r for r in others if r.distance >= max(1, max_distance // 2)] or others
-    key_room = rng.choice(deep)
-    rng.choice(key_room.features).loot.append(theme.key_item)
-
-    loot = ["hand_axe", "leather_jerkin", "healing_potion", "healing_potion", "healing_potion", "smoke_bomb", "stale_bread"]
-    loot.append(rng.choice(["war_pick", "chain_shirt"]))
+    loot = {
+        1: ["hand_axe", "leather_jerkin", "healing_potion", "healing_potion", "stale_bread"],
+        2: [rng.choice(["war_pick", "chain_shirt"]), "healing_potion", "healing_potion", "smoke_bomb", "cheese_wheel"],
+        3: ["greater_healing_potion", "healing_potion", "healing_potion", rng.choice(["war_pick", "chain_shirt"])],
+    }.get(state.floor, ["healing_potion"])
+    loot.append(THEME_TRINKETS.get(theme.key, "oil_flask"))
     for item in loot:
         room = rng.choice(others)
         if item.endswith("potion") and rng.random() < 0.35:
@@ -167,17 +227,31 @@ def _place_loot(rng, theme, rooms: list[Room], boss_id: int, max_distance: int) 
     for room in others:
         for feature in room.features:
             if not feature.loot and rng.random() < 0.5:
-                feature.gold = rng.randint(2, 8) * max(1, room.distance)
+                feature.gold = rng.randint(2, 8) * max(1, room.distance) + 2 * state.floor
 
     secret_room = rng.choice(others)
     secret_room.features.append(Feature(
-        name=rng.choice(HIDDEN_FEATURES), hidden=True, gold=rng.randint(15, 30),
-        loot=[rng.choice(["silvered_blade", "scale_hauberk", "greater_healing_potion"])],
+        name=rng.choice(HIDDEN_FEATURES), hidden=True, gold=rng.randint(15, 30) * state.floor,
+        loot=[rng.choice(["silvered_blade", "scale_hauberk", "greater_healing_potion", "lucky_charm"])],
     ))
 
 
+def _place_ghost(rng, content: Content, rooms: list[Room], end_id: int, ghost: dict) -> None:
+    """A previous adventurer died on this floor. Their ghost guards what they carried."""
+    spots = [r for r in rooms if r.id not in (0, end_id) and not r.fixture] or [r for r in rooms if r.id != 0]
+    room = rng.choice(spots)
+    base = content.monster("ghost")
+    level = int(ghost.get("level", 1))
+    hp = base.hp + 4 * (level - 1)
+    room.monster = MonsterState(key="ghost", name=f"Ghost of {ghost['name']}", hp=hp, max_hp=hp,
+                                attack_mod=level // 2, ghost_id=ghost.get("id"), ghost_of=ghost["name"],
+                                reward_mult=2.0)
+    items = [k for k in ghost.get("items", []) if k in content.items and content.item(k).kind != "key"][:3]
+    room.features.append(Feature(name=f"{ghost['name']}'s remains", loot=items, gold=int(ghost.get("gold", 0)) // 2))
+
+
 def render_map(state: GameState) -> list[str]:
-    """ASCII map of visited rooms and the doors leading out of them. @ is you, ? is unexplored."""
+    """ASCII map of this floor. @ you, ! danger, ? unexplored, > stairs, † shrine, ■ chest, ◊ fountain."""
     known = {r.id for r in state.rooms if r.visited}
     for room_id in list(known):
         known.update(e.to for e in state.rooms[room_id].exits.values())
@@ -188,15 +262,7 @@ def render_map(state: GameState) -> list[str]:
     grid = [[" "] * width for _ in range(height)]
     for room in rooms:
         cx, cy = (room.x - min_x) * 4 + 1, (room.y - min_y) * 2
-        if room.id == state.room_id:
-            glyph = "@"
-        elif not room.visited:
-            glyph = "?"
-        elif room.monster and room.monster.hostile:
-            glyph = "!"
-        else:
-            glyph = "#"
-        grid[cy][cx - 1], grid[cy][cx], grid[cy][cx + 1] = "[", glyph, "]"
+        grid[cy][cx - 1], grid[cy][cx], grid[cy][cx + 1] = "[", map_glyph(state, room), "]"
         if not room.visited:
             continue
         for direction, exit_ in room.exits.items():
@@ -210,3 +276,15 @@ def render_map(state: GameState) -> list[str]:
             elif direction == "north":
                 grid[cy - 1][cx] = door
     return ["".join(row).rstrip() for row in grid]
+
+
+def map_glyph(state: GameState, room: Room) -> str:
+    if room.id == state.room_id:
+        return "@"
+    if room.monster and room.monster.hostile and room.visited:
+        return "!"
+    if room.fixture and not room.fixture_used:
+        return layout.FIXTURE_GLYPHS[room.fixture]  # you can see what's through the door, like Tiny Rogues
+    if room.is_boss:
+        return "B"
+    return "#" if room.visited else "?"

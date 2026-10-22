@@ -30,18 +30,40 @@ def _route_to_unexplored(state: GameState, content: Content) -> str | None:
     return None
 
 
+def _route_to(state: GameState, target: int) -> str | None:
+    queue = deque([(state.room_id, None)])
+    seen = {state.room_id}
+    while queue:
+        room_id, first = queue.popleft()
+        if room_id == target:
+            return first
+        for direction, exit_ in state.rooms[room_id].exits.items():
+            if not exit_.locked and exit_.to not in seen:
+                seen.add(exit_.to)
+                queue.append((exit_.to, first or direction))
+    return None
+
+
 def choose(state: GameState, content: Content) -> str:
     actions = {a.id: a for a in available_actions(state, content)}
     player = state.player
+    if state.pending_perks:
+        return next(iter(actions))
     if state.in_combat:
         heal = next((a for a in actions if a.startswith("use:") and "potion" in a), None)
         if player.hp <= player.max_hp * 0.35 and heal:
             return heal
+        if state.room.monster.intent == "heavy":
+            return "dodge"
         return "attack"
-    for prefix in ("take:", "search:"):
+    for prefix in ("take:", "search:", "chest", "fountain"):
         found = next((a for a in actions if a.startswith(prefix)), None)
         if found:
             return found
+    if "shrine_gold" in actions and player.hp < player.max_hp * 0.6:
+        return "shrine_gold"
+    if "shrine_blood" in actions and player.hp > player.max_hp * 0.8:
+        return "shrine_blood"
     if player.hp < player.max_hp * 0.6:
         heal = next((a for a in actions if a.startswith("use:")), None)
         if heal:
@@ -51,13 +73,19 @@ def choose(state: GameState, content: Content) -> str:
     direction = _route_to_unexplored(state, content)
     if direction and f"go:{direction}" in actions:
         return f"go:{direction}"
+    if "descend" in actions:
+        return "descend"
+    stairs = next((r.id for r in state.rooms if r.fixture == "stairs"), None)
+    if stairs is not None:
+        step = _route_to(state, stairs)
+        if step:
+            return f"go:{step}"
     if "search_room" in actions:
         return "search_room"
-    # Everything explored: head for any unlocked unexplored exit, else wander.
     return next(a for a in actions if a.startswith("go:"))
 
 
-def play(state: GameState, content: Content, max_turns: int = 400) -> GameState:
+def play(state: GameState, content: Content, max_turns: int = 600) -> GameState:
     for _ in range(max_turns):
         if state.over:
             break

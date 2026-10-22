@@ -4,11 +4,13 @@ import pytest
 
 from ptg.content import load_content
 from ptg.llm.base import LLMError
+from ptg.models import MonsterState
+from ptg.profile import Profile
 
 
 @pytest.fixture(autouse=True)
 def isolated_home(tmp_path, monkeypatch):
-    """Keep config, saves and logs out of the real ~/.ptg."""
+    """Keep config, saves, the profile database and logs out of the real ~/.ptg."""
     monkeypatch.setenv("PTG_HOME", str(tmp_path))
     return tmp_path
 
@@ -16,6 +18,19 @@ def isolated_home(tmp_path, monkeypatch):
 @pytest.fixture
 def content():
     return load_content()
+
+
+@pytest.fixture
+def profile():
+    p = Profile.open()
+    yield p
+    p.close()
+
+
+def put_monster(state, content, key="goblin", hp=None, intent="strike"):
+    monster = content.monster(key)
+    state.room.monster = MonsterState(key=key, name=monster.name, hp=hp or monster.hp, max_hp=monster.hp, intent=intent)
+    return state.room.monster
 
 
 class FakeLLM:

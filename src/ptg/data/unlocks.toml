@@ -1,0 +1,107 @@
+# Bought with souls at the campfire between runs.
+# Blessings are permanent passives. Gifts are starting items: unlock them, then
+# pick one to carry into each descent. `requires` gates a blessing behind another.
+
+[blessing.vigor]
+name = "Vigor"
+icon = "♥"
+cost = 40
+desc = "Start every descent with +5 max HP."
+
+[blessing.vigor_2]
+name = "Greater Vigor"
+icon = "♥"
+cost = 120
+requires = "vigor"
+desc = "Another +5 max HP."
+
+[blessing.fortune]
+name = "Fortune"
+icon = "✦"
+cost = 60
+desc = "Start every descent with +1 Fate."
+
+[blessing.keen_eye]
+name = "Keen Eye"
+icon = "◉"
+cost = 50
+desc = "+3 when searching a room for secrets."
+
+[blessing.last_breath]
+name = "Last Breath"
+icon = "☥"
+cost = 150
+desc = "Once per descent, survive a killing blow with 1 HP."
+
+[blessing.sharp_start]
+name = "Whetstone"
+icon = "†"
+cost = 80
+desc = "Your starting sword hits for +1 damage."
+
+[blessing.soul_siphon]
+name = "Soul Siphon"
+icon = "☽"
+cost = 100
+desc = "Earn 25% more souls."
+
+[blessing.lorekeeper]
+name = "Lorekeeper"
+icon = "≡"
+cost = 70
+desc = "Known monster weaknesses are shown when a fight starts."
+
+[gift.coin_bag]
+name = "Coin Bag"
+icon = "¤"
+cost = 0
+desc = "Start with 15 gold. Goblins love gold."
+
+[gift.smoke_bomb]
+name = "Smoke Bomb"
+icon = "○"
+cost = 30
+item = "smoke_bomb"
+desc = "Start with a Smoke Bomb for a guaranteed escape."
+
+[gift.oil_flask]
+name = "Lamp Oil"
+icon = "♨"
+cost = 40
+item = "oil_flask"
+desc = "Start with a Flask of Lamp Oil. Fire solves many problems."
+
+[gift.holy_water]
+name = "Holy Water"
+icon = "✚"
+cost = 40
+item = "holy_water"
+desc = "Start with a Vial of Holy Water. The undead dread it."
+
+[gift.cheese_wheel]
+name = "Cheese Wheel"
+icon = "◐"
+cost = 30
+item = "cheese_wheel"
+desc = "Start with a Wheel of Cheese. Snack or distraction."
+
+[gift.marbles]
+name = "Marbles"
+icon = "∴"
+cost = 35
+item = "bag_of_marbles"
+desc = "Start with a Bag of Marbles. Ankles beware."
+
+[gift.lucky_charm]
+name = "Rabbit's Foot"
+icon = "✧"
+cost = 60
+item = "lucky_charm"
+desc = "Start with a Lucky Rabbit's Foot: hold one more Fate."
+
+[gift.potion]
+name = "Spare Potion"
+icon = "♁"
+cost = 25
+item = "healing_potion"
+desc = "Start with an extra Healing Potion."

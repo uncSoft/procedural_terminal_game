@@ -1,13 +1,17 @@
 import pytest
 
+from conftest import put_monster
 from ptg.config import Config, load_game, save_game
 from ptg.game import Game
+from ptg.llm import extras
 from ptg.llm.base import LLMError, ThinkFilter, extract_json
 from ptg.llm.interpreter import interpret, offline_interpret
 from ptg.llm.openai_compat import normalize_url
-from ptg.models import MonsterState
 from ptg.rules import available_actions
 from ptg.world import generate
+
+QUESTION = {"kind": "question", "action_id": "", "stat": "none", "difficulty": "trivial",
+            "success_effects": [], "failure_effects": [], "uses": [], "consumes": [], "summary": "ask"}
 
 
 def test_think_filter_handles_split_tags():
@@ -36,16 +40,9 @@ def test_normalize_url():
     assert normalize_url("http://localhost:11434/v1/") == "http://localhost:11434/v1"
 
 
-def actions_for(content, seed=1, monster=None):
-    state = generate(seed)
-    if monster:
-        m = content.monster(monster)
-        state.room.monster = MonsterState(key=m.key, name=m.name, hp=m.hp, max_hp=m.hp)
-    return state, available_actions(state, content)
-
-
 def test_offline_interpreter_matches_commands(content):
-    state, actions = actions_for(content)
+    state = generate(1)
+    actions = available_actions(state, content)
     direction = next(iter(state.room.exits))
     assert offline_interpret(direction[0], actions)[0].action_id == f"go:{direction}"
     assert offline_interpret(f"go {direction}", actions)[0].action_id == f"go:{direction}"
@@ -56,65 +53,90 @@ def test_offline_interpreter_matches_commands(content):
     intent, confident = offline_interpret("do a little dance", actions)
     assert intent.kind == "flavor" and not confident
 
-    state, actions = actions_for(content, monster="goblin")
+    put_monster(state, content)
     state.player.hp = 5
     actions = available_actions(state, content)
     assert offline_interpret("attack", actions) == (offline_interpret("hit it", actions)[0], True)
+    assert offline_interpret("duck!", actions)[0].action_id == "dodge"
     assert offline_interpret("drink the potion", actions)[0].action_id == "use:healing_potion"
     assert offline_interpret("run away!", actions)[0].action_id == "flee"
 
 
 async def test_confident_commands_skip_the_model(content, fake_llm):
-    state, actions = actions_for(content, monster="goblin")
-    llm = fake_llm(reply={"kind": "flavor"})
-    intent, error = await interpret(llm, state, content, "attack", actions)
+    state = generate(1)
+    put_monster(state, content)
+    llm = fake_llm(reply=QUESTION)
+    intent, _ = await interpret(llm, state, content, "attack", available_actions(state, content))
     assert intent.action_id == "attack" and llm.json_calls == 0
 
 
 async def test_model_creative_intent_passes_through(content, fake_llm):
-    state, actions = actions_for(content, monster="goblin")
-    reply = {"kind": "creative", "action_id": "", "stat": "agility", "difficulty": "medium",
-             "success_effects": ["stun"], "failure_effects": ["hurt_self_small"], "summary": "throw sand"}
-    intent, error = await interpret(fake_llm(reply=reply), state, content, "I throw sand in its eyes", actions)
+    state = generate(1)
+    put_monster(state, content)
+    reply = {**QUESTION, "kind": "creative", "stat": "agility", "difficulty": "medium",
+             "success_effects": ["stun"], "failure_effects": ["hurt_self_small"], "uses": ["sand"],
+             "summary": "throw sand"}
+    intent, error = await interpret(fake_llm(reply=reply), state, content, "I throw sand in its eyes",
+                                    available_actions(state, content))
     assert intent.kind == "creative" and intent.success_effects == ["stun"] and error is None
 
 
 async def test_model_hallucinated_action_falls_back(content, fake_llm):
-    state, actions = actions_for(content)
-    reply = {"kind": "action", "action_id": "teleport", "stat": "none", "difficulty": "trivial",
-             "success_effects": [], "failure_effects": [], "summary": "teleport home"}
-    intent, _ = await interpret(fake_llm(reply=reply), state, content, "beam me up", actions)
+    state = generate(1)
+    reply = {**QUESTION, "kind": "action", "action_id": "teleport", "summary": "teleport home"}
+    intent, _ = await interpret(fake_llm(reply=reply), state, content, "beam me up", available_actions(state, content))
     assert intent.kind == "flavor"
 
 
 async def test_model_failure_falls_back_to_keywords(content, fake_llm):
-    state, actions = actions_for(content)
-    intent, error = await interpret(fake_llm(fail=True), state, content, "please search for secrets now", actions)
+    state = generate(1)
+    intent, error = await interpret(fake_llm(fail=True), state, content, "please search for secrets now",
+                                    available_actions(state, content))
     assert intent.action_id == "search_room" or intent.kind == "flavor"
     assert error and "model is down" in error
 
 
-async def test_game_turn_with_model(content, fake_llm):
-    llm = fake_llm(reply={"kind": "question", "action_id": "", "stat": "none", "difficulty": "trivial",
-                          "success_effects": [], "failure_effects": [], "summary": "ask"},
-                   text="You are fine, mostly.")
-    game = Game(generate(1), Config(), llm)
+async def test_two_phase_turn_and_narration(content, fake_llm, profile):
+    game = Game(generate(1), Config(), fake_llm(reply=QUESTION, text="You are fine, mostly."), profile=profile)
     chunks = []
     await game.opening(chunks.append)
     assert game.state.room.description == "You are fine, mostly."
-    result = await game.act("how am I doing?", chunks.append)
+    pending = await game.begin("how am I doing?")
+    assert pending.intent.kind == "question" and pending.primary is None
+    result = await game.finish(chunks.append)
     assert result.narration == "You are fine, mostly."
     assert [e.kind for e in game.state.log] == ["narration", "player", "narration"]
 
 
-async def test_narrator_failure_falls_back_to_facts(content, fake_llm):
-    game = Game(generate(1), Config(), fake_llm(fail=True))
+async def test_fate_reroll_rewinds_and_spends_a_token(content, profile):
+    state = generate(1)
+    state.player.wits = -30  # guaranteed failure unless a natural 20
+    state.player.fate = 2
+    hidden = [f for f in state.room.features if f.hidden]
+    if not hidden:
+        state.room.features[0].hidden = True
+    game = Game(state, Config(backend="offline"), None, profile=profile)
+    pending = await game.begin("search the room for secrets")
+    assert pending.primary is not None and game.can_reroll()
+    first = pending.primary.dice.dice
+    turn = game.state.turn
+    pending = game.reroll()
+    assert game.state.player.fate == 1 and game.state.turn == turn
+    assert pending.events[0].kind == "fate_spent"
+    second = pending.primary.dice.dice
+    assert (first, second) != (None, None)
+    await game.finish(lambda _: None)
+    assert game.state.player.fate == 1 and game.state.reroll == 0
+
+
+async def test_narrator_failure_falls_back_to_facts(content, fake_llm, profile):
+    game = Game(generate(1), Config(), fake_llm(fail=True), profile=profile)
     result = await game.act("1", lambda _: None)
     assert result.narration and any("narrator" in e for e in result.errors)
 
 
-async def test_autosave_round_trip(content):
-    game = Game(generate(9), Config(backend="offline"), None)
+async def test_autosave_round_trip(content, profile):
+    game = Game(generate(9), Config(backend="offline"), None, profile=profile)
     await game.opening(lambda _: None)
     await game.act("1", lambda _: None)
     loaded = load_game()
@@ -122,3 +144,20 @@ async def test_autosave_round_trip(content):
     game.state.status = "dead"
     save_game(game.state)
     assert load_game() is None  # finished games aren't offered to continue
+
+
+async def test_suggestion_appears_as_a_choice(content, profile):
+    state = generate(1)
+    put_monster(state, content, key="troll")
+    game = Game(state, Config(backend="offline"), None, profile=profile)
+    text = await game.refresh_suggestion()
+    assert text and game.choices()[-1].id == "suggest"
+    assert "troll" in text.lower()
+
+
+async def test_offline_extras_have_fallbacks(content):
+    state = generate(1)
+    state.status, state.cause = "dead", "slain by Giant Rat on floor 1"
+    assert "Here lies" in await extras.epitaph(None, state)
+    assert await extras.void_line(None, None, "Chubrock")
+    assert await extras.lore(None, content, "goblin") == ""

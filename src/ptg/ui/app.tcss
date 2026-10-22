@@ -1,8 +1,15 @@
+/* A DOS/CRT look: black glass, phosphor blue frames, amber and hot-pink highlights. */
+
 Screen {
     background: $background;
 }
 
-/* --- title & intro --- */
+Toast {
+    border-left: outer $accent;
+    background: $panel;
+}
+
+/* --- title, intro, settings --- */
 
 #title-wrap, #intro-wrap, #setup-wrap {
     align: center middle;
@@ -10,7 +17,7 @@ Screen {
 
 #splash {
     width: auto;
-    color: $secondary;
+    color: $primary;
     text-style: bold;
 }
 
@@ -40,7 +47,7 @@ Screen {
     width: 76;
     max-width: 100%;
     height: auto;
-    border: heavy $warning;
+    border: double $warning;
     border-title-color: $warning;
     padding: 1 2;
 }
@@ -50,13 +57,12 @@ Screen {
     color: $text-muted;
 }
 
-/* --- setup --- */
-
 #setup-box {
     width: 72;
     max-width: 100%;
     height: auto;
-    border: round $primary;
+    border: double $primary;
+    border-title-color: $primary;
     padding: 1 2;
 }
 
@@ -84,7 +90,17 @@ Screen {
     margin-right: 2;
 }
 
-/* --- game --- */
+/* --- game screen --- */
+
+#hud {
+    height: 1;
+    padding: 0 1;
+    background: $surface;
+}
+
+#hud.hurt {
+    background: $error 45%;
+}
 
 #main {
     height: 1fr;
@@ -92,25 +108,26 @@ Screen {
 
 #story {
     width: 1fr;
-    border: round $primary-darken-1;
+    border: double $primary-darken-2;
     border-title-color: $primary;
+    border-subtitle-color: $text-muted;
     padding: 0 1;
     scrollbar-size-vertical: 1;
 }
 
 #sidebar {
-    width: 38;
+    width: 31;
 }
 
 .panel {
     height: auto;
-    border: round $secondary-darken-1;
+    border: double $primary-darken-2;
     border-title-color: $secondary;
     padding: 0 1;
 }
 
-#monster {
-    border: round $error-darken-1;
+#scene.combat {
+    border: double $error;
     border-title-color: $error;
 }
 
@@ -120,29 +137,32 @@ Screen {
 
 #choices {
     height: auto;
-    max-height: 12;
-    border: round $accent-darken-1;
-    border-title-color: $accent;
+    max-height: 13;
+    border: double $secondary-darken-2;
+    border-title-color: $secondary;
     padding: 0 1;
 }
 
-#command {
-    margin: 0 0;
+.choice {
+    height: auto;
+}
+
+.choice:hover {
+    background: $secondary 20%;
 }
 
 .player-line {
     margin-top: 1;
-    color: $accent;
+    color: $secondary;
     text-style: bold;
 }
 
-.mechanic {
-    color: $text-muted;
-    text-style: italic;
+.narration {
+    color: $foreground;
 }
 
-.narration {
-    color: $text;
+.mechanic {
+    height: auto;
 }
 
 .system-line {
@@ -150,26 +170,218 @@ Screen {
     text-style: italic;
 }
 
-.banner {
-    margin-top: 1;
-    padding: 1 2;
-    border: heavy $warning;
-    text-style: bold;
+.recap {
+    margin-bottom: 1;
 }
 
-/* --- help --- */
+/* --- dice --- */
 
-HelpScreen {
+DiceScreen {
     align: center middle;
+    background: $background 60%;
 }
 
-#help-box {
-    width: 80;
+#dice-box {
+    width: 64;
+    height: auto;
+    border: double $secondary;
+    border-title-color: $secondary;
+    border-title-style: bold;
+    padding: 1 2;
+    background: $surface;
+}
+
+#dice-box > Static {
+    width: 100%;
+    content-align: center middle;
+    text-align: center;
+}
+
+#dice-faces {
+    margin: 1 0 0 0;
+}
+
+#dice-bonuses, #dice-verdict, #dice-prompt {
+    margin-top: 1;
+}
+
+#dice-box.crit {
+    border: double $warning;
+}
+
+#dice-box.fumble, #dice-box.failure {
+    border: double $error;
+}
+
+#dice-box.success {
+    border: double $success;
+}
+
+/* --- level up and panels --- */
+
+LevelUpScreen, Panel, HelpScreen {
+    align: center middle;
+    background: $background 60%;
+}
+
+#levelup-box {
+    width: 70;
+    height: auto;
+    border: double $foreground;
+    border-title-style: bold;
+    padding: 1 2;
+    background: $surface;
+}
+
+.perk-card {
+    height: auto;
+    margin-top: 1;
+    padding: 0 1;
+}
+
+.perk-card:hover {
+    background: $panel;
+}
+
+.panel-box {
+    width: 84;
     max-width: 100%;
     height: auto;
     max-height: 90%;
-    border: round $accent;
-    border-title-color: $accent;
+    border: double $primary;
+    border-title-color: $secondary;
     padding: 1 2;
     background: $surface;
+}
+
+.panel-box.wide {
+    width: 100;
+    height: 32;
+}
+
+#inv-list {
+    height: auto;
+    max-height: 14;
+    background: $surface;
+}
+
+#inv-detail {
+    margin-top: 1;
+    height: auto;
+}
+
+#beast-list {
+    width: 28;
+    background: $surface;
+}
+
+/* --- campfire hub --- */
+
+#hub {
+    height: 1fr;
+}
+
+#hub-left {
+    width: 1fr;
+    border: double $primary;
+    padding: 0 1;
+}
+
+#hub-right {
+    width: 1fr;
+    border: double $secondary-darken-2;
+    padding: 0 1;
+}
+
+.unlock-grid {
+    grid-size: 3;
+    grid-gutter: 1;
+    height: auto;
+    padding: 1 0;
+}
+
+.unlock-card {
+    width: 100%;
+    height: 4;
+}
+
+.unlock-card.locked {
+    color: $text-muted;
+    background: $panel;
+}
+
+.unlock-card.owned {
+    color: $success;
+}
+
+.unlock-card.chosen {
+    color: $warning;
+    text-style: bold;
+}
+
+#unlock-detail {
+    height: auto;
+    margin: 1 0;
+}
+
+#unlock-action {
+    width: 100%;
+}
+
+#campfire {
+    width: 100%;
+    content-align: center middle;
+    text-align: center;
+    margin-top: 1;
+}
+
+#void-line {
+    margin: 1 0;
+    text-align: center;
+}
+
+#hub-souls {
+    text-align: center;
+}
+
+#legends-box {
+    height: 1fr;
+    border: round $primary-darken-2;
+    border-title-color: $primary;
+    margin-top: 1;
+}
+
+#hub-buttons {
+    height: auto;
+    margin-top: 1;
+}
+
+#hub-buttons Button {
+    margin-right: 1;
+}
+
+/* --- end of a run --- */
+
+EndScreen {
+    align: center middle;
+}
+
+#end-box {
+    width: 76;
+    max-width: 100%;
+    height: auto;
+    border: double $secondary;
+    padding: 1 2;
+}
+
+#end-box > Static {
+    width: 100%;
+    text-align: center;
+    content-align: center middle;
+    margin-bottom: 1;
+}
+
+#end-card {
+    border: round $primary-darken-2;
+    padding: 0 1;
 }

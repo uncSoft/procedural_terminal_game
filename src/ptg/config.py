@@ -23,6 +23,7 @@ class Config(BaseModel):
     model: str = ""
     api_key: str = ""
     temperature: float = 0.8
+    auto_roll: bool = False
     tone: str = "darkly funny, vivid and fair, like a game master who loves the players"
 
 
@@ -68,7 +69,9 @@ def load_game(slot: str = "autosave") -> GameState | None:
         state = GameState.model_validate_json(path.read_text(encoding="utf-8"))
     except ValueError:
         return None
-    return None if state.over else state
+    if state.over or state.version < GameState.model_fields["version"].default:
+        return None  # finished, or saved by an older version of the game
+    return state
 
 
 def log_path() -> Path:

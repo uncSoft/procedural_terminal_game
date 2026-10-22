@@ -1,4 +1,4 @@
-"""Loads the static game data (themes, rooms, items, monsters, art) shipped in ptg/data."""
+"""Loads the static game data (themes, rooms, items, monsters, perks, unlocks, art) shipped in ptg/data."""
 
 from __future__ import annotations
 
@@ -29,18 +29,21 @@ class Archetype:
     names: list[str]
     blurb: str
     features: list[str]
+    decor: str = ""
 
 
 @dataclass(frozen=True)
 class ItemDef:
     key: str
     name: str
-    kind: Literal["weapon", "armor", "consumable", "key"]
+    kind: Literal["weapon", "armor", "consumable", "key", "trinket"]
     damage: str = ""
     defense: int = 0
     heal: int = 0
     escape: bool = False
     tier: int = 0
+    tags: list[str] = field(default_factory=list)
+    desc: str = ""
 
 
 @dataclass(frozen=True)
@@ -56,7 +59,30 @@ class MonsterDef:
     tags: list[str] = field(default_factory=list)
     intelligent: bool = False
     boss: bool = False
+    ghost: bool = False
+    weak: list[str] = field(default_factory=list)
+    tell: str = "winds up a powerful attack"
     art: str = ""
+
+
+@dataclass(frozen=True)
+class Perk:
+    key: str
+    name: str
+    desc: str
+    color: str = "white"
+
+
+@dataclass(frozen=True)
+class Unlock:
+    key: str
+    kind: Literal["blessing", "gift"]
+    name: str
+    icon: str
+    cost: int
+    desc: str
+    item: str = ""
+    requires: str = ""
 
 
 @dataclass(frozen=True)
@@ -65,6 +91,9 @@ class Content:
     archetypes: dict[str, Archetype]
     items: dict[str, ItemDef]
     monsters: dict[str, MonsterDef]
+    perks: dict[str, Perk]
+    unlocks: dict[str, Unlock]
+    keyword_tags: dict[str, list[str]]
     splash: str
 
     def item(self, key: str) -> ItemDef:
@@ -72,6 +101,15 @@ class Content:
 
     def monster(self, key: str) -> MonsterDef:
         return self.monsters[key]
+
+    def feature_tags(self, name: str) -> list[str]:
+        """Tags for a room feature, from the words in its name ("a stew cauldron" -> heavy, fire, food)."""
+        tags: list[str] = []
+        for word in re.findall(r"[a-z]+", name.lower()):
+            for tag in self.keyword_tags.get(word, []):
+                if tag not in tags:
+                    tags.append(tag)
+        return tags
 
 
 def _read(name: str) -> str:
@@ -98,7 +136,15 @@ def load_content() -> Content:
         key: MonsterDef(key=key, art=art.get(key, ""), **data)
         for key, data in tomllib.loads(_read("monsters.toml"))["monster"].items()
     }
-    content = Content(themes, archetypes, items, monsters, _read("splash.txt"))
+    perks = {key: Perk(key=key, **data) for key, data in tomllib.loads(_read("perks.toml"))["perk"].items()}
+    unlock_data = tomllib.loads(_read("unlocks.toml"))
+    unlocks = {
+        key: Unlock(key=key, kind=kind, **data)
+        for kind in ("blessing", "gift")
+        for key, data in unlock_data[kind].items()
+    }
+    keyword_tags = tomllib.loads(_read("tags.toml"))["keywords"]
+    content = Content(themes, archetypes, items, monsters, perks, unlocks, keyword_tags, _read("splash.txt"))
     _validate(content)
     return content
 
@@ -114,10 +160,17 @@ def _validate(content: Content) -> None:
             problems.append(f"theme {theme.key}: unknown boss {theme.boss!r}")
         if theme.key_item not in content.items:
             problems.append(f"theme {theme.key}: unknown key item {theme.key_item!r}")
-        if not any(set(m.tags) & set(theme.monster_tags) for m in content.monsters.values() if not m.boss):
-            problems.append(f"theme {theme.key}: no monsters match its tags")
+        pool = [m for m in content.monsters.values() if not (m.boss or m.ghost)]
+        for tier in (1, 2, 3):
+            if not any(set(m.tags) & set(theme.monster_tags) and m.tier == tier for m in pool):
+                problems.append(f"theme {theme.key}: no tier {tier} monsters match its tags")
     for monster in content.monsters.values():
         if not monster.art:
             problems.append(f"monster {monster.key}: missing art")
+    for unlock in content.unlocks.values():
+        if unlock.item and unlock.item not in content.items:
+            problems.append(f"unlock {unlock.key}: unknown item {unlock.item!r}")
+        if unlock.requires and unlock.requires not in content.unlocks:
+            problems.append(f"unlock {unlock.key}: unknown requirement {unlock.requires!r}")
     if problems:
         raise ValueError("Invalid game content:\n  " + "\n  ".join(problems))

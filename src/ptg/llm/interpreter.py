@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from ..content import Content
 from ..intent import Intent, intent_schema
 from ..models import GameState
-from ..rules import Action
+from ..events import Action
 from .base import LLM, LLMError
 from .prompts import interpreter_messages
 
@@ -23,6 +23,14 @@ REST_WORDS = {"rest", "sleep", "nap", "camp", "sit"}
 TAKE_WORDS = {"take", "grab", "pick", "get", "loot", "collect"}
 USE_WORDS = {"drink", "quaff", "eat", "use", "throw", "consume", "chug"}
 SEARCH_WORDS = {"search", "examine", "check", "inspect", "open", "investigate", "rummage", "look"}
+DODGE_WORDS = {"dodge", "duck", "evade", "sidestep", "roll", "jump"}
+FIXTURE_WORDS = {
+    "descend": {"descend", "downstairs", "stairs"},
+    "shrine_blood": {"blood", "bleed"},
+    "shrine_gold": {"gold", "coins", "pay"},
+    "chest": {"chest"},
+    "fountain": {"fountain", "drink"},
+}
 STOPWORDS = {"the", "a", "an", "of", "to", "with", "at", "my", "your", "in", "on", "for", "it", "up", "into", "and"}
 QUESTION_STARTS = ("what", "where", "how", "who", "why", "which", "am i", "do i", "can i", "is there", "are there")
 
@@ -62,6 +70,11 @@ def offline_interpret(raw: str, actions: list[Action]) -> tuple[Intent, bool]:
             return _action(f"go:{direction}"), short
     if words[0] in ATTACK_WORDS and "attack" in ids:
         return _action("attack"), len(words) <= 4
+    if words[0] in DODGE_WORDS and "dodge" in ids:
+        return _action("dodge"), len(words) <= 3
+    for action_id, keywords in FIXTURE_WORDS.items():
+        if action_id in ids and keywords & set(words) and (short or action_id == "descend"):
+            return _action(action_id), True
     if FLEE_WORDS & set(words) and "flee" in ids:
         return _action("flee"), short
     if words[0] in REST_WORDS and "rest" in ids:

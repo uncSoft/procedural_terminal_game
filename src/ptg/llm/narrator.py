@@ -7,7 +7,8 @@ from typing import Callable
 
 from ..content import Content
 from ..models import GameState
-from ..rules import Event, room_facts
+from ..events import Event
+from ..rules import room_facts
 from .base import LLM, LLMError
 from .prompts import INTRO_SYSTEM, OFFLINE_INTRO, narrator_messages, player_status
 
@@ -25,7 +26,7 @@ def offline_narration(state: GameState, content: Content, events: list[Event], r
     if opening:
         parts.append(content.themes[state.theme].blurb)
     for event in events:
-        if event.kind == "enter" and event.data.get("first"):
+        if event.kind in ("enter", "descend") and event.data.get("first"):
             parts.append(content.archetypes[state.rooms[event.data["room"]].archetype].blurb)
         parts.append(event.text)
     if question:

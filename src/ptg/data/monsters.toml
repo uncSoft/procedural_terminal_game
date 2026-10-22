@@ -1,6 +1,9 @@
 # Monsters. Art lives in art.txt under a matching `=== key ===` header.
 # `defense` is the d20 roll the player needs (after bonuses) to hit.
 # `intelligent` monsters can be talked to, bribed or bluffed.
+# `weak` lists tags that work especially well against it (see items.toml / tags.toml).
+#   "food" and "shiny" weaknesses also let you distract (pacify) the monster.
+# `tell` is how it telegraphs a heavy attack.
 
 [monster.giant_rat]
 name = "Giant Rat"
@@ -11,6 +14,8 @@ damage = "1d4"
 xp = 6
 tier = 1
 tags = ["vermin", "beast"]
+weak = ["food", "loud"]
+tell = "bares its yellow teeth and crouches to spring"
 
 [monster.goblin]
 name = "Goblin"
@@ -22,6 +27,8 @@ xp = 10
 tier = 1
 tags = ["goblinoid"]
 intelligent = true
+weak = ["shiny", "loud"]
+tell = "shrieks and lifts its rusty cleaver over its head"
 
 [monster.skeleton]
 name = "Skeleton"
@@ -32,6 +39,8 @@ damage = "1d6"
 xp = 12
 tier = 1
 tags = ["undead"]
+weak = ["heavy", "holy"]
+tell = "rattles back, raising its sword in both bony hands"
 
 [monster.cave_crab]
 name = "Cave Crab"
@@ -42,6 +51,8 @@ damage = "1d6"
 xp = 10
 tier = 1
 tags = ["aquatic"]
+weak = ["heavy", "fire"]
+tell = "opens its huge claw wide, aiming for your leg"
 
 [monster.thorn_sprite]
 name = "Thorn Sprite"
@@ -53,6 +64,8 @@ xp = 8
 tier = 1
 tags = ["plant"]
 intelligent = true
+weak = ["fire", "shiny"]
+tell = "bristles all over, every thorn pointed at you"
 
 [monster.hobgoblin]
 name = "Hobgoblin"
@@ -64,6 +77,8 @@ xp = 25
 tier = 2
 tags = ["goblinoid"]
 intelligent = true
+weak = ["shiny", "slippery"]
+tell = "plants its feet and hauls back a spiked club"
 
 [monster.ghoul]
 name = "Ghoul"
@@ -74,6 +89,8 @@ damage = "1d8"
 xp = 25
 tier = 2
 tags = ["undead"]
+weak = ["holy", "fire"]
+tell = "unhinges its jaw, gathering itself to lunge"
 
 [monster.dire_wolf]
 name = "Dire Wolf"
@@ -84,6 +101,8 @@ damage = "1d8"
 xp = 22
 tier = 2
 tags = ["beast"]
+weak = ["food", "fire", "loud"]
+tell = "lowers its head and gathers itself for a leap"
 
 [monster.bog_lurker]
 name = "Bog Lurker"
@@ -94,6 +113,8 @@ damage = "1d8"
 xp = 25
 tier = 2
 tags = ["aquatic"]
+weak = ["fire", "light"]
+tell = "sinks low, ripples racing toward you through the water"
 
 [monster.vine_horror]
 name = "Vine Horror"
@@ -104,6 +125,8 @@ damage = "1d8"
 xp = 25
 tier = 2
 tags = ["plant"]
+weak = ["fire", "sharp"]
+tell = "coils every vine back like a drawn bowstring"
 
 [monster.orc]
 name = "Orc"
@@ -115,6 +138,8 @@ xp = 40
 tier = 3
 tags = ["goblinoid"]
 intelligent = true
+weak = ["shiny", "slippery"]
+tell = "roars and swings a great axe up over its shoulder"
 
 [monster.troll]
 name = "Troll"
@@ -124,8 +149,10 @@ attack = 5
 damage = "1d10"
 xp = 50
 tier = 3
-tags = ["giant", "beast"]
+tags = ["giant", "beast", "plant"]
 intelligent = true
+weak = ["fire", "food"]
+tell = "rips a slab of stone out of the wall and hoists it overhead"
 
 [monster.wight]
 name = "Wight"
@@ -137,12 +164,30 @@ xp = 45
 tier = 3
 tags = ["undead"]
 intelligent = true
+weak = ["holy", "light"]
+tell = "draws the warmth from the room into one freezing claw"
+
+# --- Ghosts of past adventurers (spawned from your own deaths) ---
+
+[monster.ghost]
+name = "Ghost"
+hp = 14
+defense = 12
+attack = 4
+damage = "1d8"
+xp = 30
+tier = 2
+tags = ["undead", "ghost"]
+intelligent = true
+weak = ["holy", "light"]
+tell = "wails, and the air turns to grave-cold needles"
+ghost = true
 
 # --- Bosses (never placed at random) ---
 
 [monster.drowned_abbot]
 name = "The Drowned Abbot"
-hp = 32
+hp = 34
 defense = 13
 attack = 5
 damage = "1d10"
@@ -151,10 +196,12 @@ tier = 4
 tags = ["undead", "boss"]
 intelligent = true
 boss = true
+weak = ["holy", "fire"]
+tell = "raises a censer that drips black water, chanting backwards"
 
 [monster.goblin_king]
 name = "The Goblin King"
-hp = 32
+hp = 34
 defense = 13
 attack = 5
 damage = "1d10"
@@ -163,10 +210,12 @@ tier = 4
 tags = ["goblinoid", "boss"]
 intelligent = true
 boss = true
+weak = ["shiny", "slippery"]
+tell = "stands on his throne and hefts a sceptre made from a frying pan"
 
 [monster.thornmother]
 name = "The Thornmother"
-hp = 32
+hp = 34
 defense = 13
 attack = 5
 damage = "1d10"
@@ -175,3 +224,5 @@ tier = 4
 tags = ["plant", "boss"]
 intelligent = true
 boss = true
+weak = ["fire", "sharp"]
+tell = "draws every root in the room taut, ready to lash"

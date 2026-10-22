@@ -53,12 +53,15 @@ class Roll:
     def fumble(self) -> bool:
         return self.kept == 1
 
-    def describe(self) -> str:
+    def describe(self, verdict: bool = True) -> str:
         dice = f"d20 {self.kept}" if len(self.dice) == 1 else f"d20 {'/'.join(map(str, self.dice))}→{self.kept}"
         parts = "".join(f" {'+' if v >= 0 else '-'} {abs(v)} {name}" for name, v in self.bonuses if v)
         target = "impossible" if self.impossible else str(self.dc)
-        verdict = "CRIT" if self.crit else ("FUMBLE" if self.fumble else ("success" if self.success else "fail"))
-        return f"{self.label}: {dice}{parts} = {self.total} vs {target} - {verdict}"
+        sum_ = f"{self.label}: {dice}{parts} = {self.total} vs {target}"
+        if not verdict:
+            return sum_
+        return f"{sum_} - " + ("CRIT" if self.crit else "FUMBLE" if self.fumble else
+                               "success" if self.success else "fail")
 
 
 def check(rng: random.Random, label: str, bonuses: list[tuple[str, int]], dc: int, actor: str = "player",

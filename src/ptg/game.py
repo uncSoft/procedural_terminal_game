@@ -110,6 +110,11 @@ class Game:
             return self.state.player.fate
         return self._snapshot.player.fate - self._rerolls
 
+    def floor_entry(self) -> LogEntry:
+        """The story's header for the floor you're on."""
+        return LogEntry(kind="floor", title=f"Floor {self.state.floor} of {self.state.floors_total}",
+                        text=self.theme.name)
+
     def can_reroll(self) -> bool:
         primary = self.pending.primary if self.pending else None
         return bool(primary and not primary.dice.success and self._snapshot and self.fate_left() > 0)
@@ -124,7 +129,8 @@ class Game:
         text, error = await narrate(self.llm, self.state, self.content, "", [arrival], self.config.tone, on_text,
                                     opening=True)
         room.description = text
-        self.state.journal.append(f"You arrived in {room.name}, the entrance of {self.theme.name}.")
+        self.state.journal.append(f"You arrived in {the(room.name)}, the entrance of {self.theme.name}.")
+        self.state.log.append(self.floor_entry())
         self.state.log.append(LogEntry(kind="narration", text=text))
         events = self.story.on_run_start(self.state)
         if self.force_event:
@@ -233,6 +239,8 @@ class Game:
         for event in pending.events:
             if event.roll:
                 state.log.append(LogEntry(kind="mechanic", text=event.roll))
+        if any(e.kind == "descend" for e in pending.events):
+            state.log.append(self.floor_entry())
 
         errors = list(pending.errors)
         told = [e for e in pending.events if narratable(e)]
@@ -250,7 +258,8 @@ class Game:
         for event in pending.events:
             if event.kind in ("enter", "descend") and event.data.get("first"):
                 state.rooms[event.data["room"]].description = text
-        state.journal += [e.text for e in pending.events if e.kind not in JOURNAL_SKIP and not e.kind.startswith("story")]
+        state.journal += [e.data.get("journal", e.text) for e in pending.events  # moves: a line, not the whole room
+                          if e.kind not in JOURNAL_SKIP and not e.kind.startswith("story")]
         if text:
             state.log.append(LogEntry(kind="narration", text=text))
         self._record_story(pending.events)

@@ -8,6 +8,8 @@ from ..creative import available_props
 from ..events import Action, Event
 from ..intent import EFFECT_HELP
 from ..models import GameState
+from ..rules import exit_notes, room_facts
+from ..text import the
 
 INTERPRETER_SYSTEM = """\
 You are the rules interpreter for a text adventure. The player typed something; decide what they mean.
@@ -47,8 +49,11 @@ The FACTS were decided by dice and rules. Narrate them faithfully:
 - Never contradict the facts, and never invent items, exits, monsters, damage or outcomes they don't state.
 - Don't mention dice, rolls, difficulty numbers or hit point numbers. The game shows those separately.
 - If an attempt failed, make the failure vivid or funny, never a lecture.
+- RECENTLY is what happened before this turn; THIS TURN says where the player is now. Treat a room as
+  familiar only if THIS TURN says they have been there before.
 - When the player enters a room for the first time, describe it from the room notes and mention every listed
   feature, item, exit direction and monster, woven naturally into prose. Use the positions given.
+- When the player returns to a room they know, keep it brief: don't describe it all again or list its exits.
 - If a heavy blow is coming, end on the monster's wind-up so the player can react to it.
 - If the player asked a question, answer it in character using only the facts and the player status.
 """
@@ -116,7 +121,7 @@ def situation(state: GameState, content: Content) -> str:
         lines.append("On the floor: " + ", ".join(content.item(k).name for k in room.items))
     if room.fixture and not room.fixture_used:
         lines.append(f"Fixture: {room.fixture}")
-    lines.append("Exits: " + ", ".join(f"{d} (locked)" if e.locked else d for d, e in room.exits.items()))
+    lines.append(f"Exits: {exit_notes(state)}")
     if room.monster:
         monster = room.monster
         monster_def = content.monster(monster.key)
@@ -150,22 +155,43 @@ def interpreter_messages(state: GameState, content: Content, raw: str, actions: 
     return INTERPRETER_SYSTEM.format(effects=effects), user
 
 
+def this_turn(state: GameState, events: list[Event], opening: bool = False) -> str:
+    """Where the player was and where they are now, spelled out so the model can't mix the two up."""
+    room = the(state.room.name)
+    arrived = next((e for e in events if e.kind in ("enter", "descend")), None)
+    if opening:
+        return f"the player has just arrived at the entrance of the dungeon, in {room}."
+    if arrived is None:
+        return f"the player is in {room}."
+    known = "a room they have never been in before" if arrived.data.get("first") else "a room they have been in before"
+    if arrived.kind == "descend":
+        return f"the player has just come down the stairs to floor {state.floor} and is in {room}, {known}."
+    left = the(state.rooms[state.prev_room_id].name)
+    return f"the player has just left {left} and is now in {room}, {known}."
+
+
 def narrator_messages(state: GameState, content: Content, raw: str, events: list[Event],
                       tone: str, question: bool = False, opening: bool = False) -> tuple[str, str]:
+    """A small snapshot, oldest first: the setting, what happened before, where the player is now, the room as it
+    stands, what they did, and the facts of what came of it."""
     theme = content.themes[state.theme]
     room = state.room
-    first_visit = opening or any(e.kind in ("enter", "descend") and e.data.get("first") for e in events)
+    arrived = next((e for e in events if e.kind in ("enter", "descend")), None)
+    first_visit = opening or bool(arrived and arrived.data.get("first"))
     length = "3 to 5 sentences" if first_visit else ("1 to 3 sentences" if state.in_combat else "2 to 4 sentences")
     system = NARRATOR_SYSTEM.format(tone=tone, length=length)
 
-    notes = content.archetypes[room.archetype].blurb
-    lines = [f"SETTING: {theme.name}, floor {state.floor} of {state.floors_total}. {theme.blurb}",
-             f"CURRENT ROOM: {room.name}. Room notes: {notes}"]
-    if room.description and not first_visit:
-        lines.append(f"How you described this room before: {room.description}")
+    lines = [f"SETTING: {theme.name}, floor {state.floor} of {state.floors_total}. {theme.blurb}"]
     recent = state.journal[-6:]
     if recent:
-        lines.append("RECENTLY:\n" + "\n".join(f"- {line}" for line in recent))
+        lines.append("RECENTLY (before this turn, oldest first):\n" + "\n".join(f"- {line}" for line in recent))
+    lines.append(f"THIS TURN: {this_turn(state, events, opening)}")
+    room_line = f"ROOM: {room.name}. Notes: {content.archetypes[room.archetype].blurb}"
+    if not (arrived or opening or question):  # on arrival the facts describe it; a question gets the situation
+        room_line += f" Now: {room_facts(state, content)}"
+    lines.append(room_line)
+    if arrived and not first_visit and room.description:
+        lines.append(f"How you described it last time (for flavour; the facts win): {room.description}")
     if raw:
         lines.append(f"PLAYER TYPED: {raw}")
     facts = [e.text for e in events]

@@ -15,6 +15,7 @@ from ..content import load_content
 from ..llm import LLMError
 from ..llm.narrator import intro
 from ..llm.openai_compat import OpenAICompatLLM
+from .widgets import Clickable
 
 CLAUDE_MODELS = [DEFAULT_CLAUDE_MODEL, "claude-sonnet-5-5", "claude-haiku-5-5"]
 
@@ -206,7 +207,8 @@ class IntroScreen(Screen):
             with Vertical(id="intro-box") as box:
                 box.border_title = "A Message From The Void"
                 yield Static(Text("The void clears its throat...", style="italic"), id="intro-text")
-                yield Static("Press Enter to begin your descent", id="intro-hint")
+                yield Clickable("▶ Press Enter, or click here, to begin your descent", action="screen.begin",
+                                id="intro-hint")
         yield Footer()
 
     def on_mount(self) -> None:

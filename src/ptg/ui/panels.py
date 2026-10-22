@@ -1,4 +1,7 @@
-"""Pop-up panels: inventory, character, look, map, bestiary, journal, level-up and help."""
+"""Pop-up panels: inventory, character, look, map, bestiary, journal, level-up and help.
+
+Every panel closes on Esc, on the ✕ in its top border, or on a click outside it.
+"""
 
 from __future__ import annotations
 
@@ -7,16 +10,17 @@ from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.events import Click
 from textual.screen import ModalScreen
 from textual.widgets import Label, ListItem, ListView, Static
 
 from .. import glossary, layout
-from ..content import Content
+from ..content import Content, Theme
 from ..game import Game
 from ..meta import epithet
 from ..rules import TRAITS
 from .theme import PERK_COLORS
-from .widgets import map_text, portrait, room_text
+from .widgets import Clickable, map_text, portrait, room_text
 
 HELP = """\
 HOW TO PLAY
@@ -44,15 +48,48 @@ KEYS (or type the word)
   F2  i  inventory      F3  c  character     F4  l  look at the room
   F5  m  map            F6  b  bestiary      F7  j  journal
   F1     this help      Esc    title (your game is saved)      Ctrl+Q  quit
+
+MOUSE   Click a choice, a coloured word, or the dice (once to roll, again to carry on).
+        Close any panel with its ✕ or a click outside it.
 """
+
+
+class CloseButton(Static):
+    """The ✕ in a panel's top border."""
+
+    def __init__(self) -> None:
+        super().__init__(" ✕ ", id="close")
+
+    def on_click(self, event: Click) -> None:
+        event.stop()
+        self.screen.action_close()
 
 
 class Panel(ModalScreen[str | None]):
     BINDINGS = [Binding("escape,q", "close", "Close")]
     title_text = ""
 
+    def on_mount(self) -> None:
+        self.mount(CloseButton())
+        self.screen_layout_refresh_signal.subscribe(self, lambda _: self.place_close())
+
+    def place_close(self) -> None:
+        """Sit the ✕ on the box's top border, just in from the corner (it follows the box as it resizes)."""
+        boxes = self.query(".panel-box")
+        if not boxes or not self.query(CloseButton):
+            return
+        box = boxes.first().region
+        close = self.query_one(CloseButton)
+        if box.width and tuple(close.styles.offset.resolve(close.size, self.size)) != (box.right - 5, box.y):
+            close.styles.offset = (box.right - 5, box.y)
+
+    def on_click(self, event: Click) -> None:
+        if event.widget is self:  # the dimmed screen around the box
+            self.action_close()
+
     def action_close(self) -> None:
-        self.dismiss(None)
+        if self.app.screen is self:  # a second click mustn't close whatever is underneath
+            self.dismiss(None)
 
 
 class HelpScreen(Panel):
@@ -267,6 +304,31 @@ class JournalScreen(Panel):
         self.query_one(VerticalScroll).scroll_end(animate=False)
 
 
+class FloorScreen(Panel):
+    """Arriving on a new floor: its name and what it's like, until you're ready to go on."""
+
+    BINDINGS = [Binding("escape,enter,space,q", "close", "Continue")]
+
+    def __init__(self, floor: int, total: int, theme: Theme, final: bool) -> None:
+        super().__init__()
+        self.floor, self.total, self.theme, self.final = floor, total, theme, final
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="panel-box floor-box") as box:
+            box.border_title = f"Floor {self.floor} of {self.total}"
+            yield Static(Text("  ".join(" ".join(word) for word in self.theme.name.upper().split()),
+                              style="bold #ff4f9a"), classes="floor-name")
+            yield Static(Text(self.theme.blurb, style="italic #c8c8e0"))
+            if self.final:
+                yield Static(Text(f"Your goal: {self.theme.goal}", style="bold #ffd166"))
+            yield Clickable(Text(" ▶ [enter] continue ", style="#ffb000"), action="screen.close",
+                            classes="panel-action")
+
+    def on_click(self, event: Click) -> None:
+        event.prevent_default()  # instead of Panel's: anywhere closes it, it's a title card
+        self.action_close()
+
+
 class LevelUpScreen(ModalScreen[str]):
     """Tiny Rogues style: pick one of three perk cards."""
 
@@ -281,7 +343,8 @@ class LevelUpScreen(ModalScreen[str]):
     def compose(self) -> ComposeResult:
         with Vertical(id="levelup-box") as box:
             box.border_title = f"LEVEL UP · level {self.level}"
-            yield Static(Text("CHOOSE ONE:", style="bold #e8e8f4"))
+            yield Static(Text("CHOOSE ONE  ", style="bold #e8e8f4") + Text("(press 1-3, or click a card)",
+                                                                           style="#6c6f99"))
             for i, key in enumerate(self.choices):
                 perk = self.content.perks[key]
                 color = PERK_COLORS.get(perk.color, "#e8e8f4")
@@ -293,7 +356,7 @@ class LevelUpScreen(ModalScreen[str]):
                 yield card
 
     def action_pick(self, index: int) -> None:
-        if index < len(self.choices):
+        if index < len(self.choices) and self.app.screen is self:
             self.dismiss(self.choices[index])
 
 
@@ -341,13 +404,13 @@ class InfoScreen(Panel):
     def compose(self) -> ComposeResult:
         kind, _, ref = self.term_id.partition(":")
         body, title = getattr(self, f"_{kind}", self._unknown)(ref)
-        if self.action_id:
-            label = next(a.label for a in self.game.choices() if a.id == self.action_id)
-            body.append(f"\n\n[enter] {label}", style="bold #ffb000")
-        body.append("     [esc] close", style="#6c6f99")
         with VerticalScroll(classes="panel-box") as box:
             box.border_title = title
             yield Static(body)
+            if self.action_id:
+                label = next(a.label for a in self.game.choices() if a.id == self.action_id)
+                yield Clickable(Text(f" ▶ {label}  [enter] ", style="bold #ffb000"), action="screen.act",
+                                classes="panel-action")
 
     def _available(self, action_id: str) -> None:
         if any(a.id == action_id for a in self.game.choices()):
@@ -424,4 +487,5 @@ class InfoScreen(Panel):
         return Text("Nothing more is known about that."), "?"
 
     def action_act(self) -> None:
-        self.dismiss(self.action_id)
+        if self.app.screen is self:
+            self.dismiss(self.action_id)

@@ -291,11 +291,31 @@ def travel(state: GameState, content: Content, direction: str, to: int) -> list[
     first = not room.visited
     room.visited = True
     arrival = f"You go {direction} into {the(room.name)}" + (" for the first time." if first else ", where you've been before.")
+    journal = f"You went {direction} into {the(room.name)}" + (" for the first time." if first else ".")
     events = [Event("enter", f"{arrival} {room_facts(state, content)}",
-                    data={"first": first, "room": room.id, "monster": room.monster.key if room.monster else ""})]
+                    data={"first": first, "room": room.id, "monster": room.monster.key if room.monster else "",
+                          "journal": journal})]
     if room.monster and room.monster.hostile:
         events += telegraph(state, content)
     return events
+
+
+def exit_notes(state: GameState) -> str:
+    """Each exit with what the player knows lies beyond it: "east (the Ossuary, where you came from)"."""
+    room = state.room
+    notes = []
+    for direction, exit_ in room.exits.items():
+        dest = state.rooms[exit_.to]
+        if exit_.locked:
+            beyond = "locked"
+        elif dest.visited:
+            beyond = the(dest.name) + (", where you came from" if exit_.to == state.prev_room_id else "")
+        elif dest.fixture and not dest.fixture_used:
+            beyond = "unexplored; " + {"stairs": "the stairs down"}.get(dest.fixture, a(dest.fixture)) + " beyond"
+        else:
+            beyond = "unexplored"
+        notes.append(f"{direction} ({beyond})")
+    return ", ".join(notes)
 
 
 def room_facts(state: GameState, content: Content) -> str:
@@ -308,8 +328,7 @@ def room_facts(state: GameState, content: Content) -> str:
         lines.append("On the floor: " + ", ".join(content.item(k).name for k in room.items) + ".")
     if room.fixture and not room.fixture_used:
         lines.append(FIXTURE_FACTS[room.fixture])
-    exits = [f"{d} (locked)" if e.locked else d for d, e in room.exits.items()]
-    lines.append("Exits: " + ", ".join(exits) + ".")
+    lines.append(f"Exits: {exit_notes(state)}.")
     monster = room.monster
     if monster:
         if monster.ghost_of and state.ghost:
@@ -336,7 +355,8 @@ def _descend(state: GameState, content: Content) -> list[Event]:
     goal = f" Your goal: {theme.goal}" if state.final_floor else ""
     text = (f"You descend from {old_theme} into floor {state.floor}: {theme.name}. {theme.blurb} "
             f"You arrive in {the(room.name)}. {room_facts(state, content)}{goal} +10 souls.")
-    return [Event("descend", text, data={"first": True, "room": room.id, "floor": state.floor})]
+    journal = f"You went down to floor {state.floor}, {theme.name}, arriving in {the(room.name)}."
+    return [Event("descend", text, data={"first": True, "room": room.id, "floor": state.floor, "journal": journal})]
 
 
 # --- items and searching -----------------------------------------------------

@@ -1,15 +1,18 @@
 from textual.widgets import Static
 
 from ptg.config import Config
+from ptg.dice import Roll
 from ptg.events import Event
 from ptg.sprites import DEATH_FRAMES
 from ptg.ui.app import PTGApp
 from ptg.ui.dice import DiceScreen
 from ptg.ui.game_screen import GameScreen
 from ptg.ui.hub import EndScreen, HubScreen
-from ptg.ui.panels import BestiaryScreen, CharacterScreen, InventoryScreen, LevelUpScreen, LookScreen
+from ptg.ui.effects import Popup
+from ptg.ui.panels import (BestiaryScreen, CharacterScreen, FloorScreen, HelpScreen, InventoryScreen, JournalScreen,
+                           LevelUpScreen, LookScreen, MapScreen)
 from ptg.ui.screens import IntroScreen, SetupScreen, TitleScreen
-from ptg.ui.widgets import AnimatedSprite
+from ptg.ui.widgets import AnimatedSprite, roll_text
 
 
 async def settle(app, pilot, limit: float = 10.0) -> None:
@@ -152,23 +155,157 @@ async def test_fixtures_come_alive():
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         game = screen.game
-        narration = screen.add_line("…", "narration")
-        await screen._fixture_moment([Event("chest", "")], narration)
-        chest = screen.query(".story-sprite").last()
-        assert chest.key == "chest" and chest._timer is None  # played once, then rests open
-        await screen._fixture_moment([Event("descend", "")], narration)
-        await pilot.pause()
-        assert [s.key for s in screen.query(AnimatedSprite)] == ["chest"]  # the stairs dissolved and went
+        here = (game.state.floor, game.state.room_id)
+        story = screen.query_one("#story")
 
-        game.state.room.fixture, game.state.room.fixture_used = "shrine", False
+        # Walking in: the chest waits, shut (it only glints).
+        game.state.room.fixture, game.state.room.fixture_used = "chest", False
         screen._arrival_sprite([Event("enter", "", data={"first": True})])
         await pilot.pause()
-        shrine = screen.live_sprites[-1]
-        assert shrine.key == "shrine" and shrine._timer is not None  # alive while you're here
+        chest = screen.live_sprites[-1]
+        assert chest.key == "chest" and chest._timer is not None and set(chest.loop) == {0, 1}
         await pilot.press(*"sing a sea shanty", "enter")
         await settle(app, pilot)
-        assert shrine._timer is None and not screen.live_sprites  # the next turn stills it
+        assert chest._timer is None and not screen.live_sprites  # the next turn stills it
+
+        # Opening it: the same chest moves down to the moment and plays it, so there's only ever one.
+        narration = screen.add_line("…", "narration")
+        await screen._fixture_moment([Event("chest", "")], narration, here)
+        assert [s for s in screen.query(AnimatedSprite) if s.key == "chest"] == [chest]
+        assert story.children.index(chest) == story.children.index(narration) - 1
+        assert chest._timer is None  # played once, then rests open
+
+        # The stairs dissolve and go; a moment with no sprite waiting gets a fresh one.
+        await screen._fixture_moment([Event("descend", "")], narration, (9, 9))
+        await pilot.pause()
+        assert [s.key for s in screen.query(AnimatedSprite)] == ["chest"]
 
         game.config.art = "ascii"
-        await screen._fixture_moment([Event("chest", "")], narration)
-        assert len(screen.query(AnimatedSprite)) == 2  # no new sprite in ASCII mode
+        await screen._fixture_moment([Event("shrine", "")], narration, (9, 9))
+        assert len(screen.query(AnimatedSprite)) == 1  # no new sprite in ASCII mode
+
+
+def close_on_border(screen) -> bool:
+    box, close = screen.query_one(".panel-box").region, screen.query_one("#close").region
+    return (close.y, close.right) == (box.y, box.right - 2)
+
+
+async def test_panels_close_with_the_mouse():
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        screen.game.state.player.inventory += ["oil_flask", "stale_bread", "holy_water"]
+        for key, panel in [("f1", HelpScreen), ("f2", InventoryScreen), ("f3", CharacterScreen), ("f4", LookScreen),
+                           ("f5", MapScreen), ("f6", BestiaryScreen), ("f7", JournalScreen)]:
+            await pilot.press(key)
+            await pilot.pause(0.3)
+            assert isinstance(app.screen, panel) and close_on_border(app.screen), key
+            await pilot.click("#close")
+            await pilot.pause(0.2)
+            assert isinstance(app.screen, GameScreen), f"{key}: the ✕ closes it"
+            await pilot.press(key)
+            await pilot.pause(0.3)
+            await pilot.click(offset=(1, 1))
+            await pilot.pause(0.2)
+            assert isinstance(app.screen, GameScreen), f"{key}: a click outside closes it"
+        await pilot.press("f2")
+        await pilot.pause(0.3)
+        await pilot.press("down", "down", "down")  # each item's notes resize the box; the ✕ follows
+        await pilot.pause(0.3)
+        assert close_on_border(app.screen)
+        panel = app.screen
+        panel.action_close()
+        panel.action_close()  # a double click
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, GameScreen)  # closed the panel, not the game under it
+
+
+async def test_dice_roll_and_reroll_with_the_mouse():
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        await into_a_run(app, pilot)
+        results = []
+        failed = Roll("might", "player", [4], 4, [("Might", 1)], dc=14, success=False)
+        app.push_screen(DiceScreen(failed, "Lift the portcullis", 1, True), results.append)
+        await pilot.pause(0.2)
+        await pilot.click("#dice-box")  # click to roll
+        assert app.screen.stage == "rolling"
+        await pilot.pause(3.2)
+        assert app.screen.stage == "done" and app.screen.query_one("#dice-box").has_class("tone-bad")
+        await pilot.click("#dice-fate")
+        await pilot.pause(0.2)
+        assert results == ["reroll"]
+
+        made = Roll("might", "player", [15], 15, [("Might", 1)], dc=14, success=True)
+        app.push_screen(DiceScreen(made, "Lift the portcullis", 1, True), results.append)
+        await pilot.pause(0.2)
+        await pilot.click(offset=(1, 1))  # anywhere rolls...
+        await pilot.pause(3.2)
+        assert app.screen.query_one("#dice-box").has_class("tone-good") and not app.screen.query_one("#dice-fate").display
+        await pilot.click(offset=(1, 1))  # ...and carries on
+        await pilot.pause(0.2)
+        assert results == ["reroll", "accept"]
+
+
+async def test_rolls_light_up_the_story():
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        game = screen.game
+        from conftest import put_monster
+
+        put_monster(game.state, game.content, key="orc", hp=30)
+        hit = Event("hit", "", dice=Roll("attack", "player", [15], 15, dc=12, success=True), data={"damage": 6})
+        hurt = Event("monster_hit", "", dice=Roll("Orc attacks", "monster", [16], 16, dc=11, success=True),
+                     data={"damage": 4})
+        assert "✔ HIT" in roll_text(hit).plain and "✘ HIT YOU" in roll_text(hurt).plain
+        game.state.player.hp -= 4
+        await screen._roll_feedback([hit, hurt], game.state.player.hp + 4)
+        story = screen.query_one("#story")
+        assert story.has_class("tone-neutral")  # you hit it and it hit you: mixed
+        assert len(screen.query(Popup)) == 2 and screen.query_one("#hud").has_class("hurt")
+        await pilot.pause(1.4)
+        assert not screen.query(Popup) and not story.has_class("tone-neutral")
+
+
+async def test_a_new_floor_waits_for_you():
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        game = screen.game
+        assert len(screen.query(".floor-header")) == 1  # floor 1's banner
+        stairs = next(r for r in game.state.rooms if r.fixture == "stairs")
+        game.state.room_id, stairs.monster, stairs.visited = stairs.id, None, True
+        screen.refresh_panels()
+        await pilot.press(*"descend", "enter")
+        for _ in range(80):
+            await pilot.pause(0.1)
+            if not screen.busy:
+                break
+        assert isinstance(app.screen, FloorScreen)  # no timeout: it stays until you're done reading
+        await pilot.click(offset=(60, 20))
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, GameScreen) and game.state.floor == 2
+        assert len(screen.query(".floor-header")) == 2
+        assert [e.kind for e in game.state.log].count("floor") == 2
+
+
+async def test_the_mouse_can_begin_and_end_a_run():
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        await pilot.pause()
+        app.show_campfire()
+        await pilot.pause(0.3)
+        app.start_descent()
+        await pilot.pause(0.5)
+        assert isinstance(app.screen, IntroScreen)
+        await pilot.click("#intro-hint")
+        await settle(app, pilot)
+        assert isinstance(app.screen, GameScreen)
+        app.screen.game.state.status = "dead"
+        app.end_run(app.screen)
+        await pilot.pause(0.5)
+        assert isinstance(app.screen, EndScreen)
+        await pilot.click(app.screen.query(".end-hint Clickable").first())
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, HubScreen)

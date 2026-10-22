@@ -93,7 +93,8 @@ def player_attack(state: GameState, content: Content, rng: random.Random) -> lis
     how = "land a critical hit on" if roll.crit else "hit"
     tail = f" [{', '.join(extras)}]" if extras else ""
     events.append(Event("hit", f"You {how} {the(monster.name)} with your {weapon.name} for {damage} damage "
-                               f"({max(monster.hp, 0)}/{monster.max_hp} HP left).{tail}", dice=roll))
+                               f"({max(monster.hp, 0)}/{monster.max_hp} HP left).{tail}", dice=roll,
+                        data={"damage": damage}))
     for tag in weak:
         events += discover(state, monster, tag)
     events += events_on_roll
@@ -165,7 +166,7 @@ def monster_turn(state: GameState, content: Content, rng: random.Random) -> list
     how = "lands a crushing heavy blow on you" if intent == "heavy" else (
         "lands a vicious critical hit on you" if roll.crit else "hits you")
     events = [Event("monster_hit", f"{cap(the(monster.name))} {how} for {damage} damage "
-                                   f"({player.hp}/{player.max_hp} HP left).", dice=roll)]
+                                   f"({player.hp}/{player.max_hp} HP left).", dice=roll, data={"damage": damage})]
     if player.hp == 0:
         events += _death_or_reprieve(state, monster)
     return events + ([] if state.over else telegraph(state, content))

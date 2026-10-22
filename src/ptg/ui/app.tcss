@@ -57,6 +57,63 @@ Toast {
     color: $text-muted;
 }
 
+/* Mouse players: hints and pills that do something when clicked (ui/widgets.py Clickable). */
+Clickable {
+    width: auto;
+}
+
+Clickable:hover {
+    text-style: reverse;
+}
+
+/* The ✕ in a panel's border (ui/panels.py CloseButton), placed in code. */
+#close {
+    position: absolute;
+    overlay: screen;
+    width: 3;
+    height: 1;
+    color: $secondary;
+    background: $surface;
+}
+
+#close:hover {
+    color: $foreground;
+    background: $error;
+    text-style: bold;
+}
+
+.panel-action {
+    margin-top: 1;
+}
+
+/* A new floor: the card on arrival (ui/panels.py FloorScreen) and the banner left in the story. */
+.panel-box.floor-box {
+    width: 64;
+    border: double $accent;
+    border-title-color: $accent;
+    border-title-style: bold;
+}
+
+.floor-box > Static {
+    width: 100%;
+    text-align: center;
+    margin-bottom: 1;
+}
+
+.floor-box > .floor-name {
+    margin: 1 0;
+}
+
+.floor-header {
+    width: 100%;
+    height: auto;
+    margin: 1 0;
+    border-top: heavy $accent;
+    border-bottom: heavy $accent;
+    text-align: center;
+    color: $accent;
+}
+
 #setup-box {
     width: 72;
     max-width: 100%;
@@ -100,6 +157,10 @@ Toast {
 
 #hud.hurt {
     background: $error 45%;
+}
+
+#hud.healed {
+    background: $success 30%;
 }
 
 #main {
@@ -236,16 +297,39 @@ DiceScreen {
     margin-top: 1;
 }
 
-#dice-box.crit {
+#dice-fate {
+    display: none;
+    margin-top: 1;
+}
+
+#dice-fate:hover {
+    text-style: bold reverse;
+}
+
+/* How a roll went (see ui/effects.py): the dice box keeps its colour, the story panel pulses it. */
+#dice-box.tone-great, #story.tone-great {
     border: double $warning;
+    border-title-color: $warning;
 }
 
-#dice-box.fumble, #dice-box.failure {
-    border: double $error;
-}
-
-#dice-box.success {
+#dice-box.tone-good, #story.tone-good {
     border: double $success;
+    border-title-color: $success;
+}
+
+#dice-box.tone-neutral, #story.tone-neutral {
+    border: double #c8c8e0;
+    border-title-color: #c8c8e0;
+}
+
+#dice-box.tone-bad, #story.tone-bad {
+    border: double $error;
+    border-title-color: $error;
+}
+
+#dice-box.tone-awful, #story.tone-awful {
+    border: double #ff2a6d;
+    border-title-color: #ff2a6d;
 }
 
 /* --- level up and panels --- */
@@ -410,6 +494,15 @@ EndScreen {
     text-align: center;
     content-align: center middle;
     margin-bottom: 1;
+}
+
+#end-box > .end-hint {
+    height: auto;
+    align-horizontal: center;
+}
+
+.end-hint > Clickable {
+    margin: 0 2;
 }
 
 #end-card {

@@ -188,7 +188,7 @@ def _apply_effect(state: GameState, content: Content, rng: random.Random, effect
         monster.hp -= damage
         monster.hostile = True
         events = [Event("hit", f"{cap(the(monster.name))} takes {damage} damage "
-                               f"({max(monster.hp, 0)}/{monster.max_hp} HP left).")]
+                               f"({max(monster.hp, 0)}/{monster.max_hp} HP left).", data={"damage": damage})]
         return events + (defeat(state, content, rng) if monster.hp <= 0 else [])
     if effect == "stun":
         monster.stunned = 2  # covers this turn's attack and the next, so a stun buys a free action

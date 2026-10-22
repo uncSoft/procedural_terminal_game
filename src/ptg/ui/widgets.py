@@ -13,12 +13,13 @@ from textual.widgets import Static
 
 from .. import layout
 from ..content import Content
-from ..dice import Roll
-from ..events import Action
+from ..events import Action, Event
 from ..glossary import Lexicon
 from ..models import LEVEL_XP, GameState
+from ..outcome import tone, verdict
 from ..sprites import frame_count, sprite_text
 from ..world import render_map
+from . import effects
 from .theme import CELL_STYLES, MAP_STYLES
 
 
@@ -79,18 +80,13 @@ def hearts(hp: int, max_hp: int) -> Text:
     return text
 
 
-def roll_text(roll: Roll) -> Text:
-    """A finished roll as a coloured line for the story log."""
-    style = "bold #ffd166" if roll.crit else ("bold #ff4b4b" if roll.fumble else (
-        "#4cff8a" if roll.success else "#ff7b7b"))
-    if roll.actor == "monster":
-        style = "#ff7b7b" if roll.success else "#7a7a99"
-    text = Text("  ⚄ ", style="#6c6f99")
-    text.append(roll.describe(), style=style)
-    if roll.crit:
-        text.append("  ★ CRITICAL!", style="bold #ffd166")
-    elif roll.fumble:
-        text.append("  ✖ FUMBLE", style="bold #ff4b4b")
+def roll_text(event: Event) -> Text:
+    """A finished roll for the story log: the sum, then a coloured badge saying how it went for you."""
+    roll, how = event.dice, tone(event)
+    text = Text("  ⚄ ", style=effects.COLORS[how])
+    text.append(roll.describe(verdict=False), style="#c8c8e0" if roll.actor == "player" else "#9a9cc0")
+    text.append("  ")
+    text.append_text(effects.badge(how, verdict(event)))
     return text
 
 
@@ -216,23 +212,24 @@ class ChoiceItem(Static):
 
 
 class AnimatedSprite(Static):
-    """A sprite that animates where it stands: in the story, or on a story card."""
+    """A sprite that animates where it stands: in the story, or on a story card. `loop` picks which frames its
+    idle animation cycles through (all of them by default)."""
 
-    def __init__(self, key: str, interval: float = 0.25, **kwargs) -> None:
+    def __init__(self, key: str, interval: float = 0.25, loop: list[int] | None = None, **kwargs) -> None:
         self.key = key
         self.interval = interval
-        self.count = max(1, frame_count(key))
+        self.loop = loop or list(range(max(1, frame_count(key))))
         self.index = 0
         self._timer = None
-        super().__init__(sprite_text(key, 0) or Text(""), **kwargs)
+        super().__init__(sprite_text(key, self.loop[0]) or Text(""), **kwargs)
 
     def on_mount(self) -> None:
-        if self.count > 1:
+        if len(self.loop) > 1:
             self._timer = self.set_interval(self.interval, self._tick)
 
     def _tick(self) -> None:
-        self.index = (self.index + 1) % self.count
-        self.update(sprite_text(self.key, self.index) or Text(""))
+        self.index = (self.index + 1) % len(self.loop)
+        self.update(sprite_text(self.key, self.loop[self.index]) or Text(""))
 
     def freeze(self, frame: int | None = None) -> None:
         """Stop animating (older story sprites stand still so the newest one draws the eye)."""
@@ -250,10 +247,23 @@ class AnimatedSprite(Static):
             await asyncio.sleep(delay)
 
 
+class Clickable(Static):
+    """Text that runs an action when clicked, such as "screen.reroll": a button for players on a mouse."""
+
+    def __init__(self, text: Text | str, action: str, **kwargs) -> None:
+        super().__init__(text, **kwargs)
+        self.action = action
+
+    async def on_click(self, event: Click) -> None:
+        event.stop()
+        await self.run_action(self.action)
+
+
 class DiceLine(Static):
     """A d20 that tumbles for a moment in the story log, then shows the result."""
 
-    async def play(self, roll: Roll, fast: bool = False) -> None:
+    async def play(self, event: Event, fast: bool = False) -> None:
+        roll = event.dice
         frames = 4 if fast else 7
         for i in range(frames):
             face = random.randint(1, 20)
@@ -262,4 +272,5 @@ class DiceLine(Static):
             spin.append(f"[{face:>2}]", style="bold #ffd166" if roll.actor == "player" else "bold #ff7b7b")
             self.update(spin)
             await asyncio.sleep(0.03 + i * 0.012)
-        self.update(roll_text(roll))
+        self.update(roll_text(event))
+        effects.flash(self, tone(event))

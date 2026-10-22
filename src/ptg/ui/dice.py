@@ -1,5 +1,6 @@
-"""The big dice moment, Baldur's Gate 3 style: you press Space, the d20 tumbles and lands, the bonuses add up
-one at a time, and the result is stamped. A failed check can be rerolled with a Fate token."""
+"""The big dice moment, Baldur's Gate 3 style: you press Space (or click), the d20 tumbles and lands, the bonuses
+add up one at a time, and the result is stamped in the colour of how it went. A failed check can be rerolled with
+a Fate token."""
 
 from __future__ import annotations
 
@@ -10,13 +11,20 @@ from rich.text import Text
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Center, Vertical
+from textual.events import Click
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
 from ..dice import Roll
 from ..dice_art import CRIMSON, GOLD, d20
+from ..outcome import AWFUL, BAD, GOOD, GREAT, NEUTRAL
 from ..sprites import side_by_side
+from . import effects
+from .widgets import Clickable
+
+VERDICTS = {GREAT: "★  CRITICAL SUCCESS  ★", GOOD: "✔  SUCCESS", NEUTRAL: "•  {word}", BAD: "✘  FAILURE",
+            AWFUL: "✖  CRITICAL FAIL  ✖"}
 
 
 def dice_row(values: list[int | None], turn: int | None = None, bounce: int = 0, glows: list | None = None,
@@ -30,7 +38,7 @@ def dice_row(values: list[int | None], turn: int | None = None, bounce: int = 0,
 
 
 class DiceScreen(ModalScreen[str]):
-    """Returns "reroll" or "accept"."""
+    """Returns "reroll" or "accept". On a mouse: click anywhere to roll, and again to carry on."""
 
     BINDINGS = [
         Binding("space,enter", "advance", "Roll / continue", show=True),
@@ -38,9 +46,12 @@ class DiceScreen(ModalScreen[str]):
         Binding("escape", "accept", "Accept", show=False),
     ]
 
-    def __init__(self, roll: Roll, summary: str, fate: int, can_reroll: bool, auto: bool = False) -> None:
+    def __init__(self, roll: Roll, summary: str, fate: int, can_reroll: bool, auto: bool = False,
+                 tone: str | None = None, word: str = "") -> None:
         super().__init__()
         self.roll = roll
+        self.tone = tone or (GREAT if roll.crit else AWFUL if roll.fumble else GOOD if roll.success else BAD)
+        self.word = word
         self.summary = summary
         self.fate = fate
         self.can_reroll = can_reroll
@@ -57,7 +68,9 @@ class DiceScreen(ModalScreen[str]):
             yield Static("", id="dice-bonuses")
             yield Static("", id="dice-verdict")
             hint = "two dice: keep the best" if self.roll.advantage > 0 else ""
-            yield Static(Text(f"[space] roll the dice   {hint}", style="#ffb000"), id="dice-prompt")
+            with Center():
+                yield Clickable("", action="screen.reroll", id="dice-fate")  # shown when a failed roll can be rerolled
+            yield Static(Text(f"[space] or click to roll the dice   {hint}", style="#ffb000"), id="dice-prompt")
 
     def _idle_faces(self) -> Text:
         return dice_row([None] * len(self.roll.dice))
@@ -66,20 +79,27 @@ class DiceScreen(ModalScreen[str]):
         if self.auto:
             self.action_advance()
 
+    def on_click(self, event: Click) -> None:
+        self.action_advance()
+
     def action_advance(self) -> None:
         if self.stage == "ready":
             self.stage = "rolling"
             self.animate_roll()
         elif self.stage == "done":
-            self.dismiss("accept")
+            self._close("accept")
 
     def action_reroll(self) -> None:
         if self.stage == "done" and self.can_reroll and not self.roll.success:
-            self.dismiss("reroll")
+            self._close("reroll")
 
     def action_accept(self) -> None:
         if self.stage == "done":
-            self.dismiss("accept")
+            self._close("accept")
+
+    def _close(self, result: str) -> None:
+        self.stage = "closed"  # so a double click can't dismiss twice
+        self.dismiss(result)
 
     @work(exclusive=True)
     async def animate_roll(self) -> None:
@@ -118,29 +138,28 @@ class DiceScreen(ModalScreen[str]):
         bonus_widget.update(line)
         await asyncio.sleep(0.25)
 
+        # The verdict, in the colour of how it went for you; the kept die lights up to match.
+        how = self.tone
         verdict = self.query_one("#dice-verdict", Static)
         box = self.query_one("#dice-box")
-        if roll.crit:
-            verdict.update(Text("★  CRITICAL SUCCESS  ★", style="bold reverse #ffd166"))
-            box.add_class("crit")
+        big = how in (GREAT, AWFUL)
+        verdict.update(Text(VERDICTS[how].format(word=self.word or "NOTHING SPECIAL"),
+                            style=f"bold {'reverse ' if big else ''}{effects.COLORS[how]}"))
+        box.add_class(f"tone-{how}")
+        glows[kept_index] = effects.rgb(how)
+        dice_widget.update(dice_row(list(roll.dice), glows=glows, dims=dims))
+        effects.flash(verdict, how)
+        if big:
             await self._shake(box)
-        elif roll.fumble:
-            verdict.update(Text("✖  CRITICAL FAIL  ✖", style="bold reverse #ff4b4b"))
-            box.add_class("fumble")
-            await self._shake(box)
-        elif roll.success:
-            verdict.update(Text("✔  SUCCESS", style="bold #4cff8a"))
-            box.add_class("success")
-        else:
-            verdict.update(Text("✘  FAILURE", style="bold #ff4b4b"))
-            box.add_class("failure")
 
         prompt = Text()
         if not roll.success and self.can_reroll:
-            prompt.append(f"[f] spend Fate to reroll ({self.fate} left)", style="bold #ffd166")
-            prompt.append("     [enter] accept", style="#9a9cc0")
+            fate = self.query_one("#dice-fate", Clickable)
+            fate.update(Text(f" ✦ Spend Fate to reroll ({self.fate} left) ", style="bold #10122a on #ffd166"))
+            fate.display = True
+            prompt.append("[f] reroll     [enter] or click anywhere to accept", style="#9a9cc0")
         else:
-            prompt.append("[enter] continue", style="#9a9cc0")
+            prompt.append("[enter] or click to continue", style="#9a9cc0")
         self.query_one("#dice-prompt", Static).update(prompt)
         self.stage = "done"
 

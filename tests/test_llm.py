@@ -7,7 +7,10 @@ from ptg.llm import extras
 from ptg.llm.base import LLMError, ThinkFilter, extract_json
 from ptg.llm.interpreter import interpret, offline_interpret
 from ptg.llm.openai_compat import normalize_url
-from ptg.rules import available_actions
+from ptg.llm.prompts import narrator_messages
+from ptg.models import OPPOSITE
+from ptg.rules import available_actions, exit_notes, perform
+from ptg.text import the
 from ptg.world import generate
 
 QUESTION = {"kind": "question", "action_id": "", "stat": "none", "difficulty": "trivial",
@@ -105,7 +108,7 @@ async def test_two_phase_turn_and_narration(content, fake_llm, profile):
     assert pending.intent.kind == "question" and pending.primary is None
     result = await game.finish(chunks.append)
     assert result.narration == "You are fine, mostly."
-    assert [e.kind for e in game.state.log] == ["narration", "player", "narration"]
+    assert [e.kind for e in game.state.log] == ["floor", "narration", "player", "narration"]
 
 
 async def test_fate_reroll_rewinds_and_spends_a_token(content, profile):
@@ -161,3 +164,42 @@ async def test_offline_extras_have_fallbacks(content):
     assert "Here lies" in await extras.epitaph(None, state)
     assert await extras.void_line(None, None, "Chubrock")
     assert await extras.lore(None, content, "goblin") == ""
+
+
+def test_the_narrator_knows_where_the_player_was_and_is(content):
+    """Walking into a new room must not read as going back to one you know (the model used to mix them up)."""
+    state = generate(5)
+    start = state.room
+    direction = next(iter(start.exits))
+    events = perform(state, content, f"go:{direction}")
+    _, user = narrator_messages(state, content, "go", events, "grim")
+    new = the(state.room.name)
+    assert f"THIS TURN: the player has just left {the(start.name)} and is now in {new}, a room they have never" in user
+    assert f"({the(start.name)}, where you came from)" in user
+    assert "How you described it" not in user
+
+    start.description = "Old words about the first room."
+    events = perform(state, content, f"go:{OPPOSITE[direction]}")
+    _, user = narrator_messages(state, content, "go back", events, "grim")
+    assert "a room they have been in before" in user and "Old words about the first room." in user
+
+    _, user = narrator_messages(state, content, "look around", [], "grim")
+    assert f"THIS TURN: the player is in {the(start.name)}." in user and "Exits: " in user
+    assert "Old words" not in user  # the old description only comes back on re-entry
+
+
+def test_exits_say_what_lies_beyond(content):
+    state = generate(2)
+    stairs = next(r for r in state.rooms if r.fixture == "stairs")
+    near = next(r for r in state.rooms if any(e.to == stairs.id for e in r.exits.values()))
+    state.room_id = near.id
+    assert "(unexplored; the stairs down beyond)" in exit_notes(state)
+
+
+async def test_moves_are_journaled_as_one_line(content, profile):
+    game = Game(generate(5), Config(backend="offline"), None, profile=profile)
+    await game.opening(lambda _: None)
+    go = next(i for i, a in enumerate(game.choices(), 1) if a.id.startswith("go:"))
+    await game.begin(str(go))
+    await game.finish(lambda _: None)
+    assert game.state.journal[-1].startswith("You went ") and "Exits" not in game.state.journal[-1]

@@ -19,6 +19,7 @@ from ..models import GameState
 from ..profile import Profile
 from ..sprites import sprite_text
 from ..story import load_library
+from .widgets import Clickable
 
 CAMPFIRE = r"""
        )   (
@@ -272,7 +273,9 @@ class EndScreen(Screen):
             yield Static(stats, classes="end-stats")
             yield Static("", id="end-souls")
             yield Static(Text(share_card(state), style="#6c8cff"), id="end-card")
-            yield Static(Text("[enter] to the campfire     [c] copy result", style="#ffb000"), classes="end-hint")
+            with Horizontal(classes="end-hint"):
+                yield Clickable(Text(" [enter] to the campfire ", style="#ffb000"), action="screen.campfire")
+                yield Clickable(Text(" [c] copy result ", style="#ffb000"), action="screen.copy")
         yield Footer()
 
     def on_mount(self) -> None:

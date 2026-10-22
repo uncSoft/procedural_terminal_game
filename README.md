@@ -27,12 +27,13 @@ You hurl the vial with theatrical precision and it shatters against the ghoul's 
 | **Interpreter** (model) | Turns free text into JSON: one of the listed actions, or a *creative* attempt with a stat, a difficulty, the props it uses, and effects from a fixed menu (stun, small damage, pacify, evade, reveal a secret...). The rules check the props exist, clamp the effects, roll the dice and apply them. "Summon a dragon" fails; "throw sand in its eyes" might stun it. |
 | **Narrator** (model) | Gets the list of facts that actually happened and streams a few sentences of prose. It can't change the game state, so it can't make up loot or kill monsters. |
 
-Each turn sends the model a small snapshot (room, positions, player, last few events), not an ever-growing chat log, so local models stay fast: about 1-2 seconds a turn with Qwen3.6-35B-A3B in LM Studio. Without a model the game still runs: commands go through a keyword matcher and narration is stitched together from the facts.
+Each turn sends the model a small snapshot, not an ever-growing chat log, so local models stay fast: about 1-2 seconds a turn with Qwen3.6-35B-A3B in LM Studio. The snapshot reads oldest first: the floor, a few one-line notes on what happened before this turn, where the player was and is now (and whether they've been here before), the room as it stands with what lies beyond each exit, and the facts of this turn. Without a model the game still runs: commands go through a keyword matcher and narration is stitched together from the facts.
 
 ## The loop
 
 **Every turn**
-- **Dice you roll yourself.** Skill checks open a big pixel-art d20: press Space, it tumbles and bounces, bonuses add up one by one, and the result is stamped. Natural 20s glow gold, natural 1s glow red and shake the screen; with advantage you roll two and the one you don't keep greys out. Attacks get small inline dice.
+- **Dice you roll yourself.** Skill checks open a big pixel-art d20: press Space (or click), it tumbles and bounces, bonuses add up one by one, and the result is stamped. Natural 20s glow gold, natural 1s glow red and shake the screen; with advantage you roll two and the one you don't keep greys out. Attacks get small inline dice.
+- **You can see how it went.** Every roll ends in a coloured verdict (✔ HIT, ✘ HIT YOU, • NOTHING, ★ CRITICAL!) and flashes its colour. The story's border lights up green when the turn goes your way, red when it doesn't and silver when it's mixed (or blinks gold or crimson for a 20 or a 1). Damage numbers rise off the monster, your HP changes show by your hearts, and a new floor gets a title card and a banner in the story.
 - **Props and flair.** Using a real thing in the room or your pack ("topple the statue onto it") adds a ✦ flair bonus to the roll and earns a **Fate** token on success.
 - **Fate rerolls.** Spend Fate to rewind a failed check and roll again. Earn it with flair, perfect dodges, natural 20s and shrines.
 - **Telegraphs.** Monsters wind up heavy blows a turn early (`⚠ HEAVY ATTACK NEXT`). Dodge or improvise an evasion to make them whiff, and get advantage and a Fate token.
@@ -126,7 +127,7 @@ The first launch opens Settings: pick LM Studio, Ollama, another OpenAI-compatib
 | F6 | `b` | bestiary: art, kills, discovered weaknesses, lore |
 | F7 | `j` | journal |
 
-Choices can be clicked as well as typed.
+Everything works with a mouse too: click a choice, a highlighted word or the dice (once to roll, again to carry on), and close a panel with its ✕ or a click outside it.
 
 Useful flags:
 

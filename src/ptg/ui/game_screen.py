@@ -19,12 +19,14 @@ from ..events import Event
 from ..glossary import Lexicon
 from ..game import Game
 from ..models import LogEntry
+from ..outcome import AWFUL, BAD, GOOD, GREAT, overall, tone, verdict
 from ..sprites import DEATH_FRAMES
+from . import effects
 from .dice import DiceScreen
-from .panels import (BestiaryScreen, CharacterScreen, HelpScreen, InfoScreen, InventoryScreen, JournalScreen,
-                     LevelUpScreen, LookScreen, MapScreen)
-from .widgets import (AnimatedSprite, ChoiceItem, DiceLine, Hud, StoryLine, bar, highlight, map_text, monster_text,
-                      portrait, roll_text, room_text)
+from .panels import (BestiaryScreen, CharacterScreen, FloorScreen, HelpScreen, InfoScreen, InventoryScreen,
+                     JournalScreen, LevelUpScreen, LookScreen, MapScreen)
+from .widgets import (AnimatedSprite, ChoiceItem, DiceLine, Hud, StoryLine, bar, hearts, highlight, map_text,
+                      monster_text, portrait, roll_text, room_text)
 
 # (sprite, steps of (frame, pose, flash)) for the moment you use a fixture
 FIXTURE_MOMENTS = {
@@ -35,6 +37,9 @@ FIXTURE_MOMENTS = {
                           (0, "idle", False)]),
     "descend": ("stairs", [(i % 3, "idle", False) for i in range(6)] + [(i, "death", False) for i in range(6)]),
 }
+
+# Idle frames for a fixture waiting to be used (a chest stays shut, with the odd glint).
+ARRIVAL_LOOPS = {"chest": [0, 0, 0, 1]}
 
 COMMANDS = {
     "i": "inventory", "inv": "inventory", "inventory": "inventory",
@@ -49,7 +54,6 @@ TOASTS = {
     "trait": ("Trait earned", "information"),
     "weakness": ("Bestiary", "information"),
     "fate": ("Fate", "information"),
-    "descend": ("Deeper", "warning"),
     "ghost_rest": ("A ghost rests", "information"),
     "reprieve": ("Not yet!", "warning"),
     "key": ("Key", "information"),
@@ -76,6 +80,7 @@ class GameScreen(Screen):
         self.frame = 0  # idle animation frame for the monster sprite
         self.animating = False  # a one-off scene animation is playing; the idle loop waits
         self.live_sprites: list[AnimatedSprite] = []
+        self.fixture_sprites: dict[tuple[int, int], AnimatedSprite] = {}  # (floor, room) -> its fixture's sprite
 
     def compose(self) -> ComposeResult:
         yield Hud(id="hud")
@@ -153,7 +158,15 @@ class GameScreen(Screen):
                                    style="bold #ffd166"), "system-line")
                 self.notify(event.data.get("title", ""), title="✧ Secret found", timeout=6)
 
+    def add_floor_header(self, title: str, name: str, before=None) -> Static:
+        """A banner across the story where a new floor begins."""
+        text = Text(f"↓   {title.upper()}  ·  {name.upper()}   ↓", style="bold")
+        return self.add_line(text, "floor-header", before=before)
+
     def add_entry(self, entry: LogEntry, lexicon: Lexicon | None = None) -> None:
+        if entry.kind == "floor":
+            self.add_floor_header(entry.title, entry.text)
+            return
         if entry.kind == "card":
             self.add_card(entry.title, entry.text, lexicon, entry.art)
             return
@@ -213,6 +226,8 @@ class GameScreen(Screen):
             command.focus()
 
     async def _opening(self) -> None:
+        state = self.game.state
+        self.add_floor_header(f"Floor {state.floor} of {state.floors_total}", self.game.theme.name)
         narration, on_text = self._narration_sink()
         result = await self.game.opening(on_text)
         narration.update(highlight(result.narration, self.lexicon()))
@@ -232,13 +247,15 @@ class GameScreen(Screen):
         monster = game.state.room.monster
         before = (monster.key, monster.name) if monster else None
         room_before = game.state.room_id
+        where = (game.state.floor, room_before)
 
         pending = await game.begin(text)
         primary = pending.primary
         while primary is not None:
             summary = pending.intent.summary or shown
             choice = await self.app.push_screen_wait(
-                DiceScreen(primary.dice, summary, game.fate_left(), game.can_reroll(), auto=game.config.auto_roll))
+                DiceScreen(primary.dice, summary, game.fate_left(), game.can_reroll(), auto=game.config.auto_roll,
+                           tone=tone(primary), word=verdict(primary)))
             if choice == "reroll" and game.can_reroll():
                 pending = game.reroll()
                 primary = pending.primary
@@ -248,19 +265,21 @@ class GameScreen(Screen):
             break
 
         narration, on_text = self._narration_sink()
-        crit = False
         for event in pending.events:
             if not event.dice:
                 continue
-            crit = crit or event.dice.crit
             if event is primary:
-                self.add_line(roll_text(event.dice), "mechanic", before=narration)
+                effects.flash(self.add_line(roll_text(event), "mechanic", before=narration), tone(event))
             else:
                 line = DiceLine("", classes="mechanic")
                 await self.query_one("#story").mount(line, before=narration)
-                await line.play(event.dice, fast=event.dice.actor == "monster")
+                await line.play(event, fast=event.dice.actor == "monster")
+        self.query_one("#hud", Hud).show(game.state, game.content)
+        await self._roll_feedback(pending.events, hp_before)
         await self._fight_animations(pending.events, before, room_before)
-        await self._fixture_moment(pending.events, narration)
+        await self._fixture_moment(pending.events, narration, where)
+        if any(e.kind == "descend" for e in pending.events):
+            self._new_floor(narration)
         self.refresh_panels()
 
         result = await game.finish(on_text)
@@ -273,10 +292,6 @@ class GameScreen(Screen):
         self._arrival_sprite(result.events)
         self._show_story(result.events)
         self._toasts(result.events)
-        if crit:
-            await self._shake(self.query_one("#story"))
-        if game.state.player.hp < hp_before:
-            self._flash_hud()
         self.refresh_panels()
 
         while game.state.pending_perks:
@@ -311,22 +326,65 @@ class GameScreen(Screen):
 
         return narration, on_text
 
+    def _new_floor(self, narration: Static) -> None:
+        """A header in the story, and the floor's card on top until you've read it (the arrival is narrated
+        behind it in the meantime)."""
+        game = self.game
+        state = game.state
+        self.add_floor_header(f"Floor {state.floor} of {state.floors_total}", game.theme.name, before=narration)
+        self.app.push_screen(FloorScreen(state.floor, state.floors_total, game.theme, state.final_floor))
+
     def _toasts(self, events: list[Event]) -> None:
         for event in events:
             if event.kind in TOASTS:
                 title, severity = TOASTS[event.kind]
                 self.notify(event.text, title=title, severity=severity, timeout=5)
 
-    def _flash_hud(self) -> None:
+    def _flash_hud(self, kind: str) -> None:
         hud = self.query_one("#hud")
-        hud.add_class("hurt")
-        self.set_timer(0.4, lambda: hud.remove_class("hurt"))
+        hud.add_class(kind)
+        self.set_timer(0.45, lambda: hud.remove_class(kind))
 
     @staticmethod
     async def _shake(widget) -> None:
         for dx in (1, -1, 1, 0):
             widget.styles.offset = (dx, 0)
             await asyncio.sleep(0.035)
+
+    # --- feedback ---
+
+    async def _roll_feedback(self, events: list[Event], hp_before: int) -> None:
+        """How the turn went, at a glance: the story's border lights up in its colour (and blinks and shakes for a
+        natural 20 or 1), damage rises off the monster, and your hearts show what you lost or gained."""
+        story = self.query_one("#story")
+        how = overall(events)
+        if how:
+            effects.pulse(story, how, blinks=3 if how in (GREAT, AWFUL) else 1)
+        hits = [e for e in events if e.kind == "hit" and e.data.get("damage")]
+        if hits:
+            crit = any(e.dice and e.dice.crit for e in hits)
+            dealt = sum(e.data["damage"] for e in hits)
+            await self._pop_over_scene(f" -{dealt}{'!' if crit else ''} ",
+                                       f"bold {effects.INK} on {effects.COLORS[GREAT] if crit else '#ffffff'}")
+        elif any(e.kind == "miss" for e in events):
+            await self._pop_over_scene(" MISS ", "bold #c8c8e0 on #23274a")
+        player = self.game.state.player
+        change = player.hp - hp_before
+        if change:  # just under the HP numbers, on the story's top border, sliding right
+            hud = self.query_one("#hud").region
+            x = hud.x + 1 + len(hearts(player.hp, player.max_hp)) + len(f" {player.hp}/{player.max_hp}") - 2
+            style = (f"bold #ffffff on {effects.COLORS[BAD]}" if change < 0
+                     else f"bold {effects.INK} on {effects.COLORS[GOOD]}")
+            await effects.popup(self, f" {change:+d} ♥ ", style, x, hud.y + 1, dx=4, dy=0)
+            self._flash_hud("hurt" if change < 0 else "healed")
+        if how in (GREAT, AWFUL):
+            await self._shake(story)
+
+    async def _pop_over_scene(self, text: str, style: str) -> None:
+        """A popup rising off the monster's portrait."""
+        region = self.query_one("#scene").region
+        x = region.x + max(1, (region.width - len(text)) // 2)
+        await effects.popup(self, text, style, x, region.y + min(7, region.height // 2))
 
     # --- animation ---
 
@@ -374,15 +432,21 @@ class GameScreen(Screen):
         art.append(f" {max(0, hp)}/{max_hp}")
         return art
 
-    async def _fixture_moment(self, events: list[Event], narration: Static) -> None:
-        """Opening a chest, drinking from a fountain, an offering, going down the stairs: play it out."""
+    async def _fixture_moment(self, events: list[Event], narration: Static, where: tuple[int, int]) -> None:
+        """Opening a chest, drinking from a fountain, an offering, going down the stairs: play it out. The sprite
+        shown when you walked in moves down to here and plays it, so there's only ever one of each."""
         kind = next((e.kind for e in events if e.kind in FIXTURE_MOMENTS), None)
         if kind is None or not self._sprites_on():
             return
         key, steps = FIXTURE_MOMENTS[kind]
-        sprite = AnimatedSprite(key, classes="story-sprite")
-        await self.query_one("#story").mount(sprite, before=narration)
-        self.query_one("#story", VerticalScroll).scroll_end(animate=False)
+        story = self.query_one("#story", VerticalScroll)
+        sprite = self.fixture_sprites.pop(where, None)
+        if sprite is not None and sprite.is_attached and sprite.key == key:
+            story.move_child(sprite, before=narration)
+        else:
+            sprite = AnimatedSprite(key, classes="story-sprite")
+            await story.mount(sprite, before=narration)
+        story.scroll_end(animate=False)
         await sprite.play(steps)
         if kind == "descend":
             await sprite.remove()  # it dissolved into the dark
@@ -392,9 +456,11 @@ class GameScreen(Screen):
         room = self.game.state.room
         arrived = any(e.kind in ("enter", "descend") and e.data.get("first") for e in events)
         if arrived and room.fixture and not room.fixture_used and self._sprites_on():
-            sprite = AnimatedSprite(room.fixture, interval=0.3, classes="story-sprite")
+            sprite = AnimatedSprite(room.fixture, interval=0.3, loop=ARRIVAL_LOOPS.get(room.fixture),
+                                    classes="story-sprite")
             self.query_one("#story", VerticalScroll).mount(sprite)
             self.live_sprites.append(sprite)
+            self.fixture_sprites[(self.game.state.floor, room.id)] = sprite
 
     def _animate(self) -> None:
         if self._sprites_on() and self.game.state.room.monster and not self.animating:

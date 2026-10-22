@@ -131,7 +131,7 @@ class Player(BaseModel):
 
 
 class LogEntry(BaseModel):
-    kind: Literal["player", "narration", "mechanic", "system", "card"]
+    kind: Literal["player", "narration", "mechanic", "system", "card", "floor"]
     text: str
     title: str = ""
     art: str = ""  # a story card's sprite

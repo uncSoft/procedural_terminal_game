@@ -1,0 +1,175 @@
+Screen {
+    background: $background;
+}
+
+/* --- title & intro --- */
+
+#title-wrap, #intro-wrap, #setup-wrap {
+    align: center middle;
+}
+
+#splash {
+    width: auto;
+    color: $secondary;
+    text-style: bold;
+}
+
+#tagline {
+    width: auto;
+    margin: 1 0;
+    color: $text-muted;
+}
+
+#menu {
+    width: 32;
+    height: auto;
+}
+
+#menu Button {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#narrator-info {
+    width: auto;
+    color: $text-muted;
+    margin-top: 1;
+}
+
+#intro-box {
+    width: 76;
+    max-width: 100%;
+    height: auto;
+    border: heavy $warning;
+    border-title-color: $warning;
+    padding: 1 2;
+}
+
+#intro-hint {
+    margin-top: 1;
+    color: $text-muted;
+}
+
+/* --- setup --- */
+
+#setup-box {
+    width: 72;
+    max-width: 100%;
+    height: auto;
+    border: round $primary;
+    padding: 1 2;
+}
+
+#setup-box Label {
+    margin-top: 1;
+    color: $text-muted;
+}
+
+#setup-box Input, #setup-box Select {
+    width: 100%;
+}
+
+#setup-status {
+    margin-top: 1;
+    color: $warning;
+    height: auto;
+}
+
+#setup-buttons {
+    height: auto;
+    margin-top: 1;
+}
+
+#setup-buttons Button {
+    margin-right: 2;
+}
+
+/* --- game --- */
+
+#main {
+    height: 1fr;
+}
+
+#story {
+    width: 1fr;
+    border: round $primary-darken-1;
+    border-title-color: $primary;
+    padding: 0 1;
+    scrollbar-size-vertical: 1;
+}
+
+#sidebar {
+    width: 38;
+}
+
+.panel {
+    height: auto;
+    border: round $secondary-darken-1;
+    border-title-color: $secondary;
+    padding: 0 1;
+}
+
+#monster {
+    border: round $error-darken-1;
+    border-title-color: $error;
+}
+
+#map {
+    height: 1fr;
+}
+
+#choices {
+    height: auto;
+    max-height: 12;
+    border: round $accent-darken-1;
+    border-title-color: $accent;
+    padding: 0 1;
+}
+
+#command {
+    margin: 0 0;
+}
+
+.player-line {
+    margin-top: 1;
+    color: $accent;
+    text-style: bold;
+}
+
+.mechanic {
+    color: $text-muted;
+    text-style: italic;
+}
+
+.narration {
+    color: $text;
+}
+
+.system-line {
+    color: $warning;
+    text-style: italic;
+}
+
+.banner {
+    margin-top: 1;
+    padding: 1 2;
+    border: heavy $warning;
+    text-style: bold;
+}
+
+/* --- help --- */
+
+HelpScreen {
+    align: center middle;
+}
+
+#help-box {
+    width: 80;
+    max-width: 100%;
+    height: auto;
+    max-height: 90%;
+    border: round $accent;
+    border-title-color: $accent;
+    padding: 1 2;
+    background: $surface;
+}

@@ -1,0 +1,35 @@
+# A theme is one dungeon flavor. The world generator picks one per seed and
+# builds every room from its archetypes and monster tags.
+
+[[theme]]
+key = "sunken_crypt"
+name = "The Sunken Crypt"
+blurb = "A burial vault under a drowned chapel. Black water seeps through every wall, and candles that should have guttered out a century ago are still burning."
+goal = "Put the Drowned Abbot to rest."
+archetypes = ["flooded_nave", "ossuary", "reliquary", "cistern", "collapsed_tunnel", "vestry", "catacomb", "bell_shaft"]
+monster_tags = ["undead", "aquatic", "vermin"]
+boss = "drowned_abbot"
+boss_room = "abbots_sanctum"
+key_item = "reliquary_key"
+
+[[theme]]
+key = "goblin_warren"
+name = "The Goblin Warren"
+blurb = "A maze of tunnels gnawed into a hillside by a goblin tribe with big ambitions and no sense of hygiene. It smells like smoke, wet dog and stolen cheese."
+goal = "Dethrone the Goblin King."
+archetypes = ["feast_hall", "kennels", "trash_heap", "guard_post", "shrine_of_junk", "mushroom_farm", "sleeping_burrow", "forge_pit"]
+monster_tags = ["goblinoid", "vermin", "beast", "giant"]
+boss = "goblin_king"
+boss_room = "throne_cave"
+key_item = "warren_key"
+
+[[theme]]
+key = "overgrown_ruins"
+name = "The Overgrown Ruins"
+blurb = "An elven observatory swallowed by a forest that is slowly, deliberately eating it. Roots crack the marble, and the flowers turn to follow you."
+goal = "Cut out the heart of the Thornmother."
+archetypes = ["root_choked_hall", "star_chamber", "greenhouse", "collapsed_library", "fountain_court", "spore_grotto", "statue_garden", "hollow_tree"]
+monster_tags = ["plant", "beast", "goblinoid"]
+boss = "thornmother"
+boss_room = "heartwood"
+key_item = "seed_key"

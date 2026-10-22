@@ -1,0 +1,81 @@
+# kind: weapon | armor | consumable | key
+# Weapons roll `damage` and add the player's might. Armor adds `defense`.
+# Consumables restore `heal` HP, or let you escape a fight if `escape = true`.
+
+[item.rusty_sword]
+name = "Rusty Sword"
+kind = "weapon"
+damage = "1d6"
+tier = 0
+
+[item.hand_axe]
+name = "Hand Axe"
+kind = "weapon"
+damage = "1d8"
+tier = 1
+
+[item.war_pick]
+name = "War Pick"
+kind = "weapon"
+damage = "1d10"
+tier = 2
+
+[item.silvered_blade]
+name = "Silvered Blade"
+kind = "weapon"
+damage = "2d6"
+tier = 3
+
+[item.leather_jerkin]
+name = "Leather Jerkin"
+kind = "armor"
+defense = 1
+tier = 1
+
+[item.chain_shirt]
+name = "Chain Shirt"
+kind = "armor"
+defense = 2
+tier = 2
+
+[item.scale_hauberk]
+name = "Scale Hauberk"
+kind = "armor"
+defense = 3
+tier = 3
+
+[item.healing_potion]
+name = "Healing Potion"
+kind = "consumable"
+heal = 8
+tier = 1
+
+[item.greater_healing_potion]
+name = "Greater Healing Potion"
+kind = "consumable"
+heal = 16
+tier = 2
+
+[item.stale_bread]
+name = "Stale Bread"
+kind = "consumable"
+heal = 3
+tier = 0
+
+[item.smoke_bomb]
+name = "Smoke Bomb"
+kind = "consumable"
+escape = true
+tier = 1
+
+[item.reliquary_key]
+name = "Barnacled Reliquary Key"
+kind = "key"
+
+[item.warren_key]
+name = "Greasy Throne-Room Key"
+kind = "key"
+
+[item.seed_key]
+name = "Living Seed-Key"
+kind = "key"

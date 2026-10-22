@@ -3,6 +3,13 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.pytest_cache/
 
 # Virtualenv
 venv/
+.venv/
+
+# Local runtime files (config and saves live in ~/.ptg)
+*.log
+ui_dump.json
+.DS_Store

@@ -1,0 +1,144 @@
+# Room archetypes. `names` are picked at random, `blurb` is the plain-text
+# description used when no language model is available, and `features` are
+# things in the room the player can search.
+
+# --- The Sunken Crypt -------------------------------------------------------
+
+[archetype.flooded_nave]
+names = ["Flooded Nave", "Drowned Gallery"]
+blurb = "Knee-deep black water fills a long hall. Pillars rise out of it like the trunks of drowned trees."
+features = ["a half-sunken pew", "a toppled saint's statue", "a floating hymn chest"]
+
+[archetype.ossuary]
+names = ["Ossuary", "Bone Gallery"]
+blurb = "Skulls are stacked floor to ceiling in neat, judgemental rows."
+features = ["a niche of polished skulls", "a heap of loose bones", "an offering bowl"]
+
+[archetype.reliquary]
+names = ["Reliquary", "Saint's Alcove"]
+blurb = "Glass cases line the walls, most of them smashed. Whatever was holy here has been picked over."
+features = ["a cracked glass case", "a gilded box", "a prayer rail"]
+
+[archetype.cistern]
+names = ["Cistern", "Old Well Chamber"]
+blurb = "A round chamber around a deep well. Something far below makes slow, patient ripples."
+features = ["a rope and bucket", "a rusted drain grate", "a ledge above the waterline"]
+
+[archetype.collapsed_tunnel]
+names = ["Collapsed Tunnel", "Cave-in"]
+blurb = "Half the ceiling has come down. The way through is a crawl over wet rubble."
+features = ["a crushed wheelbarrow", "a gap in the rubble"]
+
+[archetype.vestry]
+names = ["Vestry", "Robing Room"]
+blurb = "Mouldering vestments hang from hooks, swaying though there is no draft."
+features = ["a wardrobe of rotten robes", "a writing desk", "a candle stand"]
+
+[archetype.catacomb]
+names = ["Catacomb", "Burial Corridor"]
+blurb = "Burial shelves are cut into both walls. Several of them are empty, which is worse."
+features = ["a sealed burial shelf", "a smashed coffin", "a mourner's lantern"]
+
+[archetype.bell_shaft]
+names = ["Bell Shaft", "Sunken Belfry"]
+blurb = "A fallen bell lies cracked on the floor. A shaft climbs into darkness overhead."
+features = ["the cracked bell", "a coil of bell rope"]
+
+[archetype.abbots_sanctum]
+names = ["The Abbot's Sanctum"]
+blurb = "A flooded chapel lit by drowned candles. An altar rises from the water, and someone is still at prayer."
+features = ["the drowned altar"]
+
+# --- The Goblin Warren ------------------------------------------------------
+
+[archetype.feast_hall]
+names = ["Feast Hall", "Mess Cave"]
+blurb = "Long tables made of doors. Half-eaten food everywhere, and none of it is identifiable."
+features = ["a stew cauldron", "a pile of stolen plates", "a barrel of 'ale'"]
+
+[archetype.kennels]
+names = ["Kennels", "Wolf Pens"]
+blurb = "Cages of bent iron and chewed bones. The straw is warm."
+features = ["a feeding trough", "a chewed-up saddle", "an open cage"]
+
+[archetype.trash_heap]
+names = ["Midden", "Trash Heap"]
+blurb = "A mountain of garbage, carefully sorted into categories only a goblin would understand."
+features = ["a promising pile of junk", "a broken cart", "a sack of 'treasures'"]
+
+[archetype.guard_post]
+names = ["Guard Post", "Lookout"]
+blurb = "A barricade of furniture and a sign that says KEEP OWT in three different handwritings."
+features = ["a weapon rack", "a dice table", "a warning gong"]
+
+[archetype.shrine_of_junk]
+names = ["Shrine of Junk", "Holy Scrap Pile"]
+blurb = "A shrine to a god made of pots, pans and one very confused taxidermied owl."
+features = ["the junk idol", "an offering bowl", "a pile of candle stubs"]
+
+[archetype.mushroom_farm]
+names = ["Mushroom Farm", "Fungus Beds"]
+blurb = "Glowing mushrooms grow in neat rows. A few of them seem to be watching you."
+features = ["a giant puffball", "a harvest basket", "a compost pit"]
+
+[archetype.sleeping_burrow]
+names = ["Sleeping Burrow", "Snore Den"]
+blurb = "Nests of rags and stolen blankets. The smell is a physical presence."
+features = ["a lumpy bedroll", "a stash under a rock", "a pile of stolen boots"]
+
+[archetype.forge_pit]
+names = ["Forge Pit", "Smithy"]
+blurb = "A forge built from a stolen bathtub. The anvil is a sleeping troll's helmet."
+features = ["the bathtub forge", "a scrap bin", "a tool wall"]
+
+[archetype.throne_cave]
+names = ["The Throne Cave"]
+blurb = "A cavern lit by a hundred stolen lanterns. On a throne of stacked chairs sits the Goblin King."
+features = ["the throne of chairs"]
+
+# --- The Overgrown Ruins ----------------------------------------------------
+
+[archetype.root_choked_hall]
+names = ["Root-Choked Hall", "Strangled Corridor"]
+blurb = "Roots as thick as your arm have pried apart the marble. They creak when you are not looking at them."
+features = ["a root-wrapped statue", "a cracked mosaic", "a fallen chandelier"]
+
+[archetype.star_chamber]
+names = ["Star Chamber", "Orrery Hall"]
+blurb = "A broken brass orrery hangs from the domed ceiling. Moss has grown into the shapes of constellations."
+features = ["the brass orrery", "a star chart table", "a telescope stand"]
+
+[archetype.greenhouse]
+names = ["Greenhouse", "Glass Garden"]
+blurb = "Shattered glass panes overhead. The plants in here are far too large and far too awake."
+features = ["a potting bench", "a glass cloche", "a tangle of creepers"]
+
+[archetype.collapsed_library]
+names = ["Collapsed Library", "Mossy Archive"]
+blurb = "Shelves have toppled like dominoes. The books have sprouted."
+features = ["a sprouting bookshelf", "a reading lectern", "a toppled card catalog"]
+
+[archetype.fountain_court]
+names = ["Fountain Court", "Moonwell"]
+blurb = "A dry fountain in a courtyard open to the sky. Petals drift down like slow snow."
+features = ["the dry fountain", "a mossy bench", "a wishing basin"]
+
+[archetype.spore_grotto]
+names = ["Spore Grotto", "Mould Cellar"]
+blurb = "Every surface is furred with pale mould. Each step releases a puff of glittering spores."
+features = ["a mould-covered chest", "a puffing fungus", "a skeleton wrapped in mycelium"]
+
+[archetype.statue_garden]
+names = ["Statue Garden", "Hall of Wardens"]
+blurb = "Elven statues stand guard, each one strangled by flowering vines."
+features = ["a statue with an outstretched hand", "a vine-covered plinth", "a broken sword in the soil"]
+
+[archetype.hollow_tree]
+names = ["Hollow Tree", "Heartless Oak"]
+blurb = "The room is the inside of a hollow tree that grew straight through the floor."
+features = ["a knot hole", "a bird's nest", "a sap-filled crack"]
+
+[archetype.heartwood]
+names = ["The Heartwood"]
+blurb = "A cathedral of living wood around a pulsing green heart. The Thornmother unfolds from it."
+features = ["the pulsing heart"]

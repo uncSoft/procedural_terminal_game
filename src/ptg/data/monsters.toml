@@ -1,0 +1,177 @@
+# Monsters. Art lives in art.txt under a matching `=== key ===` header.
+# `defense` is the d20 roll the player needs (after bonuses) to hit.
+# `intelligent` monsters can be talked to, bribed or bluffed.
+
+[monster.giant_rat]
+name = "Giant Rat"
+hp = 5
+defense = 10
+attack = 2
+damage = "1d4"
+xp = 6
+tier = 1
+tags = ["vermin", "beast"]
+
+[monster.goblin]
+name = "Goblin"
+hp = 8
+defense = 11
+attack = 3
+damage = "1d6"
+xp = 10
+tier = 1
+tags = ["goblinoid"]
+intelligent = true
+
+[monster.skeleton]
+name = "Skeleton"
+hp = 10
+defense = 12
+attack = 3
+damage = "1d6"
+xp = 12
+tier = 1
+tags = ["undead"]
+
+[monster.cave_crab]
+name = "Cave Crab"
+hp = 9
+defense = 13
+attack = 2
+damage = "1d6"
+xp = 10
+tier = 1
+tags = ["aquatic"]
+
+[monster.thorn_sprite]
+name = "Thorn Sprite"
+hp = 6
+defense = 13
+attack = 3
+damage = "1d4"
+xp = 8
+tier = 1
+tags = ["plant"]
+intelligent = true
+
+[monster.hobgoblin]
+name = "Hobgoblin"
+hp = 16
+defense = 13
+attack = 4
+damage = "1d8"
+xp = 25
+tier = 2
+tags = ["goblinoid"]
+intelligent = true
+
+[monster.ghoul]
+name = "Ghoul"
+hp = 16
+defense = 12
+attack = 4
+damage = "1d8"
+xp = 25
+tier = 2
+tags = ["undead"]
+
+[monster.dire_wolf]
+name = "Dire Wolf"
+hp = 15
+defense = 13
+attack = 4
+damage = "1d8"
+xp = 22
+tier = 2
+tags = ["beast"]
+
+[monster.bog_lurker]
+name = "Bog Lurker"
+hp = 18
+defense = 12
+attack = 4
+damage = "1d8"
+xp = 25
+tier = 2
+tags = ["aquatic"]
+
+[monster.vine_horror]
+name = "Vine Horror"
+hp = 18
+defense = 11
+attack = 4
+damage = "1d8"
+xp = 25
+tier = 2
+tags = ["plant"]
+
+[monster.orc]
+name = "Orc"
+hp = 22
+defense = 13
+attack = 5
+damage = "1d10"
+xp = 40
+tier = 3
+tags = ["goblinoid"]
+intelligent = true
+
+[monster.troll]
+name = "Troll"
+hp = 24
+defense = 12
+attack = 5
+damage = "1d10"
+xp = 50
+tier = 3
+tags = ["giant", "beast"]
+intelligent = true
+
+[monster.wight]
+name = "Wight"
+hp = 20
+defense = 14
+attack = 5
+damage = "1d10"
+xp = 45
+tier = 3
+tags = ["undead"]
+intelligent = true
+
+# --- Bosses (never placed at random) ---
+
+[monster.drowned_abbot]
+name = "The Drowned Abbot"
+hp = 32
+defense = 13
+attack = 5
+damage = "1d10"
+xp = 100
+tier = 4
+tags = ["undead", "boss"]
+intelligent = true
+boss = true
+
+[monster.goblin_king]
+name = "The Goblin King"
+hp = 32
+defense = 13
+attack = 5
+damage = "1d10"
+xp = 100
+tier = 4
+tags = ["goblinoid", "boss"]
+intelligent = true
+boss = true
+
+[monster.thornmother]
+name = "The Thornmother"
+hp = 32
+defense = 13
+attack = 5
+damage = "1d10"
+xp = 100
+tier = 4
+tags = ["plant", "boss"]
+intelligent = true
+boss = true

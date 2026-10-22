@@ -38,7 +38,7 @@ EFFECT = re.compile(r"\[([a-z_]+)((?:\s+[^\]\s]+)*)\s*\]")
 NAME = re.compile(r"^[a-z0-9_]+$")
 NUMERIC = re.compile(r"^(floor|level|hp|gold|fate|souls|turn|runs|deaths|wins)\s*(>=|<=|==|=|>|<)\s*(-?\d+)$")
 WITH_ARG = {"theme", "room", "fixture", "has", "flag", "mark", "seen", "monster"}
-BARE = {"in_combat", "first_visit", "seen"}
+BARE = {"in_combat", "first_visit", "seen", "tampered"}
 
 # verb -> (min args, max args, kind of argument)
 EFFECTS = {

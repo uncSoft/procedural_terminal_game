@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import difflib
 import re
 import tomllib
 from dataclasses import dataclass, field
 from functools import lru_cache
 from importlib import resources
-from typing import Literal
+from typing import Callable, Literal
 
 
 @dataclass(frozen=True)
@@ -112,6 +113,10 @@ class Content:
         return tags
 
 
+class ContentError(ValueError):
+    """Broken game data. The message lists every problem found, file by file."""
+
+
 def _read(name: str) -> str:
     return (resources.files("ptg") / "data" / name).read_text(encoding="utf-8")
 
@@ -123,54 +128,190 @@ def _parse_art(text: str) -> dict[str, str]:
     return art
 
 
-@lru_cache(maxsize=1)
-def load_content() -> Content:
-    themes = {t["key"]: Theme(**t) for t in tomllib.loads(_read("themes.toml"))["theme"]}
-    archetypes = {
-        key: Archetype(key=key, **data)
-        for key, data in tomllib.loads(_read("rooms.toml"))["archetype"].items()
+# What each kind of entry may contain: field -> (kind of value, required?)
+SCHEMAS: dict[str, dict[str, tuple[str, bool]]] = {
+    "theme": {"key": ("name", True), "name": ("text", True), "blurb": ("text", True), "goal": ("text", True),
+              "archetypes": ("names", True), "monster_tags": ("names", True), "boss": ("name", True),
+              "boss_room": ("name", True), "key_item": ("name", True)},
+    "archetype": {"names": ("texts", True), "blurb": ("text", True), "features": ("texts", True),
+                  "decor": ("text", False)},
+    "item": {"name": ("text", True), "kind": ("item_kind", True), "damage": ("dice", False),
+             "defense": ("count", False), "heal": ("count", False), "escape": ("bool", False),
+             "tier": ("count", False), "tags": ("names", False), "desc": ("text", False)},
+    "monster": {"name": ("text", True), "hp": ("positive", True), "defense": ("count", True),
+                "attack": ("int", True), "damage": ("dice", True), "xp": ("count", True), "tier": ("tier", True),
+                "tags": ("names", False), "intelligent": ("bool", False), "boss": ("bool", False),
+                "ghost": ("bool", False), "weak": ("names", False), "tell": ("text", False)},
+    "perk": {"name": ("text", True), "desc": ("text", True), "color": ("color", False)},
+    "unlock": {"name": ("text", True), "icon": ("text", True), "cost": ("count", True), "desc": ("text", True),
+               "item": ("name", False), "requires": ("name", False)},
+}
+COLORS = ("red", "green", "cyan", "magenta", "yellow", "blue", "white")
+_NAME = re.compile(r"^[a-z0-9_]+$")
+_DICE = re.compile(r"^\s*\d+d\d+\s*([+-]\s*\d+)?\s*$")
+
+
+def _value_error(kind: str, value: object) -> str:
+    """Why a value doesn't fit its kind ("" if it does)."""
+    is_int = isinstance(value, int) and not isinstance(value, bool)
+    checks = {
+        "text": (isinstance(value, str) and value.strip(), "must be some text in quotes"),
+        "texts": (isinstance(value, list) and value and all(isinstance(v, str) and v.strip() for v in value),
+                  'must be a list of text, like ["a", "b"]'),
+        "name": (isinstance(value, str) and _NAME.match(value), "must be a key like hand_axe (lowercase, _)"),
+        "names": (isinstance(value, list) and all(isinstance(v, str) and _NAME.match(v) for v in value),
+                  'must be a list of keys, like ["fire", "holy"]'),
+        "int": (is_int, "must be a whole number"),
+        "count": (is_int and value >= 0, "must be a whole number, 0 or more"),
+        "positive": (is_int and value > 0, "must be a whole number above 0"),
+        "tier": (is_int and 1 <= value <= 4, "must be a tier from 1 to 4"),
+        "bool": (isinstance(value, bool), "must be true or false"),
+        "dice": (isinstance(value, str) and _DICE.match(value), "must be dice like 1d6 or 2d4+1"),
+        "item_kind": (value in ("weapon", "armor", "consumable", "key", "trinket"),
+                      "must be weapon, armor, consumable, key or trinket"),
+        "color": (value in COLORS, f"must be one of {', '.join(COLORS)}"),
     }
-    items = {key: ItemDef(key=key, **data) for key, data in tomllib.loads(_read("items.toml"))["item"].items()}
-    art = _parse_art(_read("art.txt"))
-    monsters = {
-        key: MonsterDef(key=key, art=art.get(key, ""), **data)
-        for key, data in tomllib.loads(_read("monsters.toml"))["monster"].items()
-    }
-    perks = {key: Perk(key=key, **data) for key, data in tomllib.loads(_read("perks.toml"))["perk"].items()}
-    unlock_data = tomllib.loads(_read("unlocks.toml"))
-    unlocks = {
-        key: Unlock(key=key, kind=kind, **data)
-        for kind in ("blessing", "gift")
-        for key, data in unlock_data[kind].items()
-    }
-    keyword_tags = tomllib.loads(_read("tags.toml"))["keywords"]
-    content = Content(themes, archetypes, items, monsters, perks, unlocks, keyword_tags, _read("splash.txt"))
-    _validate(content)
+    ok, message = checks[kind]
+    return "" if ok else message
+
+
+def _fields(where: str, data: object, schema: dict[str, tuple[str, bool]], problems: list[str]) -> dict | None:
+    """Check one entry against its schema. Returns the clean fields, or None if anything is wrong."""
+    if not isinstance(data, dict):
+        problems.append(f"{where}: expected a table of fields")
+        return None
+    before = len(problems)
+    for key in data:
+        if key not in schema:
+            close = difflib.get_close_matches(key, list(schema), n=1)
+            hint = f" (did you mean {close[0]!r}?)" if close else ""
+            problems.append(f"{where}: unknown field {key!r}{hint}")
+    for key, (kind, required) in schema.items():
+        if key not in data:
+            if required:
+                problems.append(f"{where}: missing {key!r}")
+            continue
+        error = _value_error(kind, data[key])
+        if error:
+            problems.append(f"{where}: {key} {error} (got {data[key]!r})")
+    return dict(data) if len(problems) == before else None
+
+
+def _sections(name: str, doc: dict, expected: tuple[str, ...], problems: list[str]) -> None:
+    for section in doc:
+        if section not in expected:
+            close = difflib.get_close_matches(section, list(expected), n=1)
+            hint = f" (did you mean {close[0]!r}?)" if close else ""
+            problems.append(f"{name}: unknown section [{section}]{hint}")
+
+
+def build_content(read: Callable[[str], str] = _read) -> Content:
+    """Load and check every data file. `read` returns a file's text by name (tests pass their own)."""
+    problems: list[str] = []
+
+    def toml(name: str, expected: tuple[str, ...]) -> dict:
+        try:
+            doc = tomllib.loads(read(name))
+        except FileNotFoundError:
+            problems.append(f"{name}: the file is missing")
+            return {}
+        except tomllib.TOMLDecodeError as e:
+            problems.append(f"{name}: {e}")
+            return {}
+        _sections(name, doc, expected, problems)
+        return doc
+
+    def table(name: str, doc: dict, section: str, kind: str) -> dict[str, dict]:
+        entries = doc.get(section, {})
+        if not isinstance(entries, dict):
+            problems.append(f"{name}: [{section}] should hold [{section}.some_key] tables")
+            return {}
+        clean = {}
+        for key, data in entries.items():
+            where = f"{name} [{section}.{key}]"
+            if not _NAME.match(key):
+                problems.append(f"{where}: keys use lowercase letters, numbers and _")
+            fields = _fields(where, data, SCHEMAS[kind], problems)
+            if fields is not None:
+                clean[key] = fields
+        return clean
+
+    themes_doc = toml("themes.toml", ("theme",))
+    themes = {}
+    for i, data in enumerate(themes_doc.get("theme", [])):
+        fields = _fields(f"themes.toml [[theme]] #{i + 1}", data, SCHEMAS["theme"], problems)
+        if fields is not None:
+            themes[fields["key"]] = Theme(**fields)
+
+    archetypes = {k: Archetype(key=k, **v) for k, v in
+                  table("rooms.toml", toml("rooms.toml", ("archetype",)), "archetype", "archetype").items()}
+    items = {k: ItemDef(key=k, **v) for k, v in
+             table("items.toml", toml("items.toml", ("item",)), "item", "item").items()}
+    try:
+        art = _parse_art(read("art.txt"))
+    except FileNotFoundError:
+        problems.append("art.txt: the file is missing")
+        art = {}
+    monsters = {k: MonsterDef(key=k, art=art.get(k, ""), **v) for k, v in
+                table("monsters.toml", toml("monsters.toml", ("monster",)), "monster", "monster").items()}
+    perks = {k: Perk(key=k, **v) for k, v in
+             table("perks.toml", toml("perks.toml", ("perk",)), "perk", "perk").items()}
+    unlock_doc = toml("unlocks.toml", ("blessing", "gift"))
+    unlocks = {k: Unlock(key=k, kind=kind, **v) for kind in ("blessing", "gift")
+               for k, v in table("unlocks.toml", unlock_doc, kind, "unlock").items()}
+
+    keyword_tags = toml("tags.toml", ("keywords",)).get("keywords", {})
+    for word, tags in keyword_tags.items():
+        error = _value_error("names", tags)
+        if error:
+            problems.append(f"tags.toml [keywords] {word}: {error} (got {tags!r})")
+    try:
+        splash = read("splash.txt")
+    except FileNotFoundError:
+        problems.append("splash.txt: the file is missing")
+        splash = ""
+
+    content = Content(themes, archetypes, items, monsters, perks, unlocks, keyword_tags, splash)
+    if not problems:  # cross-checks only make sense once every entry is well-formed
+        problems += _cross_check(content)
+    if problems:
+        raise ContentError("Problems in the game data files:\n  " + "\n  ".join(problems))
     return content
 
 
-def _validate(content: Content) -> None:
+@lru_cache(maxsize=1)
+def load_content() -> Content:
+    return build_content()
+
+
+def _cross_check(content: Content) -> list[str]:
     """Fail loudly on broken data instead of silently playing without it (the v1 monsters.json bug)."""
     problems = []
     for theme in content.themes.values():
         for key in [*theme.archetypes, theme.boss_room]:
             if key not in content.archetypes:
-                problems.append(f"theme {theme.key}: unknown archetype {key!r}")
+                problems.append(f"themes.toml theme {theme.key}: unknown archetype {key!r}")
         if theme.boss not in content.monsters:
-            problems.append(f"theme {theme.key}: unknown boss {theme.boss!r}")
+            problems.append(f"themes.toml theme {theme.key}: unknown boss {theme.boss!r}")
         if theme.key_item not in content.items:
-            problems.append(f"theme {theme.key}: unknown key item {theme.key_item!r}")
+            problems.append(f"themes.toml theme {theme.key}: unknown key item {theme.key_item!r}")
         pool = [m for m in content.monsters.values() if not (m.boss or m.ghost)]
         for tier in (1, 2, 3):
             if not any(set(m.tags) & set(theme.monster_tags) and m.tier == tier for m in pool):
-                problems.append(f"theme {theme.key}: no tier {tier} monsters match its tags")
+                problems.append(f"themes.toml theme {theme.key}: no tier {tier} monsters match its tags")
+    for item in content.items.values():
+        if item.kind == "weapon" and not item.damage:
+            problems.append(f"items.toml [item.{item.key}]: a weapon needs damage, like \"1d6\"")
+        if item.kind == "armor" and item.defense <= 0:
+            problems.append(f"items.toml [item.{item.key}]: armor needs defense above 0")
+        if item.kind == "consumable" and not (item.heal or item.escape):
+            problems.append(f"items.toml [item.{item.key}]: a consumable needs heal or escape = true")
     for monster in content.monsters.values():
         if not monster.art:
-            problems.append(f"monster {monster.key}: missing art")
+            problems.append(f"art.txt: monster {monster.key} has no art (add an '=== {monster.key} ===' block)")
     for unlock in content.unlocks.values():
         if unlock.item and unlock.item not in content.items:
-            problems.append(f"unlock {unlock.key}: unknown item {unlock.item!r}")
+            problems.append(f"unlocks.toml {unlock.key}: unknown item {unlock.item!r}")
         if unlock.requires and unlock.requires not in content.unlocks:
-            problems.append(f"unlock {unlock.key}: unknown requirement {unlock.requires!r}")
-    if problems:
-        raise ValueError("Invalid game content:\n  " + "\n  ".join(problems))
+            problems.append(f"unlocks.toml {unlock.key}: unknown requirement {unlock.requires!r}")
+    return problems

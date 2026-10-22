@@ -7,6 +7,7 @@ import random
 
 from . import dice
 from .content import Content
+from .integrity import shipped_report
 from .models import FLOORS, GameState, Player
 from .profile import Profile
 from .world import generate
@@ -59,7 +60,8 @@ def start_run(profile: Profile, content: Content, name: str, seed: int | None = 
     state = generate(seed, player=player, ghost=ghost, content=content)
     state.known_weak = profile.weaknesses()
     state.daily = label
-    state.run_id = profile.start_run(seed, name, state.themes, label)
+    state.modded = shipped_report().tampered
+    state.run_id = profile.start_run(seed, name, state.themes, label, modded=state.modded)
     return state
 
 
@@ -84,12 +86,17 @@ def fallback_epitaph(state: GameState) -> str:
     return f"Here lies {who}, {state.cause or 'lost in the dark'}."
 
 
-def share_card(state: GameState) -> str:
-    """A spoiler-free result to paste in a chat, Wordle style."""
+SUNGLASSES = "(⌐■_■)"  # for bordered terminal UI, where emoji widths are unreliable
+
+
+def share_card(state: GameState, emoji: bool = False) -> str:
+    """A spoiler-free result to paste in a chat, Wordle style. Runs on edited game data say so."""
     player = state.player
     floors = "▰" * (state.floor if state.status == "won" else state.floor - 1) + "▱" * (state.floors_total - (state.floor if state.status == "won" else state.floor - 1))
     outcome = "★ VICTORY" if state.status == "won" else f"☠ floor {state.floor}"
     title = f"Daily {state.daily}" if state.daily else f"seed {state.seed}"
+    if state.modded:
+        title += f" · {'🕶️' if emoji else SUNGLASSES} modded"
     return (f"Procedural Terminal Game · {title}\n"
             f"{player.name} {epithet(state)}  {outcome}\n"
             f"{floors}  ⚔{player.kills}  ✦{player.style.get('flair', 0)}  ☽{souls_earned(state)}  ⏱{state.turn}\n"

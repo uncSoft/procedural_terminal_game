@@ -25,6 +25,13 @@ your writing, not the other way round.
 
 The two shipped examples, `mirror_trial.md` and `old_word.md`, are placeholders to copy from and delete.
 
+**Before you commit:** the game fingerprints its data files and notices when they've been edited. After
+real changes, accept them so they count as the official version (a test fails until you do):
+
+```bash
+uv run python -m ptg.integrity --sign
+```
+
 ## Anatomy of a file
 
 ```
@@ -117,6 +124,7 @@ Separate with `;`. Put `not ` in front of any of them to flip it.
 | `flag name` | A flag set earlier this run with `[flag name]`. |
 | `mark name` | A mark set on any earlier run with `[mark name]`. Marks survive death. |
 | `seen` / `seen other_id` | This event (or another one) has ever fired. |
+| `tampered` | The game's own data files have been edited since they were signed (this run is "modded"). |
 
 ## Effects (in square brackets)
 

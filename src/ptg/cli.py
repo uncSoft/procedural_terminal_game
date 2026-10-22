@@ -8,13 +8,15 @@ import sys
 import textwrap
 
 from .config import DEFAULT_URLS, Config, load_config, load_game
-from .content import load_content
+from .content import ContentError, load_content
+from .integrity import shipped_report
 from .game import Game
 from .layout import plain_lines
 from .llm import LLMError, make_llm
 from .llm.narrator import intro
 from .meta import share_card, start_run
 from .profile import Profile
+from .story import StoryError, load_library
 from .world import render_map
 
 
@@ -45,8 +47,29 @@ def build_config(args: argparse.Namespace) -> Config | None:
     return config.model_copy(update=overrides)
 
 
+def preflight() -> bool:
+    """Load the game's data before anything else. If it's broken, explain (in character) instead of crashing."""
+    try:
+        load_library(load_content())
+        return True
+    except (ContentError, StoryError) as error:
+        print()
+        if shipped_report().tampered:
+            profile = Profile.open()
+            first = profile.add_secret("hackerman", None)
+            profile.close()
+            print("🕶️  Achievement unlocked: Hackerman" if first else "🕶️  Hackerman, again?")
+            print("The dungeon noticed someone rewriting its source of truth. It didn't compile.\n")
+        print(error)
+        print("\nFix the lines above, or restore the original files "
+              "(git checkout -- src/ptg/data, or reinstall the game).")
+        return False
+
+
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
+    if not preflight():
+        sys.exit(1)
     config = build_config(args)
     if args.plain:
         try:

@@ -1,0 +1,17 @@
+{
+ "note": "Fingerprints of the shipped data. Editing the data is allowed, and noticed.",
+ "files": {
+  "art.txt": "8ce91ffe9484d67f204f2c044a3f29cc63eacd7c6151a455de675a5a91efc07e",
+  "items.toml": "22a09a19c9820939bd99726b67652a4e237e06a5e371a24d81582db81013fe63",
+  "monsters.toml": "2a3eb52547ba1e349ef8e9734e04cfd1e1ae73256491a8bb330011bb434b6ac3",
+  "perks.toml": "0c2ad492ea8a516bc5a7721caed62e60d08b8bf2a80cd12abdbec3bfed44b641",
+  "rooms.toml": "1052bd18c23b1987ea56ef01c7fb6c4f1ca4376732c3ef6027e28c7909e9569d",
+  "splash.txt": "601a034c5bb5954ad20d2e210866b8665bacb8c99cf85df5b0d09ed09b794493",
+  "story/hackerman.md": "423a9217dfbd60799da2ec92c66c923b158c8d622fdb2dc64ddc85eb73b9905b",
+  "story/mirror_trial.md": "1a4cba06d301b3ebce6fd94cdd60705052b0ce397aea13aa7b6f645bb7cbd92f",
+  "story/old_word.md": "76683479db464e706fc44541ceebb484212414c01f2a353748726179ef09c378",
+  "tags.toml": "f1b7c4e7647e53f8767fe117dcb9e6b3088a12554f89f96bc379b3714bff8c5b",
+  "themes.toml": "c7387d677a7e9f7ec75f2c6a047c835c59b8bc5f5613a57eeca826bc2ea539cd",
+  "unlocks.toml": "906fbc7738879fc97c3fa533d50fcbf9aa71f72bb1f50d8c09a85293116256ab"
+ }
+}

@@ -78,6 +78,7 @@ class Game:
         self._background: set[asyncio.Task] = set()
         self.story = StoryEngine(library or load_library(self.content), self.content,
                                  ProfileView.from_profile(self.profile))
+        self.story.tampered = state.modded
         self.force_event: str | None = None  # fire this story event right after the opening (for testing)
 
     # --- what the player sees ---

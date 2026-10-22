@@ -65,6 +65,19 @@ uv run python -m ptg.story                    # check every story file
 uv run ptg --event mirror_trial               # jump straight into one
 ```
 
+## Data files
+
+All game content (themes, rooms, items, monsters, perks, unlocks, tags, art, story events) is plain data in
+`src/ptg/data/`, checked on startup: a mistake is explained by file, entry and field ("monsters.toml
+[monster.goblin]: unknown field 'hpp' (did you mean 'hp'?)") instead of crashing. The shipped files are
+also fingerprinted, so the game notices when they've been edited. Editing is allowed. It's just noticed.
+After real changes:
+
+```bash
+uv run python -m ptg.integrity          # what changed since the last signing
+uv run python -m ptg.integrity --sign   # accept it (a test fails until you do)
+```
+
 ## Pixel art
 
 Monsters, the bestiary and the campfire are drawn as pixel-art sprites using half-block characters: each
@@ -145,6 +158,7 @@ src/ptg/
   meta.py          building the adventurer from unlocks, starting runs, scoring the end
   sprites.py       PNG sprites rendered as half-block pixel art
   glossary.py      the terms highlighted in the story
+  integrity.py     fingerprints of the shipped data, and noticing edits
   story/           story events: file format, checker, and the engine that plays them
   llm/             backends (OpenAI-compatible, Claude), prompts, interpreter, narrator, extras
   ui/              Textual app: title, settings, campfire, game screen, dice, panels, endings

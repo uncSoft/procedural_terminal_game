@@ -243,4 +243,5 @@ async def test_scene_in_the_ui_and_the_book_of_secrets():
         await pilot.pause(0.5)
         assert isinstance(app.screen, HubScreen)
         book = app.screen.query_one("#secrets-list").render()
-        assert "1/2 found" in str(book) and "The Mirror Trial" in str(book)
+        total = len(load_library(app.screen.content).secrets)
+        assert f"1/{total} found" in str(book) and "The Mirror Trial" in str(book)

@@ -47,6 +47,7 @@ class StoryEngine:
         self.library = library
         self.content = content
         self.view = view or ProfileView()
+        self.tampered = False  # have the game's own data files been edited? (see ptg.integrity)
 
     # --- triggers ---------------------------------------------------------------
 
@@ -156,6 +157,8 @@ class StoryEngine:
             return state.in_combat
         if name == "first_visit":
             return bool(context.get("first"))
+        if name == "tampered":
+            return self.tampered
         raise ValueError(f"unknown condition {name!r}")
 
     # --- scenes -----------------------------------------------------------------

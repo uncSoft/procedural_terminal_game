@@ -14,7 +14,7 @@ from textual.screen import Screen
 from textual.widgets import Button, Footer, Static, TabbedContent, TabPane
 
 from ..content import Content, Unlock, load_content
-from ..meta import daily_seed, share_card, souls_earned
+from ..meta import SUNGLASSES, daily_seed, share_card, souls_earned
 from ..models import GameState
 from ..profile import Profile
 from ..sprites import sprite_text
@@ -167,6 +167,8 @@ class HubScreen(Screen):
             mark = "★" if run["status"] == "won" else "☠"
             text.append(f"{mark} ", style="bold #ffd166" if run["status"] == "won" else "#ff4b4b")
             text.append(f"{run['name']} {run['epithet']}", style="bold")
+            if run.get("modded"):
+                text.append(f" {SUNGLASSES}", style="bold #5fe3ff")
             text.append(f"  lv{run['level']} · floor {run['floor']} · ☽{run['souls']}"
                         f"{' · daily' if run['daily'] else ''}\n", style="#9a9cc0")
             if run["epitaph"]:
@@ -287,7 +289,7 @@ class EndScreen(Screen):
             await asyncio.sleep(0.03)
 
     def action_copy(self) -> None:
-        self.app.copy_to_clipboard(share_card(self.state))
+        self.app.copy_to_clipboard(share_card(self.state, emoji=True))
         self.notify("Result copied (if your terminal allows it).", timeout=3)
 
     def action_campfire(self) -> None:

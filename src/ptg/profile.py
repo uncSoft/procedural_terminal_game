@@ -43,6 +43,9 @@ class Profile:
         self.db = sqlite3.connect(str(path))
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
+        columns = {row[1] for row in self.db.execute("pragma table_info(runs)")}
+        if "modded" not in columns:  # added after the first profiles were created
+            self.db.execute("alter table runs add column modded integer default 0")
         self.db.commit()
 
     @classmethod
@@ -89,9 +92,9 @@ class Profile:
 
     # --- runs ---
 
-    def start_run(self, seed: int, name: str, themes: list[str], daily: str = "") -> int:
-        cursor = self.db.execute("insert into runs (seed, name, daily, started, themes) values (?, ?, ?, ?, ?)",
-                                 (seed, name, daily, time.time(), json.dumps(themes)))
+    def start_run(self, seed: int, name: str, themes: list[str], daily: str = "", modded: bool = False) -> int:
+        cursor = self.db.execute("insert into runs (seed, name, daily, started, themes, modded) values (?, ?, ?, ?, ?, ?)",
+                                 (seed, name, daily, time.time(), json.dumps(themes), int(modded)))
         self.db.commit()
         return int(cursor.lastrowid)
 

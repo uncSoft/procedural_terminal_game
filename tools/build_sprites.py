@@ -16,6 +16,7 @@ import argparse
 from pathlib import Path
 
 from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 
 OUT = Path(__file__).resolve().parent.parent / "src" / "ptg" / "data" / "sprites"
 SIZE = 24
@@ -526,6 +527,124 @@ LOGS = [
 ]
 
 
+# Effect pixels: painted as-is, never outlined or shaded (water, sparkles, sparks, mist).
+FX = {":": (150, 230, 255), "*": (255, 255, 255), "%": (254, 231, 97), "~": (110, 90, 140)}
+
+# Fixtures and story art: (width, height), mirrored left halves, one list of rows per frame.
+SHRINE_BASE = [
+    "....W.......",
+    "....W.......",
+    "...WWW......",
+    "..gggggggggg",
+    ".gGGGGGGGGGG",
+    "....gggggggg",
+    "....gggggppp",
+    "....ggggpggg",
+    "....gggggppp",
+    "....gggggggg",
+    "...ggggggggg",
+    "..gggggggggg",
+    "............",
+]
+SHRINE_FLAMES = [
+    ["............", "....%.......", "...oyo......"],
+    ["....%.......", "...%y.......", "...oyo......"],
+    ["............", ".....%......", "...oyy......"],
+]
+FOUNTAIN_BASE = [
+    "..gggggggggg",
+    ".gbbbbbbbbbb",
+    ".gbbbbbbbbbb",
+    "..gbbbbbbbbb",
+    "...ggggggggg",
+    ".....ggggggg",
+    "......gggggg",
+    "....gggggggg",
+    "............",
+]
+FOUNTAIN_SPRAY = [
+    ["..........:.", "........:..:", ".......:...:", "......:....g", ".....:.....g", "....:......g", "....:.....gg"],
+    ["...........:", ".........:.:", "........:..:", ".....:.....g", "....:......g", "...........g", "....:.....gg"],
+    ["..........::", "...........:", "......:....:", ".......:...g", "...........g", "....:......g", ".....:....gg"],
+]
+FOUNTAIN_RIPPLES = [(1, 4), (1, 7), (2, 9)]  # (row in the basin, column) of the sparkle on the water
+CHEST_BODY = [
+    "...NNgNNNNyy",
+    "...nngnnnnyk",
+    "...nngnnnnyy",
+    "...nngnnnnnn",
+    "...nngnnnnnn",
+    "...nngnnnnnn",
+    "...NNgNNNNNN",
+]
+CHEST_CLOSED = ["." * 12] * 4 + ["....ngnnnnnn", "...nngnnnnnn", "...nngnnnnnn"] + CHEST_BODY + ["." * 12] * 2
+CHEST_GLINT = ["." * 12] * 3 + [".......*....", "....ngnnnnnn", "...nngnnnnnn", "...nngnnnnnn"] + CHEST_BODY + ["." * 12] * 2
+CHEST_OPEN = (["............", "....ngnnnnnn", "...nngnnnnnn", "...NNgNNNNNN", "...MMMMMMMMM",
+               "...M%YyMyYyy", "...yYyyYyyYy"] + CHEST_BODY + ["." * 12] * 2)
+CHEST_SPARKLE = (["......*.....", "....ngnnnnnn", "...nngnnn*nn", "...NNgNNNNNN", "...MMMMMMMMM",
+                  "...MyY%MyY%y", "...yYyyYyyYy"] + CHEST_BODY + ["." * 12] * 2)
+STAIRS = [
+    "............",
+    "..gggggggggg",
+    "..GGGGGGGGGG",
+    "...ggggggggg",
+    "...HHHHHHHHH",
+    "....GGGGGGGG",
+    "....HHHHHHHH",
+    ".....HHHHHHH",
+    ".....qqqqqqq",
+    "......qqqqqq",
+    "......qqqqqq",
+    ".......qqqqq",
+    ".......qqqqq",
+    "........qqqq",
+    "........qqqq",
+    "............",
+]
+STAIRS_MIST = [[(10, 9), (10, 10), (10, 11), (13, 11)], [(11, 10), (11, 11), (14, 10), (14, 11)],
+               [(12, 9), (12, 10), (12, 11), (9, 11)]]  # wisps that cross the middle, so they don't mirror into eyes
+MIRROR = [
+    "..........yy",
+    ".........yyy",
+    "....yyyyyyyy",
+    "....yBBBBBBB",
+    "....yBBBBBBB",
+    "....yBBBBBBB",
+    "....yBBBBHHH",
+    "....yBBBBHHH",
+    "....yBBBBBHH",
+    "....yBBBHHHH",
+    "....yBBHHHHH",
+    "....yBBHHHHH",
+    "....yBBHHHHH",
+    "....yBBHHHHH",
+    "....yBBBHHHH",
+    "....yBBBHHBB",
+    "....yBBBHHBB",
+    "....yBBBBBBB",
+    "....yBBBBBBB",
+    "....yBBBBBBB",
+    "....yyyyyyyy",
+    "...yyyyyyyyy",
+    "............",
+    "............",
+]
+SUNGLASSES = [
+    "............",
+    "............",
+    "............",
+    "HHHHHHHHHHHH",
+    "..HPPPPPPHHH",
+    "..HPpPPPPH..",
+    "..HPPpPPPH..",
+    "..HPPPPPPH..",
+    "...HHHHHH...",
+    "............",
+    "............",
+    "............",
+]
+
+
 def expand(sprite: dict) -> list[str]:
     rows = sprite["rows"]
     width = SIZE // 2 if sprite["mirror"] else SIZE
@@ -535,10 +654,18 @@ def expand(sprite: dict) -> list[str]:
     return [row + row[::-1] for row in rows] if sprite["mirror"] else list(rows)
 
 
+def mirrored(rows: list[str], height: int) -> list[str]:
+    assert len(rows) == height, f"{len(rows)} rows, expected {height}"
+    for i, row in enumerate(rows):
+        assert len(row) == 12, f"row {i} is {len(row)} wide: {row!r}"
+    return [row + row[::-1] for row in rows]
+
+
 def paint(rows: list[str]) -> Image.Image:
-    """Fill colours, then shade lower-right edges, then a dark outline round the whole shape."""
+    """Fill colours, then shade lower-right edges, then a dark outline round the whole shape.
+    Effect pixels (FX) are painted last, as-is."""
     height, width = len(rows), len(rows[0])
-    filled = {(x, y) for y, row in enumerate(rows) for x, ch in enumerate(row) if ch != "."}
+    filled = {(x, y) for y, row in enumerate(rows) for x, ch in enumerate(row) if ch != "." and ch not in FX}
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     for x, y in filled:
         ch = rows[y][x]
@@ -551,6 +678,10 @@ def paint(rows: list[str]) -> Image.Image:
                 continue
             if any((x + dx, y + dy) in filled for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
                 img.putpixel((x, y), (*OUTLINE, 255))
+    for y, row in enumerate(rows):
+        for x, ch in enumerate(row):
+            if ch in FX:
+                img.putpixel((x, y), (*FX[ch], 255))
     return img
 
 
@@ -566,10 +697,20 @@ def bob(img: Image.Image) -> Image.Image:
 
 
 def strip(frames: list[Image.Image]) -> Image.Image:
-    sheet = Image.new("RGBA", (SIZE * len(frames), SIZE), (0, 0, 0, 0))
+    width, height = frames[0].size
+    sheet = Image.new("RGBA", (width * len(frames), height), (0, 0, 0, 0))
     for i, frame in enumerate(frames):
-        sheet.paste(frame, (i * SIZE, 0))
+        sheet.paste(frame, (i * width, 0))
     return sheet
+
+
+def overlay(rows: list[str], points: list[tuple[int, int]], ch: str, over: str | None = None) -> list[str]:
+    """Put an effect character at (row, column) points, only where the pixel is `over` (if given)."""
+    grid = [list(row) for row in rows]
+    for y, x in points:
+        if 0 <= y < len(grid) and 0 <= x < len(grid[0]) and (over is None or grid[y][x] in over):
+            grid[y][x] = ch
+    return ["".join(row) for row in grid]
 
 
 def campfire() -> list[Image.Image]:
@@ -580,32 +721,83 @@ def campfire() -> list[Image.Image]:
     return frames
 
 
+def shrine() -> list[Image.Image]:
+    return [paint(mirrored(flame + SHRINE_BASE, 16)) for flame in SHRINE_FLAMES]
+
+
+def fountain() -> list[Image.Image]:
+    frames = []
+    for spray, (row, col) in zip(FOUNTAIN_SPRAY, FOUNTAIN_RIPPLES):
+        basin = overlay(FOUNTAIN_BASE, [(row, col)], ":", over="b")
+        frames.append(paint(mirrored(spray + basin, 16)))
+    return frames
+
+
+def chest() -> list[Image.Image]:
+    """Frames: 0 closed, 1 closed with a glint, 2 open, 3 open with sparkles."""
+    return [paint(mirrored(rows, 16)) for rows in (CHEST_CLOSED, CHEST_GLINT, CHEST_OPEN, CHEST_SPARKLE)]
+
+
+def stairs() -> list[Image.Image]:
+    return [paint(mirrored(overlay(STAIRS, mist, "~", over="q"), 16)) for mist in STAIRS_MIST]
+
+
+def mirror() -> list[Image.Image]:
+    """A tall mirror whose glass shimmers: a bright diagonal sweeps across it."""
+    full = mirrored(MIRROR, 24)
+    frames = []
+    for offset in (-6, 0, 6, 12):
+        streak = [(y, y + offset + dx) for y in range(24) for dx in (0, 1)]
+        frames.append(paint(overlay(full, streak, ":", over="BH")))
+    return frames
+
+
+def sunglasses() -> list[Image.Image]:
+    """Neon shades with a glint sliding across the lenses."""
+    full = mirrored(SUNGLASSES, 12)
+    frames = []
+    for x in (5, 8, 17, 20):
+        frames.append(paint(overlay(full, [(4, x), (5, x - 1), (6, x - 2), (7, x - 3)], "*", over="Pp")))
+    frames.append(paint(full))
+    return frames
+
+
+def save(path: Path, frames: list[Image.Image]) -> None:
+    """A horizontal strip of frames; the frame count is stored in the PNG so frames needn't be square."""
+    info = PngInfo()
+    info.add_text("frames", str(len(frames)))
+    strip(frames).save(path, pnginfo=info)
+
+
 def build(sheet_path: Path | None = None) -> list[str]:
     OUT.mkdir(parents=True, exist_ok=True)
-    built = []
-    sheets = {}
+    animations: dict[str, list[Image.Image]] = {}
     for key, sprite in SPRITES.items():
         base = paint(expand(sprite))
-        sheets[key] = strip([base, bob(base)])
-    sheets["campfire"] = strip(campfire())
-    for key, sheet in sheets.items():
-        sheet.save(OUT / f"{key}.png")
-        built.append(key)
+        animations[key] = [base, bob(base)]
+    animations.update(campfire=campfire(), shrine=shrine(), fountain=fountain(), chest=chest(), stairs=stairs(),
+                      mirror=mirror(), sunglasses=sunglasses())
+    for key, frames in animations.items():
+        save(OUT / f"{key}.png", frames)
     if sheet_path:
-        cols = 6
-        scale = 8
-        cells = list(sheets.items())
-        rows = (len(cells) + cols - 1) // cols
-        contact = Image.new("RGBA", (cols * SIZE * scale, rows * SIZE * scale), (9, 10, 19, 255))
-        for i, (_, sheet) in enumerate(cells):
-            frame = sheet.crop((0, 0, SIZE, SIZE)).resize((SIZE * scale, SIZE * scale), Image.NEAREST)
-            contact.alpha_composite(frame, ((i % cols) * SIZE * scale, (i // cols) * SIZE * scale))
-        contact.save(sheet_path)
-    return built
+        contact_sheet(animations, sheet_path)
+    return list(animations)
+
+
+def contact_sheet(animations: dict[str, list[Image.Image]], path: Path, scale: int = 6) -> None:
+    """Every frame of every sprite, one sprite per row, scaled up for reviewing."""
+    cell = SIZE * scale
+    columns = max(len(frames) for frames in animations.values())
+    sheet = Image.new("RGBA", (columns * (cell + scale), len(animations) * (cell + scale)), (9, 10, 19, 255))
+    for row, frames in enumerate(animations.values()):
+        for col, frame in enumerate(frames):
+            big = frame.resize((frame.width * scale, frame.height * scale), Image.NEAREST)
+            sheet.alpha_composite(big, (col * (cell + scale), row * (cell + scale)))
+    sheet.save(path)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--sheet", type=Path, help="also write an 8x contact sheet of every sprite")
+    parser.add_argument("--sheet", type=Path, help="also write a contact sheet of every frame, scaled up")
     args = parser.parse_args()
     print("built:", ", ".join(build(args.sheet)))

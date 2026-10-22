@@ -11,6 +11,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
+from textual.widget import Widget
 from textual.widgets import Footer, Input, Static
 
 from .. import glossary
@@ -18,10 +19,22 @@ from ..events import Event
 from ..glossary import Lexicon
 from ..game import Game
 from ..models import LogEntry
+from ..sprites import DEATH_FRAMES
 from .dice import DiceScreen
 from .panels import (BestiaryScreen, CharacterScreen, HelpScreen, InfoScreen, InventoryScreen, JournalScreen,
                      LevelUpScreen, LookScreen, MapScreen)
-from .widgets import ChoiceItem, DiceLine, Hud, StoryLine, highlight, map_text, monster_text, roll_text, room_text
+from .widgets import (AnimatedSprite, ChoiceItem, DiceLine, Hud, StoryLine, bar, highlight, map_text, monster_text,
+                      portrait, roll_text, room_text)
+
+# (sprite, steps of (frame, pose, flash)) for the moment you use a fixture
+FIXTURE_MOMENTS = {
+    "chest": ("chest", [(0, "shake", False), (1, "shake", False)] * 3
+              + [(2, "idle", False), (3, "idle", False), (2, "idle", False), (3, "idle", False), (2, "idle", False)]),
+    "fountain": ("fountain", [(i % 3, "idle", False) for i in range(9)]),
+    "shrine": ("shrine", [(0, "idle", False), (1, "idle", True), (2, "idle", False), (1, "idle", True),
+                          (0, "idle", False)]),
+    "descend": ("stairs", [(i % 3, "idle", False) for i in range(6)] + [(i, "death", False) for i in range(6)]),
+}
 
 COMMANDS = {
     "i": "inventory", "inv": "inventory", "inventory": "inventory",
@@ -61,7 +74,8 @@ class GameScreen(Screen):
         self.fresh = fresh
         self.busy = False
         self.frame = 0  # idle animation frame for the monster sprite
-        self.flashing = False
+        self.animating = False  # a one-off scene animation is playing; the idle loop waits
+        self.live_sprites: list[AnimatedSprite] = []
 
     def compose(self) -> ComposeResult:
         yield Hud(id="hud")
@@ -110,9 +124,17 @@ class GameScreen(Screen):
         game = self.game
         return Lexicon(glossary.build(game.state, game.content, game.profile.bestiary()))
 
-    def add_card(self, title: str, text: str, lexicon: Lexicon | None = None) -> Static:
-        """An authored moment, shown in the writer's own words."""
-        card = self.add_line(highlight(text, lexicon), "story-card")
+    def add_card(self, title: str, text: str, lexicon: Lexicon | None = None, sprite: str = "") -> Widget:
+        """An authored moment, shown in the writer's own words (with its sprite, if it has one)."""
+        if not (sprite and self._sprites_on()):
+            card = self.add_line(highlight(text, lexicon), "story-card")
+        else:
+            art = AnimatedSprite(sprite, interval=0.3, classes="card-sprite")
+            card = Vertical(art, StoryLine(highlight(text, lexicon)), classes="story-card")
+            story = self.query_one("#story", VerticalScroll)
+            story.mount(card)
+            story.scroll_end(animate=False)
+            self.live_sprites.append(art)
         card.border_title = f"✧ {title}" if title else "✧"
         return card
 
@@ -122,7 +144,7 @@ class GameScreen(Screen):
         library = self.game.story.library
         for event in events:
             if event.kind == "story" and event.data.get("voice") == "exact":
-                self.add_card(event.data.get("title", ""), event.text, lexicon)
+                self.add_card(event.data.get("title", ""), event.text, lexicon, event.data.get("sprite", ""))
             elif event.kind == "story_effect" and event.text:
                 self.add_line(Text("  ◆ " + event.text, style="bold #ff4f9a"), "mechanic")
             elif event.kind == "story_secret" and not event.data.get("repeat"):
@@ -133,7 +155,7 @@ class GameScreen(Screen):
 
     def add_entry(self, entry: LogEntry, lexicon: Lexicon | None = None) -> None:
         if entry.kind == "card":
-            self.add_card(entry.title, entry.text, lexicon)
+            self.add_card(entry.title, entry.text, lexicon, entry.art)
             return
         if entry.kind == "mechanic":
             self.add_line(Text("  ⚄ " + entry.text, style="#6c6f99"), "mechanic")
@@ -204,6 +226,12 @@ class GameScreen(Screen):
         shown = choices[int(text) - 1].label if text.isdigit() and 1 <= int(text) <= len(choices) else text
         self.add_line(f"> {shown}", "player-line")
         hp_before = game.state.player.hp
+        for sprite in self.live_sprites:  # older story sprites stand still
+            sprite.freeze()
+        self.live_sprites.clear()
+        monster = game.state.room.monster
+        before = (monster.key, monster.name) if monster else None
+        room_before = game.state.room_id
 
         pending = await game.begin(text)
         primary = pending.primary
@@ -231,8 +259,8 @@ class GameScreen(Screen):
                 line = DiceLine("", classes="mechanic")
                 await self.query_one("#story").mount(line, before=narration)
                 await line.play(event.dice, fast=event.dice.actor == "monster")
-        if any(e.kind == "hit" for e in pending.events) and game.state.room.monster:
-            await self._hit_flash()
+        await self._fight_animations(pending.events, before, room_before)
+        await self._fixture_moment(pending.events, narration)
         self.refresh_panels()
 
         result = await game.finish(on_text)
@@ -242,6 +270,7 @@ class GameScreen(Screen):
             await narration.remove()  # an authored moment speaks for itself
         for error in result.errors:
             self.add_line(f"  ({error})", "system-line")
+        self._arrival_sprite(result.events)
         self._show_story(result.events)
         self._toasts(result.events)
         if crit:
@@ -299,15 +328,76 @@ class GameScreen(Screen):
             widget.styles.offset = (dx, 0)
             await asyncio.sleep(0.035)
 
-    async def _hit_flash(self) -> None:
-        """The monster sprite blinks white when it takes damage."""
-        for flash in (True, False, True, False):
-            self.flashing = flash
-            self.refresh_scene()
-            await asyncio.sleep(0.07)
+    # --- animation ---
+
+    def _sprites_on(self) -> bool:
+        return self.game.config.art == "sprites"
+
+    async def _fight_animations(self, events: list[Event], before: tuple | None, room_before: int) -> None:
+        """Flash white when hit, lunge when attacking, dissolve when it dies (or a ghost finds rest)."""
+        game = self.game
+        if before is None or game.state.room_id != room_before:
+            return
+        kinds = {e.kind for e in events}
+        gone = game.state.room.monster is None
+        steps: list[tuple[str, int, bool]] = []
+        if "hit" in kinds:
+            steps += [("idle", self.frame, flash) for flash in (True, False, True, False)]
+        if not gone and kinds & {"monster_hit", "monster_miss", "evade", "dodge"}:
+            steps += [("lunge", 0, False), ("lunge", 1, False), ("idle", 0, False)]
+        if gone:
+            steps += [("death", step, False) for step in range(DEATH_FRAMES)]
+        if not self._sprites_on():
+            steps = [s for s in steps if s[0] == "idle"]  # ASCII art can still flash
+        if steps:
+            await self._play_scene(*before, steps)
+
+    async def _play_scene(self, key: str, name: str, steps: list[tuple[str, int, bool]]) -> None:
+        scene = self.query_one("#scene", Static)
+        scene.border_title = name
+        scene.add_class("combat")
+        self.animating = True
+        try:
+            for pose, frame, flash in steps:
+                scene.update(self._scene_frame(key, pose, frame, flash))
+                await asyncio.sleep(0.07)
+        finally:
+            self.animating = False
+
+    def _scene_frame(self, key: str, pose: str, frame: int, flash: bool) -> Text:
+        """The monster card during an animation, keeping its HP bar so the panel doesn't jump."""
+        content, monster = self.game.content, self.game.state.room.monster
+        art = portrait(key, content, self._sprites_on(), frame, flash, pose=pose)
+        hp, max_hp = (monster.hp, monster.max_hp) if monster and monster.key == key else (0, content.monster(key).hp)
+        art.append("\n")
+        art.append(bar(hp, max_hp, 18), style="#ff4b4b")
+        art.append(f" {max(0, hp)}/{max_hp}")
+        return art
+
+    async def _fixture_moment(self, events: list[Event], narration: Static) -> None:
+        """Opening a chest, drinking from a fountain, an offering, going down the stairs: play it out."""
+        kind = next((e.kind for e in events if e.kind in FIXTURE_MOMENTS), None)
+        if kind is None or not self._sprites_on():
+            return
+        key, steps = FIXTURE_MOMENTS[kind]
+        sprite = AnimatedSprite(key, classes="story-sprite")
+        await self.query_one("#story").mount(sprite, before=narration)
+        self.query_one("#story", VerticalScroll).scroll_end(animate=False)
+        await sprite.play(steps)
+        if kind == "descend":
+            await sprite.remove()  # it dissolved into the dark
+
+    def _arrival_sprite(self, events: list[Event]) -> None:
+        """Arriving somewhere with a shrine, chest, fountain or stairs: show it, alive."""
+        room = self.game.state.room
+        arrived = any(e.kind in ("enter", "descend") and e.data.get("first") for e in events)
+        if arrived and room.fixture and not room.fixture_used and self._sprites_on():
+            sprite = AnimatedSprite(room.fixture, interval=0.3, classes="story-sprite")
+            self.query_one("#story", VerticalScroll).mount(sprite)
+            self.live_sprites.append(sprite)
 
     def _animate(self) -> None:
-        if self.game.config.art == "sprites" and self.game.state.room.monster and not self.flashing:
+        if self._sprites_on() and self.game.state.room.monster and not self.animating:
             self.frame += 1
             self.refresh_scene()
 
@@ -333,7 +423,7 @@ class GameScreen(Screen):
         state, content = game.state, game.content
         scene = self.query_one("#scene", Static)
         if state.room.monster and (state.in_combat or state.room.monster.hostile):
-            scene.update(monster_text(state, content, game.config.art == "sprites", self.frame, self.flashing))
+            scene.update(monster_text(state, content, game.config.art == "sprites", self.frame))
             scene.border_title = state.room.monster.name
             scene.add_class("combat")
         else:

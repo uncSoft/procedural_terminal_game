@@ -17,7 +17,7 @@ from ..dice import Roll
 from ..events import Action
 from ..glossary import Lexicon
 from ..models import LEVEL_XP, GameState
-from ..sprites import sprite_text
+from ..sprites import frame_count, sprite_text
 from ..world import render_map
 from .theme import CELL_STYLES, MAP_STYLES
 
@@ -150,18 +150,30 @@ def map_text(state: GameState) -> Text:
 
 
 def portrait(key: str, content: Content, sprites: bool = True, frame: int = 0, flash: bool = False,
-             style: str = "#ff4b4b") -> Text:
-    """A monster's pixel sprite, or its ASCII art when sprites are off or missing."""
-    art = sprite_text(key, frame, flash=flash) if sprites else None
+             style: str = "#ff4b4b", pose: str = "idle") -> Text:
+    """A monster's pixel sprite (in a pose), or its ASCII art when sprites are off or missing."""
+    art = sprite_text(key, frame, flash=flash, pose=pose) if sprites else None
     if art is None:
         art = Text(content.monster(key).art, style="bold #ffffff" if flash else style)
     return art
 
 
+def monster_pose(monster) -> str:
+    """How a monster stands right now: the sprite shows its state at a glance."""
+    if not monster.hostile:
+        return "calm"
+    if monster.stunned:
+        return "dizzy"
+    if monster.intent == "heavy":
+        return "windup"
+    return "idle"
+
+
 def monster_text(state: GameState, content: Content, sprites: bool = True, frame: int = 0,
                  flash: bool = False) -> Text:
     monster = state.room.monster
-    text = portrait(monster.key, content, sprites, frame, flash, "#ff4b4b" if monster.hostile else "#ffd166")
+    text = portrait(monster.key, content, sprites, frame, flash, "#ff4b4b" if monster.hostile else "#ffd166",
+                    pose=monster_pose(monster))
     text.append("\n")
     text.append(bar(monster.hp, monster.max_hp, 18), style="#ff4b4b")
     text.append(f" {max(0, monster.hp)}/{monster.max_hp}\n")
@@ -201,6 +213,41 @@ class ChoiceItem(Static):
 
     def on_click(self) -> None:
         self.post_message(self.Chosen(self.index))
+
+
+class AnimatedSprite(Static):
+    """A sprite that animates where it stands: in the story, or on a story card."""
+
+    def __init__(self, key: str, interval: float = 0.25, **kwargs) -> None:
+        self.key = key
+        self.interval = interval
+        self.count = max(1, frame_count(key))
+        self.index = 0
+        self._timer = None
+        super().__init__(sprite_text(key, 0) or Text(""), **kwargs)
+
+    def on_mount(self) -> None:
+        if self.count > 1:
+            self._timer = self.set_interval(self.interval, self._tick)
+
+    def _tick(self) -> None:
+        self.index = (self.index + 1) % self.count
+        self.update(sprite_text(self.key, self.index) or Text(""))
+
+    def freeze(self, frame: int | None = None) -> None:
+        """Stop animating (older story sprites stand still so the newest one draws the eye)."""
+        if self._timer is not None:
+            self._timer.stop()
+            self._timer = None
+        if frame is not None:
+            self.update(sprite_text(self.key, frame) or Text(""))
+
+    async def play(self, steps: list[tuple[int, str, bool]], delay: float = 0.09) -> None:
+        """Play a one-off sequence of (frame, pose, flash) steps, then stop on the last one."""
+        self.freeze()
+        for frame, pose, flash in steps:
+            self.update(sprite_text(self.key, frame, flash=flash, pose=pose) or Text(""))
+            await asyncio.sleep(delay)
 
 
 class DiceLine(Static):

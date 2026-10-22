@@ -174,7 +174,21 @@ Toast {
     margin-bottom: 1;
 }
 
+.card-sprite {
+    width: 100%;
+    height: auto;
+    text-align: center;
+}
+
+.story-sprite {
+    width: 100%;
+    height: auto;
+    margin-top: 1;
+    text-align: center;
+}
+
 .story-card {
+    height: auto;
     margin-top: 1;
     padding: 0 1;
     border: heavy $accent;
@@ -199,7 +213,7 @@ DiceScreen {
 }
 
 #dice-box {
-    width: 64;
+    width: 76;
     height: auto;
     border: double $secondary;
     border-title-color: $secondary;

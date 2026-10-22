@@ -293,7 +293,8 @@ class Game:
         state, profile = self.state, self.profile
         for event in events:
             if event.kind == "story" and event.data.get("voice") == "exact":
-                state.log.append(LogEntry(kind="card", text=event.text, title=event.data.get("title", "")))
+                state.log.append(LogEntry(kind="card", text=event.text, title=event.data.get("title", ""),
+                                          art=event.data.get("sprite", "")))
             elif event.kind == "story_effect" and event.text:
                 state.log.append(LogEntry(kind="mechanic", text=f"◆ {event.text}"))
             elif event.kind == "story_secret":

@@ -134,6 +134,7 @@ class LogEntry(BaseModel):
     kind: Literal["player", "narration", "mechanic", "system", "card"]
     text: str
     title: str = ""
+    art: str = ""  # a story card's sprite
 
 
 class SceneState(BaseModel):

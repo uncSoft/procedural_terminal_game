@@ -32,7 +32,7 @@ Each turn sends the model a small snapshot (room, positions, player, last few ev
 ## The loop
 
 **Every turn**
-- **Dice you roll yourself.** Skill checks open a big d20 panel: press Space, it tumbles, bonuses add up one by one, and the result is stamped. Natural 20s flash gold, natural 1s shake the screen. Attacks get small inline dice.
+- **Dice you roll yourself.** Skill checks open a big pixel-art d20: press Space, it tumbles and bounces, bonuses add up one by one, and the result is stamped. Natural 20s glow gold, natural 1s glow red and shake the screen; with advantage you roll two and the one you don't keep greys out. Attacks get small inline dice.
 - **Props and flair.** Using a real thing in the room or your pack ("topple the statue onto it") adds a ✦ flair bonus to the roll and earns a **Fate** token on success.
 - **Fate rerolls.** Spend Fate to rewind a failed check and roll again. Earn it with flair, perfect dodges, natural 20s and shrines.
 - **Telegraphs.** Monsters wind up heavy blows a turn early (`⚠ HEAVY ATTACK NEXT`). Dodge or improvise an evasion to make them whiff, and get advantage and a Fate token.
@@ -80,15 +80,23 @@ uv run python -m ptg.integrity --sign   # accept it (a test fails until you do)
 
 ## Pixel art
 
-Monsters, the bestiary and the campfire are drawn as pixel-art sprites using half-block characters: each
-terminal cell shows two pixels (`▀` in the top pixel's colour on a background of the bottom pixel's colour).
-That works inside the UI in any terminal with 24-bit colour, with no image protocol. Monsters bob while idle
-and flash white when hit. Switch to the original ASCII art in Settings (Art), or it falls back automatically
-for anything without a sprite.
+Monsters, the bestiary, the campfire, the dungeon's fixtures and the dice are drawn as pixel art using
+half-block characters: each terminal cell shows two pixels (`▀` in the top pixel's colour on a background of
+the bottom pixel's colour). That works inside the UI in any terminal with 24-bit colour, with no image
+protocol. Switch to the original ASCII art in Settings (Art), or it falls back automatically for anything
+without a sprite.
 
-Sprites live in `src/ptg/data/sprites/` as PNG strips: square frames side by side, transparent background,
-any size (they're scaled to fit). The shipped ones are drawn as colour maps in `tools/build_sprites.py`, which
-adds outlines, shading and an idle frame:
+Everything moves. Monsters bob while idle, glow when winding up a heavy blow, see stars when stunned, lunge
+when they attack, flash white when hit and dissolve when they die. Shrines, chests, fountains and stairs come
+alive when you first walk in and play out when you use them (the chest rattles open, the stairs fade into
+the dark). Story events can put a sprite on their card (`sprite:` in the header, see
+[docs/writing-events.md](docs/writing-events.md)). The poses are made from each sprite's own frames, so new
+art gets them for free.
+
+Sprites live in `src/ptg/data/sprites/` as PNG strips: frames side by side, transparent background, any size
+(they're scaled to fit). Frames are square unless the PNG stores a `frames` count. The shipped ones are drawn
+as colour maps in `tools/build_sprites.py`, which adds outlines, shading and animation frames; the d20 is drawn
+in code (`dice_art.py`) so it can show any number:
 
 ```bash
 uv run python tools/build_sprites.py --sheet sheet.png   # rebuild, plus an 8x preview sheet
@@ -156,7 +164,8 @@ src/ptg/
   game.py          one turn: interpret -> resolve -> (reroll) -> narrate -> save -> profile
   profile.py       SQLite: souls, unlocks, Hall of Legends, bestiary, ghosts, turn log
   meta.py          building the adventurer from unlocks, starting runs, scoring the end
-  sprites.py       PNG sprites rendered as half-block pixel art
+  sprites.py       PNG sprites rendered as half-block pixel art, and their poses
+  dice_art.py      the pixel-art d20
   glossary.py      the terms highlighted in the story
   integrity.py     fingerprints of the shipped data, and noticing edits
   story/           story events: file format, checker, and the engine that plays them

@@ -15,29 +15,18 @@ from textual.screen import ModalScreen
 from textual.widgets import Static
 
 from ..dice import Roll
+from ..dice_art import CRIMSON, GOLD, d20
+from ..sprites import side_by_side
 
 
-def d20_face(value: str, style: str) -> Text:
-    """A d20 drawn as a triangle face, 5 lines tall."""
-    value = value.center(3)
-    lines = ["    /\\    ", "   /  \\   ", f"  / {value}\\  ", " /______\\ ", "          "]
-    text = Text()
-    for line in lines:
-        text.append(line + "\n", style=style)
-    return text
-
-
-def faces(values: list[str], styles: list[str]) -> Text:
-    """Several dice side by side."""
-    rendered = [d20_face(v, s).split("\n") for v, s in zip(values, styles)]
-    text = Text()
-    for row in range(5):
-        for i, die in enumerate(rendered):
-            text.append_text(die[row])
-            if i < len(rendered) - 1:
-                text.append("   ")
-        text.append("\n")
-    return text
+def dice_row(values: list[int | None], turn: int | None = None, bounce: int = 0, glows: list | None = None,
+             dims: list[bool] | None = None) -> Text:
+    """One or two pixel d20s side by side. While they tumble (`turn` given) each turns out of step with the
+    other; once they land they sit upright."""
+    glows = glows or [None] * len(values)
+    dims = dims or [False] * len(values)
+    turns = [0 if turn is None else (turn + i) % 4 for i in range(len(values))]
+    return side_by_side([d20(v, t, bounce, g, d) for v, t, g, d in zip(values, turns, glows, dims)], gap=2)
 
 
 class DiceScreen(ModalScreen[str]):
@@ -71,8 +60,7 @@ class DiceScreen(ModalScreen[str]):
             yield Static(Text(f"[space] roll the dice   {hint}", style="#ffb000"), id="dice-prompt")
 
     def _idle_faces(self) -> Text:
-        count = len(self.roll.dice)
-        return faces(["?"] * count, ["bold #6c8cff"] * count)
+        return dice_row([None] * len(self.roll.dice))
 
     def on_mount(self) -> None:
         if self.auto:
@@ -98,21 +86,20 @@ class DiceScreen(ModalScreen[str]):
         roll = self.roll
         dice_widget = self.query_one("#dice-faces", Static)
         count = len(roll.dice)
-        # Tumble, slowing down like a real die.
+        # Tumble: turn, bounce and flicker through numbers, slowing down like a real die.
         for i in range(14):
-            values = [str(random.randint(1, 20)) for _ in range(count)]
-            dice_widget.update(faces(values, ["bold #ffd166"] * count))
-            await asyncio.sleep(0.025 + i * 0.012)
-        styles = []
-        for value in roll.dice:
-            kept = value == roll.kept
-            if roll.crit and kept:
-                styles.append("bold #ffd166")
-            elif roll.fumble and kept:
-                styles.append("bold #ff4b4b")
-            else:
-                styles.append("bold #ffffff" if kept else "#4a4a66")
-        dice_widget.update(faces([str(v) for v in roll.dice], styles))
+            values = [random.randint(1, 20) for _ in range(count)]
+            bounce = (2, 0, 1, 0)[i % 4] if i < 10 else 0
+            dice_widget.update(dice_row(values, turn=i, bounce=bounce))
+            await asyncio.sleep(0.03 + i * 0.012)
+        kept_index = roll.dice.index(roll.kept)
+        glows = [None] * count
+        if roll.crit:
+            glows[kept_index] = GOLD
+        elif roll.fumble:
+            glows[kept_index] = CRIMSON
+        dims = [i != kept_index for i in range(count)]  # with advantage, the die you don't keep greys out
+        dice_widget.update(dice_row(list(roll.dice), glows=glows, dims=dims))
         await asyncio.sleep(0.25)
 
         bonus_widget = self.query_one("#dice-bonuses", Static)

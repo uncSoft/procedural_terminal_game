@@ -30,10 +30,11 @@ import re
 from importlib import resources
 from pathlib import Path
 
+from .. import sprites
 from ..content import Content
 from .model import ONCE, TRIGGERS, VOICES, Choice, Condition, Effect, Node, StoryError, StoryEvent
 
-HEADER_KEYS = {"id", "title", "when", "if", "once", "voice", "secret", "hint"}
+HEADER_KEYS = {"id", "title", "when", "if", "once", "voice", "secret", "hint", "sprite"}
 EFFECT = re.compile(r"\[([a-z_]+)((?:\s+[^\]\s]+)*)\s*\]")
 NAME = re.compile(r"^[a-z0-9_]+$")
 NUMERIC = re.compile(r"^(floor|level|hp|gold|fate|souls|turn|runs|deaths|wins)\s*(>=|<=|==|=|>|<)\s*(-?\d+)$")
@@ -82,6 +83,7 @@ def parse(text: str, source: str = "<story>") -> StoryEvent:
         trigger=trigger, trigger_args=trigger_args, conditions=conditions, once=once, voice=voice,
         secret=header.get("secret", ("no", 0))[0].lower() in ("yes", "true", "1"),
         hint=header.get("hint", ("", 0))[0], nodes=nodes, source=source,
+        sprite=header.get("sprite", ("", 0))[0],
     )
 
 
@@ -224,6 +226,8 @@ def validate(event: StoryEvent, content: Content, event_ids: set[str]) -> list[s
         problems.append(f"{where}: once must be one of {', '.join(ONCE)}")
     if event.voice not in VOICES:
         problems.append(f"{where}: voice must be one of {', '.join(VOICES)}")
+    if event.sprite and sprites.Image is not None and not sprites.frame_count(event.sprite):
+        problems.append(f"{where}: no sprite called {event.sprite!r} in data/sprites")
     for condition in event.conditions:
         if condition.name == "chance" and not 0 <= int(condition.value) <= 100:
             problems.append(f"{where}:{condition.line}: chance must be 0-100%")

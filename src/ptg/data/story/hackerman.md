@@ -10,9 +10,8 @@ once: profile
 voice: exact
 secret: yes
 hint: Some secrets aren't in the dungeon. They're in its files.
+sprite: sunglasses
 ---
-(⌐■_■)
-
 The dungeon blinks. Somewhere beneath the stone its numbers have been rewritten, and not by its
 architects. It knows. It's a little impressed. This descent will be remembered as modded.
 [secret] [mark hackerman]

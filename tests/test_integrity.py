@@ -43,7 +43,8 @@ async def test_hackerman_greets_the_first_modded_run(profile):
     game = Game(state, Config(backend="offline"), None, profile=profile)
     result = await game.opening(lambda _: None)
     cards = [e for e in result.events if e.kind == "story"]
-    assert cards and cards[0].data["event"] == "hackerman" and "(⌐■_■)" in cards[0].text
+    assert cards and cards[0].data["event"] == "hackerman"
+    assert "(⌐■_■)" in cards[0].data["title"] and cards[0].data["sprite"] == "sunglasses"
     assert "hackerman" in profile.secrets() and "hackerman" in profile.marks()
 
     again = generate(2)

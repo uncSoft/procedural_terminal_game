@@ -74,6 +74,7 @@ class StoryEvent:
     hint: str
     nodes: dict[str, Node]
     source: str
+    sprite: str = ""
 
     @property
     def start(self) -> Node:

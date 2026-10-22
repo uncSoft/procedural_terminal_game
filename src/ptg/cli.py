@@ -105,6 +105,15 @@ def print_story(events) -> None:
     for event in events:
         if event.kind == "story" and event.data.get("voice") == "exact":
             title = event.data.get("title", "")
+            if event.data.get("sprite"):
+                from rich.console import Console
+
+                from .sprites import sprite_text
+
+                art = sprite_text(event.data["sprite"])
+                if art is not None:
+                    print()
+                    Console(highlight=False).print(art)
             print(f"\n  ╔═ ✧ {title} " + "═" * max(4, 60 - len(title)))
             for paragraph in event.text.split("\n\n"):
                 for line in textwrap.wrap(paragraph, 64):

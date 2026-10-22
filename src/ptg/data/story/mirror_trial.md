@@ -9,6 +9,7 @@ once: profile
 voice: exact
 secret: yes
 hint: Not every fight is won by fighting.
+sprite: mirror
 ---
 A tall mirror stands where a wall should be, its frame carved with tired angels. Your reflection
 draws its weapon a heartbeat before you do, and waits.

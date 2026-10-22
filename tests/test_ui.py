@@ -1,12 +1,15 @@
 from textual.widgets import Static
 
 from ptg.config import Config
+from ptg.events import Event
+from ptg.sprites import DEATH_FRAMES
 from ptg.ui.app import PTGApp
 from ptg.ui.dice import DiceScreen
 from ptg.ui.game_screen import GameScreen
 from ptg.ui.hub import EndScreen, HubScreen
 from ptg.ui.panels import BestiaryScreen, CharacterScreen, InventoryScreen, LevelUpScreen, LookScreen
 from ptg.ui.screens import IntroScreen, SetupScreen, TitleScreen
+from ptg.ui.widgets import AnimatedSprite
 
 
 async def settle(app, pilot, limit: float = 10.0) -> None:
@@ -99,3 +102,73 @@ async def test_first_run_opens_settings():
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         assert isinstance(app.screen, SetupScreen)
+
+
+async def into_a_run(app, pilot) -> GameScreen:
+    await pilot.pause()
+    app.show_campfire()
+    await pilot.pause(0.3)
+    app.profile.set("intro_seen", 1)
+    app.start_descent()
+    await pilot.pause(0.5)
+    if isinstance(app.screen, IntroScreen):
+        await pilot.press("enter")
+    await settle(app, pilot)
+    return app.screen
+
+
+async def test_fights_flash_lunge_and_dissolve():
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        game = screen.game
+        played = []
+        play = screen._play_scene
+
+        async def spy(key, name, steps):
+            played.append([pose for pose, _, _ in steps])
+            await play(key, name, steps)
+        screen._play_scene = spy
+
+        from conftest import put_monster
+
+        put_monster(game.state, game.content, key="hobgoblin")
+        here = game.state.room_id
+        await screen._fight_animations([Event("hit", ""), Event("monster_hit", "")], ("hobgoblin", "Hobgoblin"), here)
+        game.state.room.monster = None  # and the next blow kills it
+        await screen._fight_animations([Event("hit", "")], ("hobgoblin", "Hobgoblin"), here)
+        assert played == [["idle"] * 4 + ["lunge", "lunge", "idle"], ["idle"] * 4 + ["death"] * DEATH_FRAMES]
+        assert not screen.animating
+
+        played.clear()
+        await screen._fight_animations([Event("hit", "")], ("hobgoblin", "Hobgoblin"), here + 1)  # fled
+        game.config.art = "ascii"
+        await screen._fight_animations([Event("hit", "")], ("hobgoblin", "Hobgoblin"), here)
+        assert played == [["idle"] * 4]  # ASCII art still flashes, but doesn't dissolve
+
+
+async def test_fixtures_come_alive():
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        game = screen.game
+        narration = screen.add_line("…", "narration")
+        await screen._fixture_moment([Event("chest", "")], narration)
+        chest = screen.query(".story-sprite").last()
+        assert chest.key == "chest" and chest._timer is None  # played once, then rests open
+        await screen._fixture_moment([Event("descend", "")], narration)
+        await pilot.pause()
+        assert [s.key for s in screen.query(AnimatedSprite)] == ["chest"]  # the stairs dissolved and went
+
+        game.state.room.fixture, game.state.room.fixture_used = "shrine", False
+        screen._arrival_sprite([Event("enter", "", data={"first": True})])
+        await pilot.pause()
+        shrine = screen.live_sprites[-1]
+        assert shrine.key == "shrine" and shrine._timer is not None  # alive while you're here
+        await pilot.press(*"sing a sea shanty", "enter")
+        await settle(app, pilot)
+        assert shrine._timer is None and not screen.live_sprites  # the next turn stills it
+
+        game.config.art = "ascii"
+        await screen._fixture_moment([Event("chest", "")], narration)
+        assert len(screen.query(AnimatedSprite)) == 2  # no new sprite in ASCII mode

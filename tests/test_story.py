@@ -7,6 +7,7 @@ from ptg.story import ProfileView, StoryEngine, StoryError, load_files, load_lib
 from ptg.ui.app import PTGApp
 from ptg.ui.game_screen import GameScreen
 from ptg.ui.hub import HubScreen
+from ptg.ui.widgets import AnimatedSprite
 from ptg.world import generate
 
 def library(content, *texts):
@@ -38,6 +39,7 @@ def test_shipped_story_files_load(content):
     (story("id: x\nwhen: enter_room", "Hi.\n\n* Go (go)\n  -> Gone. [goto nowhere]"), "goto nowhere"),
     (story("id: x\nwhen: enter_room", "You find it. [give golden_toaster]"), "give golden_toaster"),
     (story("id: x\nwhen: enter_room\nmood: grim"), "unknown header line"),
+    (story("id: x\nwhen: enter_room\nsprite: gargoyle"), "no sprite called 'gargoyle'"),
 ])
 def test_mistakes_name_the_file_and_line(content, text, message):
     with pytest.raises(StoryError) as error:
@@ -151,6 +153,17 @@ async def test_mirror_trial_scene(profile):
     assert any(e.kind == "story_effect" and "Fate" in e.text for e in result.events)
 
 
+async def test_only_the_first_card_carries_the_sprite(profile):
+    g = game(profile)
+    g.force_event = "mirror_trial"
+    result = await g.opening(lambda _: None)
+    assert [e.data.get("sprite") for e in result.events if e.kind == "story"] == ["mirror"]
+    await g.begin("I slowly put down my sword")
+    result = await g.finish(lambda _: None)
+    assert not any(e.data.get("sprite") for e in result.events if e.kind == "story")
+    assert [e.art for e in g.state.log if e.kind == "card"] == ["mirror", "", ""]
+
+
 async def test_scene_catch_all(profile):
     g = game(profile)
     g.force_event = "mirror_trial"
@@ -200,6 +213,7 @@ async def test_a_scene_survives_save_and_load(profile):
     save_game(g.state)
     loaded = load_game()
     assert loaded.scene.event == "mirror_trial"
+    assert [e.art for e in loaded.log if e.kind == "card"] == ["mirror"]  # the card replays with its art
     again = Game(loaded, Config(backend="offline"), None, profile=profile)
     assert [a.label for a in again.choices()] == ["Attack your reflection", "Lower your weapon"]
 
@@ -229,10 +243,12 @@ async def test_scene_in_the_ui_and_the_book_of_secrets():
         screen = app.screen
         while screen.busy:
             await pilot.pause(0.1)
-        assert screen.query(".story-card")
+        card = screen.query_one(".story-card")
+        assert [sprite.key for sprite in card.query(AnimatedSprite)] == ["mirror"]
         assert screen.query_one("#choices").border_title == "✧ The Mirror Trial"
         await pilot.press("2", "enter")  # lower your weapon
         await pilot.pause(0.5)
+        assert card.query_one(AnimatedSprite)._timer is None  # the old card's mirror stands still now
         await pilot.press("2", "enter")  # leave it be
         await pilot.pause(0.5)
         assert screen.game.state.scene is None and "mirror_trial" in app.profile.secrets()

@@ -74,6 +74,7 @@ The glass clouds over...
 | `voice` | `exact` (default): your words, shown as written on a story card. `narrated`: your words become facts the AI narrator retells in its own voice. `silent`: effects only, no text. |
 | `secret` | `yes` puts it in the Book of Secrets. It only counts as found when a `[secret]` effect fires. |
 | `hint` | What the Book of Secrets shows before it's found. |
+| `sprite` | A pixel-art sprite (a file in `src/ptg/data/sprites/`, without `.png`) shown, animated, on the event's first card. |
 
 Lines starting with `#` in the header are notes to yourself and are ignored.
 

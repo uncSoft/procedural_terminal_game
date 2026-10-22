@@ -216,7 +216,11 @@ class StoryEngine:
 
     def _fire(self, state: GameState, event: StoryEvent) -> list[Event]:
         state.story_seen.append(event.id)
-        return [Event("story_seen", "", data={"event": event.id})] + self._enter(state, event, "start")
+        events = self._enter(state, event, "start")
+        first_card = next((e for e in events if e.kind == "story"), None)
+        if first_card is not None and event.sprite:
+            first_card.data["sprite"] = event.sprite
+        return [Event("story_seen", "", data={"event": event.id})] + events
 
     def _enter(self, state: GameState, event: StoryEvent, node_id: str, depth: int = 0) -> list[Event]:
         node = event.nodes[node_id]

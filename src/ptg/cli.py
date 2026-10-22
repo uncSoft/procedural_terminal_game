@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+import textwrap
 
 from .config import DEFAULT_URLS, Config, load_config, load_game
 from .content import load_content
@@ -29,6 +30,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--url", help="OpenAI-compatible server URL, e.g. http://localhost:1234/v1")
     parser.add_argument("--model", help="model name (default: whatever the server has loaded)")
     parser.add_argument("--name", help="your character's name")
+    parser.add_argument("--event", metavar="ID", help="fire a story event right after the opening (to test it)")
     return parser.parse_args(argv)
 
 
@@ -48,13 +50,14 @@ def main(argv: list[str] | None = None) -> None:
     config = build_config(args)
     if args.plain:
         try:
-            asyncio.run(play_plain(config or Config(url=DEFAULT_URLS["lmstudio"]), args.seed, args.resume, args.daily))
+            asyncio.run(play_plain(config or Config(url=DEFAULT_URLS["lmstudio"]), args.seed, args.resume, args.daily,
+                                   args.event))
         except (KeyboardInterrupt, EOFError):
             print("\nGame saved. Bye.")
         return
     from .ui.app import PTGApp
 
-    PTGApp(config, seed=args.seed, setup=args.setup, resume=args.resume, daily=args.daily).run()
+    PTGApp(config, seed=args.seed, setup=args.setup, resume=args.resume, daily=args.daily, event=args.event).run()
 
 
 def show_portrait(game: Game) -> None:
@@ -74,7 +77,24 @@ def show_portrait(game: Game) -> None:
 PLAIN_HELP = "Type a number or anything you like. Also: map, look, inv, char, help, quit."
 
 
-async def play_plain(config: Config, seed: int | None, resume: bool, daily: bool = False) -> None:
+def print_story(events) -> None:
+    """Story cards in a frame, and what they did."""
+    for event in events:
+        if event.kind == "story" and event.data.get("voice") == "exact":
+            title = event.data.get("title", "")
+            print(f"\n  ╔═ ✧ {title} " + "═" * max(4, 60 - len(title)))
+            for paragraph in event.text.split("\n\n"):
+                for line in textwrap.wrap(paragraph, 64):
+                    print(f"  ║ {line}")
+            print("  ╚" + "═" * 66)
+        elif event.kind == "story_effect" and event.text:
+            print(f"  ◆ {event.text}")
+        elif event.kind == "story_secret" and not event.data.get("repeat"):
+            print(f"  ✧ {event.text}")
+
+
+async def play_plain(config: Config, seed: int | None, resume: bool, daily: bool = False,
+                     event: str | None = None) -> None:
     llm = make_llm(config)
     if llm is not None:
         try:
@@ -90,6 +110,7 @@ async def play_plain(config: Config, seed: int | None, resume: bool, daily: bool
     if fresh:
         state = start_run(profile, content, config.player_name, seed=seed, daily=daily)
     game = Game(state, config, llm, content, profile)
+    game.force_event = event if fresh else None
     print(f"\n=== {game.theme.name} (seed {state.seed}) · ☽ {profile.souls} souls banked ===\n{PLAIN_HELP}\n")
 
     def write(chunk: str) -> None:
@@ -99,7 +120,7 @@ async def play_plain(config: Config, seed: int | None, resume: bool, daily: bool
     if fresh:
         await intro(llm, state.player.name, game.theme.name, write)
         print("\n")
-        await game.opening(write)
+        print_story((await game.opening(write)).events)
     else:
         print("Previously… " + await game.recap())
     try:
@@ -145,6 +166,7 @@ async def play_plain(config: Config, seed: int | None, resume: bool, daily: bool
                 if event.roll:
                     print(f"  [{event.roll}]")
             result = await game.finish(write)
+            print_story(result.events)
             for error in result.errors:
                 print(f"\n  ({error})")
             if game.state.in_combat and not in_combat and config.art == "sprites":

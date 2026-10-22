@@ -20,16 +20,23 @@ from .events import Action, Event
 from .intent import Intent
 from .llm import LLM
 from .llm import extras
-from .llm.interpreter import interpret
+from .llm.interpreter import interpret, scene_choice
 from .llm.narrator import narrate
 from .meta import record_end
 from .models import GameState, LogEntry
 from .profile import Profile
 from .rules import available_actions, perform, perform_creative, perform_flavor, room_facts
+from .story import STORY_KINDS, Library, ProfileView, StoryEngine, load_library
 from .text import the
 
-JOURNAL_SKIP = {"miss", "monster_miss", "stunned", "check", "info", "spend", "fate"}
+JOURNAL_SKIP = {"miss", "monster_miss", "stunned", "check", "info", "spend", "fate", "story_seen", "story_mark",
+                "story_context"}
 QUIET_KINDS = {"perk"}  # resolved without asking the narrator
+
+
+def narratable(event: Event) -> bool:
+    """Story text written in the author's exact words is shown as-is, never re-told by the narrator."""
+    return event.kind not in STORY_KINDS or (event.kind == "story" and event.data.get("voice") == "narrated")
 
 
 @dataclass
@@ -57,7 +64,7 @@ class TurnResult:
 
 class Game:
     def __init__(self, state: GameState, config: Config, llm: LLM | None = None, content: Content | None = None,
-                 profile: Profile | None = None, autosave: bool = True):
+                 profile: Profile | None = None, autosave: bool = True, library: Library | None = None):
         self.state = state
         self.config = config
         self.llm = llm
@@ -69,6 +76,9 @@ class Game:
         self._rerolls = 0
         self._suggested_for: tuple | None = None
         self._background: set[asyncio.Task] = set()
+        self.story = StoryEngine(library or load_library(self.content), self.content,
+                                 ProfileView.from_profile(self.profile))
+        self.force_event: str | None = None  # fire this story event right after the opening (for testing)
 
     # --- what the player sees ---
 
@@ -81,7 +91,9 @@ class Game:
         return available_actions(self.state, self.content)
 
     def choices(self) -> list[Action]:
-        """The numbered choices: engine actions, plus one suggested trick when there is one."""
+        """The numbered choices: a scene's authored choices, or engine actions plus one suggested trick."""
+        if self.state.scene:
+            return self.story.scene_actions(self.state)
         actions = self.actions
         if self.state.suggestion and not self.state.pending_perks and not self.state.over:
             actions = actions + [Action("suggest", f"✦ {self.state.suggestion}", "improvise")]
@@ -113,23 +125,33 @@ class Game:
         room.description = text
         self.state.journal.append(f"You arrived in {room.name}, the entrance of {self.theme.name}.")
         self.state.log.append(LogEntry(kind="narration", text=text))
+        events = self.story.on_run_start(self.state)
+        if self.force_event:
+            events += self.story.force(self.state, self.force_event)
+            self.force_event = None
+        self._record_story(events)
         self._save()
-        return TurnResult(text, [arrival], errors=[error] if error else [])
+        return TurnResult(text, [arrival] + events, errors=[error] if error else [])
 
     async def begin(self, raw: str) -> Pending:
         raw = raw.strip()
-        choices = self.choices()
         errors: list[str] = []
-        chosen = choices[int(raw) - 1] if raw.isdigit() and 1 <= int(raw) <= len(choices) else None
-        if chosen and chosen.id == "suggest":
-            raw, chosen = self.state.suggestion, None
-        if chosen:
-            intent, shown = Intent(kind="action", action_id=chosen.id, difficulty="trivial"), chosen.label
+        if self.state.scene:
+            intent, shown, error = await self._read_scene_input(raw)
+        elif not raw.isdigit() and self.story.wants_say(self.state, raw):
+            intent, shown, error = Intent(kind="action", action_id="story:say", difficulty="trivial"), raw, None
         else:
-            intent, error = await interpret(self.llm, self.state, self.content, raw, self.actions)
-            shown = raw
-            if error:
-                errors.append(error)
+            choices = self.choices()
+            chosen = choices[int(raw) - 1] if raw.isdigit() and 1 <= int(raw) <= len(choices) else None
+            if chosen and chosen.id == "suggest":
+                raw, chosen = self.state.suggestion, None
+            if chosen:
+                intent, shown, error = Intent(kind="action", action_id=chosen.id, difficulty="trivial"), chosen.label, None
+            else:
+                intent, error = await interpret(self.llm, self.state, self.content, raw, self.actions)
+                shown = raw
+        if error:
+            errors.append(error)
         self._snapshot = self.state.model_copy(deep=True)
         self._rerolls = 0
         self.pending = Pending(raw, shown, intent, intent, errors=errors)
@@ -150,9 +172,47 @@ class Game:
                                                           f"({self.state.player.fate} left)."))
         return self.pending
 
+    async def _read_scene_input(self, raw: str) -> tuple[Intent, str, str | None]:
+        """In a scene, input picks one of the authored choices: by number, by the author's keywords, by the
+        interpreter's best guess, or else the scene's catch-all."""
+        actions = self.story.scene_actions(self.state)
+        if raw.isdigit() and 1 <= int(raw) <= len(actions):
+            action = actions[int(raw) - 1]
+            return Intent(kind="action", action_id=action.id, difficulty="trivial"), action.label, None
+        index = self.story.match(self.state, raw)
+        if index is not None:
+            return Intent(kind="action", action_id=f"scene:{index}", difficulty="trivial"), raw, None
+        error = None
+        _, node = self.story.current(self.state)
+        if self.llm is not None and node is not None:
+            index, question, error = await scene_choice(self.llm, node.text, [a.label for a in actions], raw)
+            if question:
+                return Intent(kind="question", summary=raw), raw, error
+            if index is not None:
+                return Intent(kind="action", action_id=f"scene:{index}", difficulty="trivial"), raw, error
+        if node is not None and node.fallback is not None:
+            return Intent(kind="action", action_id="scene:else", difficulty="trivial"), raw, error
+        return Intent(kind="flavor", summary=raw), raw, error
+
     def _resolve(self) -> None:
         pending, state = self.pending, self.state
         intent = pending.original
+        story_turn = True
+        if intent.kind == "action" and intent.action_id.startswith("scene:"):
+            ref = intent.action_id.partition(":")[2]
+            events = self.story.choose(state, None if ref == "else" else int(ref))
+        elif intent.kind == "action" and intent.action_id == "story:say":
+            events = self.story.on_say(state, pending.raw)
+        elif state.scene and intent.kind in ("question", "flavor"):
+            _, node = self.story.current(state)
+            events = [Event("story_context", "A scripted scene is under way, and nothing in it moves or changes "
+                                              "until the player chooses. React or answer without making anything "
+                                              f"happen. The scene: {node.text}" if node else "")]
+        else:
+            story_turn = False
+        if story_turn:
+            pending.intent, pending.events = intent, events
+            return
         if intent.kind == "action":
             events = perform(state, self.content, intent.action_id)
         elif intent.kind == "creative":
@@ -161,6 +221,7 @@ class Game:
             events = perform_flavor(state, self.content)
         else:
             events = []
+        events += self.story.after_turn(state, events)
         pending.intent = intent
         pending.events = events
 
@@ -173,21 +234,25 @@ class Game:
                 state.log.append(LogEntry(kind="mechanic", text=event.roll))
 
         errors = list(pending.errors)
+        told = [e for e in pending.events if narratable(e)]
         if pending.events and all(e.kind in QUIET_KINDS for e in pending.events):
             text = " ".join(e.text for e in pending.events)
             on_text(text)
+        elif pending.events and not told:
+            text = ""  # an authored moment: its cards say it all
         else:
             words = pending.shown if pending.intent.kind != "action" else f"(chose) {pending.shown}"
-            text, error = await narrate(self.llm, state, self.content, words, pending.events, self.config.tone,
+            text, error = await narrate(self.llm, state, self.content, words, told, self.config.tone,
                                         on_text, question=pending.intent.kind == "question")
             if error:
                 errors.append(error)
         for event in pending.events:
             if event.kind in ("enter", "descend") and event.data.get("first"):
                 state.rooms[event.data["room"]].description = text
-        state.journal += [e.text for e in pending.events if e.kind not in JOURNAL_SKIP]
-        state.journal = state.journal[-200:]
-        state.log.append(LogEntry(kind="narration", text=text))
+        state.journal += [e.text for e in pending.events if e.kind not in JOURNAL_SKIP and not e.kind.startswith("story")]
+        if text:
+            state.log.append(LogEntry(kind="narration", text=text))
+        self._record_story(pending.events)
         for error in errors:
             state.log.append(LogEntry(kind="system", text=error))
         if self.scene_key() != self._suggested_for:
@@ -222,11 +287,34 @@ class Game:
     async def recap(self) -> str:
         return await extras.recap(self.llm, self.state)
 
+    def _record_story(self, events: list[Event]) -> None:
+        """Log story cards and their effects, and save what the profile should remember."""
+        state, profile = self.state, self.profile
+        for event in events:
+            if event.kind == "story" and event.data.get("voice") == "exact":
+                state.log.append(LogEntry(kind="card", text=event.text, title=event.data.get("title", "")))
+            elif event.kind == "story_effect" and event.text:
+                state.log.append(LogEntry(kind="mechanic", text=f"◆ {event.text}"))
+            elif event.kind == "story_secret":
+                if profile.add_secret(event.data["event"], state.run_id):
+                    state.log.append(LogEntry(kind="system", text=f"✧ {event.text}"))
+                else:
+                    event.data["repeat"] = True  # already in the Book of Secrets
+            elif event.kind == "story_seen":
+                profile.mark_seen(event.data["event"])
+            elif event.kind == "story_mark":
+                profile.set_mark(event.data["mark"])
+            if event.kind in ("story", "story_effect") and event.text:
+                state.journal.append(event.text)
+        state.journal = state.journal[-200:]
+        state.marks_pending.clear()
+        self.story.view = ProfileView.from_profile(profile)
+
     def _update_profile(self, events: list[Event]) -> None:
         profile, state = self.profile, self.state
         for event in events:
             monster = event.data.get("monster")
-            if event.kind in ("enter", "ambush", "descend") and monster:
+            if event.kind in ("enter", "ambush", "descend", "story_effect") and monster:
                 if profile.bump_beast(monster, "seen") == 1:
                     self._spawn(self._write_lore(monster))
             elif event.kind == "defeat" and monster:

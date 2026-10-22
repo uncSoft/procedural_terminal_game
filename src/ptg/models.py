@@ -131,8 +131,16 @@ class Player(BaseModel):
 
 
 class LogEntry(BaseModel):
-    kind: Literal["player", "narration", "mechanic", "system"]
+    kind: Literal["player", "narration", "mechanic", "system", "card"]
     text: str
+    title: str = ""
+
+
+class SceneState(BaseModel):
+    """An authored scene in progress: which story event, and which part of it."""
+
+    event: str
+    node: str = "start"
 
 
 class GameState(BaseModel):
@@ -161,6 +169,10 @@ class GameState(BaseModel):
     suggestion: str = ""
     known_weak: dict[str, list[str]] = Field(default_factory=dict)
     ghost: dict | None = None
+    flags: list[str] = Field(default_factory=list)  # story flags for this run
+    story_seen: list[str] = Field(default_factory=list)  # story events fired this run
+    marks_pending: list[str] = Field(default_factory=list)  # profile marks set this turn, not yet saved
+    scene: SceneState | None = None
 
     @property
     def room(self) -> Room:

@@ -22,13 +22,14 @@ class PTGApp(App):
     TITLE = "Procedural Terminal Game"
 
     def __init__(self, config: Config | None, seed: int | None = None, setup: bool = False,
-                 resume: bool = False, daily: bool = False) -> None:
+                 resume: bool = False, daily: bool = False, event: str | None = None) -> None:
         super().__init__()
         self.needs_setup = config is None or setup
         self.config = config or Config()
         self.seed = seed
         self.resume = resume
         self.daily = daily
+        self.event = event  # a story event to fire at the start of the next descent (for testing)
         self.profile = Profile.open()
 
     def on_mount(self) -> None:
@@ -71,6 +72,7 @@ class PTGApp(App):
         seed, self.seed = self.seed, None
         state = start_run(self.profile, load_content(), self.config.player_name, seed=seed, daily=daily)
         game = Game(state, self.config, llm, profile=self.profile)
+        game.force_event, self.event = self.event, None
         first_time = self.profile.totals()["runs"] == 0
         screen = IntroScreen(game) if first_time else GameScreen(game, fresh=True)
         if isinstance(self.screen, HubScreen):

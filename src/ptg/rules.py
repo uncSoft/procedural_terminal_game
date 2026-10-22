@@ -227,8 +227,18 @@ def _offer_perks(state: GameState, content: Content) -> None:
 
 
 def choose_perk(state: GameState, content: Content, key: str) -> list[Event]:
-    player = state.player
     state.pending_perks = []
+    events = apply_perk(state, content, key)
+    if state.perk_debt:
+        state.perk_debt -= 1
+        _offer_perks(state, content)
+    return events
+
+
+def apply_perk(state: GameState, content: Content, key: str) -> list[Event]:
+    player = state.player
+    if key in player.perks:
+        return []
     player.perks.append(key)
     if key == "tough":
         player.max_hp += 8
@@ -244,9 +254,6 @@ def choose_perk(state: GameState, content: Content, key: str) -> list[Event]:
     elif key == "glass_cannon":
         player.max_hp = max(6, player.max_hp - 6)
         player.hp = min(player.hp, player.max_hp)
-    if state.perk_debt:
-        state.perk_debt -= 1
-        _offer_perks(state, content)
     perk = content.perks[key]
     return [Event("perk", f"You take the perk {perk.name}: {perk.desc}", data={"perk": key})]
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 
 from rich.text import Text
 from textual import on, work
@@ -17,6 +18,7 @@ from ..meta import daily_seed, share_card, souls_earned
 from ..models import GameState
 from ..profile import Profile
 from ..sprites import sprite_text
+from ..story import load_library
 
 CAMPFIRE = r"""
        )   (
@@ -72,6 +74,8 @@ class HubScreen(Screen):
                         yield Grid(id="grid-blessing", classes="unlock-grid")
                     with TabPane("Gifts", id="tab-gifts"):
                         yield Grid(id="grid-gift", classes="unlock-grid")
+                    with TabPane("Secrets", id="tab-secrets"):
+                        yield VerticalScroll(Static("", id="secrets-list"))
                 yield Static("", id="unlock-detail")
                 yield Button("", id="unlock-action", variant="primary")
             with Vertical(id="hub-right"):
@@ -126,6 +130,7 @@ class HubScreen(Screen):
             souls.append(f"     gift: {chosen.icon} {chosen.name}", style="#ffb000")
         self.query_one("#hub-souls", Static).update(souls)
         self.query_one("#legends", Static).update(self.legends())
+        self.query_one("#secrets-list", Static).update(self.book_of_secrets())
         _, today = daily_seed()
         done = self.profile.daily_run(today)
         daily = self.query_one("#daily", Button)
@@ -133,11 +138,29 @@ class HubScreen(Screen):
         daily.label = "Daily: done" if done else "Daily descent"
         self.show_detail(self.selected)
 
+    def book_of_secrets(self) -> Text:
+        """Every hand-written secret: the ones you've found by name, the rest as a hint."""
+        secrets = load_library(self.content).secrets
+        found = self.profile.secrets()
+        text = Text(f"BOOK OF SECRETS · {len(found)}/{len(secrets)} found\n\n", style="bold #ffd166")
+        for event in secrets:
+            if event.id in found:
+                when = datetime.fromtimestamp(found[event.id]).strftime("%b %d")
+                text.append(f"✧ {event.title}", style="bold #ffd166")
+                text.append(f"   found {when}\n", style="#6c6f99")
+            else:
+                text.append("? ???", style="#6c6f99")
+                text.append(f"   {event.hint}\n" if event.hint else "\n", style="italic #9a9cc0")
+        if not secrets:
+            text.append("No secrets have been written yet.", style="#6c6f99")
+        return text
+
     def legends(self) -> Text:
         runs = self.profile.runs(limit=12)
         totals = self.profile.totals()
-        text = Text(f"{totals['runs']} descents · {totals['wins']} victories · deepest floor {totals['deepest']}\n\n",
-                    style="#9a9cc0")
+        secrets = f" · secrets {len(self.profile.secrets())}/{len(load_library(self.content).secrets)}"
+        text = Text(f"{totals['runs']} descents · {totals['wins']} victories · deepest floor {totals['deepest']}"
+                    f"{secrets}\n\n", style="#9a9cc0")
         if not runs:
             text.append("No legends yet. Be the first.", style="#6c6f99")
         for run in runs:

@@ -110,7 +110,31 @@ class GameScreen(Screen):
         game = self.game
         return Lexicon(glossary.build(game.state, game.content, game.profile.bestiary()))
 
+    def add_card(self, title: str, text: str, lexicon: Lexicon | None = None) -> Static:
+        """An authored moment, shown in the writer's own words."""
+        card = self.add_line(highlight(text, lexicon), "story-card")
+        card.border_title = f"✧ {title}" if title else "✧"
+        return card
+
+    def _show_story(self, events: list[Event]) -> None:
+        """Story cards, their effects and any secret found, after the narration."""
+        lexicon = self.lexicon()
+        library = self.game.story.library
+        for event in events:
+            if event.kind == "story" and event.data.get("voice") == "exact":
+                self.add_card(event.data.get("title", ""), event.text, lexicon)
+            elif event.kind == "story_effect" and event.text:
+                self.add_line(Text("  ◆ " + event.text, style="bold #ff4f9a"), "mechanic")
+            elif event.kind == "story_secret" and not event.data.get("repeat"):
+                found = len(self.game.profile.secrets())
+                self.add_line(Text(f"  ✧ {event.text}  ({found}/{len(library.secrets)} in the Book of Secrets)",
+                                   style="bold #ffd166"), "system-line")
+                self.notify(event.data.get("title", ""), title="✧ Secret found", timeout=6)
+
     def add_entry(self, entry: LogEntry, lexicon: Lexicon | None = None) -> None:
+        if entry.kind == "card":
+            self.add_card(entry.title, entry.text, lexicon)
+            return
         if entry.kind == "mechanic":
             self.add_line(Text("  ⚄ " + entry.text, style="#6c6f99"), "mechanic")
             return
@@ -170,6 +194,7 @@ class GameScreen(Screen):
         narration, on_text = self._narration_sink()
         result = await self.game.opening(on_text)
         narration.update(highlight(result.narration, self.lexicon()))
+        self._show_story(result.events)
         self.refresh_panels()
         await self.update_suggestion()
 
@@ -211,9 +236,13 @@ class GameScreen(Screen):
         self.refresh_panels()
 
         result = await game.finish(on_text)
-        narration.update(highlight(result.narration, self.lexicon()))
+        if result.narration:
+            narration.update(highlight(result.narration, self.lexicon()))
+        else:
+            await narration.remove()  # an authored moment speaks for itself
         for error in result.errors:
             self.add_line(f"  ({error})", "system-line")
+        self._show_story(result.events)
         self._toasts(result.events)
         if crit:
             await self._shake(self.query_one("#story"))
@@ -283,7 +312,8 @@ class GameScreen(Screen):
             self.refresh_scene()
 
     async def update_suggestion(self) -> None:
-        await self.game.refresh_suggestion()
+        if not self.game.state.scene:
+            await self.game.refresh_suggestion()
         self.refresh_choices()
 
     # --- panels ---
@@ -314,6 +344,9 @@ class GameScreen(Screen):
     def refresh_choices(self) -> None:
         box = self.query_one("#choices", Vertical)
         box.remove_children()
+        scene = self.game.story.scene_title(self.game.state)
+        box.border_title = f"✧ {scene}" if scene else "Choices"
+        box.set_class(bool(scene), "scene")
         if self.game.state.over:
             box.mount(Static(Text("Press Enter to see your fate.", style="#ffb000")))
             return

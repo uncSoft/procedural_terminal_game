@@ -52,6 +52,19 @@ Each turn sends the model a small snapshot (room, positions, player, last few ev
 - **The Void**, the voice by the campfire, remembers how your last run went.
 - **Daily descent.** Everyone gets the same dungeon each day; you get a spoiler-free result card to share.
 
+## Story events
+
+Scripted moments live in `src/ptg/data/story/` as small Markdown files: a header saying when they fire
+(entering a room, typing a magic word, a natural 20, defeating a monster...), then text written in your own
+words, optional choices that also accept free text, and effects like `[hp -6]`, `[give oil_flask]`,
+`[mark mirror_unbroken]` or `[secret]`. Marks and the **Book of Secrets** survive death. They work with no
+AI at all. See [docs/writing-events.md](docs/writing-events.md).
+
+```bash
+uv run python -m ptg.story                    # check every story file
+uv run ptg --event mirror_trial               # jump straight into one
+```
+
 ## Pixel art
 
 Monsters, the bestiary and the campfire are drawn as pixel-art sprites using half-block characters: each
@@ -118,7 +131,7 @@ Model requests and responses are logged to `~/.ptg/llm.log`.
 
 ```
 src/ptg/
-  data/            themes, rooms, items, monsters, perks, unlocks, prop tags (TOML) and ASCII art
+  data/            themes, rooms, items, monsters, perks, unlocks, prop tags (TOML), art and story/ events
   content.py       loads and validates the data (broken data fails loudly)
   world.py         seeded floors: layout, stairs, fixtures, elites, loot, ghosts, the map
   layout.py        room floor plans and where things stand
@@ -131,6 +144,8 @@ src/ptg/
   profile.py       SQLite: souls, unlocks, Hall of Legends, bestiary, ghosts, turn log
   meta.py          building the adventurer from unlocks, starting runs, scoring the end
   sprites.py       PNG sprites rendered as half-block pixel art
+  glossary.py      the terms highlighted in the story
+  story/           story events: file format, checker, and the engine that plays them
   llm/             backends (OpenAI-compatible, Claude), prompts, interpreter, narrator, extras
   ui/              Textual app: title, settings, campfire, game screen, dice, panels, endings
   cli.py           `ptg` entry point and plain-text mode

@@ -32,6 +32,9 @@ create table if not exists ghosts (
     status text default 'restless'
 );
 create table if not exists turns (run_id integer, turn integer, kind text, text text);
+create table if not exists story_seen (event text primary key, count integer default 0, first_at real);
+create table if not exists marks (key text primary key, set_at real);
+create table if not exists secrets (event text primary key, found_at real, run_id integer);
 """
 
 
@@ -159,6 +162,32 @@ class Profile:
     def bestiary(self) -> dict[str, dict]:
         return {r["monster"]: {**dict(r), "weak": json.loads(r["weak"])}
                 for r in self.db.execute("select * from bestiary")}
+
+    # --- story memory (survives death) ---
+
+    def story_seen(self) -> set[str]:
+        return {r["event"] for r in self.db.execute("select event from story_seen")}
+
+    def mark_seen(self, event: str) -> None:
+        self.db.execute("insert into story_seen (event, count, first_at) values (?, 1, ?) "
+                        "on conflict(event) do update set count = count + 1", (event, time.time()))
+        self.db.commit()
+
+    def marks(self) -> set[str]:
+        return {r["key"] for r in self.db.execute("select key from marks")}
+
+    def set_mark(self, key: str) -> None:
+        self.db.execute("insert or ignore into marks values (?, ?)", (key, time.time()))
+        self.db.commit()
+
+    def secrets(self) -> dict[str, float]:
+        """Book of Secrets: event id -> when it was found."""
+        return {r["event"]: r["found_at"] for r in self.db.execute("select event, found_at from secrets")}
+
+    def add_secret(self, event: str, run_id: int | None) -> bool:
+        cursor = self.db.execute("insert or ignore into secrets values (?, ?, ?)", (event, time.time(), run_id))
+        self.db.commit()
+        return cursor.rowcount > 0
 
     # --- ghosts ---
 

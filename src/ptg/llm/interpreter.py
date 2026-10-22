@@ -118,3 +118,32 @@ async def interpret(llm: LLM | None, state: GameState, content: Content, raw: st
             return fallback, None
         return Intent(kind="flavor", summary=intent.summary or raw), None
     return intent, None
+
+
+SCENE_SYSTEM = """\
+You match a player's typed words to the choices in a scripted scene of a text adventure.
+Reply with JSON: {"choice": N, "question": false}
+- choice: the number of the choice the player's words mean or amount to. Judge the action, not the exact
+  wording: "let my sword arm fall to my side" amounts to lowering a weapon; "smash it" amounts to attacking.
+  Use 0 if the words don't fit any choice.
+- question: true only if the player is asking about the scene instead of doing something.
+"""
+
+SCENE_SCHEMA = {
+    "type": "object",
+    "properties": {"choice": {"type": "integer"}, "question": {"type": "boolean"}},
+    "required": ["choice", "question"],
+    "additionalProperties": False,
+}
+
+
+async def scene_choice(llm: LLM, scene_text: str, labels: list[str], raw: str) -> tuple[int | None, bool, str | None]:
+    """Which of a scene's choices the player's words amount to: (index or None, is it a question, error)."""
+    listed = "\n".join(f"{i}. {label}" for i, label in enumerate(labels, 1))
+    user = f"SCENE:\n{scene_text}\n\nCHOICES:\n{listed}\n\nPLAYER TYPED:\n{raw}"
+    try:
+        reply = await llm.complete_json(SCENE_SYSTEM, user, SCENE_SCHEMA, max_tokens=60)
+        choice, question = int(reply.get("choice", 0)), bool(reply.get("question", False))
+    except (LLMError, ValueError, TypeError) as e:
+        return None, False, f"scene: {e}"
+    return (choice - 1 if 1 <= choice <= len(labels) else None), question, None

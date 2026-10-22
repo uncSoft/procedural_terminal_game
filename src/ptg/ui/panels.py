@@ -35,6 +35,8 @@ The game decides what's possible and rolls the dice; the narrator only describes
 ♥ WEAK      Monsters have weaknesses (fire, holy, shiny, food...). Find them, and the bestiary remembers.
 ↓ FLOORS    Three floors, each a different dungeon. Find the stairs, then the key, then the boss.
 ☽ SOULS     Souls carry over when you die. Spend them at the campfire on blessings and gifts.
+✧ SECRETS   Some moments are written by hand and hidden in the dungeon: a place, a word, a deed.
+            The Book of Secrets at the campfire counts the ones you've found.
 ◆ WORDS     Coloured names in the story (monsters, items, things in the room): hover for a hint, click for
             the full card and the matching action.
 

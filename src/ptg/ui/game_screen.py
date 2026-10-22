@@ -13,13 +13,15 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Footer, Input, Static
 
+from .. import glossary
 from ..events import Event
+from ..glossary import Lexicon
 from ..game import Game
 from ..models import LogEntry
 from .dice import DiceScreen
-from .panels import (BestiaryScreen, CharacterScreen, HelpScreen, InventoryScreen, JournalScreen, LevelUpScreen,
-                     LookScreen, MapScreen)
-from .widgets import ChoiceItem, DiceLine, Hud, map_text, monster_text, roll_text, room_text
+from .panels import (BestiaryScreen, CharacterScreen, HelpScreen, InfoScreen, InventoryScreen, JournalScreen,
+                     LevelUpScreen, LookScreen, MapScreen)
+from .widgets import ChoiceItem, DiceLine, Hud, StoryLine, highlight, map_text, monster_text, roll_text, room_text
 
 COMMANDS = {
     "i": "inventory", "inv": "inventory", "inventory": "inventory",
@@ -58,6 +60,8 @@ class GameScreen(Screen):
         self.game = game
         self.fresh = fresh
         self.busy = False
+        self.frame = 0  # idle animation frame for the monster sprite
+        self.flashing = False
 
     def compose(self) -> ComposeResult:
         yield Hud(id="hud")
@@ -81,11 +85,13 @@ class GameScreen(Screen):
         if self.fresh:
             self.run_turn(None)
         else:
+            lexicon = self.lexicon()
             for entry in state.log[-60:]:
-                self.add_entry(entry)
+                self.add_entry(entry, lexicon)
             self.refresh_panels()
             self.previously()
         self.query_one("#command", Input).focus()
+        self.set_interval(0.6, self._animate)
 
     def on_resize(self) -> None:
         self.query_one("#map").display = self.size.height >= 38
@@ -93,25 +99,33 @@ class GameScreen(Screen):
     # --- story helpers ---
 
     def add_line(self, text: str | Text, classes: str, before=None) -> Static:
-        widget = Static(text if isinstance(text, Text) else Text(text), classes=classes)
+        widget = StoryLine(text if isinstance(text, Text) else Text(text), classes=classes)
         story = self.query_one("#story", VerticalScroll)
         story.mount(widget, before=before)
         story.scroll_end(animate=False)
         return widget
 
-    def add_entry(self, entry: LogEntry) -> None:
+    def lexicon(self) -> Lexicon:
+        """The terms worth highlighting right now: what's in this room, what you carry, what lives here."""
+        game = self.game
+        return Lexicon(glossary.build(game.state, game.content, game.profile.bestiary()))
+
+    def add_entry(self, entry: LogEntry, lexicon: Lexicon | None = None) -> None:
         if entry.kind == "mechanic":
             self.add_line(Text("  ⚄ " + entry.text, style="#6c6f99"), "mechanic")
             return
-        prefix = {"player": "> ", "system": "  "}.get(entry.kind, "")
-        classes = {"player": "player-line", "system": "system-line"}.get(entry.kind, "narration")
-        self.add_line(prefix + entry.text, classes)
+        if entry.kind == "player":
+            self.add_line("> " + entry.text, "player-line")
+            return
+        prefix = "  " if entry.kind == "system" else ""
+        classes = "system-line" if entry.kind == "system" else "narration"
+        self.add_line(highlight(prefix + entry.text, lexicon), classes)
 
     @work(group="recap")
     async def previously(self) -> None:
         text = await self.game.recap()
         if text:
-            self.add_line(Text("Previously… " + text, style="italic #ff4f9a"), "recap")
+            self.add_line(highlight("Previously… " + text, self.lexicon(), "italic #ff4f9a"), "recap")
         await self.update_suggestion()
 
     # --- turns ---
@@ -155,7 +169,7 @@ class GameScreen(Screen):
     async def _opening(self) -> None:
         narration, on_text = self._narration_sink()
         result = await self.game.opening(on_text)
-        narration.update(Text(result.narration))
+        narration.update(highlight(result.narration, self.lexicon()))
         self.refresh_panels()
         await self.update_suggestion()
 
@@ -192,10 +206,12 @@ class GameScreen(Screen):
                 line = DiceLine("", classes="mechanic")
                 await self.query_one("#story").mount(line, before=narration)
                 await line.play(event.dice, fast=event.dice.actor == "monster")
+        if any(e.kind == "hit" for e in pending.events) and game.state.room.monster:
+            await self._hit_flash()
         self.refresh_panels()
 
         result = await game.finish(on_text)
-        narration.update(Text(result.narration))
+        narration.update(highlight(result.narration, self.lexicon()))
         for error in result.errors:
             self.add_line(f"  ({error})", "system-line")
         self._toasts(result.events)
@@ -228,10 +244,11 @@ class GameScreen(Screen):
         narration = self.add_line(Text("…", style="#6c6f99"), "narration")
         story = self.query_one("#story", VerticalScroll)
         buffer: list[str] = []
+        lexicon = self.lexicon()
 
         def on_text(chunk: str) -> None:
             buffer.append(chunk)
-            narration.update(Text("".join(buffer)))
+            narration.update(highlight("".join(buffer), lexicon))
             story.scroll_end(animate=False)
 
         return narration, on_text
@@ -253,6 +270,18 @@ class GameScreen(Screen):
             widget.styles.offset = (dx, 0)
             await asyncio.sleep(0.035)
 
+    async def _hit_flash(self) -> None:
+        """The monster sprite blinks white when it takes damage."""
+        for flash in (True, False, True, False):
+            self.flashing = flash
+            self.refresh_scene()
+            await asyncio.sleep(0.07)
+
+    def _animate(self) -> None:
+        if self.game.config.art == "sprites" and self.game.state.room.monster and not self.flashing:
+            self.frame += 1
+            self.refresh_scene()
+
     async def update_suggestion(self) -> None:
         await self.game.refresh_suggestion()
         self.refresh_choices()
@@ -263,18 +292,24 @@ class GameScreen(Screen):
         game = self.game
         state, content = game.state, game.content
         self.query_one("#hud", Hud).show(state, content)
+        self.refresh_scene()
+        self.query_one("#map", Static).update(map_text(state))
+        self.query_one("#map").border_title = f"Floor {state.floor}/{state.floors_total}"
+        self.refresh_choices()
+
+    def refresh_scene(self) -> None:
+        """The sidebar's top panel: the monster's portrait during a fight, otherwise the room's floor plan."""
+        game = self.game
+        state, content = game.state, game.content
         scene = self.query_one("#scene", Static)
         if state.room.monster and (state.in_combat or state.room.monster.hostile):
-            scene.update(monster_text(state, content))
+            scene.update(monster_text(state, content, game.config.art == "sprites", self.frame, self.flashing))
             scene.border_title = state.room.monster.name
             scene.add_class("combat")
         else:
             scene.update(room_text(state, content))
             scene.border_title = state.room.name
             scene.remove_class("combat")
-        self.query_one("#map", Static).update(map_text(state))
-        self.query_one("#map").border_title = f"Floor {state.floor}/{state.floors_total}"
-        self.refresh_choices()
 
     def refresh_choices(self) -> None:
         box = self.query_one("#choices", Vertical)
@@ -298,6 +333,19 @@ class GameScreen(Screen):
                     self.run_turn(str(index))
 
         self.app.push_screen(screen, done)
+
+    def action_lookup(self, term_id: str) -> None:
+        """Clicked a highlighted word: show what it is (and offer the matching action, if there is one)."""
+        if self.busy:
+            return
+
+        def done(action_id: str | None) -> None:
+            if action_id:
+                index = next((i for i, a in enumerate(self.game.choices(), 1) if a.id == action_id), None)
+                if index:
+                    self.run_turn(str(index))
+
+        self.app.push_screen(InfoScreen(self.game, term_id), done)
 
     def action_leave(self) -> None:
         if not self.busy:

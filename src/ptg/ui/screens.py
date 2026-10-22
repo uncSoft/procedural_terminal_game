@@ -106,6 +106,9 @@ class SetupScreen(Screen):
                 yield Select([], prompt="Auto-detect", id="model", compact=True)
                 yield Label("API key (optional for local servers)")
                 yield Input(config.api_key, password=True, id="api_key", compact=True)
+                yield Label("Art")
+                yield Select([("Pixel sprites", "sprites"), ("ASCII art", "ascii")], value=config.art,
+                             allow_blank=False, id="art", compact=True)
                 yield Label("Dice")
                 yield Select([("Press Space to roll (dramatic)", "manual"), ("Roll automatically", "auto")],
                              value="auto" if config.auto_roll else "manual", allow_blank=False, id="dice",
@@ -181,6 +184,7 @@ class SetupScreen(Screen):
             "model": "" if model is Select.BLANK else str(model),
             "api_key": self.query_one("#api_key", Input).value.strip(),
             "auto_roll": self.query_one("#dice", Select).value == "auto",
+            "art": self.query_one("#art", Select).value,
         })
         self.app.save_settings(config)
 

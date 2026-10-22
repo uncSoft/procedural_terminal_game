@@ -57,6 +57,20 @@ def main(argv: list[str] | None = None) -> None:
     PTGApp(config, seed=args.seed, setup=args.setup, resume=args.resume, daily=args.daily).run()
 
 
+def show_portrait(game: Game) -> None:
+    """Print the monster's sprite when a fight starts (needs a terminal with 24-bit colour)."""
+    from rich.console import Console
+
+    from .sprites import sprite_text
+
+    monster = game.state.room.monster
+    art = sprite_text(monster.key)
+    if art is not None:
+        print()
+        Console(highlight=False).print(art)
+        print(f"  {monster.name}")
+
+
 PLAIN_HELP = "Type a number or anything you like. Also: map, look, inv, char, help, quit."
 
 
@@ -119,6 +133,7 @@ async def play_plain(config: Config, seed: int | None, resume: bool, daily: bool
                 continue
             if not raw:
                 continue
+            in_combat = game.state.in_combat
             pending = await game.begin(raw)
             while game.can_reroll():
                 print(f"  [{pending.primary.roll}]")
@@ -132,6 +147,8 @@ async def play_plain(config: Config, seed: int | None, resume: bool, daily: bool
             result = await game.finish(write)
             for error in result.errors:
                 print(f"\n  ({error})")
+            if game.state.in_combat and not in_combat and config.art == "sprites":
+                show_portrait(game)
         print("\n\n" + share_card(game.state))
         print(f"\nSouls banked: ☽ {profile.souls}. Spend them at the campfire: run `ptg` without --plain.")
     finally:

@@ -16,6 +16,7 @@ from ..content import Content, Unlock, load_content
 from ..meta import daily_seed, share_card, souls_earned
 from ..models import GameState
 from ..profile import Profile
+from ..sprites import sprite_text
 
 CAMPFIRE = r"""
        )   (
@@ -88,6 +89,14 @@ class HubScreen(Screen):
         self.query_one("#legends-box").border_title = "Hall of Legends"
         self.refresh_all()
         self.speak()
+        self.fire_frame = 0
+        self._flicker()
+        self.set_interval(0.2, self._flicker)
+
+    def _flicker(self) -> None:
+        self.fire_frame += 1
+        art = sprite_text("campfire", self.fire_frame) if self.app.config.art == "sprites" else None
+        self.query_one("#campfire", Static).update(art or Text(CAMPFIRE, style="bold #ff7b2e"))
 
     def on_screen_resume(self) -> None:
         self.refresh_all()

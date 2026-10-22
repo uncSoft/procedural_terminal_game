@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import random
 
+from rich.style import Style
 from rich.text import Text
+from textual.events import Click, Leave, MouseMove
 from textual.message import Message
 from textual.widgets import Static
 
@@ -13,9 +15,49 @@ from .. import layout
 from ..content import Content
 from ..dice import Roll
 from ..events import Action
+from ..glossary import Lexicon
 from ..models import LEVEL_XP, GameState
+from ..sprites import sprite_text
 from ..world import render_map
 from .theme import CELL_STYLES, MAP_STYLES
+
+
+TERM_STYLES = {
+    "monster": "bold #ff4b4b", "item": "bold #4cff8a", "feature": "bold #ffb000",
+    "fixture": "bold #ff4f9a", "room": "#8fa8ff", "rule": "bold #5fe3ff",
+}
+
+
+def highlight(text: str, lexicon: Lexicon | None, style: str = "") -> Text:
+    """Colour the monsters, items, features and rooms in a piece of narration, and make them clickable."""
+    out = Text(text, style=style)
+    if lexicon is None:
+        return out
+    for start, end, term in lexicon.find(text):
+        # Not a Textual "@click" link: those get repainted in the theme's link colour.
+        meta = {"term": term.id, "tip": term.summary}
+        out.stylize(Style.parse(TERM_STYLES.get(term.kind, "bold")) + Style(meta=meta), start, end)
+    return out
+
+
+class StoryLine(Static):
+    """A line of the story whose highlighted terms explain themselves on hover and open a card on click."""
+
+    def _meta_at(self, x: int, y: int) -> dict:
+        return getattr(self.get_style_at(x, y), "meta", None) or {}
+
+    def on_mouse_move(self, event: MouseMove) -> None:
+        tip = self._meta_at(event.x, event.y).get("tip")
+        if tip != self.tooltip:
+            self.tooltip = tip
+
+    def on_click(self, event: Click) -> None:
+        term = self._meta_at(event.x, event.y).get("term")
+        if term and hasattr(self.screen, "action_lookup"):
+            self.screen.action_lookup(term)
+
+    def on_leave(self, event: Leave) -> None:
+        self.tooltip = None
 
 
 def bar(value: int, maximum: int, width: int = 14) -> str:
@@ -107,10 +149,20 @@ def map_text(state: GameState) -> Text:
     return text
 
 
-def monster_text(state: GameState, content: Content) -> Text:
+def portrait(key: str, content: Content, sprites: bool = True, frame: int = 0, flash: bool = False,
+             style: str = "#ff4b4b") -> Text:
+    """A monster's pixel sprite, or its ASCII art when sprites are off or missing."""
+    art = sprite_text(key, frame, flash=flash) if sprites else None
+    if art is None:
+        art = Text(content.monster(key).art, style="bold #ffffff" if flash else style)
+    return art
+
+
+def monster_text(state: GameState, content: Content, sprites: bool = True, frame: int = 0,
+                 flash: bool = False) -> Text:
     monster = state.room.monster
-    monster_def = content.monster(monster.key)
-    text = Text(monster_def.art + "\n", style="#ff4b4b" if monster.hostile else "#ffd166")
+    text = portrait(monster.key, content, sprites, frame, flash, "#ff4b4b" if monster.hostile else "#ffd166")
+    text.append("\n")
     text.append(bar(monster.hp, monster.max_hp, 18), style="#ff4b4b")
     text.append(f" {max(0, monster.hp)}/{monster.max_hp}\n")
     if not monster.hostile:

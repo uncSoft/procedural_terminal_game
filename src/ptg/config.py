@@ -24,6 +24,7 @@ class Config(BaseModel):
     api_key: str = ""
     temperature: float = 0.8
     auto_roll: bool = False
+    art: Literal["sprites", "ascii"] = "sprites"
     tone: str = "darkly funny, vivid and fair, like a game master who loves the players"
 
 

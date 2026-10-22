@@ -10,13 +10,13 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Label, ListItem, ListView, Static
 
-from .. import layout
+from .. import glossary, layout
 from ..content import Content
 from ..game import Game
 from ..meta import epithet
 from ..rules import TRAITS
 from .theme import PERK_COLORS
-from .widgets import map_text, room_text
+from .widgets import map_text, portrait, room_text
 
 HELP = """\
 HOW TO PLAY
@@ -35,6 +35,8 @@ The game decides what's possible and rolls the dice; the narrator only describes
 ♥ WEAK      Monsters have weaknesses (fire, holy, shiny, food...). Find them, and the bestiary remembers.
 ↓ FLOORS    Three floors, each a different dungeon. Find the stairs, then the key, then the boss.
 ☽ SOULS     Souls carry over when you die. Spend them at the campfire on blessings and gifts.
+◆ WORDS     Coloured names in the story (monsters, items, things in the room): hover for a hint, click for
+            the full card and the matching action.
 
 KEYS (or type the word)
   F2  i  inventory      F3  c  character     F4  l  look at the room
@@ -229,7 +231,8 @@ class BestiaryScreen(Panel):
         content = self.game.content
         key, entry = self.entries[index]
         monster = content.monster(key)
-        text = Text(monster.art + "\n\n", style="#ff4b4b")
+        text = portrait(key, content, self.game.config.art == "sprites")
+        text.append("\n\n")
         text.append(f"{monster.name}\n", style="bold #ffb000")
         text.append(f"seen {entry['seen']} · slain {entry['killed']} · pacified {entry['pacified']} · "
                     f"killed you {entry['killed_you']}\n", style="#9a9cc0")
@@ -300,3 +303,123 @@ class PerkCard(Static):
     def on_click(self) -> None:
         self.screen.action_pick(self.index)
 
+
+
+TAG_IDEAS = {
+    "heavy": "topple it, shove it or drop it on something",
+    "fire": "set something alight (plants and trolls hate fire)",
+    "light": "dazzle something that hates the light",
+    "holy": "the undead can't stand it",
+    "shiny": "bribe or distract something greedy",
+    "food": "lure or distract a hungry beast",
+    "loud": "make a racket to scare something off",
+    "water": "douse, splash or slip",
+    "spores": "kick up a choking cloud",
+    "rope": "trip, tie up or swing",
+    "paper": "hide behind it, burn it, read it",
+    "glass": "smash it",
+    "slippery": "scatter it under someone's feet",
+    "smelly": "gag something with it",
+    "plant": "tangle or snare",
+    "sticky": "glue something in place",
+}
+
+
+class InfoScreen(Panel):
+    """What a highlighted word refers to, with the matching action one key away."""
+
+    BINDINGS = [Binding("escape,q", "close", "Close"), Binding("enter", "act", "Do it")]
+
+    def __init__(self, game: Game, term_id: str) -> None:
+        super().__init__()
+        self.game = game
+        self.term_id = term_id
+        self.action_id: str | None = None
+
+    def compose(self) -> ComposeResult:
+        kind, _, ref = self.term_id.partition(":")
+        body, title = getattr(self, f"_{kind}", self._unknown)(ref)
+        if self.action_id:
+            label = next(a.label for a in self.game.choices() if a.id == self.action_id)
+            body.append(f"\n\n[enter] {label}", style="bold #ffb000")
+        body.append("     [esc] close", style="#6c6f99")
+        with VerticalScroll(classes="panel-box") as box:
+            box.border_title = title
+            yield Static(body)
+
+    def _available(self, action_id: str) -> None:
+        if any(a.id == action_id for a in self.game.choices()):
+            self.action_id = action_id
+
+    def _monster(self, key: str) -> tuple[Text, str]:
+        game = self.game
+        content, state = game.content, game.state
+        monster = content.monster(key)
+        entry = game.profile.bestiary().get(key, {})
+        text = portrait(key, content, game.config.art == "sprites")
+        text.append("\n\n")
+        text.append(glossary.monster_summary(state, content, key, entry) + "\n", style="bold #ffb000")
+        if entry:
+            text.append(f"seen {entry['seen']} · slain {entry['killed']} · pacified {entry['pacified']} · "
+                        f"killed you {entry['killed_you']}\n", style="#9a9cc0")
+        text.append("\n" + (entry.get("lore") or "No notes on this one yet."), style="italic #c8c8e0")
+        here = state.room.monster
+        if here and here.key == key:
+            self._available("attack")
+        return text, monster.name
+
+    def _item(self, key: str) -> tuple[Text, str]:
+        item = self.game.content.item(key)
+        text = Text(item.name + "\n", style="bold #4cff8a")
+        text.append(glossary.item_summary(self.game.content, key) + "\n\n", style="#9a9cc0")
+        text.append(item.desc, style="#c8c8e0")
+        ideas = [TAG_IDEAS[t] for t in item.tags if t in TAG_IDEAS]
+        if ideas:
+            text.append("\n\nIdeas: " + "; ".join(ideas[:3]), style="#ff4f9a")
+        self._available(f"use:{key}")
+        if not self.action_id:
+            self._available(f"take:{key}")
+        return text, "Item"
+
+    def _feature(self, ref: str) -> tuple[Text, str]:
+        state, content = self.game.state, self.game.content
+        feature = state.room.features[int(ref)]
+        tags = content.feature_tags(feature.name)
+        text = Text(f"{feature.name} ({layout.where(feature.pos)})\n", style="bold #ffb000")
+        text.append(("Searched." if feature.searched else "Not searched yet.") + "\n", style="#9a9cc0")
+        if tags:
+            text.append("Properties: " + ", ".join(tags) + "\n", style="#5fe3ff")
+            ideas = [TAG_IDEAS[t] for t in tags if t in TAG_IDEAS]
+            if ideas:
+                text.append("Ideas: " + "; ".join(ideas[:3]), style="#ff4f9a")
+        else:
+            text.append("Nothing special about it, as far as you can tell.", style="#6c6f99")
+        self._available(f"search:{ref}")
+        return text, "In the room"
+
+    def _fixture(self, ref: str) -> tuple[Text, str]:
+        text = Text(ref.title() + "\n\n", style="bold #ff4f9a")
+        text.append(glossary.FIXTURES[ref], style="#c8c8e0")
+        for action in {"stairs": ["descend"], "shrine": ["shrine_blood", "shrine_gold"], "chest": ["chest"],
+                       "fountain": ["fountain"]}.get(ref, []):
+            if not self.action_id:
+                self._available(action)
+        return text, "Fixture"
+
+    def _room(self, ref: str) -> tuple[Text, str]:
+        state, content = self.game.state, self.game.content
+        room = state.rooms[int(ref)]
+        text = Text(room.name + "\n\n", style="bold #8fa8ff")
+        text.append(room.description or content.archetypes[room.archetype].blurb, style="#c8c8e0")
+        text.append("\n\nExits: " + ", ".join(room.exits), style="#9a9cc0")
+        return text, "Room"
+
+    def _rule(self, ref: str) -> tuple[Text, str]:
+        name, summary = glossary.RULES[ref]
+        return Text(name + "\n\n", style="bold #5fe3ff") + Text(summary, style="#c8c8e0"), "How it works"
+
+    def _unknown(self, ref: str) -> tuple[Text, str]:
+        return Text("Nothing more is known about that."), "?"
+
+    def action_act(self) -> None:
+        self.dismiss(self.action_id)

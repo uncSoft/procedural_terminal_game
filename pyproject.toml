@@ -8,6 +8,7 @@ dependencies = [
     "textual>=8.0",
     "httpx>=0.27",
     "pydantic>=2.7",
+    "pillow>=13.0.0",
 ]
 
 [project.optional-dependencies]

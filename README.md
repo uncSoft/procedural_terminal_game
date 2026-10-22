@@ -52,6 +52,26 @@ Each turn sends the model a small snapshot (room, positions, player, last few ev
 - **The Void**, the voice by the campfire, remembers how your last run went.
 - **Daily descent.** Everyone gets the same dungeon each day; you get a spoiler-free result card to share.
 
+## Pixel art
+
+Monsters, the bestiary and the campfire are drawn as pixel-art sprites using half-block characters: each
+terminal cell shows two pixels (`▀` in the top pixel's colour on a background of the bottom pixel's colour).
+That works inside the UI in any terminal with 24-bit colour, with no image protocol. Monsters bob while idle
+and flash white when hit. Switch to the original ASCII art in Settings (Art), or it falls back automatically
+for anything without a sprite.
+
+Sprites live in `src/ptg/data/sprites/` as PNG strips: square frames side by side, transparent background,
+any size (they're scaled to fit). The shipped ones are drawn as colour maps in `tools/build_sprites.py`, which
+adds outlines, shading and an idle frame:
+
+```bash
+uv run python tools/build_sprites.py --sheet sheet.png   # rebuild, plus an 8x preview sheet
+uv run python -m ptg.sprites goblin troll                # preview sprites in your terminal
+```
+
+To use your own art (Aseprite, Piskel, an image model), drop a PNG named after the monster's key
+(`goblin.png`, `drowned_abbot.png`...) into that folder.
+
 ## Running it
 
 Needs Python 3.11+ and [uv](https://docs.astral.sh/uv/).
@@ -60,7 +80,7 @@ Needs Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 uv run ptg
 ```
 
-The first launch opens Settings: pick LM Studio, Ollama, another OpenAI-compatible server, Claude, or Offline, and whether dice roll on Space or automatically. Settings, saves and the profile database live in `~/.ptg` (set `PTG_HOME` to move them). The game autosaves every turn; **Continue** on the title screen picks up where you left off.
+The first launch opens Settings: pick LM Studio, Ollama, another OpenAI-compatible server, Claude, or Offline, pixel sprites or ASCII art, and whether dice roll on Space or automatically. Settings, saves and the profile database live in `~/.ptg` (set `PTG_HOME` to move them). The game autosaves every turn; **Continue** on the title screen picks up where you left off.
 
 | Key | Typed | Opens |
 | --- | --- | --- |
@@ -110,10 +130,12 @@ src/ptg/
   game.py          one turn: interpret -> resolve -> (reroll) -> narrate -> save -> profile
   profile.py       SQLite: souls, unlocks, Hall of Legends, bestiary, ghosts, turn log
   meta.py          building the adventurer from unlocks, starting runs, scoring the end
+  sprites.py       PNG sprites rendered as half-block pixel art
   llm/             backends (OpenAI-compatible, Claude), prompts, interpreter, narrator, extras
   ui/              Textual app: title, settings, campfire, game screen, dice, panels, endings
   cli.py           `ptg` entry point and plain-text mode
 tests/             world, rules, profile, interpreter and UI tests, plus a bot that plays whole runs
+tools/             build_sprites.py: the hand-drawn sprite maps and their PNG build
 legacy/            the v1 curses prototype, kept for reference
 ```
 

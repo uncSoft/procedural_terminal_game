@@ -10,7 +10,7 @@ from textual.binding import Binding
 from textual.errors import NoWidget
 
 from .. import sound
-from ..config import Config, load_game, save_config
+from ..config import Config, hosted, load_game, save_config
 from ..content import load_content
 from ..game import Game
 from ..llm import LLM, LLMError, make_llm
@@ -39,7 +39,7 @@ class PTGApp(App):
         self.resume = resume
         self.daily = daily
         self.event = event  # a story event to fire at the start of the next descent (for testing)
-        self.open_debug = debug
+        self.open_debug = debug and not hosted()
         self.profile = Profile.open()
 
     async def on_event(self, event: events.Event) -> None:
@@ -68,6 +68,11 @@ class PTGApp(App):
             self.unfinished_first(lambda: self.start_descent(daily=True))
         if self.open_debug:
             self.push_screen(DebugScreen())
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action == "toggle_sound" and hosted():  # (it would play on the server)
+            return False
+        return True
 
     def save_settings(self, config: Config) -> None:
         self.config = config
@@ -101,6 +106,8 @@ class PTGApp(App):
         self._end_update()
 
     def action_debug(self) -> None:
+        if hosted():  # it shows the model log and can point the server's narrator elsewhere
+            return
         if not isinstance(self.screen, DebugScreen):  # on the debug screen, F12 closes it
             self.push_screen(DebugScreen())
 

@@ -342,6 +342,46 @@ when it overflows, letters turn into the wrong glyphs and pictures shrink. The g
 use fixed shades), redraws the whole screen every few turns, and Ctrl+L redraws it now. If it still happens, play in
 a terminal app (Terminal, iTerm2, Ghostty, WezTerm, kitty).
 
+## Play it in a browser
+
+`ptg serve` puts the game on a web page for a few people to share: one link, a page that asks who's playing, and
+each name its own saves (profile, souls, settings and autosave). Typing the same name later picks up where that
+player left off. A second tab with the same name ends the first, so a run is never played in two places. It's built
+on Textual's `textual-serve`, which runs one game for each browser tab. Laptops and tablets play it fully; phones
+need the narrow layout planned in `docs/plans/cross-platform-and-mobile.md`. Sound is off, since it would play on
+the server.
+
+Try it on your own machine (saves go in `./players`):
+
+```bash
+uv sync --extra web --extra claude
+uv run ptg serve
+```
+
+Then open http://localhost:8000.
+
+**Hosting it on Render** (a server that builds the game from GitHub, about $7 a month):
+1. New → **Web Service**, and connect this repository, branch `v2`. Render finds the `Dockerfile`.
+2. Instance type: **Starter** (the free one can't keep saves).
+3. Under Advanced, add a **disk**: mount path `/data`, 1 GB.
+4. Add environment variables (all optional):
+
+   | Variable | What it does |
+   | --- | --- |
+   | `PTG_PASSWORD` | Asks for this on the name page, once a browser. Without it, anyone with the link can play. |
+   | `ANTHROPIC_API_KEY` | Your key: every player's game is narrated by Claude on it, and players need no AI of their own (they never see it). Without it, the offline narrator. |
+   | `PTG_MODEL` | The Claude model: `claude-haiku-5-5` (the default, a few cents a run) or `claude-sonnet-5-5`. |
+   | `PTG_MAX_GAMES` | Games running at once (5). Each is about 80 MB, and the Starter plan has 512. |
+
+   Keep the key in Render's settings, never in the `Dockerfile` or the repository: the repository is public, and
+   anything in an image can be read back out of it. Set a monthly spend limit in Anthropic's console, and a
+   password, since everyone who plays spends from your key.
+5. Create it. Every push to `v2` rebuilds and restarts it. Anyone mid-game is disconnected, but the game saved their
+   last turn, and their name picks it up again.
+
+Played this way, the game runs in hosted mode (`PTG_HOSTED=1`): Settings can't change the narrator, and the debug
+screen (F12) is off, since it shows the model log and could point the server's narrator anywhere.
+
 ## The debug screen
 
 F12 anywhere in the game (or `uv run ptg --debug`) opens a page of everything at a glance. The number keys pick
@@ -392,6 +432,7 @@ src/ptg/
   llm/             backends (OpenAI-compatible, Claude), prompts, interpreter, narrator, guard, check, extras
   ui/              Textual app: title, settings, campfire, game screen, dice, panels, endings, debug screen
   cli.py           `ptg` entry point and plain-text mode
+  serve.py         `ptg serve`: the game in web browsers, a name and saves for each player
 tests/             world, rules, profile, interpreter and UI tests, plus a bot that plays whole runs
 docs/maker/        the Monster & Item Maker page and its library.json (GitHub Pages serves docs/)
 tools/             build_sprites.py: the hand-drawn sprite maps; build_sounds.py: the synthesized sounds;

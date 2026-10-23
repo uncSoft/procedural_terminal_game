@@ -74,6 +74,10 @@ def main(argv: list[str] | None = None) -> None:
         from .library import main as library_main
 
         sys.exit(library_main(argv))
+    if argv[:1] == ["serve"]:  # the game in web browsers, a link a player (see ptg/serve.py)
+        from .serve import main as serve_main
+
+        sys.exit(serve_main(argv[1:]))
     args = parse_args(argv)
     if not preflight():
         sys.exit(1)

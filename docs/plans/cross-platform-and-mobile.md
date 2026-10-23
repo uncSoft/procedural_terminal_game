@@ -310,7 +310,9 @@ Whether the smaller models narrate well enough is a question for the in-game mod
 - **Hosting:** run it on the Mac and reach it over Tailscale, which keeps it private and gives HTTPS through
   Tailscale Serve. Tablets work as soon as the page fix is in, because their grids are desktop-sized.
 
-**Phase 3: friends (about a week).**
+**Phase 3: friends (about a week).** *Started 23 Oct 2026:* `ptg serve` (README, "Play it in a browser") has a
+page that asks who's playing with a folder for each name, an optional password, the hosted mode and a cap, on
+Render.
 - **Who's who:** Tailscale sharing, Cloudflare Access or a per-player link, mapped to a `PTG_HOME` per player.
   textual-serve starts every session with the same command and environment, so this needs a small subclass.
 - **A hosted mode:**

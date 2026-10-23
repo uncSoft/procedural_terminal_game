@@ -232,6 +232,30 @@ async def test_a_room_comes_before_what_lies_in_it(monkeypatch):
         assert told_since(story, start)[-3:] == ["room-row", "loot-row", "narration"]
 
 
+async def test_a_hosted_game_keeps_its_narrator_and_debug_screen_to_itself(monkeypatch):
+    """Served to several players (ptg serve), Settings can't point the server's narrator elsewhere, and the debug
+    screen, which shows the model log, stays shut."""
+    from textual.widgets import Input
+
+    from ptg.ui.debug import DebugScreen
+
+    monkeypatch.setenv("PTG_HOSTED", "1")
+    app = PTGApp(Config(backend="anthropic", model="claude-haiku-5-5", player_name="Ava"), debug=True)
+    async with app.run_test(size=(130, 44)) as pilot:
+        await pilot.pause(0.3)
+        await pilot.press("f12")
+        await pilot.pause(0.2)
+        assert not isinstance(app.screen, DebugScreen) and app.check_action("toggle_sound", ()) is False
+        await pilot.press("s")
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, SetupScreen) and not any(w.display for w in app.screen.query(".local"))
+        app.screen.query_one("#name", Input).value = "Ava Rose"
+        app.screen.action_save()
+        await pilot.pause(0.2)
+        assert (app.config.player_name, app.config.backend, app.config.model) == ("Ava Rose", "anthropic",
+                                                                                  "claude-haiku-5-5")
+
+
 async def test_death_goes_to_the_tombstone_then_the_campfire():
     app = PTGApp(Config(backend="offline", player_name="Doomed"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:

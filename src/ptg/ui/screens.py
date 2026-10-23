@@ -10,7 +10,7 @@ from textual.containers import Center, Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Input, Label, Select, Static
 
-from ..config import DEFAULT_CLAUDE_MODEL, DEFAULT_URLS, Config, load_game, read_save
+from ..config import DEFAULT_CLAUDE_MODEL, DEFAULT_URLS, Config, hosted, load_game, read_save
 from ..content import load_content
 from ..llm import LLMError
 from ..llm.narrator import intro
@@ -143,17 +143,17 @@ class SetupScreen(Screen):
                 box.border_title = "Settings"
                 yield Label("Your name")
                 yield Input(config.player_name, id="name", compact=True)
-                yield Label("Narrator")
+                yield Label("Narrator", classes="local")
                 yield Select([("LM Studio (local)", "lmstudio"), ("Ollama (local)", "ollama"),
                               ("Other OpenAI-compatible server", "openai"), ("Claude API", "anthropic"),
                               ("Offline (no AI)", "offline")], value=preset, allow_blank=False, id="backend",
-                             compact=True)
-                yield Label("Server URL")
-                yield Input(config.url, id="url", compact=True)
-                yield Label("Model")
-                yield Select([], prompt="Auto-detect", id="model", compact=True)
-                yield Label("API key (optional for local servers)")
-                yield Input(config.api_key, password=True, id="api_key", compact=True)
+                             compact=True, classes="local")
+                yield Label("Server URL", classes="local")
+                yield Input(config.url, id="url", compact=True, classes="local")
+                yield Label("Model", classes="local")
+                yield Select([], prompt="Auto-detect", id="model", compact=True, classes="local")
+                yield Label("API key (optional for local servers)", classes="local")
+                yield Input(config.api_key, password=True, id="api_key", compact=True, classes="local")
                 yield Label("Art")
                 yield Select([("Pixel sprites", "sprites"), ("ASCII art", "ascii")], value=config.art,
                              allow_blank=False, id="art", compact=True)
@@ -161,8 +161,8 @@ class SetupScreen(Screen):
                 yield Select([("Press Space to roll (dramatic)", "manual"), ("Roll automatically", "auto")],
                              value="auto" if config.auto_roll else "manual", allow_blank=False, id="dice",
                              compact=True)
-                yield Label("Sound (F8 turns it on and off)")
-                with Horizontal(id="setup-sound"):
+                yield Label("Sound (F8 turns it on and off)", classes="local")
+                with Horizontal(id="setup-sound", classes="local"):
                     yield Select([("On", "on"), ("Off", "off")], value="on" if config.sound else "off",
                                  allow_blank=False, id="sound", compact=True)
                     yield Select([(f"{v}%", v) for v in (25, 50, 70, 100)],
@@ -171,11 +171,15 @@ class SetupScreen(Screen):
                 yield Static("", id="setup-status")
                 with Horizontal(id="setup-buttons"):
                     yield Button("Save", id="save", variant="primary")
-                    yield Button("Detect models", id="detect")
+                    yield Button("Detect models", id="detect", classes="local")
                     yield Button("Back", id="back")
         yield Footer()
 
     def on_mount(self) -> None:
+        if hosted():  # the narrator is the server's (not a player's to point elsewhere), and sound would play there
+            for widget in self.query(".local"):
+                widget.display = False
+            return
         self.update_fields(self.query_one("#backend", Select).value, initial=True)
 
     @on(Select.Changed, "#backend")
@@ -232,12 +236,15 @@ class SetupScreen(Screen):
     def action_save(self) -> None:
         preset = self.query_one("#backend", Select).value
         model = self.query_one("#model", Select).value
-        config = self.config.model_copy(update={
-            "player_name": self.query_one("#name", Input).value.strip() or "Adventurer",
+        narrator = {} if hosted() else {
             "backend": "openai" if preset in ("lmstudio", "ollama", "openai") else preset,
             "url": self.query_one("#url", Input).value.strip() or DEFAULT_URLS["lmstudio"],
             "model": "" if model is Select.BLANK else str(model),
             "api_key": self.query_one("#api_key", Input).value.strip(),
+        }
+        config = self.config.model_copy(update={
+            "player_name": self.query_one("#name", Input).value.strip() or "Adventurer",
+            **narrator,
             "auto_roll": self.query_one("#dice", Select).value == "auto",
             "art": self.query_one("#art", Select).value,
             "sound": self.query_one("#sound", Select).value == "on",

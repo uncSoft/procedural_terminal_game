@@ -31,6 +31,12 @@ class Config(BaseModel):
     tone: str = "darkly funny, vivid and fair, like a game master who loves the players"
 
 
+def hosted() -> bool:
+    """Played from a server several people share (`ptg serve` sets PTG_HOSTED=1): the narrator is the server's to
+    choose, and the debug screen, which shows the model log and can point the server elsewhere, is off."""
+    return os.environ.get("PTG_HOSTED") == "1"
+
+
 def home() -> Path:
     path = Path(os.environ.get("PTG_HOME", Path.home() / ".ptg"))
     path.mkdir(parents=True, exist_ok=True)

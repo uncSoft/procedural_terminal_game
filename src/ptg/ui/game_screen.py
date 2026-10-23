@@ -23,7 +23,7 @@ from ..models import LogEntry
 from ..outcome import AWFUL, BAD, GOOD, GREAT, overall, tone, verdict
 from ..room_picture import look_of, picture_text
 from ..sprites import DEATH_FRAMES, DEFAULT_WIDTH, frame_count
-from ..text import the
+from ..text import cap, mid_sentence, the
 from . import effects
 from .dice import DiceScreen
 from .panels import (BestiaryScreen, CharacterScreen, FloorScreen, HelpScreen, InfoScreen, InventoryScreen,
@@ -141,7 +141,7 @@ class GameScreen(Screen):
             for entry in state.log[-60:]:
                 self.add_entry(entry, lexicon)
             self.refresh_panels()
-            self.previously()
+            self.pick_up_again()
         self.query_one("#command", Input).focus()
         self.set_interval(0.6, self._idle_frame)
 
@@ -216,11 +216,32 @@ class GameScreen(Screen):
         self.add_line(highlight(prefix + entry.text, lexicon), classes)
 
     @work(group="recap")
-    async def previously(self) -> None:
-        text = await self.game.recap()
+    async def pick_up_again(self) -> None:
+        """Back in a run you left: a line where the story so far stops, then the room as you'd see it walking in, with
+        anything lying there to take, and where you are; with a narrator, what's happened so far goes above them."""
+        state = self.game.state
+        seam = self.add_line(Text(f"↺  CONTINUED  ·  TURN {state.turn}", style="bold"), "continued")
+        self._room_card()
+        if state.room.items:
+            await self._show_loot([], [(key, "floor") for key in state.room.items])
+        self.add_line(self._whereabouts(), "system-line")
+        while state.pending_perks:  # (left mid level-up)
+            await self._level_up()
+        text = await self.game.recap(stand_in=False)
         if text:
-            self.add_line(highlight("Previously… " + text, self.lexicon(), "italic #ff4f9a"), "recap")
+            line = StoryLine(highlight("Previously… " + text, self.lexicon(), "italic #ff4f9a"), classes="recap")
+            await self.query_one("#story", VerticalScroll).mount(line, after=seam)
         await self.update_suggestion()
+
+    def _whereabouts(self) -> Text:
+        """Where you are, in a line: "You're in the Robing Room, on floor 1 of the Sunken Crypt, with 37/44 HP"."""
+        state = self.game.state
+        player, monster = state.player, state.room.monster
+        words = (f"You're in {the(state.room.name)}, on floor {state.floor} of {mid_sentence(self.game.theme.name)}, "
+                 f"with {player.hp}/{player.max_hp} HP.")
+        if monster and monster.hp > 0:
+            words += f" {cap(the(monster.name))} is here."
+        return highlight("  " + words, self.lexicon())
 
     # --- turns ---
 
@@ -552,10 +573,17 @@ class GameScreen(Screen):
         else:
             lying = [(e.data["item"], "drop") for e in events if e.kind == "drop" and e.data["item"] in state.room.items]
             lying += [(e.data["left"], "left") for e in events if e.data.get("left") in state.room.items]
-        if not found and not lying:
-            return
+        if found or lying:
+            await self._show_loot(list(found.items()), lying, before=narration)
+
+    async def _show_loot(self, found: list[tuple[str, str]], lying: list[tuple[str, str]],
+                         before: Widget | None = None) -> None:
+        """Cards across the story, as many to a row as fit: what turned up, then what's lying here to take. Each is
+        (item, LOOT_LABELS kind)."""
+        state = self.game.state
+        here = (state.floor, state.room_id)
         shine: list[AnimatedSprite] = []
-        cards = [self._loot_card(key, kind, None, shine) for key, kind in found.items()]
+        cards = [self._loot_card(key, kind, None, shine) for key, kind in found]
         for key, kind in lying:
             card = self._loot_card(key, kind, here, shine)
             self.floor_cards.append((*here, key, card))
@@ -563,7 +591,7 @@ class GameScreen(Screen):
         story = self.query_one("#story", VerticalScroll)
         across = max(1, (story.size.width - 2) // LOOT_CARD)  # as many to a row as fit, the rest below
         for row in range(0, len(cards), across):
-            await story.mount(Horizontal(*cards[row:row + across], classes="loot-row"), before=narration)
+            await story.mount(Horizontal(*cards[row:row + across], classes="loot-row"), before=before)
         story.scroll_end(animate=False)
         self.live_sprites += shine
         await asyncio.gather(*(self._sparkle(picture) for picture in shine))

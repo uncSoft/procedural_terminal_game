@@ -10,11 +10,14 @@ from textual.containers import Center, Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Input, Label, Select, Static
 
-from ..config import DEFAULT_CLAUDE_MODEL, DEFAULT_URLS, Config, load_game
+from ..config import DEFAULT_CLAUDE_MODEL, DEFAULT_URLS, Config, load_game, read_save
 from ..content import load_content
 from ..llm import LLMError
 from ..llm.narrator import intro
 from ..llm.openai_compat import OpenAICompatLLM
+from ..meta import run_summary
+from ..models import GameState
+from .panels import Panel
 from .widgets import Clickable
 
 CLAUDE_MODELS = [DEFAULT_CLAUDE_MODEL, "claude-sonnet-5-5", "claude-haiku-5-5"]
@@ -46,6 +49,7 @@ class TitleScreen(Screen):
                 with Vertical(id="menu"):
                     yield Button("Play", id="new", variant="primary")
                     yield Button("Continue", id="continue")
+                    yield Static("", id="run-info")
                     yield Button("Settings", id="setup")
                     yield Button("Quit", id="quit", variant="error")
             yield Center(Static("", id="narrator-info"))
@@ -58,7 +62,26 @@ class TitleScreen(Screen):
         self.refresh_menu()
 
     def refresh_menu(self) -> None:
-        self.query_one("#continue", Button).disabled = load_game() is None
+        """With a run in progress, Continue comes first, chosen, with the run beneath it; Play becomes New run."""
+        state, problem = read_save()
+        menu, info = self.query_one("#menu"), self.query_one("#run-info", Static)
+        play, resume = self.query_one("#new", Button), self.query_one("#continue", Button)
+        resume.disabled = state is None
+        if state:
+            menu.move_child(resume, before=play)
+        else:
+            menu.move_child(resume, after=play)
+        menu.move_child(info, after=resume)
+        menu.set_class(bool(state or problem), "with-run")
+        info.display = bool(state or problem)
+        if state:
+            info.update(Text("\n".join(run_summary(state))))
+        elif problem:
+            info.update(Text(f"Your last run can't be continued: {problem}."))
+        first, second = (resume, play) if state else (play, resume)
+        first.variant, second.variant = "primary", "default"
+        play.label = "New run" if state else "Play"
+        first.focus()
         self.query_one("#narrator-info", Static).update(Text(f"Narrator: {describe_backend(self.app.config)}"))
 
     @on(Button.Pressed)
@@ -67,7 +90,7 @@ class TitleScreen(Screen):
          "quit": self.app.exit}[event.button.id]()
 
     def action_new(self) -> None:
-        self.app.show_campfire()
+        self.app.unfinished_first(self.app.show_campfire)
 
     def action_continue(self) -> None:
         if load_game() is not None:
@@ -75,6 +98,30 @@ class TitleScreen(Screen):
 
     def action_setup(self) -> None:
         self.app.push_screen(SetupScreen(self.app.config))
+
+
+class AbandonScreen(Panel):
+    """A new run with one still in progress: continue it, or abandon it, and it ends as a death."""
+
+    def __init__(self, state: GameState) -> None:
+        super().__init__()
+        self.state = state
+
+    def compose(self) -> ComposeResult:
+        state = self.state
+        ghost = "" if state.daily else f", and your ghost stays on floor {state.floor}"
+        with Vertical(classes="panel-box abandon-box") as box:
+            box.border_title = "Your run isn't over"
+            yield Static(Text("\n".join(run_summary(state)), style="bold #e8e8f4"), classes="abandon-run")
+            yield Static(Text(f"A new run ends this one here, as a death: you keep its souls, it goes in the Hall "
+                              f"of Legends{ghost}.", style="#c8c8e0"))
+            with Horizontal(classes="abandon-buttons"):
+                yield Button("Continue it", id="keep", variant="primary")
+                yield Button("Abandon it", id="abandon", variant="error")
+
+    @on(Button.Pressed)
+    def pressed(self, event: Button.Pressed) -> None:
+        self.dismiss("continue" if event.button.id == "keep" else "abandon")
 
 
 class SetupScreen(Screen):

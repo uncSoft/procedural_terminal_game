@@ -311,8 +311,8 @@ class Game:
         self.state.suggestion = await extras.suggestion(self.llm, self.state, self.content)
         return self.state.suggestion
 
-    async def recap(self) -> str:
-        return await extras.recap(self.llm, self.state)
+    async def recap(self, stand_in: bool = True) -> str:
+        return await extras.recap(self.llm, self.state, stand_in)
 
     def _record_story(self, events: list[Event]) -> None:
         """Log story cards and their effects, and save what the profile should remember."""

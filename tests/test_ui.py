@@ -1,7 +1,8 @@
 from textual.widgets import Static
 
 from ptg import sound
-from ptg.config import Config
+from ptg.config import Config, load_game, save_game, save_path
+from ptg.content import load_content
 from ptg.dice import Roll
 from ptg.events import Event
 from ptg.sprites import DEATH_FRAMES, DEFAULT_WIDTH
@@ -12,7 +13,8 @@ from ptg.ui.hub import EndScreen, HubScreen
 from ptg.ui.effects import Popup
 from ptg.ui.panels import (BestiaryScreen, CharacterScreen, FloorScreen, HelpScreen, InfoScreen, InventoryScreen,
                            JournalScreen, LevelUpScreen, LookScreen, MapScreen, ShopScreen)
-from ptg.ui.screens import IntroScreen, SetupScreen, TitleScreen
+from ptg.meta import start_run
+from ptg.ui.screens import AbandonScreen, IntroScreen, SetupScreen, TitleScreen
 from ptg.ui.widgets import AnimatedSprite, ChoiceItem, roll_text
 
 
@@ -70,6 +72,72 @@ async def test_campfire_descent_panels_and_continue():
         await pilot.press("c")
         await settle(app, pilot)
         assert isinstance(app.screen, GameScreen) and app.screen.game.state.turn == turns
+
+
+async def test_a_run_in_progress_comes_first_and_picks_up_where_it_was():
+    app = PTGApp(Config(backend="offline", player_name="T"))
+    state = start_run(app.profile, load_content(), "T", seed=5)
+    state.room.monster, state.room.items = None, ["healing_potion"]
+    save_game(state)
+    async with app.run_test(size=(130, 44)) as pilot:
+        await pilot.pause(0.3)
+        title = app.screen
+        assert [w.id for w in title.query_one("#menu").children][:3] == ["continue", "run-info", "new"]
+        assert app.focused.id == "continue" and str(title.query_one("#new").label) == "New run"
+        assert "Floor 1/3" in str(title.query_one("#run-info").render())
+        await pilot.press("n")  # a new run, not without asking
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, AbandonScreen)
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+        assert app.screen is title and load_game() is not None
+        await pilot.press("n")
+        await pilot.pause(0.3)
+        await pilot.press("enter")  # "Continue it" is the one already chosen
+        await settle(app, pilot)
+        await pilot.pause(0.5)
+        story = app.screen.query_one("#story")
+        classes = [c for w in story.children for c in w.classes]
+        assert "continued" in classes and "room-row" in classes and "recap" not in classes  # offline: no repeat
+        assert any("click to take" in str(card.query_one(".loot-text").render()) for card in story.query(".loot-card"))
+        assert str(story.children[-1].render()).strip().startswith("You're in the ")
+
+
+async def test_abandoning_a_run_from_the_title_ends_it_as_a_death():
+    app = PTGApp(Config(backend="offline", player_name="T"))
+    state = start_run(app.profile, load_content(), "T", seed=5)
+    state.souls = 9
+    save_game(state)
+    async with app.run_test(size=(130, 44)) as pilot:
+        await pilot.pause(0.3)
+        await pilot.press("n")
+        await pilot.pause(0.3)
+        await pilot.click("#abandon")
+        await pilot.pause(0.5)
+        assert isinstance(app.screen, HubScreen) and app.profile.souls >= 9 and load_game() is None
+        assert app.profile.runs(limit=1)[0]["cause"] == "abandoned on floor 1"
+        await pilot.press("escape")  # the title: nothing to continue now
+        await pilot.pause(0.3)
+        assert app.screen.query_one("#continue").disabled and app.focused.id == "new"
+        assert str(app.screen.query_one("#new").label) == "Play"
+
+
+async def test_a_daily_from_the_command_line_asks_about_a_run_in_progress():
+    app = PTGApp(Config(backend="offline", player_name="T"), daily=True)
+    save_game(start_run(app.profile, load_content(), "T", seed=5))
+    async with app.run_test(size=(130, 44)) as pilot:
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, AbandonScreen)
+
+
+async def test_a_run_that_cant_be_continued_says_why():
+    save_path().write_text('{"version": 1, "status": "playing"}')
+    app = PTGApp(Config(backend="offline", player_name="T"))
+    async with app.run_test(size=(130, 44)) as pilot:
+        await pilot.pause(0.3)
+        info = app.screen.query_one("#run-info")
+        assert info.display and "an older version of the game saved it" in str(info.render())
+        assert app.screen.query_one("#continue").disabled and app.focused.id == "new"
 
 
 async def test_death_goes_to_the_tombstone_then_the_campfire():

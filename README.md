@@ -296,7 +296,7 @@ Needs Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 uv run ptg
 ```
 
-The first launch opens Settings: pick LM Studio, Ollama, another OpenAI-compatible server, Claude, or Offline, pixel sprites or ASCII art, and whether dice roll on Space or automatically. Settings, saves and the profile database live in `~/.ptg` (set `PTG_HOME` to move them). The game autosaves every turn; **Continue** on the title screen picks up where you left off.
+The first launch opens Settings: pick LM Studio, Ollama, another OpenAI-compatible server, Claude, or Offline, pixel sprites or ASCII art, and whether dice roll on Space or automatically. Settings, saves and the profile database live in `~/.ptg` (set `PTG_HOME` to move them). The game autosaves every turn; **Continue** on the title screen picks up where you left off, with a line where the story so far stops, the room as you'd see it walking in (anything lying there ready to take) and where you are. While a run is unfinished, Continue comes first, with the run shown under it. Starting a new one instead asks first, and abandoning a run counts as a death: you keep its souls, it goes in the Hall of Legends, and your ghost stays on the floor where you left it.
 
 | Key | Typed | Opens |
 | --- | --- | --- |

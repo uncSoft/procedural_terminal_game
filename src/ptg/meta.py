@@ -6,6 +6,7 @@ import datetime as dt
 import random
 
 from . import dice, powers
+from .config import save_game
 from .content import Content, load_content
 from .integrity import shipped_report
 from .models import FLOORS, GameState, Player
@@ -102,6 +103,23 @@ def share_card(state: GameState, emoji: bool = False) -> str:
             f"{player.name} {epithet(state)}  {outcome}\n"
             f"{floors}  ⚔{player.kills}  ✦{player.style.get('flair', 0)}  ☽{souls_earned(state)}  ⏱{state.turn}\n"
             f"\"{state.epitaph or fallback_epitaph(state)}\"")
+
+
+def run_summary(state: GameState) -> list[str]:
+    """A run in progress, in short: who, where, and how they're doing."""
+    player = state.player
+    return [f"{player.name}, level {player.level}",
+            f"Floor {state.floor}/{state.floors_total} · {load_content().themes[state.theme].name}",
+            f"{player.hp}/{player.max_hp} HP · turn {state.turn}"]
+
+
+def abandon(profile: Profile, state: GameState) -> int:
+    """A run left unfinished for a new one ends as a death: a line in the Hall of Legends, its souls banked and,
+    as from any death, a ghost left on its floor. Returns the souls."""
+    state.status, state.cause = "dead", f"abandoned on floor {state.floor}"
+    souls = record_end(profile, state)
+    save_game(state)  # (over: nothing left to continue)
+    return souls
 
 
 def record_end(profile: Profile, state: GameState) -> int:

@@ -37,6 +37,17 @@ Toast {
     margin-bottom: 1;
 }
 
+#run-info {
+    width: 100%;
+    text-align: center;
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#menu.with-run #continue {
+    margin-bottom: 0;
+}
+
 #narrator-info {
     width: auto;
     color: $text-muted;
@@ -301,6 +312,16 @@ Clickable:hover {
     margin-bottom: 1;
 }
 
+.continued {  /* where a run picked up again starts (ui/game_screen.py pick_up_again) */
+    width: 100%;
+    height: auto;
+    margin: 1 0;
+    border-top: dashed $primary;
+    border-bottom: dashed $primary;
+    text-align: center;
+    color: $primary;
+}
+
 .panel-sprite {  /* a monster in the bestiary or on its card, animated (ui/panels.py) */
     width: auto;
     height: auto;
@@ -494,6 +515,23 @@ LevelUpScreen, Panel, HelpScreen {
 .panel-box.wide {
     width: 100;
     height: 32;
+}
+
+.panel-box.abandon-box {
+    width: 60;
+}
+
+.abandon-box > Static {
+    margin-bottom: 1;
+}
+
+.abandon-buttons {
+    height: auto;
+    align: center middle;
+}
+
+.abandon-buttons Button {
+    margin: 0 1;
 }
 
 .panel-box.inventory-box {

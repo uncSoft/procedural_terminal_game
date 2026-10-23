@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Literal
@@ -64,17 +65,27 @@ def save_game(state: GameState, slot: str = "autosave") -> Path:
     return path
 
 
-def load_game(slot: str = "autosave") -> GameState | None:
+def read_save(slot: str = "autosave") -> tuple[GameState | None, str]:
+    """The run in progress saved in `slot`, if there is one. If there's one that can't be continued, why not (to
+    say so, not just grey out Continue); a finished run needs no reason."""
     path = save_path(slot)
     if not path.exists():
-        return None
+        return None, ""
     try:
-        state = GameState.model_validate_json(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("not a saved game")
+        if data.get("status", "playing") != "playing":
+            return None, ""
+        if data.get("version", 0) < GameState.model_fields["version"].default:
+            return None, "an older version of the game saved it"
+        return GameState.model_validate(data), ""
     except ValueError:
-        return None
-    if state.over or state.version < GameState.model_fields["version"].default:
-        return None  # finished, or saved by an older version of the game
-    return state
+        return None, "its save is damaged"
+
+
+def load_game(slot: str = "autosave") -> GameState | None:
+    return read_save(slot)[0]
 
 
 def log_path() -> Path:

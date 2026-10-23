@@ -14,7 +14,7 @@ from .game import Game
 from .layout import plain_lines
 from .llm import LLMError, make_llm
 from .llm.narrator import intro
-from .meta import share_card, start_run
+from .meta import abandon, run_summary, share_card, start_run
 from .profile import Profile
 from .story import StoryError, load_library
 from .world import render_map
@@ -146,6 +146,16 @@ async def play_plain(config: Config, seed: int | None, resume: bool, daily: bool
     profile = Profile.open()
     content = load_content()
     state = load_game() if resume else None
+    unfinished = load_game() if state is None else None
+    if unfinished is not None:  # (a new run's first save would wipe it out: no death, no souls, no ghost)
+        print("Your run isn't over: " + " · ".join(run_summary(unfinished)))
+        ghost = "" if unfinished.daily else f", and your ghost stays on floor {unfinished.floor}"
+        answer = input(f"Continue it? [Y/n]  (No ends it as a death: you keep its souls{ghost}.) ")
+        if answer.strip().lower() in ("n", "no"):
+            souls = abandon(profile, unfinished)
+            print(f"☽ {souls} soul{'' if souls == 1 else 's'} kept.")
+        else:
+            state = unfinished
     fresh = state is None
     if fresh:
         state = start_run(profile, content, config.player_name, seed=seed, daily=daily)

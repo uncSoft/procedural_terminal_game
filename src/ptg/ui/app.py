@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from textual import work
 from textual.app import App
 from textual.binding import Binding
@@ -11,12 +13,12 @@ from ..config import Config, load_game, save_config
 from ..content import load_content
 from ..game import Game
 from ..llm import LLM, LLMError, make_llm
-from ..meta import start_run
+from ..meta import abandon, start_run
 from ..profile import Profile
 from .debug import DebugScreen
 from .game_screen import GameScreen
 from .hub import EndScreen, HubScreen
-from .screens import IntroScreen, SetupScreen, TitleScreen, describe_backend
+from .screens import AbandonScreen, IntroScreen, SetupScreen, TitleScreen, describe_backend
 from .theme import CRT
 
 
@@ -49,7 +51,7 @@ class PTGApp(App):
         elif self.resume and load_game() is not None:
             self.continue_game()
         elif self.daily:
-            self.start_descent(daily=True)
+            self.unfinished_first(lambda: self.start_descent(daily=True))
         if self.open_debug:
             self.push_screen(DebugScreen())
 
@@ -98,6 +100,26 @@ class PTGApp(App):
             if not quiet:
                 self.notify(f"{e}\nPlaying offline instead.", title="No narrator", severity="warning", timeout=8)
             return None
+
+    def unfinished_first(self, then: Callable[[], None]) -> None:
+        """Before a new run, with one still in progress: continue it, or abandon it (it ends as a death) and go on.
+        Without asking, the new run's first save would wipe the old one out: no death, no souls, no ghost."""
+        state = load_game()
+        if state is None:
+            then()
+            return
+
+        def answered(choice: str | None) -> None:
+            if choice == "continue":
+                self.continue_game()
+            elif choice == "abandon":
+                souls = abandon(self.profile, state)
+                ghost = "" if state.daily else f" Your ghost stays on floor {state.floor}."
+                self.notify(f"☽ {souls} soul{'' if souls == 1 else 's'} kept.{ghost}",
+                            title=f"{state.player.name}'s run is over", timeout=6)
+                then()
+
+        self.push_screen(AbandonScreen(state), answered)
 
     def show_campfire(self) -> None:
         # Always land on: title -> campfire.

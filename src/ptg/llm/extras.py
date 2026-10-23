@@ -110,8 +110,10 @@ async def epitaph(llm: LLM | None, state: GameState) -> str:
     return text or fallback
 
 
-async def recap(llm: LLM | None, state: GameState) -> str:
-    fallback = next((e.text for e in reversed(state.log) if e.kind == "narration"), "")
+async def recap(llm: LLM | None, state: GameState, stand_in: bool = True) -> str:
+    """What's happened so far, for a run picked up again. With no model (or a failing one) the last narration
+    stands in, unless `stand_in` is off: the game's screen shows the story itself, so it would only repeat it."""
+    fallback = next((e.text for e in reversed(state.log) if e.kind == "narration"), "") if stand_in else ""
     if llm is None or not state.journal:
         return fallback
     try:

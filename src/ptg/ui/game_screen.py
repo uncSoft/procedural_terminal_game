@@ -87,6 +87,18 @@ def secret_banner(frame: int, words: str = "SECRET ROOM", colour: str = "#ffd166
     return text
 
 
+def shown(widget: Widget) -> str:
+    """A piece of the story in a line, for the run's turn log: its words, or what the picture, sprite or cards were
+    (a row of them is named for it as it's made: its cards may not be in it yet)."""
+    if widget.name:
+        return widget.name
+    if isinstance(widget, AnimatedSprite):
+        return f"sprite: {widget.key}"
+    if widget.has_class("story-card"):
+        return "story card: " + str(widget.border_title).removeprefix("✧").strip()
+    return str(widget.render()) if isinstance(widget, Static) else type(widget).__name__
+
+
 class GameScreen(Screen):
     BINDINGS = [
         Binding("f1", "panel('help')", "Help"),
@@ -111,6 +123,7 @@ class GameScreen(Screen):
         self.floor_cards: list[tuple[int, int, str, ClickableBox]] = []  # things lying somewhere, as cards to take
         self.leave_asked = 0.0  # when Esc last asked "again for the title?" (time.monotonic)
         self.since_redraw = 0  # turns since the whole screen was last drawn afresh (see PTGApp.action_redraw)
+        self.choices_shown: tuple | None = None  # what the choices box shows (see refresh_choices)
 
     def compose(self) -> ComposeResult:
         yield Hud(id="hud")
@@ -220,6 +233,7 @@ class GameScreen(Screen):
         """Back in a run you left: a line where the story so far stops, then the room as you'd see it walking in, with
         anything lying there to take, and where you are; with a narrator, what's happened so far goes above them."""
         state = self.game.state
+        start = len(self.query_one("#story", VerticalScroll).children)
         seam = self.add_line(Text(f"↺  CONTINUED  ·  TURN {state.turn}", style="bold"), "continued")
         self._room_card()
         if state.room.items:
@@ -231,6 +245,7 @@ class GameScreen(Screen):
         if text:
             line = StoryLine(highlight("Previously… " + text, self.lexicon(), "italic #ff4f9a"), classes="recap")
             await self.query_one("#story", VerticalScroll).mount(line, after=seam)
+        self._record_shown(start)
         await self.update_suggestion()
 
     def _whereabouts(self) -> Text:
@@ -263,8 +278,13 @@ class GameScreen(Screen):
 
     @on(ChoiceItem.Chosen)
     def chosen(self, event: ChoiceItem.Chosen) -> None:
-        if not self.busy and not self.game.state.over:
-            self.run_turn(str(event.index))
+        """A click on a choice: that action, wherever it is in the list now (a click on one just replaced must not
+        pick whatever took its number), or nothing if it's gone."""
+        if self.busy or self.game.state.over:
+            return
+        index = next((i for i, a in enumerate(self.game.choices(), 1) if a.id == event.action_id), None)
+        if index is not None:
+            self.run_turn(str(index))
 
     @work(exclusive=True, group="turn")
     async def run_turn(self, text: str | None, action: Action | None = None) -> None:
@@ -282,6 +302,13 @@ class GameScreen(Screen):
             command.disabled = False
             command.focus()
 
+    def _record_shown(self, start: int) -> None:
+        """What the story has shown since its `start`th piece, top to bottom, in the run's turn log ("shown"): the
+        facts are there already, so a played run reads back as it looked, pictures, cards and all."""
+        state = self.game.state
+        story = self.query_one("#story", VerticalScroll)
+        self.game.profile.log(state.run_id, state.turn, [("shown", shown(w)) for w in list(story.children)[start:]])
+
     async def _opening(self) -> None:
         state = self.game.state
         self.add_floor_header(f"Floor {state.floor} of {state.floors_total}", self.game.theme.name)
@@ -290,11 +317,13 @@ class GameScreen(Screen):
         result = await self.game.opening(on_text)
         narration.update(highlight(result.narration, self.lexicon()))
         self._show_story(result.events)
+        self._record_shown(0)
         self.refresh_panels()
         await self.update_suggestion()
 
     async def _turn(self, text: str, action: Action | None = None) -> None:
         game = self.game
+        start = len(self.query_one("#story", VerticalScroll).children)
         choices = game.choices()
         shown = choices[int(text) - 1].label if text.isdigit() and 1 <= int(text) <= len(choices) else text
         shown = action.label if action else shown
@@ -342,16 +371,20 @@ class GameScreen(Screen):
         await self._roll_feedback(pending.events, hp_before, gold_before)
         await self._fight_animations(pending.events, before, room_before)
         await self._fixture_moment(pending.events, narration, where)
-        picked = pending.intent.kind == "action" and pending.intent.action_id.startswith(("take:", "take_all"))
-        await self._loot_moment(pending.events, narration, from_the_floor=picked)
-        await self._secret_room_moment(pending.events, narration)
-        await self._shop_moment(pending.events, narration)
-        if any(e.kind == "tip" for e in pending.events):  # look: it's on your map
-            effects.pulse(self.query_one("#map"), GREAT, blinks=2)
+        # Then, from the top, all above what's said of it: a new floor's header, a moment's banner, the room as you
+        # walk in, its chest, shrine or shopkeeper, and what turned up or lies there to take. (Run 44: the potion
+        # lying in a room came above the room's picture, and on the stairs above the new floor's header.)
         if any(e.kind == "descend" for e in pending.events):
             self._new_floor(narration)
+        await self._secret_room_moment(pending.events, narration)
+        await self._shop_moment(pending.events, narration)
         if any(e.kind in ("enter", "descend") and e.data.get("first") for e in pending.events):
             self._room_card(before=narration)
+        self._arrival_sprite(pending.events, before=narration)
+        picked = pending.intent.kind == "action" and pending.intent.action_id.startswith(("take:", "take_all"))
+        await self._loot_moment(pending.events, narration, from_the_floor=picked)
+        if any(e.kind == "tip" for e in pending.events):  # look: it's on your map
+            effects.pulse(self.query_one("#map"), GREAT, blinks=2)
         self.refresh_panels()
 
         result = await game.finish(on_text)
@@ -361,7 +394,6 @@ class GameScreen(Screen):
             await narration.remove()  # an authored moment speaks for itself
         for error in result.errors:
             self.add_line(f"  ({error})", "system-line")
-        self._arrival_sprite(result.events)
         self._show_story(result.events)
         self.since_redraw += 1
         if self.since_redraw >= self.app.REDRAW_EVERY:  # keeps a struggling terminal's picture from drifting
@@ -374,9 +406,11 @@ class GameScreen(Screen):
             await self._level_up()
         if game.state.over:
             self.add_line(Text(f"Epitaph: {game.state.epitaph}", style="italic #ff4f9a"), "system-line")
+            self._record_shown(start)
             await asyncio.sleep(1.2)
             self.app.end_run(self)
             return
+        self._record_shown(start)
         shopping = any(e.kind == "shop" for e in result.events) or (action and action.id.startswith(("buy:", "barter:")))
         if shopping and game.state.room.shop:  # the counter again, after a purchase or a haggle
             self.open_shop(int(action.id.partition(":")[2]) if action else 0)
@@ -590,8 +624,10 @@ class GameScreen(Screen):
             cards.append(card)
         story = self.query_one("#story", VerticalScroll)
         across = max(1, (story.size.width - 2) // LOOT_CARD)  # as many to a row as fit, the rest below
+        names = [f"{self.game.content.item(key).name} ({LOOT_LABELS[kind]})" for key, kind in [*found, *lying]]
         for row in range(0, len(cards), across):
-            await story.mount(Horizontal(*cards[row:row + across], classes="loot-row"), before=before)
+            await story.mount(Horizontal(*cards[row:row + across], classes="loot-row",
+                                         name="cards: " + "; ".join(names[row:row + across])), before=before)
         story.scroll_end(animate=False)
         self.live_sprites += shine
         await asyncio.gather(*(self._sparkle(picture) for picture in shine))
@@ -718,21 +754,21 @@ class GameScreen(Screen):
         card.tooltip = "Click to look around"
         card.styles.border = ("round", look_of(state.theme).accent)
         card.styles.border_title_color = look_of(state.theme).accent
-        story.mount(Horizontal(card, classes="room-row"), before=before)
+        story.mount(Horizontal(card, classes="room-row", name=f"picture: {state.room.name}"), before=before)
         story.scroll_end(animate=False)
 
-    def _arrival_sprite(self, events: list[Event]) -> None:
+    def _arrival_sprite(self, events: list[Event], before: Widget | None = None) -> None:
         """Arriving somewhere with a shrine, chest, fountain or stairs: show it, alive."""
         room = self.game.state.room
         arrived = any(e.kind in ("enter", "descend") and e.data.get("first") for e in events)
         if arrived and room.shop and self._sprites_on():  # the shopkeeper herself: click her to shop
             sprite = AnimatedSprite(room.shop.keeper, interval=0.6, action="screen.shop_counter", classes="story-sprite")
-            self.query_one("#story", VerticalScroll).mount(sprite)
+            self.query_one("#story", VerticalScroll).mount(sprite, before=before)
             self.live_sprites.append(sprite)
         elif arrived and room.fixture and not room.fixture_used and self._sprites_on():
             sprite = AnimatedSprite(room.fixture, interval=0.3, loop=ARRIVAL_LOOPS.get(room.fixture),
                                     action=self._card_of(room.fixture), classes="story-sprite")
-            self.query_one("#story", VerticalScroll).mount(sprite)
+            self.query_one("#story", VerticalScroll).mount(sprite, before=before)
             self.live_sprites.append(sprite)
             self.fixture_sprites[(self.game.state.floor, room.id)] = sprite
 
@@ -776,15 +812,21 @@ class GameScreen(Screen):
 
     def refresh_choices(self) -> None:
         """The numbered choices, top to bottom in a box that keeps its height (so nothing moves under the mouse
-        while a suggestion arrives), spilling into a second column past CHOICE_ROWS; and the pad of ways out."""
+        while a suggestion arrives), spilling into a second column past CHOICE_ROWS; and the pad of ways out. Rebuilt
+        only when they change: a rebuild swaps the choices out from under the mouse."""
+        game = self.game
+        scene = game.story.scene_title(game.state)
+        choices = [] if game.state.over else game.choices()
+        shown = (scene, game.state.over, game.suggestion_pending(), [(a.id, a.label, a.hint) for a in choices])
+        if shown == self.choices_shown:
+            return
+        self.choices_shown = shown
         box = self.query_one("#choices", Horizontal)
         first, more = self.query_one("#choice-list", Vertical), self.query_one("#choice-more", Vertical)
         first.remove_children()
         more.remove_children()
-        scene = self.game.story.scene_title(self.game.state)
         box.border_title = f"✧ {scene}" if scene else "Choices"
         box.set_class(bool(scene), "scene")
-        choices = [] if self.game.state.over else self.game.choices()
         self.query_one(DPad).show(choices)
         if self.game.state.over:
             first.mount(Static(Text("Press Enter to see your fate.", style="#ffb000")))

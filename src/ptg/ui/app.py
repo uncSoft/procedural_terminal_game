@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from textual import work
+from textual import events, work
 from textual.app import App
 from textual.binding import Binding
+from textual.errors import NoWidget
 
 from .. import sound
 from ..config import Config, load_game, save_config
@@ -40,6 +41,19 @@ class PTGApp(App):
         self.event = event  # a story event to fire at the start of the next descent (for testing)
         self.open_debug = debug
         self.profile = Profile.open()
+
+    async def on_event(self, event: events.Event) -> None:
+        """A mouse press on something that's just been taken away (a choice replaced as a turn ends) is dropped:
+        Textual would start a text selection in it and crash on its missing parent (run 44, clicking a choice just
+        as a Gelatinous Cube turned up)."""
+        if isinstance(event, events.MouseDown) and not event.is_forwarded:
+            try:
+                widget, _ = self.get_widget_at(event.x, event.y)
+            except NoWidget:
+                widget = None
+            if widget is not None and not widget.is_attached:
+                return
+        await super().on_event(event)
 
     def on_mount(self) -> None:
         self.register_theme(CRT)

@@ -334,7 +334,7 @@ uv sync --extra claude
 uv run ptg --backend anthropic
 ```
 
-Model requests and responses are logged to `~/.ptg/llm.log`.
+Model requests and responses are logged to `~/.ptg/llm.log`. Each run's turns are kept in the profile (`~/.ptg/profile.db`, table `turns`): every turn's facts, and what the story showed, top to bottom (kind `shown`: the words, and which picture, sprite or cards appeared where).
 
 **Garbled letters or tiny art?** Terminals that draw with the GPU (xterm.js in an editor or an app's terminal panel,
 for one) keep every character they've drawn, in each pair of colours, in a cache; the pixel art fills it fast, and

@@ -309,7 +309,9 @@ def finish_turn(state, content, rng, events, took_turn, was_in_combat, room_befo
             events += monster_turn(state, content, rng)
     if not state.over:
         events += check_traits(state)
-        events += collect(state, content)
+        # what a monster dropped and you pocket at once is told with its drop, not after a level-up (run 44)
+        after_drops = max((i + 1 for i, e in enumerate(events) if e.kind == "drop"), default=len(events))
+        events[after_drops:after_drops] = collect(state, content)
     return events
 
 

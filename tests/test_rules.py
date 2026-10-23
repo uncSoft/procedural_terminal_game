@@ -335,6 +335,31 @@ def test_choices_say_how_many_you_carry_and_using_one_says_what_is_left(content)
     assert not any("more in your pack" in e.text for e in events)  # that was the last
 
 
+def test_a_weakness_is_cheered_only_when_the_attempt_works(content):
+    """After a miss, "the prayer rail plays on its weakness to holy!" read as if the miss had worked (run 44)."""
+    for difficulty, works in (("absurd", False), ("easy", True)):
+        state = generate(3)
+        put_monster(state, content, key="troll", hp=200)  # trolls fear fire
+        state.player.inventory.append("oil_flask")
+        state.player.wits = 50
+        _, events = perform_creative(state, content, creative(success_effects=["damage_small"], difficulty=difficulty,
+                                                              uses=["Flask of Lamp Oil"], summary="hurl the oil at it"))
+        assert events[0].data["success"] is works and "fire" in state.known_weak["troll"]  # learned either way
+        assert ("That's the Troll's weakness: fire!" in [e.text for e in events]) is works
+
+
+def test_nothing_hidden_is_not_said_of_a_stunt_that_turns_something_up(content):
+    state = generate(3)
+    state.room.monster = None
+    for feature in state.room.features:
+        feature.hidden = False
+    state.player.wits = 50
+    _, events = perform_creative(state, content, creative(success_effects=["reveal_secret", "find_item"],
+                                                          difficulty="easy", summary="pry at the loose stones"))
+    assert any(e.kind == "find" for e in events)
+    assert "There turns out to be nothing hidden here." not in [e.text for e in events]
+
+
 def test_hiding_behind_a_prop_is_not_exploiting_it(content):
     state = generate(3)
     put_monster(state, content, key="troll", intent="heavy")

@@ -59,6 +59,19 @@ def test_a_slain_monsters_bomb_and_key_are_yours_as_it_falls(content, monkeypatc
     assert [e.data["item"] for e in events if e.kind == "take"] == ["bomb", "small_key"]
 
 
+def test_a_key_pocketed_as_it_falls_is_told_with_its_drop(content, monkeypatch):
+    """Run 44: "You take the Small Key" came after "You reach level 5!", as if picked up later."""
+    from ptg import combat
+
+    state = clear_room()
+    put_monster(state, content, hp=1)
+    state.player.might = 50
+    state.player.xp = state.player.next_level_xp() - 1  # and the kill is a level
+    monkeypatch.setattr(combat, "_drops", lambda *_: ["small_key"])
+    kinds = [e.kind for e in perform(state, content, "attack")]
+    assert kinds.index("take") == kinds.index("drop") + 1 < kinds.index("level")
+
+
 def test_walking_in_collects_bombs_and_keys(content):
     state = clear_room()
     direction, exit_ = next((d, e) for d, e in state.room.exits.items() if not e.locked)

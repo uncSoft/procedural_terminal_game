@@ -1,3 +1,5 @@
+from textual import events
+from textual.geometry import Offset, Region
 from textual.widgets import Static
 
 from ptg import sound
@@ -138,6 +140,96 @@ async def test_a_run_that_cant_be_continued_says_why():
         info = app.screen.query_one("#run-info")
         assert info.display and "an older version of the game saved it" in str(info.render())
         assert app.screen.query_one("#continue").disabled and app.focused.id == "new"
+
+
+async def test_a_press_on_a_choice_just_replaced_is_dropped(monkeypatch):
+    """Run 44 crashed here: a click on a choice in the instant it was replaced, which Textual took for the start of a
+    text selection in a widget no longer on the screen."""
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        gone = screen.query(ChoiceItem).first()
+        x, y = gone.region.x + 1, gone.region.y
+        await gone.remove()
+        # the screen's map of what's where, a moment behind: the old choice is still there
+        monkeypatch.setattr(screen, "get_widget_and_offset_at", lambda *_: (gone, Offset(1, 0)))
+        monkeypatch.setattr(screen, "get_widget_at", lambda *_: (gone, Region(x - 1, y, 20, 1)))
+        await app.on_event(events.MouseDown(None, x, y, 0, 0, 1, False, False, False, screen_x=x, screen_y=y))
+        assert app.screen is screen
+
+
+async def test_a_click_on_a_choice_is_that_choice_wherever_it_is_now():
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        first = screen.query(ChoiceItem).first()
+        screen.refresh_choices()
+        assert screen.query(ChoiceItem).first() is first  # nothing changed, so nothing was swapped out
+        turn = screen.game.state.turn
+        screen.post_message(ChoiceItem.Chosen(1, "go:nowhere"))  # a choice that's gone: nothing happens
+        await pilot.pause(0.3)
+        assert screen.game.state.turn == turn
+        assert [a.id for a in screen.game.choices()].index("search_room") > 0
+        screen.post_message(ChoiceItem.Chosen(1, "search_room"))  # its number was 1 in an older list
+        await settle(app, pilot)
+        assert screen.game.state.room.room_searched
+
+
+def told_since(story, start: int) -> list[str]:
+    """What the story has shown since its `start`th piece, by kind."""
+    kinds = ("player-line", "floor-header", "secret-banner", "room-row", "story-sprite", "loot-row", "narration")
+    return [next((k for k in kinds if k in widget.classes), type(widget).__name__)
+            for widget in list(story.children)[start:]]
+
+
+async def take_choice(app, pilot, screen, action_id: str) -> None:
+    ids = [a.id for a in screen.game.choices()]
+    screen.run_turn(str(ids.index(action_id) + 1))
+    for _ in range(60):
+        await pilot.pause(0.2)
+        if isinstance(app.screen, FloorScreen):
+            await pilot.press("enter")
+        elif isinstance(app.screen, GameScreen) and not app.screen.busy:
+            break
+
+
+async def test_a_room_comes_before_what_lies_in_it(monkeypatch):
+    """Run 44: a potion lying in a room came above the room's picture and its chest after what was said of it; on the
+    stairs, the new floor's potion came above the floor's header."""
+    from ptg import rules
+    from ptg.world import generate
+
+    seed = next(s for s in range(500) if any(not e.locked and generate(s).rooms[e.to].fixture == "chest"
+                                             for e in generate(s).room.exits.values()))
+    app = PTGApp(Config(backend="offline", player_name="T", auto_roll=True), seed=seed)
+    async with app.run_test(size=(130, 46)) as pilot:
+        screen = await into_a_run(app, pilot)
+        state, story = screen.game.state, screen.query_one("#story")
+        direction, way = next((d, e) for d, e in state.room.exits.items()
+                              if not e.locked and state.rooms[e.to].fixture == "chest")
+        state.rooms[way.to].monster, state.rooms[way.to].items = None, ["healing_potion"]
+        start = len(story.children)
+        await take_choice(app, pilot, screen, f"go:{direction}")
+        assert told_since(story, start) == ["player-line", "room-row", "story-sprite", "loot-row", "narration"]
+        logged = [text for (text,) in app.profile.db.execute(
+            "select text from turns where run_id = ? and turn = ? and kind = 'shown'", (state.run_id, state.turn))]
+        assert logged[:4] == [f"> Go {direction}", f"picture: {state.room.name}", "sprite: chest",
+                              "cards: Healing Potion (on the floor)"]  # the turn log keeps it as it looked
+
+        build = rules.build_floor
+
+        def with_a_potion(state, content):
+            build(state, content)
+            state.room.monster, state.room.items = None, ["healing_potion"]
+
+        monkeypatch.setattr(rules, "build_floor", with_a_potion)
+        for room in state.rooms:
+            room.monster = None
+        state.room_id = next(r.id for r in state.rooms if r.fixture == "stairs")
+        start = len(story.children)
+        await take_choice(app, pilot, screen, "descend")
+        assert told_since(story, start)[:2] == ["player-line", "floor-header"]
+        assert told_since(story, start)[-3:] == ["room-row", "loot-row", "narration"]
 
 
 async def test_death_goes_to_the_tombstone_then_the_campfire():

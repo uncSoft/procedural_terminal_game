@@ -205,8 +205,9 @@ def monster_text(state: GameState, content: Content, sprites: bool = True, frame
 
 class ChoiceItem(Static):
     class Chosen(Message):
-        def __init__(self, index: int) -> None:
+        def __init__(self, index: int, action_id: str) -> None:
             self.index = index
+            self.action_id = action_id
             super().__init__()
 
     def __init__(self, index: int, action: Action) -> None:
@@ -224,11 +225,12 @@ class ChoiceItem(Static):
             text.append(f"  [{action.hint}]", style=hint_style)
         super().__init__(text, classes="choice")
         self.index = index
+        self.action_id = action.id
         if len(text.plain) > 56:  # a long one may be cut short in its row: hovering shows all of it
             self.tooltip = text.plain
 
     def on_click(self) -> None:
-        self.post_message(self.Chosen(self.index))
+        self.post_message(self.Chosen(self.index, self.action_id))
 
 
 ARROWS = {"north": "▲", "south": "▼", "east": "▶", "west": "◀"}

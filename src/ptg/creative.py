@@ -193,8 +193,9 @@ def perform_creative(state: GameState, content: Content, intent: Intent, rng: ra
     events.insert(0, Event("check", f"You attempt to {summary}. {verdict}.", dice=roll,
                            data={"success": roll.success, "rerollable": True, "props": [p.name for p in props]}))
     if weak_hits and monster:
-        prop, tag = weak_hits[0]
-        events.append(Event("exploit", f"{cap(the(prop.name))} plays on {the(monster.name)}'s weakness to {tag}!"))
+        tag = weak_hits[0][1]
+        if roll.success:  # (told after a miss, it read as if the miss had worked: run 44)
+            events.append(Event("exploit", f"That's {the(monster.name)}'s weakness: {tag}!"))
         events += discover(state, monster, tag)
     events += fortune(state, roll)
 
@@ -211,14 +212,17 @@ def perform_creative(state: GameState, content: Content, intent: Intent, rng: ra
                 player.fate += 1
                 events.append(Event("fate", f"Style points! The dungeon rewards flair with a Fate token "
                                             f"({player.fate}/{player.max_fate()})."))
+    outcome: list[Event] = []
     for effect in intent.success_effects if roll.success else intent.failure_effects:
         target = state.room.monster
         if state.over:
             break
         if effect in MONSTER_EFFECTS and (target is None or target.hp <= 0 or not target.hostile):
             continue  # it's already dead, gone or calmed down
-        events += _apply_effect(state, content, rng, effect, max(0, player.stat(intent.stat)))
-    return intent, events, True
+        outcome += _apply_effect(state, content, rng, effect, max(0, player.stat(intent.stat)))
+    if any(e.kind in ("find", "secret") for e in outcome):  # not "nothing hidden here" and then a find (run 44)
+        outcome = [e for e in outcome if not e.data.get("nothing")]
+    return intent, events + outcome, True
 
 
 def _apply_effect(state: GameState, content: Content, rng: random.Random, effect: str, bonus: int) -> list[Event]:
@@ -256,13 +260,13 @@ def _apply_effect(state: GameState, content: Content, rng: random.Random, effect
             feature.hidden = False
         if hidden:
             return [Event("secret", "You uncover something hidden: " + ", ".join(f.name for f in hidden) + ".")]
-        return [Event("info", "There turns out to be nothing hidden here.")]
+        return [Event("info", "There turns out to be nothing hidden here.", data={"nothing": True})]
     if effect == "find_item":
         from .rules import gain_item
 
         key = loot.one_of(rng, content, loot.FINDS)
         if key is None:
-            return [Event("info", "You turn up nothing worth keeping.")]
+            return [Event("info", "You turn up nothing worth keeping.", data={"nothing": True})]
         found = Event("find", f"You turn up {a(content.item(key).name)}.", data={"item": key})
         return [found] + gain_item(state, content, key)
     if effect == "find_gold":

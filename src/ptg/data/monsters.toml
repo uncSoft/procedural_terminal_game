@@ -398,3 +398,33 @@ tags = ["vermin", "beast", "rat", "swarm"]
 weak = ["food", "loud"]
 tell = "turns every one of its heads toward you at once, screeching"
 desc = "Six rats whose tails knotted together in the dark. They can't agree on which way to go, but they all agree about you."
+
+# drawn by JT (2026-10-23)
+[monster.granny_gristle]
+name = "Granny Gristle"
+hp = 30
+defense = 15
+attack = 6
+damage = "2d6"
+xp = 1
+tier = 3
+tags = ["goblinoid", "kobold", "shopkeeper", "merchant", "npc"]
+intelligent = true
+weak = ["shiny", "food"]
+tell = "drops her pack with a terrible clang and pulls out the frying pan"
+desc = "A kobold pawnbroker who carries her whole shop on her back, rubber chicken included. She buys anything, sells everything, and has outlived three dungeons and every adventurer who tried to haggle. Steal from her and find out why."
+
+# drawn by JT (2026-10-23)
+[monster.granny_kamultruk]
+name = "Granny Kamultruk"
+hp = 30
+defense = 15
+attack = 6
+damage = "2d6"
+xp = 1
+tier = 3
+tags = ["goblinoid", "kobold", "shopkeeper", "merchant", "npc", "candle"]
+intelligent = true
+weak = ["shiny", "water"]
+tell = "cups a claw around her candle and screeches, \"NO TAKE CANDLE!\""
+desc = "Granny Gristle's cousin from the deep tunnels. She'll sell you anything except the candle. No take candle!"

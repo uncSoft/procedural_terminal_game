@@ -11,7 +11,7 @@ from ptg.ui.game_screen import GameScreen
 from ptg.ui.hub import EndScreen, HubScreen
 from ptg.ui.effects import Popup
 from ptg.ui.panels import (BestiaryScreen, CharacterScreen, FloorScreen, HelpScreen, InfoScreen, InventoryScreen,
-                           JournalScreen, LevelUpScreen, LookScreen, MapScreen)
+                           JournalScreen, LevelUpScreen, LookScreen, MapScreen, ShopScreen)
 from ptg.ui.screens import IntroScreen, SetupScreen, TitleScreen
 from ptg.ui.widgets import AnimatedSprite, ChoiceItem, roll_text
 
@@ -60,7 +60,10 @@ async def test_campfire_descent_panels_and_continue():
         await pilot.press("i", "enter")  # typed IF-style command opens the inventory
         await pilot.pause(0.2)
         assert isinstance(app.screen, InventoryScreen)
-        await pilot.press("escape")
+        await pilot.press("escape")  # the inventory closes
+        await pilot.press("escape")  # "Press Esc again for the title screen": an Esc too many doesn't end a run
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, GameScreen)
         await pilot.press("escape")
         await pilot.pause(0.3)
         assert isinstance(app.screen, TitleScreen)
@@ -612,3 +615,73 @@ async def test_monsters_move_in_the_sidebar_the_bestiary_and_on_their_cards():
         await pilot.pause(0.3)
         assert isinstance(app.screen, InfoScreen)
         assert app.screen.query_one(AnimatedSprite).key == "goblin"
+
+
+async def test_a_shop_from_its_door_to_its_counter(monkeypatch):
+    """A jingle and a banner walking in; browsing opens her screen; Enter buys, and the shop opens again after."""
+    from conftest import Recorder
+
+    from ptg.models import OPPOSITE
+    from ptg.world import generate
+
+    seed = next(s for s in range(300) if any(r.shop for r in generate(s).rooms))
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=seed)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        monkeypatch.delenv("PTG_SOUND", raising=False)
+        speakers = Recorder()
+        monkeypatch.setattr(sound, "_sound", sound.Sound(True, 1.0, player=speakers))
+        state = screen.game.state
+        for room in state.rooms:
+            room.monster = None
+        shop = next(r for r in state.rooms if r.shop)
+        way_out = next(iter(shop.exits))
+        state.room_id, state.player.keys, state.player.gold = shop.exits[way_out].to, 1, 500
+        screen.refresh_panels()
+        ids = [a.id for a in screen.game.choices()]
+        screen.run_turn(str(ids.index(f"go:{OPPOSITE[way_out]}") + 1))
+        await settle(app, pilot)
+        await pilot.pause(0.6)
+        assert state.room is shop and "shop" in speakers.moments
+        assert "SHOP" in str(screen.query(".secret-banner").last().render())
+
+        ids = [a.id for a in screen.game.choices()]
+        screen.run_turn(str(ids.index("shop") + 1))
+        await settle(app, pilot)
+        await pilot.pause(0.5)
+        assert isinstance(app.screen, ShopScreen)
+        first = shop.shop.wares[0]
+        await pilot.press("enter")  # buy the first
+        await pilot.pause(0.4)
+        await settle(app, pilot)
+        await pilot.pause(0.6)
+        assert state.player.gold == 500 - first.price and first not in shop.shop.wares
+        assert isinstance(app.screen, ShopScreen)  # back at her counter
+
+
+async def test_click_what_a_monster_dropped_to_take_it(monkeypatch):
+    """Its card says so; a click puts it in your pack (no turn), and the card says it's taken. Bombs and keys are
+    yours already."""
+    from conftest import put_monster
+
+    from ptg import combat
+
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=3)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        state = screen.game.state
+        put_monster(state, screen.game.content, key="goblin", hp=1)
+        state.player.might = 50
+        monkeypatch.setattr(combat, "_drops", lambda *_: ["healing_potion", "bomb", "oil_flask"])
+        screen.refresh_panels()
+        await pilot.press(*str([a.id for a in screen.game.choices()].index("attack") + 1), "enter")
+        await settle(app, pilot)
+        await pilot.pause(0.5)
+        lying = [c for c in screen.query(".loot-card") if "click to take" in str(c.query_one(".loot-text").render())]
+        assert len(lying) == 2 and state.room.items == ["healing_potion", "oil_flask"]
+        turn = state.turn
+        await pilot.click(lying[0])
+        await settle(app, pilot)
+        await pilot.pause(0.4)
+        assert state.room.items == ["oil_flask"] and state.turn == turn
+        assert lying[0].has_class("taken") and lying[0].border_title == "✓ taken"

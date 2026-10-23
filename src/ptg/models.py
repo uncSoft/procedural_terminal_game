@@ -18,7 +18,7 @@ FLOORS = 3
 MAX_FATE = 3
 
 Intent = Literal["strike", "heavy", "guard"]
-Fixture = Literal["", "shrine", "chest", "fountain", "stairs"]
+Fixture = Literal["", "shrine", "chest", "fountain", "stairs", "shop"]
 
 
 class MonsterState(BaseModel):
@@ -55,6 +55,19 @@ class Feature(BaseModel):
 class Exit(BaseModel):
     to: int
     locked: bool = False
+    key: str = ""  # what opens it when locked: the dungeon's own key, or "small_key" for a shop's door
+    cracked: bool = False  # a shop door one bomb has had a go at: the next one breaks it
+
+
+class Ware(BaseModel):
+    item: str
+    price: int
+    haggled: str = ""  # "down" or "up" once you've bartered over it (once a ware)
+
+
+class Shop(BaseModel):
+    keeper: str  # a monster key, tagged npc: Granny Gristle, or now and then Granny Kamultruk
+    wares: list[Ware] = Field(default_factory=list)
 
 
 class Room(BaseModel):
@@ -84,6 +97,7 @@ class Room(BaseModel):
     secret: bool = False  # the floor's hidden room: no doors until a bomb makes one
     draft: str = ""  # the wall you felt a draft through: the secret room is behind it
     told: str = ""  # who told you about this secret room (it's on your map)
+    shop: Shop | None = None  # a shopkeeper and her wares, behind a locked door (fixture "shop")
 
     def visible_features(self) -> list[tuple[int, Feature]]:
         return [(i, f) for i, f in enumerate(self.features) if not f.hidden]

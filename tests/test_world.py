@@ -56,15 +56,21 @@ def test_floors_are_well_formed(seed, number, content):
     for room in (r for r in state.rooms if r.secret):  # sealed, in a gap that touches two rooms or more
         assert not room.exits and room.items
         assert sum(abs(r.x - room.x) + abs(r.y - room.y) == 1 for r in state.rooms) >= 2
+    shops = {r.id for r in state.rooms if r.shop}
+    for room in (r for r in state.rooms if r.shop):  # a dead end, behind the one door a small key opens
+        (way_out,) = room.exits.values()
+        door = state.rooms[way_out.to].exits[OPPOSITE[next(iter(room.exits))]]
+        assert door.locked and door.key == "small_key" and room.fixture == "shop" and room.shop.wares
+        assert not state.rooms[way_out.to].secret and state.rooms[way_out.to].fixture != "stairs"
 
     if number < 3:
         stairs = [r for r in state.rooms if r.fixture == "stairs"]
         assert len(stairs) == 1 and stairs[0].monster is not None  # every staircase has a warden
-        assert not any(e.locked for r in state.rooms for e in r.exits.values())
+        assert not any(e.locked and not e.key for r in state.rooms for e in r.exits.values())  # only shops lock
     else:
         boss = [r for r in state.rooms if r.is_boss]
         assert len(boss) == 1 and boss[0].monster.key == theme.boss
-        assert reachable(state, through_locked=False) == set(range(len(state.rooms))) - {boss[0].id} - secret
+        assert reachable(state, through_locked=False) == set(range(len(state.rooms))) - {boss[0].id} - secret - shops
         keys = [r for r in state.rooms for f in r.features if theme.key_item in f.loot and not f.hidden]
         assert len(keys) == 1 and not keys[0].is_boss
 
@@ -103,7 +109,7 @@ def test_map_shows_you_and_neighbours():
     state = generate(5)
     text = "\n".join(render_map(state))
     assert text.count("@") == 1
-    assert sum(text.count(g) for g in "?>†■◊") == len(state.room.exits)
+    assert sum(text.count(g) for g in "?>†■◊¤") == len(state.room.exits)
 
 
 def test_room_render_has_you_and_legend(content):

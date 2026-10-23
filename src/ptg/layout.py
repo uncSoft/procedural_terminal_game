@@ -29,7 +29,7 @@ FEATURE_GLYPHS = {
 }
 
 ITEM_GLYPHS = {"weapon": ")", "armor": "[", "consumable": "!", "key": "♀", "trinket": "("}
-FIXTURE_GLYPHS = {"shrine": "†", "chest": "■", "fountain": "◊", "stairs": ">"}
+FIXTURE_GLYPHS = {"shrine": "†", "chest": "■", "fountain": "◊", "stairs": ">", "shop": "¤"}
 
 
 def feature_glyph(name: str) -> str:

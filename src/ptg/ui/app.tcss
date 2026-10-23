@@ -123,6 +123,11 @@ Clickable:hover {
     text-align: center;
 }
 
+.secret-banner.shop {  /* a shop, found */
+    border-top: heavy $success;
+    border-bottom: heavy $success;
+}
+
 #setup-box {
     width: 72;
     max-width: 100%;
@@ -349,9 +354,14 @@ Clickable:hover {
     border-title-color: $success;
 }
 
-.loot-card.drop {
+.loot-card.drop, .loot-card.left, .loot-card.floor {  /* lying there: click to take */
     border: round $warning;
     border-title-color: $warning;
+}
+
+.loot-card.taken {
+    border: round $primary-darken-2;
+    border-title-color: $text-muted;
 }
 
 .loot-art, .loot-text {
@@ -529,6 +539,44 @@ LevelUpScreen, Panel, HelpScreen {
 }
 
 #inv-use, #inv-hint {
+    width: 100%;
+    margin-top: 1;
+}
+
+.panel-box.shop-box {  /* a shop (ui/panels.py ShopScreen): the shopkeeper, her counter, and the ware you picked */
+    width: 120;
+    max-width: 100%;
+}
+
+#shop-keeper {
+    width: 28;
+    height: auto;
+    padding-right: 2;
+}
+
+#shop-shelf {
+    width: 44;
+    height: auto;
+    max-height: 34;
+}
+
+#shop-grid {
+    grid-size: 2;
+    grid-gutter: 0 1;
+    height: auto;
+}
+
+#shop-side {
+    width: 1fr;
+    height: auto;
+    padding-left: 2;
+}
+
+#shop-says, #shop-detail, #shop-buy, #shop-barter, #shop-hint {
+    height: auto;
+}
+
+#shop-buy, #shop-barter, #shop-hint {
     width: 100%;
     margin-top: 1;
 }

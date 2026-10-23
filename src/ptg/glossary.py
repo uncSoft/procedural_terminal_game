@@ -21,13 +21,15 @@ FIXTURES = {
              "may get you) or smash it (might: what's inside may break).",
     "fountain": "A strange fountain. Drink and roll: it might hurt, heal, grant Fate, or bless a stat.",
     "stairs": "Stairs down to the next floor. There's no coming back up.",
+    "shop": "A shop, behind a locked door (a small key, or two bombs). Buy what's on the counter with gold, or haggle "
+            "(wits): talk her down a third, or put it up a quarter. Once a ware.",
 }
 # Head nouns that are also everyday words ("you stand", "in case"): only the full name counts for these.
 COMMON_WORDS = {"stand", "case", "rail", "pile", "heap", "hole", "gap", "wall", "rack", "box", "bench", "ledge",
                 "bowl", "knot", "sack", "rope", "table", "chart", "cart", "cage", "plates", "boots", "stubs", "debris",
                 "bucket", "nest", "hand", "heart", "sword", "bones", "skulls"}
 FIXTURE_WORDS = {"shrine": "shrine", "chest": "chest", "fountain": "fountain", "stairs": "stairs",
-                 "staircase": "stairs"}
+                 "staircase": "stairs", "shop": "shop", "counter": "shop"}
 RULES = {
     "fate": ("Fate", "Spend a Fate token to reroll a failed check. Earn it with flair, perfect dodges, natural 20s "
                      "and shrines."),

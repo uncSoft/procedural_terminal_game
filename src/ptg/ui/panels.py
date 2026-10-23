@@ -19,7 +19,9 @@ from ..content import Content, Theme
 from ..game import Game
 from ..meta import epithet
 from ..room_picture import picture_text
+from ..events import Action
 from ..rules import TRAITS
+from ..text import the
 from ..sprites import frame_count, sprite_text
 from .theme import PERK_COLORS
 from .widgets import (AnimatedSprite, Clickable, blank_art, item_note, item_tile, map_text, portrait, power_lines,
@@ -50,6 +52,8 @@ The game decides what's possible and rolls the dice; the narrator only describes
 ● BOMBS     Every floor hides a sealed secret room, in a gap that touches two rooms or more: bomb the wall
             to it (search next to it for a draft). ⚷ Small keys open chests; or pick the lock, or smash it.
 » ASK       A creature that's stopped fighting may know what's hidden on its floor: ask it, or watch it.
+¤ SHOPS     Now and then a shop, behind a locked door (a small key, or two bombs). Buy with gold, or haggle:
+            wits takes a third off, or puts it up a quarter.
 ✧ SECRETS   Some moments are written by hand and hidden in the dungeon: a place, a word, a deed.
             The Book of Secrets at the campfire counts the ones you've found.
 ◆ WORDS     Coloured names in the story (monsters, items, things in the room): hover for a hint, click for
@@ -58,12 +62,13 @@ The game decides what's possible and rolls the dice; the narrator only describes
 KEYS (or type the word)
   F2  i  inventory      F3  c  character     F4  l  look at the room
   F5  m  map            F6  b  bestiary      F7  j  journal
-  F1     this help      F8     sound on/off       Esc  title (your game is saved)    Ctrl+Q  quit
+  F1     this help      F8     sound on/off       Esc Esc  title (saved)    Ctrl+Q  quit
   F12    debug: the library, art, sounds, story, the game's state, and a model check
   Ctrl+L redraw the screen (if letters or art ever come out garbled)
   n s e w  go north, south, east or west
 
 MOUSE   Click a choice, a coloured word, a picture (for its card), or the dice (once to roll, again to carry on).
+        Click loot in the story (▶ click to take) to pick it up: that's free, it takes no turn.
         The arrows beside the choices take you through a door: lit where there is one.
         Close any panel with its ✕ or a click outside it.
 """
@@ -242,6 +247,120 @@ class InventoryScreen(Panel):
             self.notify("Not usable on its own. Try typing what you want to do with it.", timeout=3)
 
 
+class ShopScreen(Panel):
+    """A shop: the shopkeeper, her wares on the counter as tiles with their prices, and the one you pick in full, to
+    buy (Enter) or haggle over (B). Either comes back to the game as a turn (a haggle rolls the dice), and the shop
+    opens again after it."""
+
+    BINDINGS = [Binding("left", "move(-1)", show=False, priority=True),
+                Binding("right", "move(1)", show=False, priority=True),
+                Binding("up", "move_rows(-1)", show=False, priority=True),
+                Binding("down", "move_rows(1)", show=False, priority=True),
+                Binding("enter", "buy", "Buy", priority=True),
+                Binding("b", "barter", "Barter")]
+
+    def __init__(self, game: Game, selected: int = 0) -> None:
+        super().__init__()
+        self.game = game
+        self.current = selected
+        self.columns = 2
+
+    def compose(self) -> ComposeResult:
+        content, state = self.game.content, self.game.state
+        shop = state.room.shop
+        keeper = content.monster(shop.keeper)
+        sprites = self.game.config.art == "sprites"
+        with Horizontal(classes="panel-box shop-box") as box:
+            box.border_title = f"{keeper.name}'s Shop · ¤ {state.player.gold} gold"
+            with Vertical(id="shop-keeper"):
+                if sprites and frame_count(shop.keeper):
+                    yield AnimatedSprite(shop.keeper, interval=IDLE, classes="panel-sprite")
+                else:
+                    yield Static(portrait(shop.keeper, content, False, style="#ffd166"), classes="panel-sprite")
+                yield Static(Text.assemble((keeper.name, "bold #ffd166"), "\n", (keeper.desc, "italic #c8c8e0")),
+                             id="shop-says")
+            with VerticalScroll(id="shop-shelf"):
+                if shop.wares:
+                    grid = Grid(*[ItemTile(i, item_tile(content, w.item, price_note(w), sprites, room=18), False)
+                                  for i, w in enumerate(shop.wares)], id="shop-grid")
+                    grid.styles.grid_size_columns = self.columns
+                    yield grid
+                else:
+                    yield Static(Text("Sold out. She's counting your gold.", style="#6c6f99"))
+            with Vertical(id="shop-side"):
+                yield Static("", id="shop-detail")
+                yield Clickable("", "screen.buy", id="shop-buy")
+                yield Clickable("", "screen.barter", id="shop-barter")
+                yield Static(Text("arrows pick · enter buys · b haggles · esc leaves", style="#6c6f99"),
+                             id="shop-hint")
+
+    def on_mount(self) -> None:
+        tiles = list(self.query(ItemTile))
+        if tiles:
+            tiles[max(0, min(len(tiles) - 1, self.current))].focus()
+
+    def show_detail(self, index: int) -> None:
+        self.current = index
+        content, player = self.game.content, self.game.state.player
+        ware = self.game.state.room.shop.wares[index]
+        item = content.item(ware.item)
+        text = Text()
+        art = sprite_text(f"item_{ware.item}") if self.game.config.art == "sprites" else None
+        if art is not None:
+            text.append_text(art)
+            text.append("\n")
+        text.append(item.name + "\n", style="bold #4cff8a")
+        text.append(item_note(content, ware.item) + "\n", style="#c8c8e0")
+        text.append_text(power_lines(content, ware.item))
+        if item.desc:
+            text.append("\n" + item.desc + "\n", style="italic #c8c8e0")
+        text.append(f"\n¤ {ware.price} gold", style="bold #ffd166")
+        text.append({"down": "  talked down", "up": "  dearer since you haggled"}.get(ware.haggled, ""), style="#9a9cc0")
+        self.query_one("#shop-detail", Static).update(text)
+        short = player.gold < ware.price
+        self.query_one("#shop-buy", Clickable).update(
+            Text(f"You have {player.gold} gold." if short else f"▶ Buy it for {ware.price} gold  (enter)",
+                 style="#6c6f99" if short else "bold #4cff8a"))
+        self.query_one("#shop-barter", Clickable).update(
+            Text("She won't haggle over it again." if ware.haggled else "▶ Haggle  (b) · wits",
+                 style="#6c6f99" if ware.haggled else "bold #ffb000"))
+
+    def action_move(self, step: int) -> None:
+        tiles = list(self.query(ItemTile))
+        if tiles:
+            tiles[max(0, min(len(tiles) - 1, self.current + step))].focus()
+
+    def action_move_rows(self, rows: int) -> None:
+        self.action_move(rows * self.columns)
+
+    def _ware(self):
+        wares = self.game.state.room.shop.wares
+        return (self.game.content.item(wares[self.current].item), wares[self.current]) if wares else (None, None)
+
+    def action_buy(self) -> None:
+        item, ware = self._ware()
+        if item is None:
+            return
+        if self.game.state.player.gold < ware.price:
+            self.notify(f"{item.name} is {ware.price} gold, and you have {self.game.state.player.gold}.", timeout=3)
+            return
+        self.dismiss(Action(f"buy:{self.current}", f"Buy {the(item.name)} for {ware.price} gold"))
+
+    def action_barter(self) -> None:
+        item, ware = self._ware()
+        if item is None:
+            return
+        if ware.haggled:
+            self.notify("She won't haggle over that again.", timeout=3)
+            return
+        self.dismiss(Action(f"barter:{self.current}", f"Haggle over {the(item.name)}"))
+
+
+def price_note(ware) -> str:
+    """A ware's price on its tile: talked down (↓), or dearer since you haggled (↑)."""
+    return f"¤ {ware.price}" + {"down": " ↓", "up": " ↑"}.get(ware.haggled, "")
+
+
 class CharacterScreen(Panel):
     def __init__(self, game: Game) -> None:
         super().__init__()
@@ -296,7 +415,7 @@ class LookScreen(Panel):
         exits = []
         for direction, exit_ in room.exits.items():
             dest = state.rooms[exit_.to]
-            note = "locked" if exit_.locked else (dest.name if dest.visited else (
+            note = ("locked; a shop" if dest.shop else "locked") if exit_.locked else (dest.name if dest.visited else (
                 dest.fixture if dest.fixture and not dest.fixture_used else "unexplored"))
             exits.append(f"{direction} ({note})")
         body.append(", ".join(exits))
@@ -543,6 +662,8 @@ class InfoScreen(Panel):
         here = state.room.monster
         if here and here.key == key:
             self._available("attack")
+        if state.room.shop and state.room.shop.keeper == key:  # the shopkeeper: her wares
+            self._available("shop")
         return text, monster.name
 
     def _item(self, key: str) -> tuple[Text, str]:
@@ -591,7 +712,8 @@ class InfoScreen(Panel):
         text.append(ref.title() + "\n\n", style="bold #ff4f9a")
         text.append(glossary.FIXTURES[ref], style="#c8c8e0")
         for action in {"stairs": ["descend"], "shrine": ["shrine_blood", "shrine_gold"],
-                       "chest": ["chest_key", "chest", "chest_smash"], "fountain": ["fountain"]}.get(ref, []):
+                       "chest": ["chest_key", "chest", "chest_smash"], "fountain": ["fountain"],
+                       "shop": ["shop"]}.get(ref, []):
             if not self.action_id:
                 self._available(action)
         return text, "Fixture"

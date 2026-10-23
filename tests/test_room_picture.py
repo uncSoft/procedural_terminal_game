@@ -15,7 +15,8 @@ DOORS = ("", "north", "south", "east", "west")  # "" is where a floor begins: as
 def room_of(content, archetype: str):
     """A state whose current room is an `archetype` room, with its decor and all its features."""
     state = generate(5, content=content)
-    state.theme = next(t.key for t in content.themes.values() if archetype in [*t.archetypes, t.boss_room])
+    state.theme = next((t.key for t in content.themes.values() if archetype in [*t.archetypes, t.boss_room]),
+                       state.theme)  # a shop is in no dungeon's list: it turns up in any
     room, kind = state.room, content.archetypes[archetype]
     room.archetype, room.name = archetype, kind.names[0]
     room.features = [Feature(name=f) for f in kind.features]

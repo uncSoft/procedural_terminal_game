@@ -7,7 +7,7 @@ import random
 import re
 from dataclasses import dataclass
 
-from . import dice, loot
+from . import dice, loot, powers
 from .combat import defeat, discover, flee, fortune
 from .content import Content
 from .events import Event
@@ -89,11 +89,15 @@ def spends(summary: str) -> bool:
 
 def spent(content: Content, intent: Intent, props_here: list[Prop], props: list[Prop]) -> list[Prop]:
     """What an attempt uses up: what the interpreter says it does, and anything carried or lying here that it hands
-    over, throws or pours, said or not (a bribe leaves the bread with the orc)."""
+    over, throws or pours, said or not (a bribe leaves the bread with the orc). When the interpreter names nothing
+    of the kind, what the attempt itself names counts: "splash holy water on the altar" spends the vial."""
+    def spendable(p: Prop) -> bool:
+        return p.kind == "gold" or p.kind in ("item", "floor") and content.item(p.key).kind in SPENDABLE
+
     consumed = [p for p in match_props(intent.consumes, props_here) if p.kind in ("item", "gold", "floor")]
     if spends(intent.summary):
-        consumed += [p for p in props if p not in consumed and (
-            p.kind == "gold" or p.kind in ("item", "floor") and content.item(p.key).kind in SPENDABLE)]
+        named = [p for p in props if spendable(p)] or match_props([intent.summary], list(filter(spendable, props_here)))
+        consumed += [p for p in named if p not in consumed]
     return consumed
 
 
@@ -178,6 +182,7 @@ def perform_creative(state: GameState, content: Content, intent: Intent, rng: ra
         bonuses.append(("Improviser", 2))
     if "trickster" in player.traits:
         bonuses.append(("Trickster", 1))
+    bonuses += powers.roll_bonuses(state, content, "talk" if "pacify" in intent.success_effects else "creative")
     advantage = 1 if weak_hits or ("pacify" in intent.success_effects and "silver_tongue" in player.traits) else 0
     if weak_hits:
         intent = intent.model_copy(update={"success_effects": [UPGRADE.get(e, e) for e in intent.success_effects]})

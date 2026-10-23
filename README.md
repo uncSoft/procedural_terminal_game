@@ -47,12 +47,13 @@ It scores ten typed commands and five narrated moments, shows what the guard wou
 **Every turn**
 - **Dice you roll yourself.** Skill checks open a big pixel-art d20: press Space (or click), it tumbles and bounces, bonuses add up one by one, and the result is stamped. Natural 20s glow gold, natural 1s glow red and shake the screen; with advantage you roll two and the one you don't keep greys out. Attacks get small inline dice.
 - **You can see how it went.** Every roll ends in a coloured verdict (✔ HIT, ✘ HIT YOU, • NOTHING, ★ CRITICAL!) and flashes its colour. The story's border lights up green when the turn goes your way, red when it doesn't and silver when it's mixed (or blinks gold or crimson for a 20 or a 1). Damage numbers rise off the monster, your HP changes show by your hearts, and a new floor gets a title card and a banner in the story.
-- **Props and flair.** Using a real thing in the room or your pack ("topple the statue onto it") adds a ✦ flair bonus to the roll and earns a **Fate** token on success. What you throw, pour, feed or hand over is gone afterwards (bribe an orc with stale bread and the orc has the bread); your weapon, armor and keys only go if you say so.
+- **Props and flair.** Using a real thing in the room or your pack ("topple the statue onto it") adds a ✦ flair bonus to the roll and earns a **Fate** token on success. What you throw, pour, feed or hand over is gone afterwards, whether or not the model lists it (bribe an orc with stale bread and the orc has the bread); your weapon, armor and keys only go if you say so.
 - **Fate rerolls.** Spend Fate to rewind a failed check and roll again. Earn it with flair, perfect dodges, natural 20s and shrines.
 - **Telegraphs.** Monsters wind up heavy blows a turn early (`⚠ HEAVY ATTACK NEXT`). Dodge or improvise an evasion to make them whiff, and get advantage and a Fate token.
 - **Weaknesses.** Everything is weak to something: fire, holy, shiny, food, heavy, slippery... Turn the right prop on a monster to roll with advantage and hit harder. Once you discover a weakness, the bestiary remembers it forever.
 - **A suggested trick.** The last choice (✦, in pink) is a creative idea built from what's actually in the room, so new players learn they can improvise.
-- **Loot you can see.** What you find, pick up or see a monster drop appears in the story with its full art, and the inventory (F2) shows everything you carry as tiles: arrows pick one, Enter uses it.
+- **Loot you can see.** What you find or see a monster drop appears in the story with its full art, and the inventory (F2) shows everything you carry as tiles: arrows pick one, Enter uses it. Carry more than one of a thing and its choices say how many (×2), and using one says how many are left.
+- **Picking up is free.** Click a card in the story to take it (▶ click to take), or take everything here with one choice; either way it costs no turn, so leave what you don't want. Bombs and small keys you don't even pick up: they're yours as soon as a monster drops them or you walk in on them.
 - **Rooms you can see.** The first time you walk into a room, the story shows it as you see it from the doorway, a pixel-art picture drawn from the room itself: its exits, decor, features, any monster and whatever's lying on the floor. Look (F4) shows it bigger.
 - **Click a picture for its card.** A room's picture looks around it; a loot card, a chest or shrine in the story, or the monster in the sidebar opens its full card, with the matching action.
 - **Easy to get around.** The ways out carry their arrows (▲ ▼ ◀ ▶) in the choices, and a pad of arrows beside them lights the doors there are: click one to go. Or type `n`, `s`, `e` or `w`. The choices box keeps its size, so nothing moves under your mouse while a suggestion arrives.
@@ -63,9 +64,10 @@ It scores ten typed commands and five narrated moments, shows what the guard wou
 - **Traits earned by how you play**: talk monsters down and you become *Silver Tongue*; win with props and you become a *Showboat*; dodge enough and you become a *Duelist*.
 - See what's through a door before you go: the map and choices show stairs `>`, shrines `†`, chests `■` and fountains `◊` ahead.
 - **Things that do things.** Beyond their numbers, some items have powers, on their cards and tiles: Weighted Dice add 1 to every roll you make, a Torch 1 to searching, the Ten-Foot Pole 2 to picking locks and disarming traps; the Mysterious Floppy Disk maps the whole floor when you pick it up; flasks, holy water and the odd grenade can be thrown in a fight (and are gone); a Laser Pointer or a Rubber Duck costs a monster its next attack, once a fight; a Glow Stick lights up anything hidden in a room. Some are a mixed blessing.
-- **Rare things.** Some items never lie about on a floor or drop from an everyday monster: they're kept in chests, hidden stashes, each floor's secret room, and by the warden at the stairs (always) or an elite (sometimes), and each turns up at most once a run. The floor caps how good a warden's is, so the best come deeper, and from secret rooms. A warden with nothing rare left to give carries a small key.
+- **Rare things.** Some items never lie about on a floor or drop from an everyday monster: they're kept in chests, hidden stashes, each floor's secret room, shops, and by the warden at the stairs (always) or an elite (sometimes), and each turns up at most once a run. The floor caps how good a warden's is, so the best come deeper, and from secret rooms. A warden with nothing rare left to give carries a small key.
 - **Bombs and small keys** (● and ⚷ by your hearts). You start with a bomb; monsters drop bombs and keys now and then, elites more often. A chest opens three ways: a small key (safe), picking its lock (agility: fail and a needle gets you) or smashing it (might: fail and what's inside breaks). A bomb thrown in a fight always goes off.
 - **A secret room on every floor**, sealed until you bomb a wall into it. It's only ever built in a gap in the map that touches two rooms or more, so you can work out where it might be, and only those walls offer a bomb. Search a room next to it and you may feel a draft. There's one a floor: once it's open, no wall is worth a bomb. Finding it is a moment: a bang, a fanfare, a banner across the story, and the room in gold on the map, `{✧}`, from then on.
+- **Shops, now and then** (about one floor in four): a nook off the map, `[¤]`, behind a door a small key opens or two bombs break. Granny Gristle keeps most of them: a potion, gear for the floor, a bomb or a small key, and a trinket or, sometimes, something rare. Once in a while it's Granny Kamultruk's instead, the rare one, with the best and dearest stock. Shopping has a screen of its own: her wares as pictures with their prices; pick one for its card, Enter to buy, B to haggle (wits: a third off, or a quarter dearer if it goes wrong, once a ware). Mama's Shillelagh, sold nowhere else, helps you talk. Walking into one gets a jingle and a banner, gold and starrier for Granny Kamultruk.
 - **Creatures that have stopped fighting know things.** Ask one what it knows (or, if it can't talk, watch where it goes): a wits roll, once each. It may put the floor's secret room or its hidden stash on your map (the stash as a gold `$`, and there when you search it), or, if it talks, tell you what one of the floor's monsters can't stand, the warden's or the boss's first.
 
 **Across runs**
@@ -231,8 +233,9 @@ first, then an item of it (so adding five tier-3 potions doesn't make tier 3 fiv
 up from floor 1, tier 2 deeper, and the best of each kind in hidden stashes and floor-3 chests; the debug screen's
 Items tab (F12) says where each item can turn up.
 
-An item tagged `rare`, or given a `found` list in `items.toml` (`chest`, `stash`, `secret`, `warden`, or a monster's
-key for one that drops it), only turns up there, at most once a run. An item's `powers` are what it does beyond its
+An item tagged `rare`, or given a `found` list in `items.toml` (`chest`, `stash`, `secret`, `warden`, `shop`, or a
+monster's key for one that drops it), only turns up there, at most once a run. Shops also sell what chests keep. A
+monster tagged `npc` (the shopkeepers) never turns up as one of the dungeon's monsters; it's only where it's put. An item's `powers` are what it does beyond its
 numbers (`powers = ["luck"]`); `src/ptg/powers.py` lists them. The maker doesn't set either yet; importing a changed
 item keeps what the game already gave it.
 
@@ -308,7 +311,9 @@ The first launch opens Settings: pick LM Studio, Ollama, another OpenAI-compatib
 | F12 | | the debug screen |
 | Ctrl+L | | redraw the screen |
 
-Everything works with a mouse too: click a choice, an arrow on the pad, a highlighted word, a picture (for its card) or the dice (once to roll, again to carry on), and close a panel with its ✕ or a click outside it. Type `n`, `s`, `e` or `w` to go that way.
+Esc closes a panel; in the story, press it twice for the title screen (your game is saved).
+
+Everything works with a mouse too: click a choice, an arrow on the pad, a highlighted word, a picture (for its card), loot in the story (to take it) or the dice (once to roll, again to carry on), and close a panel with its ✕ or a click outside it. Type `n`, `s`, `e` or `w` to go that way.
 
 Useful flags:
 

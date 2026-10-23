@@ -172,3 +172,11 @@ decor = "roots plants"
 names = ["The Heartwood"]
 blurb = "A cathedral of living wood around a pulsing green heart. The Thornmother unfolds from it."
 features = ["the pulsing heart"]
+
+# --- Shops: in no dungeon's list, a shopkeeper sets up wherever she likes (world._shop) ---
+
+[archetype.shop]
+decor = "shelves"
+names = ["Shop"]
+blurb = "A shopkeeper has set up in a nook of the dungeon: a counter of old planks, and everything she owns behind it."
+features = ["the counter"]

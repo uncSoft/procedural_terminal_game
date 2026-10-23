@@ -24,6 +24,10 @@ Rare things (an item tagged `rare`, or one whose `found` names the only places i
 drop from an everyday monster or turn up from a stunt. They're kept for the places worth seeking out: chests, hidden
 stashes, each floor's secret room, and the warden by the stairs (and other elites); an item can also name the monster
 that drops it. Each comes at most once a run.
+
+Shops (world._shop) sell what chests keep, and things kept for shops alone (`found = ["shop"]`). Granny Gristle's
+counter has a potion no better than the floor, gear of the floor's tier, a bomb or a small key, and a trinket, or now
+and then something rare; the rare Granny Kamultruk's has the strong potions, the best gear and two rare things, dearer.
 """
 
 from __future__ import annotations
@@ -58,6 +62,10 @@ WARDEN_DROP, ELITE_DROP = 1.0, 0.2  # how often
 INSTEAD = {"warden": "small_key"}
 INSTEAD_OF_RARE = "potion 2+"
 DROP = "potion 1"  # what a slain monster sometimes leaves
+SHOPKEEPER, SHINY = "granny_gristle", "granny_kamultruk"  # the shiny one: rarer, dearer, better stocked
+SHOP_CHANCE, SHINY_CHANCE = 0.25, 0.15  # a floor has a shop; of the shops, how many are Granny Kamultruk's
+GRISTLE_RARE = 1 / 3  # how often Granny Gristle has something rare where her trinket would be
+SHINY_WARES = ["potion 2+", "gear 3+", "rare", "rare"]
 FINDS = ["food 0", "food 0", "potion 1", "escape 1", "trinket"]  # what a stunt that pays off can turn up
 EVERYDAY = "floor"  # the place of a floor's scattered loot, a monster's drop or a find: no rare things here
 
@@ -65,6 +73,7 @@ PLACES = [("floor 1", FLOORS[1], EVERYDAY), ("floor 2", FLOORS[2], EVERYDAY), ("
           ("hidden stashes", STASH, "stash"), ("floor 1 chests", CHESTS[1], "chest"),
           ("floor 2 chests", CHESTS[2], "chest"), ("floor 3 chests", CHESTS[3], "chest"),
           ("secret rooms", SECRET, "secret"), ("wardens and elites", WARDEN[3], "warden"),
+          ("shops", ["potion 1+", "gear 1+", "trinket", "bomb", "small_key"] + SHINY_WARES, "shop"),
           ("slain monsters", [DROP], EVERYDAY), ("lucky finds", FINDS, EVERYDAY)]
 
 
@@ -94,9 +103,10 @@ def rare(item: ItemDef) -> bool:
 
 
 def allowed(item: ItemDef, place: str) -> bool:
-    """Whether an item can turn up in a place: everyday loot anywhere, a rare thing only where it's kept."""
+    """Whether an item can turn up in a place: everyday loot anywhere, a rare thing only where it's kept (and a shop
+    sells what chests keep, too)."""
     if item.found:
-        return place in item.found
+        return place in item.found or (place == "shop" and "chest" in item.found)
     return place != EVERYDAY if "rare" in item.tags else True
 
 
@@ -141,6 +151,33 @@ def produce(rng: random.Random, content: Content, rares: list[str], slots: list[
     if key and rare(content.item(key)):
         rares.append(key)
     return key
+
+
+def wares(rng: random.Random, content: Content, rares: list[str], keeper: str, floor: int) -> list[tuple[str, int]]:
+    """What a shopkeeper lays out on her counter (rare things noted in `rares`, as anywhere), with their prices."""
+    if keeper == SHINY:
+        slots = SHINY_WARES
+    else:
+        slots = [f"potion -{floor}", f"gear {min(floor, 3)}", rng.choice(["bomb", "small_key"]),
+                 f"rare -{floor}" if rng.random() < GRISTLE_RARE else "trinket"]
+    out: list[tuple[str, int]] = []
+    for slot in slots:
+        key = produce(rng, content, rares, [slot], "shop")
+        if key and key not in [k for k, _ in out]:
+            out.append((key, price(content.item(key), floor, keeper == SHINY)))
+    return out
+
+
+def price(item: ItemDef, floor: int, shiny: bool = False) -> int:
+    """What a ware costs: by what it is and how good, a tenth more on each floor down, more for something rare, and
+    a quarter more again at Granny Kamultruk's. In fives, rounded up (she's a shopkeeper)."""
+    base = {"bomb": 12, "small_key": 15}.get(item.key)
+    if base is None:
+        base = {"potion": 15 + 20 * (item.tier - 1), "food": 6 + 6 * item.tier, "escape": 20,
+                "weapon": 5 + 20 * item.tier, "armor": 5 + 20 * item.tier}.get(role(item), 20 + 10 * item.tier)
+        base *= 1.6 if rare(item) else 1
+    cost = base * (1 + 0.1 * (floor - 1)) * (1.25 if shiny else 1)
+    return max(5, 5 * math.ceil(cost / 5 - 1e-9))
 
 
 def where(content: Content, key: str) -> list[str]:

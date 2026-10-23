@@ -30,6 +30,25 @@ Meeting your own ghost should be able to go somewhere a fight can't: a secret in
 hooks are in (see "Your ghost" in `docs/writing-events.md`): `{ghost}`, `{ghost_cause}` and `{ghost_epitaph}`, the
 `[calm]` effect, and ghost scenes that play out mid-fight. The scene itself is still to write.
 
+## Stealing from the grannies
+
+Later, after shops. Grab a ware with an agility roll; if you're caught, the granny fights you (Granny Gristle: "Steal
+from her and find out why"; Granny Kamultruk: "NO TAKE CANDLE!"). Stealing should also have a secret, additive side:
+
+- **A running secret tally**, kept in the profile across runs: every item stolen and what it was worth. Nothing shows
+  it at first.
+- **A bounty** that grows with the tally: shopkeepers (and maybe others) start to know your face.
+- **Achievements** for it, found rather than listed.
+
+The tally is to be used later, so it's worth recording from the first theft even before anything reads it.
+
+## Shops, next
+
+- **A back way in:** when a shop sits next to the floor's secret room, bomb into the secret room, then through its
+  wall into the shop (two bombs, one per wall). Only the door (a key, or two bombs) is built.
+- **The maker** can't say an item is sold in shops (`found = ["shop"]`) yet, so shop-only things go in by hand.
+- **Selling to her:** Granny Gristle "buys anything". Not built: shops only sell.
+
 ## Loot, rarity and the maker
 
 Loose ends from adding item powers, rare things, keys, bombs and secret rooms:
@@ -44,4 +63,5 @@ Loose ends from adding item powers, rare things, keys, bombs and secret rooms:
 - **Balance, as the bot plays it** (`tests/bot.py`, which never bombs a wall): 45% of runs won before this work,
   46% after (800 runs). Wardens giving a strong potion when they had nothing rare left took it to 59%, which is why
   they carry a small key instead. Spreading each floor's loot out (one thing to a hiding place) took it to 50%, since
-  loot that isn't piled in one cupboard gets found; a healing potion less on floor 2 put it back to 46%.
+  loot that isn't piled in one cupboard gets found; a healing potion less on floor 2 put it back to 46%. Shops
+  and free pickups left it there (46.5%).

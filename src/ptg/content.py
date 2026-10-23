@@ -14,7 +14,7 @@ from .powers import POWERS
 
 # Where an item with `found` may turn up (see loot.py): a chest, a hidden stash, a floor's secret room, or the warden
 # by the stairs (or any elite). An item can also name the monster that drops it.
-FOUND_IN = ("chest", "stash", "secret", "warden")
+FOUND_IN = ("chest", "stash", "secret", "warden", "shop")
 
 
 @dataclass(frozen=True)
@@ -73,6 +73,16 @@ class MonsterDef:
     tell: str = "winds up a powerful attack"
     desc: str = ""  # what it looks like and how it behaves, in its creator's words (the narrator gets it too)
     art: str = ""
+
+    @property
+    def npc(self) -> bool:
+        """Tagged `npc` (a shopkeeper, say): never one of the dungeon's monsters, only where it's put."""
+        return "npc" in self.tags
+
+    @property
+    def roams(self) -> bool:
+        """One of the dungeon's ordinary monsters: not a boss, a ghost or someone who isn't a monster at all."""
+        return not (self.boss or self.ghost or self.npc)
 
 
 @dataclass(frozen=True)
@@ -308,7 +318,7 @@ def _cross_check(content: Content) -> list[str]:
             problems.append(f"themes.toml theme {theme.key}: unknown boss {theme.boss!r}")
         if theme.key_item not in content.items:
             problems.append(f"themes.toml theme {theme.key}: unknown key item {theme.key_item!r}")
-        pool = [m for m in content.monsters.values() if not (m.boss or m.ghost)]
+        pool = [m for m in content.monsters.values() if m.roams]
         for tier in (1, 2, 3):
             if not any(set(m.tags) & set(theme.monster_tags) and m.tier == tier for m in pool):
                 problems.append(f"themes.toml theme {theme.key}: no tier {tier} monsters match its tags")

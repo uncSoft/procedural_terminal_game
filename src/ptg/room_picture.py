@@ -9,7 +9,8 @@ for the Look panel (F4):
     exits                     doorways in the walls they're in: dark if unexplored, planked if locked
     decor                     the room map's water, pillars, tables, cages, shelves, plants, fungus, roots...
     features                  small props by their kind (a pew, a barrel, a cauldron, a throne, a coffin...)
-    fixture, monster, items   their own sprites, smaller further back
+    fixture, monster, items   their own sprites, smaller further back; a shop is its keeper behind her counter,
+                              her wares (their small pictures) on the shelf above her, never drawn over her
     light                     the lantern you carry, candles and torches, glowing things, moonlight
 
 Sizes are a stage set's, not a surveyor's: drawn to the scale of the floor plan a goblin would be two pixels wide,
@@ -769,7 +770,12 @@ class Picture:
         for feature in room.features:
             if not feature.hidden and prop_kind(feature.name):
                 things.append(self._feature(feature))
-        if room.fixture:
+        if room.shop:
+            a, z = view.cell(CX, CY)
+            img = shop_stall(room.shop)
+            things.append((z, lambda a=a, z=z, img=img: self._place(_at_scale(img, lens.scale(z) * 1.1), a, z,
+                                                                     lit=True, framed=True)))
+        elif room.fixture:
             a, z = view.cell(CX, CY)
             frames = sprites._strip(room.fixture)
             img = (frames[-1] if room.fixture == "chest" and room.fixture_used else frames[0]).copy()
@@ -953,6 +959,42 @@ class Picture:
             x, y = int(_hash01(i, 101, self.seed) * self.w), int(_hash01(i, 102, self.seed) * self.h * 0.8)
             if self.kind[y][x] != "object":
                 self.px[x, y] = _rgb("#f6757a") if _hash01(i, 103) < 0.7 else _rgb("#faa096")
+
+
+WOOD = {"edge": _rgb("#181425"), "dark": _rgb("#3e2731"), "board": _rgb("#733e39"), "plank": _rgb("#b86f50"),
+        "top": _rgb("#c28569"), "shine": _rgb("#e4a672")}
+
+
+def shop_stall(shop) -> Image.Image:
+    """A shop as it stands: the shopkeeper behind her counter, her wares on the shelf above, each its own small
+    picture side by side, none of them drawn over her."""
+    keeper = (sprites._strip(shop.keeper) or [Image.new("RGBA", (24, 24))])[0]
+    icons = [frames[0] for w in shop.wares[:4] if (frames := sprites.frames(f"item_{w.item}", sprites.SMALL))]
+    width = max(keeper.width + 8, len(icons) * 13 + 3)
+    shelf, ground = 13, 13 + keeper.height  # the shelf's plank, and where she stands (her feet behind the counter)
+    img = Image.new("RGBA", (width, ground + 2), (0, 0, 0, 0))
+    px = img.load()
+
+    def plank(y0: int, y1: int, x0: int, x1: int, front: bool) -> None:
+        for y in range(y0, y1):
+            for x in range(x0, x1):
+                edge = x in (x0, x1 - 1) or y in (y0, y1 - 1)
+                if edge:
+                    colour = WOOD["edge"]
+                elif not front:
+                    colour = WOOD["shine"] if y == y0 + 1 else WOOD["plank"]
+                else:  # the counter's front: boards, darker low down
+                    colour = WOOD["board"] if (x - x0) % 6 == 0 else (WOOD["dark"] if y >= y1 - 2 else WOOD["plank"])
+                px[x, y] = (*colour, 255)
+
+    plank(shelf - 1, shelf + 2, 0, width, front=False)
+    for i, icon in enumerate(icons):  # each ware on the shelf, standing on it
+        x0 = (width - (len(icons) * 13 - 1)) // 2 + i * 13
+        img.alpha_composite(icon, (x0, shelf - 1 - icon.getbbox()[3] if icon.getbbox() else shelf - 13))
+    img.alpha_composite(keeper, ((width - keeper.width) // 2, ground - keeper.height))
+    plank(ground - 7, ground - 5, 1, width - 1, front=False)  # the counter top, at her waist
+    plank(ground - 6, ground + 2, 2, width - 2, front=True)
+    return img
 
 
 def draw(state: GameState, content: Content, width: int, height: int, room: Room | None = None):

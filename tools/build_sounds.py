@@ -210,6 +210,14 @@ SOUNDS: dict[str, list[list[Tone]]] = {
                        note("D#6", 0.8, 0.48, wave="triangle", volume=0.3, release=0.5),
                        note("B4", 0.8, 0.48, wave="triangle", volume=0.3, release=0.5)]
                     + _sparkle(["F#7", "D#7", "B6", "F#7", "B7"], 0.07, volume=0.14, at=0.62)],
+    # a shop: a coin's chime, then a merry run up and a little bow
+    "shop": [[note("B5", 0.06, duty=0.5, volume=0.3), note("E6", 0.16, 0.06, duty=0.5, volume=0.3, release=0.12)]
+             + arp(["C6", "E6", "G6", "E6", "C7"], 0.055, at=0.26, wave="triangle", volume=0.32, hold=0.18)],
+    # the rare shop: the same, then a long shimmer climbing out of it
+    "shop_shiny": [[note("B5", 0.06, duty=0.5, volume=0.3), note("E6", 0.16, 0.06, duty=0.5, volume=0.3,
+                                                                   release=0.12)]
+                   + arp(["C6", "E6", "G6", "E6", "C7"], 0.055, at=0.26, wave="triangle", volume=0.32, hold=0.18)
+                   + _sparkle(["G6", "C7", "E7", "G7", "C8", "G7", "C8"], 0.07, volume=0.16, at=0.62)],
     "story": [[note("C6", 0.6, wave="triangle", volume=0.32, release=0.45),
                note("G6", 0.5, 0.12, wave="triangle", volume=0.22, release=0.4),
                note("C7", 0.4, 0.24, duty=0.125, volume=0.08, release=0.3)]],

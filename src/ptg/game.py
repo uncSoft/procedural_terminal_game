@@ -25,7 +25,7 @@ from .llm.narrator import narrate
 from .meta import record_end
 from .models import GameState, LogEntry
 from .profile import Profile
-from .rules import available_actions, perform, perform_creative, perform_flavor, room_facts
+from .rules import available_actions, perform, perform_creative, perform_flavor, room_facts, things_here
 from .story import STORY_KINDS, Library, ProfileView, StoryEngine, load_library
 from .text import the
 
@@ -148,10 +148,14 @@ class Game:
         self._save()
         return TurnResult(text, [arrival] + events, errors=[error] if error else [])
 
-    async def begin(self, raw: str) -> Pending:
+    async def begin(self, raw: str, action: Action | None = None) -> Pending:
+        """Work out what the player meant and resolve it (the narrator comes in `finish`). An `action` given is taken
+        as it is: the shop's own screen buys and barters this way, outside the numbered choices."""
         raw = raw.strip()
         errors: list[str] = []
-        if self.state.scene:
+        if action is not None:
+            intent, shown, error = Intent(kind="action", action_id=action.id, difficulty="trivial"), action.label, None
+        elif self.state.scene:
             intent, shown, error = await self._read_scene_input(raw)
         elif not raw.isdigit() and self.story.wants_say(self.state, raw):
             intent, shown, error = Intent(kind="action", action_id="story:say", difficulty="trivial"), raw, None
@@ -163,7 +167,8 @@ class Game:
             if chosen:
                 intent, shown, error = Intent(kind="action", action_id=chosen.id, difficulty="trivial"), chosen.label, None
             else:
-                intent, error = await interpret(self.llm, self.state, self.content, raw, self.actions)
+                intent, error = await interpret(self.llm, self.state, self.content, raw,
+                                                self.actions + things_here(self.state, self.content))
                 shown = raw
         if error:
             errors.append(error)
@@ -256,7 +261,7 @@ class Game:
 
         errors = list(pending.errors)
         told = [e for e in pending.events if narratable(e)]
-        if pending.events and all(e.kind in QUIET_KINDS for e in pending.events):
+        if pending.events and all(e.kind in QUIET_KINDS or e.data.get("quiet") for e in pending.events):
             text = " ".join(e.text for e in pending.events)
             on_text(text)
         elif pending.events and not told:
@@ -288,9 +293,9 @@ class Game:
         return TurnResult(text, pending.events, pending.intent, errors)
 
     async def act(self, raw: str, on_text: Callable[[str], None],
-                  on_resolved: Callable[[list[Event]], None] | None = None) -> TurnResult:
+                  on_resolved: Callable[[list[Event]], None] | None = None, action: Action | None = None) -> TurnResult:
         """One whole turn with no rerolls (plain mode, tests)."""
-        pending = await self.begin(raw)
+        pending = await self.begin(raw, action)
         if on_resolved:
             on_resolved(pending.events)
         return await self.finish(on_text)

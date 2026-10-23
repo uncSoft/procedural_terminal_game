@@ -74,6 +74,8 @@ MOMENTS = {
     "heal": "you heal",
     "secret": "a secret is found",
     "secret_room": "a floor's secret room is found",
+    "shop": "you walk into a shop",
+    "shop_shiny": "you walk into Granny Kamultruk's shop",
     "story": "a story card appears",
     "chest": "a chest opens",
     "fountain": "you drink from a fountain",

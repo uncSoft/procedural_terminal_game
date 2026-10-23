@@ -192,14 +192,15 @@ def credits(folder: Path | None = None) -> dict[str, dict[str, dict]]:
 
 
 def lives(key: str, tags: list[str], ghost: bool, themes) -> list[str]:
-    """The dungeons a monster turns up in: the one it rules as boss, or every one that calls for its tags."""
+    """The dungeons a monster turns up in: the one it rules as boss, or every one that calls for its tags (never, for
+    a ghost or an `npc` such as a shopkeeper)."""
     return ([t.name for t in themes if t.boss == key] or
-            [t.name for t in themes if set(tags) & set(t.monster_tags) and not ghost])
+            [t.name for t in themes if set(tags) & set(t.monster_tags) and not ghost and "npc" not in tags])
 
 
 def reference(monsters: dict, items: dict) -> dict:
     """Typical numbers for each tier, so new things fit the game's balance."""
-    pool = [m for m in monsters.values() if not (m.get("boss") or m.get("ghost"))]
+    pool = [m for m in monsters.values() if not (m.get("boss") or m.get("ghost") or "npc" in m.get("tags", []))]
     monster = {}
     for tier in (1, 2, 3):
         same = [m for m in pool if m["tier"] == tier] or pool
@@ -235,7 +236,8 @@ def export_library(folder: Path | None = None) -> dict:
         out.update(credits[kind].get(key, {}))
         if kind == "monster":
             out["lives"] = lives(key, fields.get("tags", []), fields.get("ghost", False), themes)
-            out["special"] = "boss" if fields.get("boss") else ("ghost" if fields.get("ghost") else "")
+            out["special"] = ("boss" if fields.get("boss") else "ghost" if fields.get("ghost")
+                              else "shopkeeper" if "shopkeeper" in fields.get("tags", []) else "")
         return out
 
     kinds: dict[str, list[str]] = {}
@@ -428,7 +430,9 @@ def apply(creations: list[dict], folder: Path | None = None, dry_run: bool = Fal
             sprites[small_file(key, folder)] = small
             with_small = ", with a small version drawn by hand"
         where = ""
-        if kind == "monster":
+        if kind == "monster" and "npc" in fields.get("tags", []):
+            where = ", who keeps out of fights (tagged npc)"
+        elif kind == "monster":
             lives = [t.name for t in load_content().themes.values() if set(fields.get("tags", [])) & set(t.monster_tags)]
             where = f", lives in {' and '.join(lives)}" if lives else ", but no dungeon has its kind of creature"
         messages.append(f"{verb} {kind} {name} ({key}){' by ' + by if by else ''}{where}{with_small}.{stale_note}")

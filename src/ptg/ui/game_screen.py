@@ -4,6 +4,7 @@ command line at the bottom."""
 from __future__ import annotations
 
 import asyncio
+import time
 
 from rich.text import Text
 from textual import on, work
@@ -14,18 +15,19 @@ from textual.screen import Screen
 from textual.widget import Widget
 from textual.widgets import Footer, Input, Static
 
-from .. import glossary, sound
-from ..events import Event
+from .. import glossary, loot, sound
+from ..events import Action, Event
 from ..glossary import Lexicon
 from ..game import Game
 from ..models import LogEntry
 from ..outcome import AWFUL, BAD, GOOD, GREAT, overall, tone, verdict
 from ..room_picture import look_of, picture_text
 from ..sprites import DEATH_FRAMES, DEFAULT_WIDTH, frame_count
+from ..text import the
 from . import effects
 from .dice import DiceScreen
 from .panels import (BestiaryScreen, CharacterScreen, FloorScreen, HelpScreen, InfoScreen, InventoryScreen,
-                     JournalScreen, LevelUpScreen, LookScreen, MapScreen)
+                     JournalScreen, LevelUpScreen, LookScreen, MapScreen, ShopScreen)
 from .widgets import (AnimatedSprite, ChoiceItem, Clickable, ClickableBox, DiceLine, DPad, Hud, StoryLine, bar,
                       hearts, highlight, item_note, item_picture, map_text, monster_text, portrait, roll_text,
                       room_text)
@@ -45,7 +47,8 @@ ARRIVAL_LOOPS = {"chest": [0, 0, 0, 1]}
 ROOM_CARD = (72, 30)  # the picture of a room you walk into, in pixels: the most the story is given
 CHOICE_ROWS = 8  # the choices box never changes height; more choices than this start a second column
 # how an item came your way this turn; when an item comes more than one way, the first of these is shown
-LOOT_LABELS = {"equip": "equipped", "find": "found", "key": "found", "take": "picked up", "drop": "dropped"}
+LOOT_LABELS = {"equip": "equipped", "find": "found", "key": "found", "take": "picked up", "drop": "dropped",
+               "buy": "bought", "left": "left here", "floor": "on the floor"}
 
 COMMANDS = {
     "i": "inventory", "inv": "inventory", "inventory": "inventory",
@@ -67,17 +70,20 @@ TOASTS = {
 
 
 SPARKS = "✧✦★✦"
+LEAVE_WINDOW = 2.0  # seconds for the second Esc that leaves for the title
+LOOT_CARD = 28  # a loot card's width in the story, with its margins (see .loot-card)
 
 
-def secret_banner(frame: int) -> Text:
-    """The banner across the story when a secret room is found: its stars twinkle in turn, then settle."""
+def secret_banner(frame: int, words: str = "SECRET ROOM", colour: str = "#ffd166") -> Text:
+    """The banner across the story for a find worth a fanfare (a secret room, a shop): its stars twinkle in turn,
+    then settle."""
     stars = [SPARKS[(frame + i) % len(SPARKS)] for i in range(6)]
     text = Text(justify="center")
     for i, star in enumerate(stars[:3]):
-        text.append(f"{star}  ", style="bold #ffffff" if frame and (frame + i) % 3 == 0 else "bold #ffd166")
-    text.append(" SECRET ROOM ", style=f"bold {effects.INK} on #ffd166")
+        text.append(f"{star}  ", style="bold #ffffff" if frame and (frame + i) % 3 == 0 else f"bold {colour}")
+    text.append(f" {words} ", style=f"bold {effects.INK} on {colour}")
     for i, star in enumerate(stars[3:], 3):
-        text.append(f"  {star}", style="bold #ffffff" if frame and (frame + i) % 3 == 0 else "bold #ffd166")
+        text.append(f"  {star}", style="bold #ffffff" if frame and (frame + i) % 3 == 0 else f"bold {colour}")
     return text
 
 
@@ -102,6 +108,8 @@ class GameScreen(Screen):
         self.animating = False  # a one-off scene animation is playing; the idle loop waits
         self.live_sprites: list[AnimatedSprite] = []
         self.fixture_sprites: dict[tuple[int, int], AnimatedSprite] = {}  # (floor, room) -> its fixture's sprite
+        self.floor_cards: list[tuple[int, int, str, ClickableBox]] = []  # things lying somewhere, as cards to take
+        self.leave_asked = 0.0  # when Esc last asked "again for the title?" (time.monotonic)
         self.since_redraw = 0  # turns since the whole screen was last drawn afresh (see PTGApp.action_redraw)
 
     def compose(self) -> ComposeResult:
@@ -238,7 +246,8 @@ class GameScreen(Screen):
             self.run_turn(str(event.index))
 
     @work(exclusive=True, group="turn")
-    async def run_turn(self, text: str | None) -> None:
+    async def run_turn(self, text: str | None, action: Action | None = None) -> None:
+        """A turn: the opening (None), a numbered choice or typed words, or an `action` from a panel (the shop's)."""
         self.busy = True
         command = self.query_one("#command", Input)
         command.disabled = True
@@ -246,7 +255,7 @@ class GameScreen(Screen):
             if text is None:
                 await self._opening()
             else:
-                await self._turn(text)
+                await self._turn(text, action)
         finally:
             self.busy = False
             command.disabled = False
@@ -263,11 +272,13 @@ class GameScreen(Screen):
         self.refresh_panels()
         await self.update_suggestion()
 
-    async def _turn(self, text: str) -> None:
+    async def _turn(self, text: str, action: Action | None = None) -> None:
         game = self.game
         choices = game.choices()
         shown = choices[int(text) - 1].label if text.isdigit() and 1 <= int(text) <= len(choices) else text
-        self.add_line(f"> {shown}", "player-line")
+        shown = action.label if action else shown
+        if not (action and action.id.startswith("take:")):  # a click on something lying there needs no echo
+            self.add_line(f"> {shown}", "player-line")
         sound.play("select")
         hp_before, gold_before = game.state.player.hp, game.state.player.gold
         for sprite in self.live_sprites:  # older story sprites stand still
@@ -278,7 +289,7 @@ class GameScreen(Screen):
         room_before = game.state.room_id
         where = (game.state.floor, room_before)
 
-        pending = await game.begin(text)
+        pending = await game.begin(text, action)
         primary = pending.primary
         while primary is not None:
             summary = pending.intent.summary or shown
@@ -310,8 +321,10 @@ class GameScreen(Screen):
         await self._roll_feedback(pending.events, hp_before, gold_before)
         await self._fight_animations(pending.events, before, room_before)
         await self._fixture_moment(pending.events, narration, where)
-        await self._loot_moment(pending.events, narration)
+        picked = pending.intent.kind == "action" and pending.intent.action_id.startswith(("take:", "take_all"))
+        await self._loot_moment(pending.events, narration, from_the_floor=picked)
         await self._secret_room_moment(pending.events, narration)
+        await self._shop_moment(pending.events, narration)
         if any(e.kind == "tip" for e in pending.events):  # look: it's on your map
             effects.pulse(self.query_one("#map"), GREAT, blinks=2)
         if any(e.kind == "descend" for e in pending.events):
@@ -343,7 +356,23 @@ class GameScreen(Screen):
             await asyncio.sleep(1.2)
             self.app.end_run(self)
             return
+        shopping = any(e.kind == "shop" for e in result.events) or (action and action.id.startswith(("buy:", "barter:")))
+        if shopping and game.state.room.shop:  # the counter again, after a purchase or a haggle
+            self.open_shop(int(action.id.partition(":")[2]) if action else 0)
         await self.update_suggestion()
+
+    def action_shop_counter(self) -> None:
+        """Clicked the shopkeeper: her shop, if you're in it."""
+        if not self.busy and self.game.state.room.shop and not self.game.state.over:
+            self.open_shop()
+
+    def open_shop(self, selected: int = 0) -> None:
+        """The shop's own screen: what's on the counter and what it costs. What you do there comes back as a turn."""
+        def done(chosen: Action | None) -> None:
+            if chosen:
+                self.run_turn(chosen.label, action=chosen)
+
+        self.app.push_screen(ShopScreen(self.game, selected), done)
 
     async def _level_up(self) -> None:
         game = self.game
@@ -502,36 +531,93 @@ class GameScreen(Screen):
         if kind == "descend":
             await sprite.remove()  # it dissolved into the dark
 
-    async def _loot_moment(self, events: list[Event], narration: Static) -> None:
-        """What turned up this turn (found, picked up, or left behind by a monster), shown with its art."""
+    async def _loot_moment(self, events: list[Event], narration: Static, from_the_floor: bool = False) -> None:
+        """What turned up this turn, with its art: what you found, bought or picked up (bombs and keys go straight
+        in your pack), and, there for the taking, what a monster dropped, what you left as you took something better,
+        and everything lying in a room you walk into. Click one of those to pick it up, no turn spent. Something
+        taken `from_the_floor` this turn gets no second card: its card says it's taken."""
+        state = self.game.state
+        here = (state.floor, state.room_id)
+        taken = {e.data["item"] for e in events if from_the_floor and e.kind in ("take", "equip", "key")
+                 and e.data.get("item") and self._mark_taken(here, e.data["item"])}
         found: dict[str, str] = {}
         order = list(LOOT_LABELS)
         for event in events:
             key = event.data.get("item")
-            if key and event.kind in LOOT_LABELS and (key not in found or
-                                                       order.index(event.kind) < order.index(found[key])):
+            if key and key not in taken and event.kind in LOOT_LABELS and event.kind != "drop" and \
+                    (key not in found or order.index(event.kind) < order.index(found[key])):
                 found[key] = event.kind
-        if not found:
+        if any(e.kind in ("enter", "descend") for e in events):
+            lying = [(key, "floor") for key in state.room.items]
+        else:
+            lying = [(e.data["item"], "drop") for e in events if e.kind == "drop" and e.data["item"] in state.room.items]
+            lying += [(e.data["left"], "left") for e in events if e.data.get("left") in state.room.items]
+        if not found and not lying:
             return
-        content, sprites, shine = self.game.content, self._sprites_on(), []
-        cards = []
-        for key, kind in found.items():
-            if sprites and frame_count(f"item_{key}"):  # the full picture: a small version is for the inventory
-                picture = AnimatedSprite(f"item_{key}", interval=0.35, classes="loot-art")
-                shine.append(picture)
-            else:
-                picture = Static(item_picture(content, key, sprites, width=DEFAULT_WIDTH), classes="loot-art")
-            words = Text.assemble((content.item(key).name, "bold #4cff8a"), "\n", (item_note(content, key), "#9a9cc0"))
-            card = ClickableBox(picture, Static(words, classes="loot-text"), action=f"screen.lookup('item:{key}')",
-                                classes=f"loot-card {kind}")
-            card.border_title = f"✦ {LOOT_LABELS[kind]}"
-            card.tooltip = "Click for its card"
+        shine: list[AnimatedSprite] = []
+        cards = [self._loot_card(key, kind, None, shine) for key, kind in found.items()]
+        for key, kind in lying:
+            card = self._loot_card(key, kind, here, shine)
+            self.floor_cards.append((*here, key, card))
             cards.append(card)
         story = self.query_one("#story", VerticalScroll)
-        await story.mount(Horizontal(*cards, classes="loot-row"), before=narration)
+        across = max(1, (story.size.width - 2) // LOOT_CARD)  # as many to a row as fit, the rest below
+        for row in range(0, len(cards), across):
+            await story.mount(Horizontal(*cards[row:row + across], classes="loot-row"), before=narration)
         story.scroll_end(animate=False)
         self.live_sprites += shine
         await asyncio.gather(*(self._sparkle(picture) for picture in shine))
+
+    def _loot_card(self, key: str, kind: str, lying_at: tuple[int, int] | None, shine: list) -> ClickableBox:
+        """An item's card in the story: its full picture, its name and what it does. One `lying_at` a place is
+        there for the taking: click it to pick it up."""
+        content = self.game.content
+        if self._sprites_on() and frame_count(f"item_{key}"):  # the full picture: a small version is for the pack
+            picture = AnimatedSprite(f"item_{key}", interval=0.35, classes="loot-art")
+            shine.append(picture)
+        else:
+            picture = Static(item_picture(content, key, self._sprites_on(), width=DEFAULT_WIDTH), classes="loot-art")
+        words = Text.assemble((content.item(key).name, "bold #4cff8a"), "\n", (item_note(content, key), "#9a9cc0"))
+        if lying_at:
+            words.append("\n▶ click to take", style="bold #ffb000")
+        action = (f"screen.pick_up('{key}', {lying_at[0]}, {lying_at[1]})" if lying_at
+                  else f"screen.lookup('item:{key}')")
+        card = ClickableBox(picture, Static(words, classes="loot-text"), action=action, classes=f"loot-card {kind}")
+        card.border_title = f"✦ {LOOT_LABELS[kind]}"
+        card.tooltip = "Click to pick it up (no turn)" if lying_at else "Click for its card"
+        return card
+
+    def _mark_taken(self, here: tuple[int, int], key: str) -> bool:
+        """A card of something lying `here`, now picked up: it says so, and clicking it shows the item's card."""
+        for floor, room, item, card in self.floor_cards:
+            if (floor, room) == here and item == key and not card.has_class("taken"):
+                card.add_class("taken")
+                card.border_title = "✓ taken"
+                card.action, card.tooltip = f"screen.lookup('item:{key}')", "Click for its card"
+                content = self.game.content
+                card.query_one(".loot-text", Static).update(Text.assemble(
+                    (content.item(key).name, "bold #6c6f99"), "\n", (item_note(content, key), "#6c6f99"), "\n",
+                    ("✓ in your pack", "#6c6f99")))
+                for sprite in card.query(AnimatedSprite):
+                    sprite.freeze()
+                return True
+        return False
+
+    def action_pick_up(self, key: str, floor: int, room_id: int) -> None:
+        """Clicked something lying in the story: picked up, no turn spent (only where you are, and not mid-fight)."""
+        state, content = self.game.state, self.game.content
+        if self.busy or state.over:
+            return
+        if (floor, room_id) != (state.floor, state.room_id):
+            self.notify("That's back on another floor." if floor != state.floor else
+                        f"That's back in {the(state.rooms[room_id].name)}.", timeout=3)
+            return
+        if state.in_combat:
+            self.notify("Not in the middle of a fight.", timeout=3)
+            return
+        if key in state.room.items:
+            name = the(content.item(key).name)
+            self.run_turn(f"Pick up {name}", action=Action(f"take:{key}", f"Pick up {name}"))
 
     async def _secret_room_moment(self, events: list[Event], narration: Static) -> None:
         """The floor's secret room, found: a fanfare after the bang, a banner glittering across the story, the story
@@ -556,6 +642,27 @@ class GameScreen(Screen):
 
         await asyncio.gather(glitter(), self._pop_over_scene(" ✧ SECRET ROOM! ✧ ",
                                                              f"bold {effects.INK} on {effects.COLORS[GREAT]}"))
+
+    async def _shop_moment(self, events: list[Event], narration: Static) -> None:
+        """Walking into a shop for the first time: a jingle and a banner, gold and starrier for the rare Granny
+        Kamultruk (the shop is on the map from then on, in green)."""
+        room = self.game.state.room
+        if not room.shop or not any(e.kind == "enter" and e.data.get("first") for e in events):
+            return
+        shiny = room.shop.keeper == loot.SHINY
+        keeper = self.game.content.monster(room.shop.keeper).name
+        sound.play("shop_shiny" if shiny else "shop")
+        words, colour = (keeper.upper(), "#ffd166") if shiny else ("SHOP", "#4cff8a")
+        story = self.query_one("#story", VerticalScroll)
+        banner = self.add_line(secret_banner(0, words, colour), "secret-banner" if shiny else "secret-banner shop",
+                               before=narration)
+        story.scroll_end(animate=False)
+        effects.pulse(story, GREAT if shiny else GOOD, blinks=3 if shiny else 2)
+        self.notify(f"{keeper} has her wares out.", title="★ A rare shop!" if shiny else "¤ A shop", timeout=6)
+        for frame in range(1, len(SPARKS) * (3 if shiny else 2)):
+            await asyncio.sleep(0.09)
+            banner.update(secret_banner(frame, words, colour))
+        banner.update(secret_banner(0, words, colour))
 
     @staticmethod
     async def _sparkle(sprite: AnimatedSprite) -> None:
@@ -590,7 +697,11 @@ class GameScreen(Screen):
         """Arriving somewhere with a shrine, chest, fountain or stairs: show it, alive."""
         room = self.game.state.room
         arrived = any(e.kind in ("enter", "descend") and e.data.get("first") for e in events)
-        if arrived and room.fixture and not room.fixture_used and self._sprites_on():
+        if arrived and room.shop and self._sprites_on():  # the shopkeeper herself: click her to shop
+            sprite = AnimatedSprite(room.shop.keeper, interval=0.6, action="screen.shop_counter", classes="story-sprite")
+            self.query_one("#story", VerticalScroll).mount(sprite)
+            self.live_sprites.append(sprite)
+        elif arrived and room.fixture and not room.fixture_used and self._sprites_on():
             sprite = AnimatedSprite(room.fixture, interval=0.3, loop=ARRIVAL_LOOPS.get(room.fixture),
                                     action=self._card_of(room.fixture), classes="story-sprite")
             self.query_one("#story", VerticalScroll).mount(sprite)
@@ -721,6 +832,14 @@ class GameScreen(Screen):
         return f"screen.lookup('fixture:{sprite}')" if sprite in glossary.FIXTURES else None
 
     def action_leave(self) -> None:
-        if not self.busy:
-            self.app.leave_game(self)
+        """Esc twice: to the title (the game's saved). Once only asks, so an Esc meant for a panel or the command
+        palette never throws you out of a run."""
+        if self.busy:
+            return
+        now = time.monotonic()
+        if now - self.leave_asked > LEAVE_WINDOW:
+            self.leave_asked = now
+            self.notify("Press Esc again for the title screen. (Your game is saved.)", timeout=LEAVE_WINDOW)
+            return
+        self.app.leave_game(self)
 

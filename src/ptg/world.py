@@ -8,7 +8,8 @@ from collections import deque
 
 from . import dice, layout, loot
 from .content import Content, load_content
-from .models import DELTA, DIRECTIONS, FLOORS, OPPOSITE, Exit, Feature, GameState, MonsterState, Player, Room
+from .models import (DELTA, DIRECTIONS, FLOORS, OPPOSITE, Exit, Feature, GameState, MonsterState, Player, Room, Shop,
+                     Ware)
 
 HIDDEN_FEATURES = ["a loose flagstone", "a hollow-sounding wall", "a hidden alcove", "a false-bottomed niche"]
 ELITES = {
@@ -71,6 +72,9 @@ def build_floor(state: GameState, content: Content) -> None:
     secret = _secret_room(rng, content, state, theme, rooms)
     if secret:
         rooms.append(secret)
+    shop = _shop(state, content, rooms, end_id)
+    if shop:
+        rooms.append(shop)
 
     for room in rooms:
         layout.build(dice.stream(state.seed, "layout", state.floor, room.id), room,
@@ -166,7 +170,7 @@ def _build_rooms(rng, content, theme, coords, neighbors, distance, end_id, final
 def monster_for(rng: random.Random, content: Content, theme_key: str, tier: int, elite: str = "") -> MonsterState:
     theme = content.themes[theme_key]
     pool = [m for m in content.monsters.values()
-            if not (m.boss or m.ghost) and set(m.tags) & set(theme.monster_tags)]
+            if m.roams and set(m.tags) & set(theme.monster_tags)]
     exact = [m for m in pool if m.tier == tier] or [m for m in pool if m.tier <= tier] or pool
     chosen = rng.choice(sorted(exact, key=lambda m: m.key))
     monster = MonsterState(key=chosen.key, name=chosen.name, hp=chosen.hp, max_hp=chosen.hp)
@@ -287,6 +291,33 @@ def _secret_room(rng: random.Random, content: Content, state: GameState, theme, 
         room.items.append(prize)
     if rng.random() < 0.3:  # something got here first, and won't share
         room.monster = monster_for(rng, content, theme.key, min(3, state.floor + 1), elite=rng.choice(sorted(ELITES)))
+    return room
+
+
+def _shop(state: GameState, content: Content, rooms: list[Room], end_id: int) -> Room | None:
+    """Now and then, a floor has a shop: a nook off one room, behind a door a small key opens (or two bombs break).
+    Granny Gristle keeps it, or once in a while Granny Kamultruk. It has a random stream of its own, so whether
+    there's a shop changes nothing else about the floor."""
+    rng = dice.stream(state.seed, "shop", state.floor)
+    keepers = [k for k in (loot.SHOPKEEPER, loot.SHINY) if k in content.monsters]
+    if not keepers or rng.random() >= loot.SHOP_CHANCE:
+        return None
+    keeper = keepers[-1] if len(keepers) > 1 and rng.random() < loot.SHINY_CHANCE else keepers[0]
+    taken = {(r.x, r.y) for r in rooms}
+    nooks = sorted((x + dx, y + dy, r.id) for r in rooms if r.id != end_id and not r.secret
+                   for x, y in [(r.x, r.y)] for dx, dy in DELTA.values()
+                   if (x + dx, y + dy) not in taken and sum((x + dx + ex, y + dy + ey) in taken
+                                                             for ex, ey in DELTA.values()) == 1)
+    if not nooks:
+        return None
+    x, y, by = rng.choice(nooks)
+    door = next(d for d, (dx, dy) in DELTA.items() if (rooms[by].x + dx, rooms[by].y + dy) == (x, y))
+    room = Room(id=len(rooms), x=x, y=y, name=f"{content.monster(keeper).name}'s Shop", archetype="shop",
+                distance=rooms[by].distance + 1, fixture="shop",
+                shop=Shop(keeper=keeper, wares=[Ware(item=k, price=p) for k, p in
+                                                loot.wares(rng, content, state.rares, keeper, state.floor)]))
+    rooms[by].exits[door] = Exit(to=room.id, locked=True, key="small_key")
+    room.exits[OPPOSITE[door]] = Exit(to=by)
     return room
 
 

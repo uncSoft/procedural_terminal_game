@@ -10,6 +10,7 @@
         prophecy     a Fate token each time you go down the stairs, if there's room for it
         cursed       the stairs take 2 of your most HP each time you go down them carrying it
         valuable     30 more souls when your run ends, if you still have it
+        eloquent     +1 when you talk: talking a monster down, asking what it knows, bartering
     when you pick it up
         mapper       the whole floor's map is yours
     a choice it gives you
@@ -40,6 +41,7 @@ POWERS = {
     "prophecy": "a Fate token each time you go down the stairs",
     "cursed": "cursed: the stairs take 2 of your most HP each time",
     "valuable": "30 more souls when your run ends, if you still have it",
+    "eloquent": "+1 when you talk: talking monsters down, asking, bartering",
     "mapper": "maps the whole floor when you pick it up",
     "throw": "throw it in a fight (it's gone after)",
     "distract": "distracts a monster once a fight: it loses its next attack",
@@ -48,12 +50,14 @@ POWERS = {
 SHORT = {  # a power in a few words, for an item's tile
     "luck": "+1 every roll", "seeker": "+1 searching", "careful": "+2 lockpicking", "unseen": "+2 dodge & flee",
     "cook": "rest heals +4", "goblin_bane": "goblin-bane", "prophecy": "Fate each floor", "cursed": "cursed",
-    "valuable": "valuable", "mapper": "maps the floor", "throw": "throw it", "distract": "distracts",
+    "valuable": "valuable", "eloquent": "+1 talking", "mapper": "maps the floor", "throw": "throw it",
+    "distract": "distracts",
     "reveal": "shows what's hidden",
 }
 PICKED_UP = {"bomb": "for walls and monsters", "small_key": "opens a chest"}  # counters, not things you carry
 # Roll bonuses: power -> (bonus, the kinds of roll it helps, or None for every one of yours)
-ROLLS = {"luck": (1, None), "seeker": (1, {"search"}), "careful": (2, {"disarm"}), "unseen": (2, {"dodge", "flee"})}
+ROLLS = {"luck": (1, None), "seeker": (1, {"search"}), "careful": (2, {"disarm"}), "unseen": (2, {"dodge", "flee"}),
+         "eloquent": (1, {"talk", "ask", "barter"})}
 GOBLINS = {"goblin", "goblinoid"}  # monster tags a goblin-bane weapon bites
 
 

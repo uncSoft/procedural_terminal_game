@@ -10,7 +10,7 @@ import random
 
 from . import dice, layout, loot, powers
 from .combat import (bomb_monster, discover, distract, dodge, flee, flee_direction, fortune, monster_turn,
-                     player_attack, telegraph, throw)
+                     player_attack, telegraph, throw, what_is_left)
 from .content import Content, ItemDef
 from .creative import perform_creative as _creative
 from .events import Action, Event
@@ -21,6 +21,8 @@ from .world import build_floor, monster_for, tier_for
 
 PICKUPS = {"bomb": "bombs", "small_key": "keys"}  # picked up, they go on a counter rather than in your pack
 ASK_DC = 12  # getting a calm creature to tell you what it knows (wits)
+BARTER_DC = 12  # talking a shopkeeper down (wits): a third off; fail, and it's a quarter dearer (once a ware)
+BARTER_DOWN, BARTER_UP = 2 / 3, 1.25
 TIP = "a tip!"  # the hint on a choice that something you were told about is here
 
 # Traits are earned by how you play: (name, style counter, threshold, what it does)
@@ -78,10 +80,11 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
         for item in consumables:
             if item.escape or player.hp < player.max_hp:
                 verb = "Throw" if item.escape else heal_verb(item)
-                actions.append(Action(f"use:{item.key}", f"{verb} {the(item.name)}"))
+                actions.append(Action(f"use:{item.key}", f"{verb} {the(item.name)}", how_many(player, item.key)))
         for item in (content.item(k) for k in _distinct(player.inventory)):
             if "throw" in item.powers:
-                actions.append(Action(f"throw:{item.key}", f"Throw {the(item.name)} at {the(monster.name)}"))
+                actions.append(Action(f"throw:{item.key}", f"Throw {the(item.name)} at {the(monster.name)}",
+                                      how_many(player, item.key)))
             if "distract" in item.powers and not monster.distracted:
                 actions.append(Action(f"distract:{item.key}", f"Distract {the(monster.name)} with {the(item.name)}",
                                       "once a fight"))
@@ -91,12 +94,14 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
             actions.append(Action("flee", "Try to flee"))
         return actions
 
-    for key in _distinct(room.items):
-        actions.append(Action(f"take:{key}", f"Pick up {the(content.item(key).name)}"))
+    if len(room.items) == 1:  # picking up is free: one choice for the lot (or click each one's card in the story)
+        actions.append(Action(f"take:{room.items[0]}", f"Pick up {the(content.item(room.items[0]).name)}", "no turn"))
+    elif room.items:
+        actions.append(Action("take_all", f"Pick up everything here ({len(room.items)})", "no turn"))
     for index, feature in room.visible_features():
         if not feature.searched:
             actions.append(Action(f"search:{index}", f"Search {the(feature.name)}", TIP if feature.told else ""))
-    actions += _fixture_actions(state)
+    actions += _fixture_actions(state, content)
     if room.monster:
         monster = room.monster
         if not monster.asked:
@@ -110,6 +115,15 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
         if not exit_:
             continue
         dest = state.rooms[exit_.to]
+        if exit_.locked and exit_.key == "small_key":  # a shop's door
+            keys = f"{player.keys} key{'s' if player.keys > 1 else ''}"
+            actions.append(Action(f"go:{direction}", f"Unlock the shop door {direction}" if player.keys
+                                  else f"Go {direction}", f"shop · {keys}" if player.keys else "a locked shop"))
+            if player.bombs:
+                bombs = f"{player.bombs} bomb{'s' if player.bombs > 1 else ''}"
+                actions.append(Action(f"bomb:{direction}", f"Bomb the shop door {direction}",
+                                      f"cracked! · {bombs}" if exit_.cracked else f"two bombs break it · {bombs}"))
+            continue
         if exit_.locked:
             has_key = theme.key_item in player.inventory
             label = f"Unlock the door {direction}" if has_key else f"Go {direction}"
@@ -125,14 +139,15 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
     if player.hp < player.max_hp:
         for item in consumables:
             if item.heal:
-                actions.append(Action(f"use:{item.key}", f"{heal_verb(item)} {the(item.name)}"))
-    if not room.room_searched:
+                actions.append(Action(f"use:{item.key}", f"{heal_verb(item)} {the(item.name)}",
+                                      how_many(player, item.key)))
+    if not room.room_searched and not room.shop:  # (her shop is hers: nothing hidden for you to find)
         actions.append(Action("search_room", "Search the room for secrets"))
         for item in (content.item(k) for k in _distinct(player.inventory)):
             if "reveal" in item.powers:
                 actions.append(Action(f"reveal:{item.key}", f"Light up the room with {the(item.name)}",
-                                      "shows what's hidden"))
-    if player.bombs:
+                                      " · ".join(filter(None, [how_many(player, item.key), "shows what's hidden"]))))
+    if player.bombs and not room.shop:  # not in her shop, you don't
         told = hidden_room_beside(state) if any(r.secret and r.told for r in state.rooms) else None
         for direction in bombable_walls(state):
             count = f"{player.bombs} bomb{'s' if player.bombs > 1 else ''}"
@@ -144,6 +159,12 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
     return actions
 
 
+def how_many(player, key: str) -> str:
+    """A choice's hint when you carry more than one of what it uses up: "×2"."""
+    count = player.inventory.count(key)
+    return f"×{count}" if count > 1 else ""
+
+
 def bombable_walls(state: GameState) -> list[str]:
     """The walls worth a bomb here: no door, and beyond them a gap in the floor's map that touches two rooms or more.
     That's the only kind of place a floor's secret room is ever built, so a careful player can work out where it is.
@@ -152,12 +173,13 @@ def bombable_walls(state: GameState) -> list[str]:
         return []
     room = state.room
     taken = {(r.x, r.y) for r in state.rooms if not r.secret or r.exits}  # a sealed secret room still looks a gap
+    rooms = {(r.x, r.y) for r in state.rooms if not r.secret and not r.shop}  # (a shop isn't one it's built against)
     walls = []
     for direction in DIRECTIONS:
         dx, dy = DELTA[direction]
         cell = (room.x + dx, room.y + dy)
         if direction not in room.exits and cell not in taken and \
-                sum((cell[0] + ex, cell[1] + ey) in taken for ex, ey in DELTA.values()) >= 2:
+                sum((cell[0] + ex, cell[1] + ey) in rooms for ex, ey in DELTA.values()) >= 2:
             walls.append(direction)
     return walls
 
@@ -172,10 +194,13 @@ def hidden_room_beside(state: GameState) -> str | None:
     return None
 
 
-def _fixture_actions(state: GameState) -> list[Action]:
+def _fixture_actions(state: GameState, content: Content) -> list[Action]:
     room, player = state.room, state.player
     if not room.fixture or room.fixture_used or (room.monster and room.monster.hostile):
         return []
+    if room.fixture == "shop" and room.shop:
+        keeper = content.monster(room.shop.keeper).name
+        return [Action("shop", f"Browse {keeper}'s wares", f"¤ {player.gold} gold" if room.shop.wares else "sold out")]
     if room.fixture == "stairs":
         return [Action("descend", f"Descend the stairs to floor {state.floor + 1}", "no way back")]
     if room.fixture == "shrine":
@@ -204,7 +229,7 @@ def perform(state: GameState, content: Content, action_id: str) -> list[Event]:
     """Resolve one engine action. Unknown or impossible actions return an info event and cost nothing."""
     if state.over:
         return []
-    if action_id not in {a.id for a in available_actions(state, content)}:
+    if action_id not in {a.id for a in available_actions(state, content)} and not off_the_list(state, action_id):
         return [Event("info", "You can't do that right now.")]
     rng = _rng(state)
     was_in_combat, room_before = state.in_combat, state.room_id
@@ -219,9 +244,11 @@ def perform(state: GameState, content: Content, action_id: str) -> list[Event]:
         events = dodge(state, content, rng)
     elif verb == "go":
         events, took_turn = _move(state, content, arg)
-    elif verb == "take":
+    elif verb == "take":  # free, and no narrator for it: picking up is bookkeeping
         state.room.items.remove(arg)
-        events = gain_item(state, content, arg)
+        events, took_turn = quietly(gain_item(state, content, arg)), False
+    elif verb == "take_all":
+        events, took_turn = quietly(_take_all(state, content)), False
     elif verb == "search":
         events = _search_feature(state, content, state.room.features[int(arg)])
     elif verb == "search_room":
@@ -242,6 +269,13 @@ def perform(state: GameState, content: Content, action_id: str) -> list[Event]:
         events = _rest(state, content, rng)
     elif verb == "ask":
         events = _ask(state, content, rng)
+    elif verb == "shop":
+        keeper = content.monster(state.room.shop.keeper).name
+        events, took_turn = [Event("shop", f"{keeper} spreads her wares across the counter.", data={"quiet": True})], False
+    elif verb == "buy":
+        events, took_turn = _buy(state, content, int(arg)), False
+    elif verb == "barter":
+        events = _barter(state, content, rng, int(arg))
     elif verb in ("shrine_blood", "shrine_gold", "chest", "chest_key", "chest_smash", "fountain"):
         events = _fixture(state, content, rng, verb)
     elif verb == "descend":
@@ -275,6 +309,43 @@ def finish_turn(state, content, rng, events, took_turn, was_in_combat, room_befo
             events += monster_turn(state, content, rng)
     if not state.over:
         events += check_traits(state)
+        events += collect(state, content)
+    return events
+
+
+def quietly(events: list[Event]) -> list[Event]:
+    """Events that need no narrator: they're shown as they are (see Game.finish)."""
+    for event in events:
+        event.data["quiet"] = True
+    return events
+
+
+def collect(state: GameState, content: Content) -> list[Event]:
+    """Bombs and small keys lying where you are go straight on their counters, Isaac-style, once there's no fight:
+    there's nothing to choose about them."""
+    room = state.room
+    if state.in_combat or not any(key in PICKUPS for key in room.items):
+        return []
+    events = []
+    for key in [k for k in room.items if k in PICKUPS]:
+        room.items.remove(key)
+        events += gain_item(state, content, key)
+    return quietly(events)
+
+
+def things_here(state: GameState, content: Content) -> list[Action]:
+    """Taking any one thing lying here: not numbered choices (click its card, or say so), but the interpreter's to
+    match, as in "grab the potion"."""
+    if state.in_combat or len(state.room.items) < 2:
+        return []
+    return [Action(f"take:{key}", f"Pick up {the(content.item(key).name)}") for key in _distinct(state.room.items)]
+
+
+def _take_all(state: GameState, content: Content) -> list[Event]:
+    events = []
+    for key in list(state.room.items):  # (not what you leave behind as you take something better)
+        state.room.items.remove(key)
+        events += gain_item(state, content, key)
     return events
 
 
@@ -351,7 +422,14 @@ def _move(state: GameState, content: Content, direction: str) -> tuple[list[Even
     if not exit_:
         return [Event("info", f"There is no way {direction}.")], False
     events = []
-    if exit_.locked:
+    if exit_.locked and exit_.key == "small_key":
+        if not state.player.keys:
+            return [Event("locked", f"The shop door to the {direction} is locked. A small key would open it, or two "
+                                    "bombs would break it.")], False
+        state.player.keys -= 1
+        exit_.locked = False
+        events.append(Event("unlock", f"You unlock the shop door with a small key ({state.player.keys} left)."))
+    elif exit_.locked:
         key = content.item(content.themes[state.theme].key_item)
         if key.key not in state.player.inventory:
             return [Event("locked", f"The door to the {direction} is locked. It looks like it needs {the(key.name)}.")], False
@@ -369,7 +447,8 @@ def travel(state: GameState, content: Content, direction: str, to: int) -> list[
     arrival = f"You go {direction} into {the(room.name)}" + (" for the first time." if first else ", where you've been before.")
     journal = f"You went {direction} into {the(room.name)}" + (" for the first time." if first else ".")
     events = [Event("enter", f"{arrival} {room_facts(state, content)}",
-                    data={"first": first, "room": room.id, "monster": room.monster.key if room.monster else "",
+                    data={"first": first, "room": room.id,  # whoever's here goes in the bestiary, a shopkeeper too
+                          "monster": room.monster.key if room.monster else (room.shop.keeper if room.shop else ""),
                           "journal": journal, "direction": direction})]
     if room.monster and room.monster.hostile:
         events += telegraph(state, content)
@@ -383,7 +462,7 @@ def exit_notes(state: GameState) -> str:
     for direction, exit_ in room.exits.items():
         dest = state.rooms[exit_.to]
         if exit_.locked:
-            beyond = "locked"
+            beyond = "locked; a shop beyond" if dest.shop else "locked"
         elif dest.visited:
             beyond = the(dest.name) + (", where you came from" if exit_.to == state.prev_room_id else "")
         elif dest.fixture and not dest.fixture_used:
@@ -406,7 +485,9 @@ def room_facts(state: GameState, content: Content) -> str:
         lines.append(f"Behind the {beside} wall is the hidden room {the(told)} told you about.")
     if room.items:
         lines.append("On the floor: " + ", ".join(content.item(k).name for k in room.items) + ".")
-    if room.fixture and not room.fixture_used:
+    if room.shop:
+        lines.append(shop_facts(room.shop, content))
+    elif room.fixture and not room.fixture_used:
         lines.append(FIXTURE_FACTS[room.fixture])
     lines.append(f"Exits: {exit_notes(state)}.")
     monster = room.monster
@@ -490,7 +571,7 @@ def gain_item(state: GameState, content: Content, key: str) -> list[Event]:
             state.room.items.append(current.key)  # it's on the floor, where you tossed it
             state.room.remember(f"you left your old {current.name} here")  # so it isn't anyone else's
             return [Event("equip", f"You take {the(item.name)} ({item.damage}) and toss aside your {current.name}.",
-                          data={"item": key})]
+                          data={"item": key, "left": current.key})]
     if item.kind == "armor":
         current = content.item(player.armor) if player.armor else None
         if current is None or item.tier > current.tier:
@@ -499,7 +580,9 @@ def gain_item(state: GameState, content: Content, key: str) -> list[Event]:
                 state.room.items.append(current.key)
                 state.room.remember(f"you left your old {current.name} here")
             swap = f" and leave your {current.name} behind" if current else ""
-            return [Event("equip", f"You put on {the(item.name)} (+{item.defense} defense){swap}.", data={"item": key})]
+            left = {"left": current.key} if current else {}
+            return [Event("equip", f"You put on {the(item.name)} (+{item.defense} defense){swap}.",
+                          data={"item": key, **left})]
     player.inventory.append(key)
     if item.kind == "key":
         return [Event("key", f"You take {the(item.name)}. It must open something important.", data={"item": key})]
@@ -662,7 +745,8 @@ def _reveal(state: GameState, content: Content, key: str) -> list[Event]:
     room, item = state.room, content.item(key)
     state.player.inventory.remove(key)
     room.room_searched = True
-    events = [Event("use", f"You light up the room with {the(item.name)}. It's spent, but every corner is bright.")]
+    events = [Event("use", f"You light up the room with {the(item.name)}. It's spent, but every corner is bright."
+                           f"{what_is_left(state.player, key)}")]
     hidden = [f for f in room.features if f.hidden]
     for feature in hidden:
         feature.hidden = False
@@ -679,6 +763,9 @@ def _reveal(state: GameState, content: Content, key: str) -> list[Event]:
 def _bomb_wall(state: GameState, content: Content, direction: str) -> list[Event]:
     """Blow a hole in a wall. If the floor's secret room is behind it, there's a doorway now."""
     room, player = state.room, state.player
+    door = room.exits.get(direction)
+    if door and door.locked and door.key == "small_key":
+        return _bomb_door(state, door, direction)
     player.bombs -= 1
     dx, dy = DELTA[direction]
     secret = next((r for r in state.rooms if r.secret and not r.exits and (r.x, r.y) == (room.x + dx, room.y + dy)),
@@ -694,13 +781,86 @@ def _bomb_wall(state: GameState, content: Content, direction: str) -> list[Event
                                  "until now!", data={"room": secret.id})]
 
 
+def _bomb_door(state: GameState, door: Exit, direction: str) -> list[Event]:
+    """A shop's door is sturdier than a wall: the first bomb cracks it, the second breaks it."""
+    player = state.player
+    player.bombs -= 1
+    left = f"({player.bombs} bomb{'s' if player.bombs != 1 else ''} left.)"
+    if not door.cracked:
+        door.cracked = True
+        return [Event("bomb", f"The bomb goes off against the shop door to the {direction}. It's cracked, but it "
+                              f"holds: another would break it. {left}")]
+    door.locked = False
+    state.room.remember(f"you blew in the shop door to the {direction}")
+    return [Event("bomb", f"The second bomb blows the shop door to the {direction} off its hinges. {left}")]
+
+
+# --- shops --------------------------------------------------------------------
+
+def shop_facts(shop, content: Content) -> str:
+    """A shop as the narrator knows it: who keeps it, and what's on her counter at what price."""
+    keeper = content.monster(shop.keeper)
+    wares = ", ".join(f"{content.item(w.item).name} ({w.price} gold)" for w in shop.wares) or "nothing: sold out"
+    return (f"{keeper.name} keeps a shop here, behind a counter: a shopkeeper, not a monster, and she won't fight "
+            f"unless crossed. About her: {keeper.desc} On her counter: {wares}.")
+
+
+def off_the_list(state: GameState, action_id: str) -> bool:
+    """What may be done now that isn't one of the numbered choices: picking up any one thing lying here (by its card
+    in the story, or by saying so), and buying or haggling at a shop's counter (its own screen does those)."""
+    verb, _, arg = action_id.partition(":")
+    if verb == "take":
+        return arg in state.room.items and not state.in_combat
+    shop = state.room.shop
+    return verb in ("buy", "barter") and shop is not None and not state.in_combat and arg.isdigit() \
+        and int(arg) < len(shop.wares)
+
+
+def _buy(state: GameState, content: Content, index: int) -> list[Event]:
+    shop, player = state.room.shop, state.player
+    ware = shop.wares[index]
+    item = content.item(ware.item)
+    if player.gold < ware.price:
+        return [Event("info", f"{cap(the(item.name))} is {ware.price} gold, and you have {player.gold}.",
+                      data={"quiet": True})]
+    player.gold -= ware.price
+    shop.wares.pop(index)
+    events = [Event("buy", f"You buy {the(item.name)} for {ware.price} gold ({player.gold} left).",
+                    data={"item": ware.item, "quiet": True})]
+    for gained in gain_item(state, content, ware.item):
+        gained.data["quiet"] = True
+        events.append(gained)
+    return events
+
+
+def _barter(state: GameState, content: Content, rng: random.Random, index: int) -> list[Event]:
+    """Haggle over a ware (wits, once each): talk her down a third, or put it up a quarter, like a shopkeeper in
+    Kid Icarus."""
+    shop, player = state.room.shop, state.player
+    ware = shop.wares[index]
+    item, keeper = content.item(ware.item), content.monster(shop.keeper).name
+    if ware.haggled:
+        return [Event("info", f"{keeper} won't haggle over {the(item.name)} again.")]
+    bonuses = [("wits", player.wits)] + powers.roll_bonuses(state, content, "barter")
+    roll = dice.check(rng, "wits (barter)", bonuses, BARTER_DC, advantage=int("silver_tongue" in player.traits))
+    was = ware.price
+    if roll.success:
+        ware.price, ware.haggled = max(1, round(was * BARTER_DOWN)), "down"
+        text = f"{keeper} grumbles, and lets {the(item.name)} go for {ware.price} gold instead of {was}."
+    else:
+        ware.price, ware.haggled = round(was * BARTER_UP), "up"
+        text = f"{keeper} takes offence: {the(item.name)} is {ware.price} gold now, not {was}."
+    return [Event("barter", text, dice=roll, data={"rerollable": True, "item": ware.item})] + fortune(state, roll)
+
+
 def _use(state: GameState, content: Content, rng: random.Random, key: str) -> tuple[list[Event], bool]:
     player, item = state.player, content.item(key)
     if item.escape:
         if not state.in_combat:
             return [Event("info", f"You decide to save {the(item.name)} for an emergency.")], False
         player.inventory.remove(key)
-        return [Event("use", f"You hurl {the(item.name)} at your feet. Thick smoke fills the room.")] + flee(
+        return [Event("use", f"You hurl {the(item.name)} at your feet. Thick smoke fills the room."
+                             f"{what_is_left(player, key)}")] + flee(
             state, content, rng, guaranteed=True), True
     if player.hp >= player.max_hp:
         return [Event("info", f"You're not hurt, so you keep {the(item.name)}.")], False
@@ -709,7 +869,8 @@ def _use(state: GameState, content: Content, rng: random.Random, key: str) -> tu
     player.hp += healed
     player.inventory.remove(key)
     verb = heal_verb(item).lower()
-    return [Event("heal", f"You {verb} {the(item.name)} and recover {healed} HP ({player.hp}/{player.max_hp}).")], True
+    return [Event("heal", f"You {verb} {the(item.name)} and recover {healed} HP ({player.hp}/{player.max_hp})."
+                          f"{what_is_left(player, key)}")], True
 
 
 def _open_chest(state: GameState, content: Content, rng: random.Random, how: str) -> list[Event]:

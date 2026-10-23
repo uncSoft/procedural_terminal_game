@@ -99,7 +99,7 @@ def test_the_best_potion_is_on_floor_three_or_hidden(content):
                     places[f"floor {floor}"] += 1
     assert places["floor 3"] and places["stash"]
     assert not places["floor 1"] and not places["floor 2"]
-    assert loot.where(content, "superior_healing_potion") == ["floor 3", "hidden stashes", "floor 3 chests"]
+    assert loot.where(content, "superior_healing_potion") == ["floor 3", "hidden stashes", "floor 3 chests", "shops"]
 
 
 def test_food_is_eaten_and_found_things_name_themselves(content):
@@ -112,7 +112,7 @@ def test_food_is_eaten_and_found_things_name_themselves(content):
     events = perform(state, content, f"search:{index}")
     assert [(e.kind, e.data.get("item")) for e in events if e.data.get("item")] == [("find", "smoke_bomb"),
                                                                                  ("take", "smoke_bomb")]
-    assert gain_item(state, content, "hand_axe")[0].data == {"item": "hand_axe"}
+    assert gain_item(state, content, "hand_axe")[0].data == {"item": "hand_axe", "left": "rusty_sword"}
 
 
 def test_a_slain_monster_drops_what_loot_says(content):

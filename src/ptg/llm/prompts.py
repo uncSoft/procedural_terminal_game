@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 
 from .. import layout
 from ..content import Content
@@ -34,7 +35,8 @@ they don't have, instantly winning). Be fair but stingy. Effects must fit what i
 attempt could realistically achieve. Most creative attacks are damage_small or stun, not damage_large.
 
 `uses`: names of the PROPS (from the list) the attempt relies on, e.g. ["stew cauldron"]. Empty if none.
-`consumes`: names of carried items or gold that the attempt uses up (thrown, drunk, spent), e.g. ["Flask of Lamp Oil"].
+`consumes`: names of carried items or gold that the attempt uses up, e.g. ["Flask of Lamp Oil"]: anything thrown, drunk,
+eaten, poured, splashed, burned, given away or spent. Whatever the player throws or pours goes here (and in `uses`).
 Only list props that really appear in the PROPS list; the player can't use things that aren't there.
 
 Effects:
@@ -154,7 +156,8 @@ def player_status(state: GameState, content: Content) -> str:
     player = state.player
     weapon = content.item(player.weapon)
     armor = content.item(player.armor).name if player.armor else "none"
-    carrying = ", ".join(content.item(k).name for k in player.inventory) or "nothing"
+    carrying = ", ".join(content.item(k).name + (f" ×{n}" if n > 1 else "")
+                         for k, n in Counter(player.inventory).items()) or "nothing"
     return (f"Player {player.name}: level {player.level}, HP {player.hp}/{player.max_hp}, might {player.might}, "
             f"agility {player.agility}, wits {player.wits}. Weapon: {weapon.name}. Armor: {armor}. "
             f"Carrying: {carrying}. Gold: {player.gold}. Fate tokens: {player.fate}.")

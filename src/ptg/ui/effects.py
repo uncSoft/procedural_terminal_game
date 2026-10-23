@@ -27,7 +27,7 @@ INK = "#10122a"
 EVENT_SOUNDS = {
     "enter": "step", "flee": "step", "locked": "locked", "unlock": "unlock", "telegraph": "windup", "stun": "stun",
     "find": "item", "take": "item", "loot": "item", "equip": "item", "key": "item", "fate": "fate", "trait": "fate",
-    "pacify": "good", "exploit": "good", "bomb": "bomb", "secret_room": "bomb", "tip": "secret",
+    "pacify": "good", "exploit": "good", "bomb": "bomb", "secret_room": "bomb", "tip": "secret", "buy": "coin",
 }
 
 

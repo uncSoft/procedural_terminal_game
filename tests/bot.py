@@ -22,7 +22,7 @@ def _route_to_unexplored(state: GameState, content: Content) -> str | None:
         if room_id != start and not room.visited:
             return first
         for direction, exit_ in room.exits.items():
-            if exit_.locked and not has_key:
+            if exit_.locked and (exit_.key or not has_key):  # a shop's door, or the boss's without its key
                 continue
             if exit_.to not in seen:
                 seen.add(exit_.to)
@@ -56,7 +56,7 @@ def choose(state: GameState, content: Content) -> str:
         if state.room.monster.intent == "heavy":
             return "dodge"
         return "attack"
-    for prefix in ("take:", "search:", "chest", "fountain"):
+    for prefix in ("take", "search:", "chest", "fountain"):  # (take: one thing, take_all: the lot)
         found = next((a for a in actions if a.startswith(prefix)), None)
         if found:
             return found

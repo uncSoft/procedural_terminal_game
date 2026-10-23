@@ -36,6 +36,7 @@ FIXTURE_WORDS = {
     "shrine_gold": {"gold", "coins", "pay"},
     "chest": {"chest"},
     "fountain": {"fountain", "drink"},
+    "shop": {"shop", "browse", "wares", "buy", "trade", "barter", "haggle", "merchant", "counter"},
 }
 STOPWORDS = {"the", "a", "an", "of", "to", "with", "at", "my", "your", "in", "on", "for", "it", "up", "into", "and"}
 QUESTION_STARTS = ("what", "where", "how", "who", "why", "which", "am i", "do i", "can i", "is there", "are there")

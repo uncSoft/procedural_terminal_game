@@ -106,6 +106,12 @@ def player_attack(state: GameState, content: Content, rng: random.Random) -> lis
     return events
 
 
+def what_is_left(player, key: str) -> str:
+    """After using one up: how many more you carry (" (1 more in your pack.)"), or nothing if that was the last."""
+    count = player.inventory.count(key)
+    return f" ({count} more in your pack.)" if count else ""
+
+
 def throw(state: GameState, content: Content, rng: random.Random, key: str) -> list[Event]:
     """Throw something you carry at the monster (a throw power): an agility roll against its defense, with advantage
     and 2 more damage if it's weak to the thing. Hit or miss, it's gone."""
@@ -117,14 +123,15 @@ def throw(state: GameState, content: Content, rng: random.Random, key: str) -> l
     roll = dice.check(rng, f"throw {the(item.name)}", bonuses, monster_defense(monster, content),
                       advantage=1 if weak else 0)
     events = fortune(state, roll)
+    more = what_is_left(player, key)
     if not roll.success:
-        return [Event("miss", f"You throw {the(item.name)} at {the(monster.name)} and miss. It's gone.", dice=roll,
-                      data={"rerollable": True})] + events
+        return [Event("miss", f"You throw {the(item.name)} at {the(monster.name)} and miss. It's gone.{more}",
+                      dice=roll, data={"rerollable": True})] + events
     damage = dice.roll(item.damage, rng) + (2 if weak else 0)
     monster.hp -= damage
     tail = f" [{weak[0]}!]" if weak else ""
     events.insert(0, Event("hit", f"{cap(the(item.name))} hits {the(monster.name)} for {damage} damage "
-                                  f"({max(monster.hp, 0)}/{monster.max_hp} HP left).{tail}", dice=roll,
+                                  f"({max(monster.hp, 0)}/{monster.max_hp} HP left).{tail}{more}", dice=roll,
                            data={"damage": damage, "rerollable": True}))
     for tag in weak:
         events += discover(state, monster, tag)

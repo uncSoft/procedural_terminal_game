@@ -151,11 +151,12 @@ def map_text(state: GameState) -> Text:
             text.append(ch, style=MAP_STYLES.get(ch, "#6c6f99"))
         text.append("\n")
     text.append("@ you ! foe ? unknown\n> stairs † shrine ■ chest ◊ fountain = locked", style="#6c6f99")
-    secrets = [(glyph, label) for mark, glyph, label in (("{", "{✧}", "secret room"), ("$", "$", "a tip"))
-               if any(mark in line for line in lines)]
-    for i, (glyph, label) in enumerate(secrets):
+    found = [(glyph, label, style) for mark, glyph, label, style in
+             (("{", "{✧}", "secret room", "$"), ("$", "$", "a tip", "$"), ("¤", "¤", "shop", "¤"))
+             if any(mark in line for line in lines)]
+    for i, (glyph, label, style) in enumerate(found):
         text.append("\n" if i == 0 else "  ")
-        text.append(glyph, style=MAP_STYLES["$"])
+        text.append(glyph, style=MAP_STYLES[style])
         text.append(f" {label}", style="#6c6f99")
     return text
 

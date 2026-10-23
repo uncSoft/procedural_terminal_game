@@ -6,6 +6,8 @@ from bot import play
 from conftest import put_monster
 from ptg.creative import available_props, clamp_intent, match_props, spends
 from ptg.intent import Intent
+from ptg.llm.prompts import player_status
+from ptg.models import Feature
 from ptg.rules import TRAITS, available_actions, check_traits, gain_item, perform, perform_creative, room_facts
 from ptg.world import build_floor, generate
 
@@ -132,8 +134,8 @@ def test_locked_boss_door_needs_the_key(content):
     state.floor = 3
     build_floor(state, content)
     theme = content.themes[state.theme]
-    gate = next(r for r in state.rooms for e in r.exits.values() if e.locked)
-    direction = next(d for d, e in gate.exits.items() if e.locked)
+    gate = next(r for r in state.rooms for e in r.exits.values() if e.locked and not e.key)  # not a shop's door
+    direction = next(d for d, e in gate.exits.items() if e.locked and not e.key)
     state.room_id = gate.id
     gate.monster = None
     turn = state.turn
@@ -299,6 +301,38 @@ def test_what_you_hand_over_is_gone_even_if_the_interpreter_forgets(content):
     assert {"lucky_charm", "hand_axe"} <= set(state.player.inventory)  # only shown; and gear is never assumed spent
     assert spends("tossing it") and spends("he threw") and spends("emptied the vial") and spends("dropped bait")
     assert not spends("rub the charm") and not spends("hide behind the table")
+
+
+def test_what_a_stunt_throws_or_pours_is_gone_though_the_interpreter_lists_nothing(content):
+    """The model can leave `uses` and `consumes` empty, or name only what the holy water is poured on."""
+    state = generate(3)
+    put_monster(state, content, hp=200)
+    state.room.features.append(Feature(name="a stone altar"))
+    state.player.inventory += ["holy_water", "holy_water"]
+    perform_creative(state, content, creative(success_effects=["stun"], summary="brandish the holy water at the goblin"))
+    assert state.player.inventory.count("holy_water") == 2  # only shown
+    _, events = perform_creative(state, content, creative(success_effects=["damage_small"],
+                                                          summary="splash the holy water on the goblin"))
+    assert state.player.inventory.count("holy_water") == 1
+    assert "The Vial of Holy Water is used up." in [e.text for e in events]
+    perform_creative(state, content, creative(success_effects=["stun"], uses=["stone altar"],
+                                              summary="pour holy water over the altar"))
+    assert "holy_water" not in state.player.inventory
+
+
+def test_choices_say_how_many_you_carry_and_using_one_says_what_is_left(content):
+    state = generate(3)
+    put_monster(state, content, hp=200)
+    state.player.inventory = ["holy_water", "holy_water", "healing_potion"]
+    state.player.hp -= 5
+    hints = {a.id: a.hint for a in available_actions(state, content)}
+    assert hints["throw:holy_water"] == "×2" and hints["use:healing_potion"] == ""
+    assert "Carrying: Vial of Holy Water ×2, Healing Potion." in player_status(state, content)  # the model knows too
+    events = perform(state, content, "throw:holy_water")
+    assert any(e.text.endswith("(1 more in your pack.)") for e in events)
+    assert {a.id: a.hint for a in available_actions(state, content)}["throw:holy_water"] == ""
+    events = perform(state, content, "throw:holy_water")
+    assert not any("more in your pack" in e.text for e in events)  # that was the last
 
 
 def test_hiding_behind_a_prop_is_not_exploiting_it(content):

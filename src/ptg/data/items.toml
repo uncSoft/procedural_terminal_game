@@ -396,3 +396,13 @@ kind = "trinket"
 tier = 0
 tags = ["metal"]
 desc = "A small iron key. It opens most chests without asking questions."
+
+# drawn by JT (2026-10-23)
+[item.mama_s_shillelagh]
+name = "Mama's Shillelagh"
+kind = "trinket"
+tier = 2
+tags = ["heavy", "wit", "storytelling", "blackthorn"]
+powers = ["eloquent"]
+found = ["shop"]
+desc = "A knurled blackthorn stick, polished smooth where a hand gripped it through a thousand tellings. Whoever carries it tells a better story: +1 wit in conversation. Nobody down here knows who Mama was, but every one of them has heard of her."

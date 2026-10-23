@@ -67,6 +67,11 @@ def preflight() -> bool:
 
 
 def main(argv: list[str] | None = None) -> None:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] in (["import"], ["export"]):  # the Monster & Item Maker's library (see ptg/library.py)
+        from .library import main as library_main
+
+        sys.exit(library_main(argv))
     args = parse_args(argv)
     if not preflight():
         sys.exit(1)

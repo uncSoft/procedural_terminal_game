@@ -27,7 +27,20 @@ You hurl the vial with theatrical precision and it shatters against the ghoul's 
 | **Interpreter** (model) | Turns free text into JSON: one of the listed actions, or a *creative* attempt with a stat, a difficulty, the props it uses, and effects from a fixed menu (stun, small damage, pacify, evade, reveal a secret...). The rules check the props exist, clamp the effects, roll the dice and apply them. "Summon a dragon" fails; "throw sand in its eyes" might stun it. |
 | **Narrator** (model) | Gets the list of facts that actually happened and streams a few sentences of prose. It can't change the game state, so it can't make up loot or kill monsters. |
 
-Each turn sends the model a small snapshot, not an ever-growing chat log, so local models stay fast: about 1-2 seconds a turn with Qwen3.6-35B-A3B in LM Studio. The snapshot reads oldest first: the floor, a few one-line notes on what happened before this turn, where the player was and is now (and whether they've been here before), the room as it stands with what lies beyond each exit, and the facts of this turn. Without a model the game still runs: commands go through a keyword matcher and narration is stitched together from the facts.
+Each turn sends the model a small snapshot, not an ever-growing chat log, so local models stay fast: about 1-2 seconds a turn with Qwen3.6-35B-A3B in LM Studio. The snapshot reads oldest first: the floor, a few one-line notes on what happened before this turn, where the player was and is now (and whether they've been here before), the room as it stands with what lies beyond each exit, and what happened there before (rooms remember the
+monster you killed, the chest you opened, the statue you toppled), and the facts of this turn.
+
+Smaller local models slip, so the narration is checked against the facts a sentence at a time as it streams
+(`src/ptg/llm/guard.py`). A sentence is left out if it echoes the prompt, talks about "the player" or being an AI,
+puts choices to the player, calls a room it has never seen familiar, invents an exit, item or monster, or runs past
+the length asked for; if nothing survives, the facts are narrated instead. To see how a model copes:
+
+```bash
+uv run python -m ptg.llm.check                                          # the model in your Settings
+uv run python -m ptg.llm.check --url http://localhost:11434/v1 --model llama3.2:3b
+```
+
+It scores ten typed commands and five narrated moments, shows what the guard would cut and why, and times it all. Without a model the game still runs: commands go through a keyword matcher and narration is stitched together from the facts.
 
 ## The loop
 
@@ -107,6 +120,89 @@ uv run python -m ptg.sprites goblin troll                # preview sprites in yo
 To use your own art (Aseprite, Piskel, an image model), drop a PNG named after the monster's key
 (`goblin.png`, `drowned_abbot.png`...) into that folder.
 
+## The Monster & Item Maker
+
+`docs/maker` is a one-page web app for drawing monsters and items and setting their stats, hosted free on GitHub
+Pages so friends can contribute. It works on a laptop, a tablet or a phone, with nothing to install:
+
+- **Draw** on a 24x24 grid in the game's own 32 colours plus any colour you pick (kept as "your colours"), with
+  pencil, eraser, fill, colour picker, mirror mode, undo and redo (B, E, G, I, M and Ctrl/Cmd+Z), and a second frame
+  for the idle animation. The preview shows it moving, the way it'll look in the dungeon.
+- **Set everything**: tier (with typical values for it, one click to apply), HP, defense, attack, damage dice and XP;
+  creature type, which decides which dungeons it appears in; weaknesses; any extra tags; whether it can be reasoned
+  with; its heavy-attack tell; and a description, which the in-game narrator reads so it describes the thing the way
+  its creator imagined. Items get their kind, tier, damage, defense, healing or escape, tags and description.
+- **The library** shows every monster and item in the game with its art, stats and maker, searchable. Anything in it
+  can be edited and submitted back as a change.
+- **Submit**: "Submit on GitHub" opens a ready-made issue in this repo (submitters need a free GitHub account), with
+  the stats, a link back to the maker and the data for the importer. "Copy link" and "Download .json" work without
+  an account. Work is also kept in the browser.
+
+To bring submissions into the game (in a checkout of this repo, with the GitHub CLI logged in):
+
+```bash
+uv run ptg import --github --dry-run    # see what's waiting: every open "[maker]" issue
+uv run ptg import --github              # import them all, then comment and close each issue
+uv run ptg import --github 12 15        # just those issues (--keep-open to leave them open)
+uv run ptg import "<link>"              # a link someone sent, a .json file, or a URL serving creations
+uv run ptg export                       # refresh the page's library by hand
+```
+
+Each import writes the sprite (`src/ptg/data/sprites`), the entry in `monsters.toml` or `items.toml` with a
+`# drawn by` credit (the GitHub username if the maker left their name blank), ASCII art for a new monster's ASCII
+mode, checks the whole game still loads before writing anything, re-signs the data, and refreshes
+`docs/maker/library.json`. A submission that doesn't load is reported and skipped; the rest still go in. Commit and
+push, and the page's library shows them too.
+
+**An inbox instead of (or as well as) GitHub**: set `inbox.url` in `docs/maker/config.json` and the page gets a
+"Send to inbox" button that posts each creation there: a Discord webhook gets a message with the link, anything
+else gets the creation as JSON (`{"kind": "ptg-creation", "text", "link", "code", "creation"}`). Use it for a
+channel or a storage endpoint you own; anything that can later serve those JSON creations back (or the links) can
+be imported with `uv run ptg import`. The URL is visible in the page source, so treat it as semi-public.
+
+To publish the page: on GitHub, Settings → Pages → "Deploy from a branch", pick the branch and the `/docs` folder.
+It appears at `https://uncsoft.github.io/procedural_terminal_game/` (which forwards to `/maker/`). To try it
+locally: `python3 -m http.server --directory docs`, then open http://localhost:8000/maker/.
+
+## Sound
+
+Short 8-bit effects for the moments that matter: the d20 clattering and landing, hits and misses, coins, secrets,
+the stairs, level-ups, a natural 20. A terminal can only beep, so the game plays its own sound: a small mixer on a
+thread of its own streams to your speakers through [sounddevice](https://python-sounddevice.readthedocs.io)
+(PortAudio, bundled on macOS and Windows; on Linux install `libportaudio2`), with the system's player (`afplay`,
+`pw-play`, `paplay`, `aplay`) as a fallback. Sound never blocks or crashes the game. F8 turns it on and off,
+Settings has the volume, and `PTG_SOUND=0` keeps it quiet (the tests do).
+
+The built-in sounds are synthesized, like the sprites: `tools/build_sounds.py` describes each one as a few
+chip-style tones (square, triangle and noise waves, pitch slides, arpeggios) and writes 8-bit, 22 kHz WAVs to
+`src/ptg/data/sounds`. Tweak one and rebuild.
+
+To use your own, put WAV files (8- or 16-bit PCM, any rate) in `~/.ptg/sounds`:
+
+- `great.wav` replaces the natural-20 sound; `great_2.wav`, `great_3.wav`... add variations played at random.
+- `sounds.toml` maps any file names to moments, sets volumes, and records where each sound came from:
+
+```toml
+[great]
+files = ["fanfare.wav"]
+volume = 0.8
+credit = "Jane Doe, opengameart.org"
+license = "CC0"
+
+[hit]
+volume = 0.5   # no files: just turn a built-in sound down
+```
+
+```bash
+uv run python -m ptg.sound              # every moment, where its sound comes from, and any problems
+uv run python -m ptg.sound great coin   # play some
+```
+
+Making and finding sounds: sfxr-style tools (jsfxr, Bfxr, ChipTone) export 8-bit WAVs that are yours outright. For
+downloads, CC0 packs are the easiest (Kenney, OpenGameArt's CC0 section, freesound with the CC0 filter); CC-BY is
+fine with a credit line in `sounds.toml`. Many store-bought packs allow use in a game but not sharing the files
+themselves, so keep those in `~/.ptg/sounds` rather than committing them to a public repo.
+
 ## Running it
 
 Needs Python 3.11+ and [uv](https://docs.astral.sh/uv/).
@@ -167,14 +263,17 @@ src/ptg/
   meta.py          building the adventurer from unlocks, starting runs, scoring the end
   sprites.py       PNG sprites rendered as half-block pixel art, and their poses
   dice_art.py      the pixel-art d20
+  sound.py         8-bit sound effects: the sound bank, your own sounds, and playing them
+  library.py       the Monster & Item Maker's library: export it, and import what's made there
   glossary.py      the terms highlighted in the story
   integrity.py     fingerprints of the shipped data, and noticing edits
   story/           story events: file format, checker, and the engine that plays them
-  llm/             backends (OpenAI-compatible, Claude), prompts, interpreter, narrator, extras
+  llm/             backends (OpenAI-compatible, Claude), prompts, interpreter, narrator, guard, check, extras
   ui/              Textual app: title, settings, campfire, game screen, dice, panels, endings
   cli.py           `ptg` entry point and plain-text mode
 tests/             world, rules, profile, interpreter and UI tests, plus a bot that plays whole runs
-tools/             build_sprites.py: the hand-drawn sprite maps and their PNG build
+docs/maker/        the Monster & Item Maker page and its library.json (GitHub Pages serves docs/)
+tools/             build_sprites.py: the hand-drawn sprite maps; build_sounds.py: the synthesized sounds
 legacy/            the v1 curses prototype, kept for reference
 ```
 

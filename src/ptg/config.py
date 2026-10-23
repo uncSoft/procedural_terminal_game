@@ -25,6 +25,8 @@ class Config(BaseModel):
     temperature: float = 0.8
     auto_roll: bool = False
     art: Literal["sprites", "ascii"] = "sprites"
+    sound: bool = True
+    volume: int = 70  # percent
     tone: str = "darkly funny, vivid and fair, like a game master who loves the players"
 
 

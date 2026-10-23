@@ -6,7 +6,7 @@ from bot import play
 from conftest import put_monster
 from ptg.creative import available_props, clamp_intent, match_props
 from ptg.intent import Intent
-from ptg.rules import TRAITS, available_actions, check_traits, perform, perform_creative
+from ptg.rules import TRAITS, available_actions, check_traits, gain_item, perform, perform_creative, room_facts
 from ptg.world import build_floor, generate
 
 
@@ -322,3 +322,48 @@ def test_bot_games_finish_without_errors(content):
 @pytest.mark.parametrize("seed", [1, 2, 3])
 def test_bot_games_are_deterministic(seed, content):
     assert play(generate(seed), content).model_dump() == play(generate(seed), content).model_dump()
+
+
+def test_a_prop_is_spent_once_its_stunt_works(content):
+    state = generate(1)
+    state.player.wits = 50
+    put_monster(state, content, key="goblin", hp=200)
+    feature = state.room.visible_features()[0][1]
+    stunt = creative(success_effects=["damage_small"], uses=[feature.name], summary="topple it onto the goblin")
+    perform_creative(state, content, stunt)
+    assert feature.used == "topple it onto the goblin"
+    assert feature.name not in [p.name for p in available_props(state, content)]  # no farming the same prop
+    facts = room_facts(state, content)
+    assert "already used: topple it onto the goblin" in facts and "topple it onto the goblin (it worked)" in facts
+
+
+def test_a_failed_stunt_leaves_the_prop_for_another_try(content):
+    state = generate(1)
+    state.player.wits = -50
+    feature = state.room.visible_features()[0][1]
+    perform_creative(state, content, creative(success_effects=["find_gold"], uses=[feature.name]))
+    assert not feature.used and not state.room.history
+
+
+def test_swapped_gear_stays_where_you_left_it(content):
+    state = generate(1)
+    old_weapon, old_armor = state.player.weapon, state.player.armor
+    gain_item(state, content, "war_pick")
+    gain_item(state, content, "scale_hauberk")
+    assert state.player.weapon == "war_pick" and old_weapon in state.room.items
+    assert state.player.armor == "scale_hauberk" and (old_armor is None or old_armor in state.room.items)
+
+
+def test_rooms_remember_what_happened_in_them(content):
+    state = generate(2)
+    start = state.room
+    put_monster(state, content, key="goblin", hp=1)
+    state.player.might = 50
+    while start.monster is not None:
+        perform(state, content, "attack")
+    direction = next(iter(start.exits))
+    perform(state, content, f"go:{direction}")
+    state.room.monster = None  # nothing in the way back
+    back = next(d for d, e in state.room.exits.items() if e.to == start.id)
+    events = perform(state, content, f"go:{back}")
+    assert start.history == ["you killed the Goblin"] and "Earlier here: you killed the Goblin." in events[0].text

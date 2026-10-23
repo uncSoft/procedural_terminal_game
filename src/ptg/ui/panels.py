@@ -14,11 +14,12 @@ from textual.events import Click
 from textual.screen import ModalScreen
 from textual.widgets import Label, ListItem, ListView, Static
 
-from .. import glossary, layout
+from .. import glossary, layout, sound
 from ..content import Content, Theme
 from ..game import Game
 from ..meta import epithet
 from ..rules import TRAITS
+from ..sprites import sprite_text
 from .theme import PERK_COLORS
 from .widgets import Clickable, map_text, portrait, room_text
 
@@ -47,7 +48,7 @@ The game decides what's possible and rolls the dice; the narrator only describes
 KEYS (or type the word)
   F2  i  inventory      F3  c  character     F4  l  look at the room
   F5  m  map            F6  b  bestiary      F7  j  journal
-  F1     this help      Esc    title (your game is saved)      Ctrl+Q  quit
+  F1     this help      F8     sound on/off       Esc  title (your game is saved)    Ctrl+Q  quit
 
 MOUSE   Click a choice, a coloured word, or the dice (once to roll, again to carry on).
         Close any panel with its ✕ or a click outside it.
@@ -68,8 +69,11 @@ class CloseButton(Static):
 class Panel(ModalScreen[str | None]):
     BINDINGS = [Binding("escape,q", "close", "Close")]
     title_text = ""
+    opening_sound: str | None = "open"
 
     def on_mount(self) -> None:
+        if self.opening_sound:
+            sound.play(self.opening_sound)
         self.mount(CloseButton())
         self.screen_layout_refresh_signal.subscribe(self, lambda _: self.place_close())
 
@@ -89,6 +93,7 @@ class Panel(ModalScreen[str | None]):
 
     def action_close(self) -> None:
         if self.app.screen is self:  # a second click mustn't close whatever is underneath
+            sound.play("close")
             self.dismiss(None)
 
 
@@ -147,7 +152,12 @@ class InventoryScreen(Panel):
         if not self.items:
             return
         _, item, _ = self.items[index]
-        text = Text(item.name + "\n", style="bold #ffb000")
+        text = Text()
+        art = sprite_text(f"item_{item.key}", width=12) if self.game.config.art == "sprites" else None
+        if art is not None:
+            text.append_text(art)
+            text.append("\n")
+        text.append(item.name + "\n", style="bold #ffb000")
         text.append(item.desc + "\n", style="#c8c8e0")
         if item.tags:
             text.append("tags: " + ", ".join(item.tags), style="#5fe3ff")
@@ -273,6 +283,8 @@ class BestiaryScreen(Panel):
         text = portrait(key, content, self.game.config.art == "sprites")
         text.append("\n\n")
         text.append(f"{monster.name}\n", style="bold #ffb000")
+        if monster.desc:
+            text.append(monster.desc + "\n", style="#c8c8e0")
         text.append(f"seen {entry['seen']} · slain {entry['killed']} · pacified {entry['pacified']} · "
                     f"killed you {entry['killed_you']}\n", style="#9a9cc0")
         weak = entry["weak"]
@@ -308,6 +320,7 @@ class FloorScreen(Panel):
     """Arriving on a new floor: its name and what it's like, until you're ready to go on."""
 
     BINDINGS = [Binding("escape,enter,space,q", "close", "Continue")]
+    opening_sound = None  # the stairs already played their part
 
     def __init__(self, floor: int, total: int, theme: Theme, final: bool) -> None:
         super().__init__()
@@ -357,6 +370,7 @@ class LevelUpScreen(ModalScreen[str]):
 
     def action_pick(self, index: int) -> None:
         if index < len(self.choices) and self.app.screen is self:
+            sound.play("select")
             self.dismiss(self.choices[index])
 
 
@@ -424,6 +438,8 @@ class InfoScreen(Panel):
         text = portrait(key, content, game.config.art == "sprites")
         text.append("\n\n")
         text.append(glossary.monster_summary(state, content, key, entry) + "\n", style="bold #ffb000")
+        if monster.desc:
+            text.append(monster.desc + "\n", style="#c8c8e0")
         if entry:
             text.append(f"seen {entry['seen']} · slain {entry['killed']} · pacified {entry['pacified']} · "
                         f"killed you {entry['killed_you']}\n", style="#9a9cc0")
@@ -435,7 +451,12 @@ class InfoScreen(Panel):
 
     def _item(self, key: str) -> tuple[Text, str]:
         item = self.game.content.item(key)
-        text = Text(item.name + "\n", style="bold #4cff8a")
+        text = Text()
+        art = sprite_text(f"item_{key}") if self.game.config.art == "sprites" else None
+        if art is not None:  # drawn in the Monster & Item Maker (docs/maker)
+            text.append_text(art)
+            text.append("\n\n")
+        text.append(item.name + "\n", style="bold #4cff8a")
         text.append(glossary.item_summary(self.game.content, key) + "\n\n", style="#9a9cc0")
         text.append(item.desc, style="#c8c8e0")
         ideas = [TAG_IDEAS[t] for t in item.tags if t in TAG_IDEAS]
@@ -452,6 +473,8 @@ class InfoScreen(Panel):
         tags = content.feature_tags(feature.name)
         text = Text(f"{feature.name} ({layout.where(feature.pos)})\n", style="bold #ffb000")
         text.append(("Searched." if feature.searched else "Not searched yet.") + "\n", style="#9a9cc0")
+        if feature.used:
+            text.append(f"Already used to {feature.used}.\n", style="#9a9cc0")
         if tags:
             text.append("Properties: " + ", ".join(tags) + "\n", style="#5fe3ff")
             ideas = [TAG_IDEAS[t] for t in tags if t in TAG_IDEAS]
@@ -488,4 +511,5 @@ class InfoScreen(Panel):
 
     def action_act(self) -> None:
         if self.app.screen is self:
+            sound.play("select")
             self.dismiss(self.action_id)

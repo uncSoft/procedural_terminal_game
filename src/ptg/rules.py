@@ -294,7 +294,7 @@ def travel(state: GameState, content: Content, direction: str, to: int) -> list[
     journal = f"You went {direction} into {the(room.name)}" + (" for the first time." if first else ".")
     events = [Event("enter", f"{arrival} {room_facts(state, content)}",
                     data={"first": first, "room": room.id, "monster": room.monster.key if room.monster else "",
-                          "journal": journal})]
+                          "journal": journal, "direction": direction})]
     if room.monster and room.monster.hostile:
         events += telegraph(state, content)
     return events
@@ -321,7 +321,8 @@ def exit_notes(state: GameState) -> str:
 def room_facts(state: GameState, content: Content) -> str:
     room = state.room
     lines = []
-    features = [f"{f.name} ({layout.where(f.pos)})" for _, f in room.visible_features()]
+    features = [f"{f.name} ({layout.where(f.pos)}{'; already used: ' + f.used if f.used else ''})"
+                for _, f in room.visible_features()]
     if features:
         lines.append("In the room: " + ", ".join(features) + ".")
     if room.items:
@@ -342,6 +343,8 @@ def room_facts(state: GameState, content: Content) -> str:
                          f"A fight begins.{elite}")
         else:
             lines.append(f"{cap(the(monster.name))} is here, but no longer wants to fight.")
+    if room.history:
+        lines.append("Earlier here: " + "; ".join(room.history) + ".")
     return " ".join(lines)
 
 
@@ -367,11 +370,14 @@ def gain_item(state: GameState, content: Content, key: str) -> list[Event]:
         current = content.item(player.weapon)
         if item.tier > current.tier:
             player.weapon = key
+            state.room.items.append(current.key)  # it's on the floor, where you tossed it
             return [Event("equip", f"You take the {item.name} ({item.damage}) and toss aside your {current.name}.")]
     if item.kind == "armor":
         current = content.item(player.armor) if player.armor else None
         if current is None or item.tier > current.tier:
             player.armor = key
+            if current:
+                state.room.items.append(current.key)
             swap = f" and leave your {current.name} behind" if current else ""
             return [Event("equip", f"You put on the {item.name} (+{item.defense} defense){swap}.")]
     player.inventory.append(key)
@@ -455,6 +461,8 @@ def _rest(state: GameState, content: Content, rng: random.Random) -> list[Event]
 def _fixture(state: GameState, content: Content, rng: random.Random, verb: str) -> list[Event]:
     room, player = state.room, state.player
     room.fixture_used = True
+    room.remember({"shrine_blood": "you bled on the shrine", "shrine_gold": "you gave gold to the shrine",
+                   "chest": "you opened the chest", "fountain": "you drank from the fountain"}.get(verb, verb))
     if verb == "shrine_blood":
         player.hp -= 6
         if player.fate < player.max_fate():

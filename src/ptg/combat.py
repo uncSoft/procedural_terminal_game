@@ -244,6 +244,7 @@ def defeat(state: GameState, content: Content, rng: random.Random, how: str = "s
     monster = room.monster
     monster_def = content.monster(monster.key)
     room.monster = None if how == "slain" else monster
+    room.remember(f"you killed {the(monster.name)}" if how == "slain" else f"you talked {the(monster.name)} down")
     xp = round(monster_def.xp * (0.6 if how == "pacified" else 1.0) * (1.5 if monster.elite else 1.0))
     souls = round((40 if monster_def.boss else 3 * monster_def.tier) * monster.reward_mult)
     player.xp += xp

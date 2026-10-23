@@ -63,6 +63,7 @@ class MonsterDef:
     ghost: bool = False
     weak: list[str] = field(default_factory=list)
     tell: str = "winds up a powerful attack"
+    desc: str = ""  # what it looks like and how it behaves, in its creator's words (the narrator gets it too)
     art: str = ""
 
 
@@ -141,7 +142,8 @@ SCHEMAS: dict[str, dict[str, tuple[str, bool]]] = {
     "monster": {"name": ("text", True), "hp": ("positive", True), "defense": ("count", True),
                 "attack": ("int", True), "damage": ("dice", True), "xp": ("count", True), "tier": ("tier", True),
                 "tags": ("names", False), "intelligent": ("bool", False), "boss": ("bool", False),
-                "ghost": ("bool", False), "weak": ("names", False), "tell": ("text", False)},
+                "ghost": ("bool", False), "weak": ("names", False), "tell": ("text", False),
+                "desc": ("text", False)},
     "perk": {"name": ("text", True), "desc": ("text", True), "color": ("color", False)},
     "unlock": {"name": ("text", True), "icon": ("text", True), "cost": ("count", True), "desc": ("text", True),
                "item": ("name", False), "requires": ("name", False)},

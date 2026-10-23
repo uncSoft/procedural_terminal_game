@@ -1,0 +1,1079 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Monster & Item Maker</title>
+<meta name="description" content="Draw monsters and items for the Procedural Terminal Game, set their stats, and submit them to the dungeon.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Pixelify+Sans:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #090a13;
+  --surface: #10122a;
+  --panel: #171a38;
+  --line: #2a2f5e;
+  --text: #e8e8f4;
+  --muted: #a3a6c8;
+  --dim: #6c6f99;
+  --blue: #6c8cff;
+  --amber: #ffb000;
+  --pink: #ff4f9a;
+  --green: #4cff8a;
+  --gold: #ffd166;
+  --red: #ff4b4b;
+  --radius: 10px;
+  --ui: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --pixel: "Pixelify Sans", var(--ui);
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--ui); font-size: 15px; line-height: 1.45; }
+body { min-height: 100vh; background: radial-gradient(ellipse at top, #141739 0%, var(--bg) 60%) fixed; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { touch-action: manipulation; cursor: pointer; }
+a { color: var(--blue); }
+:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+header {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 24px;
+  padding: 12px max(16px, env(safe-area-inset-left)); border-bottom: 1px solid var(--line);
+  background: rgba(16, 18, 42, 0.88); position: sticky; top: 0; z-index: 5; backdrop-filter: blur(6px);
+}
+.brand { display: grid; }
+h1 { margin: 0; font-family: var(--pixel); font-size: 26px; font-weight: 700; letter-spacing: .5px; color: var(--amber);
+     text-shadow: 2px 2px 0 #3a2a00; white-space: nowrap; }
+h1 span { color: var(--pink); }
+.brand small { color: var(--dim); font-size: 12.5px; }
+nav { display: flex; flex-wrap: wrap; gap: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 4px; }
+.tab { border: 0; background: transparent; border-radius: 7px; padding: 7px 14px; color: var(--muted); font-weight: 600; }
+.tab[aria-selected="true"] { background: var(--amber); color: #1a1200; }
+@media (max-width: 640px) {
+  header { position: static; }
+  h1 { font-size: 22px; }
+}
+
+main { padding: 18px max(16px, env(safe-area-inset-left)) 48px; max-width: 1240px; margin: 0 auto; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+h2 { margin: 0 0 12px; font-family: var(--pixel); font-size: 19px; font-weight: 700; color: var(--blue); letter-spacing: .3px; }
+h3 { margin: 18px 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); font-weight: 700; }
+
+.btn {
+  border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 7px 12px; font-weight: 600;
+  font-size: 14px; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; color: var(--text);
+}
+.btn:hover { border-color: var(--blue); }
+.btn[aria-pressed="true"] { border-color: var(--green); background: #12331f; color: #c9ffd9; }
+.btn.primary { background: var(--pink); border-color: var(--pink); color: #fff; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.accent { background: var(--blue); border-color: var(--blue); color: #fff; }
+.btn.quiet { background: transparent; }
+kbd { font-family: var(--mono); font-size: 11px; color: var(--dim); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.spacer { flex: 1; }
+
+/* --- the maker --- */
+.maker { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .maker { grid-template-columns: minmax(0, 1fr); } }
+.editing-note {
+  grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center;
+  padding: 10px 14px; border: 1px dashed var(--pink); border-radius: var(--radius); color: var(--pink);
+}
+.grid-wrap { display: flex; justify-content: center; margin: 12px 0; }
+#grid {
+  display: block; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  border-radius: 6px; border: 2px solid var(--line); cursor: crosshair; image-rendering: pixelated;
+}
+.palette { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 4px; }
+@media (max-width: 600px) { .palette { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
+.swatch { aspect-ratio: 1; border-radius: 5px; border: 1px solid rgba(255, 255, 255, 0.14); padding: 0; min-height: 24px; }
+.swatch[aria-pressed="true"] { border: 2px solid #fff; box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--gold); }
+.current-colour { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.current-colour input[type="color"] {
+  width: 44px; height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 2px; background: var(--panel); cursor: pointer;
+}
+
+.preview { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: center; margin-bottom: 4px; }
+@media (max-width: 460px) { .preview { grid-template-columns: minmax(0, 1fr); justify-items: center; } }
+.screen {
+  position: relative; width: 148px; height: 148px; border-radius: 10px; overflow: hidden;
+  background: radial-gradient(circle at 50% 40%, #1b1f44, #07080f 75%); border: 2px solid var(--red); display: grid; place-items: center;
+}
+.screen.item { border-color: var(--green); }
+.screen::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.18) 0 2px, transparent 2px 4px);
+}
+.screen canvas { image-rendering: pixelated; width: 120px; height: 120px; }
+.preview-name { font-family: var(--pixel); font-size: 22px; font-weight: 700; color: var(--gold); word-break: break-word; line-height: 1.15; }
+.summary { color: var(--muted); font-size: 14px; margin-top: 4px; }
+
+.fields { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px 12px; }
+.field { display: grid; gap: 4px; grid-column: span 6; align-content: start; }
+.field.half { grid-column: span 3; }
+.field.third { grid-column: span 2; }
+.field.sixth { grid-column: span 1; }
+@media (max-width: 560px) { .field.sixth { grid-column: span 2; } .field.half { grid-column: span 6; } }
+.field > span { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+.field small { color: var(--dim); font-size: 12.5px; font-weight: 400; }
+.input { width: 100%; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 8px 10px; min-height: 38px; }
+.input:focus { outline: none; border-color: var(--amber); }
+.input.bad { border-color: var(--red); }
+textarea.input { min-height: 78px; resize: vertical; }
+.segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.segmented button { border: 0; border-right: 1px solid var(--line); background: var(--panel); padding: 7px 13px; font-weight: 600; font-size: 14px; }
+.segmented button:last-child { border-right: 0; }
+.segmented button[aria-pressed="true"] { background: var(--amber); color: #1a1200; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 4px 11px; font-size: 13px; font-weight: 500; }
+.chip[aria-pressed="true"] { border-color: var(--green); background: #12331f; color: #c9ffd9; }
+.toggle { display: flex; gap: 10px; align-items: center; font-size: 14px; }
+.toggle input { width: 18px; height: 18px; accent-color: var(--green); }
+.typical { color: var(--dim); }
+.typical b { color: var(--muted); font-weight: 600; }
+.lives { color: var(--green) !important; }
+
+.submit { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.status { font-size: 14px; margin-top: 8px; min-height: 1.4em; }
+.status.ok { color: var(--green); }
+.status.bad { color: var(--red); }
+.fine-print { color: var(--dim); font-size: 12.5px; margin: 6px 0 0; }
+
+/* --- library and my work --- */
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+.toolbar .input { max-width: 260px; }
+.shelf { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.thing { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; display: grid; gap: 6px; align-content: start; }
+.thing:hover { border-color: var(--blue); }
+.thing-top { display: flex; gap: 10px; align-items: center; }
+.thing canvas { width: 72px; height: 72px; image-rendering: pixelated; background: #07080f; border-radius: 6px; flex: none; }
+.thing .name { font-weight: 700; color: var(--gold); line-height: 1.2; }
+.thing .meta { font-size: 12.5px; color: var(--muted); }
+.thing .desc { font-size: 12.5px; color: var(--dim); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.thing .actions { display: flex; gap: 6px; margin-top: 2px; }
+.badge { font-size: 11.5px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.badge.ok { color: var(--green); border-color: #1f6b3d; }
+.empty { color: var(--muted); padding: 20px 0; }
+
+dialog { border: 1px solid var(--amber); border-radius: 14px; background: var(--surface); color: var(--text); padding: 20px; width: min(560px, calc(100vw - 32px)); }
+dialog::backdrop { background: rgba(5, 6, 14, 0.75); }
+dialog h2 { color: var(--amber); }
+code { font-family: var(--mono); background: var(--bg); padding: 2px 6px; border-radius: 5px; color: var(--gold); word-break: break-all; font-size: 12.5px; }
+footer { color: var(--dim); font-size: 13px; text-align: center; padding: 16px; }
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--green); color: #052b14;
+         padding: 9px 16px; border-radius: 999px; font-weight: 600; z-index: 20; box-shadow: 0 6px 20px rgba(0, 0, 0, .4); }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>Monster <span>&amp;</span> Item Maker</h1>
+    <small>for the Procedural Terminal Game</small>
+  </div>
+  <nav role="tablist" aria-label="Pages">
+    <button class="tab" role="tab" data-view="monster" aria-selected="true">Monster</button>
+    <button class="tab" role="tab" data-view="item" aria-selected="false">Item</button>
+    <button class="tab" role="tab" data-view="library" aria-selected="false">Library</button>
+    <button class="tab" role="tab" data-view="mine" aria-selected="false">My work</button>
+  </nav>
+</header>
+
+<main>
+  <section class="view" id="maker">
+    <div class="maker">
+      <div class="editing-note" id="editing-note" hidden>
+        <span>Editing <b id="editing-name"></b> from the library. Submitting changes the game's version.</span>
+        <button class="btn" id="stop-editing">Start a new one instead</button>
+      </div>
+
+      <div class="card">
+        <h2>Draw</h2>
+        <div class="row" role="group" aria-label="Frames">
+          <div class="segmented">
+            <button data-frame="0" aria-pressed="true">Frame 1</button>
+            <button data-frame="1" aria-pressed="false">Frame 2</button>
+          </div>
+          <button class="btn" id="auto-wiggle" title="Frame 2 = frame 1, one pixel lower: the idle bob the game's sprites use">Make it bob</button>
+          <button class="btn" id="copy-frame" title="Copy frame 1 into frame 2">Copy 1 → 2</button>
+        </div>
+        <div class="grid-wrap"><canvas id="grid" aria-label="Drawing grid, 24 by 24"></canvas></div>
+        <div class="row" role="group" aria-label="Tools">
+          <button class="btn" data-tool="draw" aria-pressed="true" title="Pencil (B)">Pencil <kbd>B</kbd></button>
+          <button class="btn" data-tool="erase" aria-pressed="false" title="Eraser (E)">Eraser <kbd>E</kbd></button>
+          <button class="btn" data-tool="fill" aria-pressed="false" title="Fill (G)">Fill <kbd>G</kbd></button>
+          <button class="btn" data-tool="pick" aria-pressed="false" title="Pick a colour from the drawing (I)">Picker <kbd>I</kbd></button>
+          <button class="btn" id="mirror" aria-pressed="true" title="Mirror left and right (M)">Mirror <kbd>M</kbd></button>
+          <span class="spacer"></span>
+          <span class="row">
+            <button class="btn quiet" id="undo" title="Undo (Ctrl/Cmd Z)">Undo</button>
+            <button class="btn quiet" id="redo" title="Redo (Shift Ctrl/Cmd Z)">Redo</button>
+            <button class="btn quiet" id="clear" title="Clear this frame">Clear</button>
+          </span>
+        </div>
+        <h3>Palette</h3>
+        <div class="palette" id="palette" role="group" aria-label="Palette"></div>
+        <div id="custom-wrap" hidden>
+          <h3>Your colours</h3>
+          <div class="palette" id="custom-palette"></div>
+        </div>
+        <div id="extra-wrap" hidden>
+          <h3>In this drawing</h3>
+          <div class="palette" id="extra-palette"></div>
+        </div>
+        <div class="current-colour">
+          <input type="color" id="colour-picker" aria-label="Pick any colour" title="Pick any colour">
+          <span>Current colour <code id="colour-code"></code> <small class="typical">(click the box for any colour)</small></span>
+          <span class="spacer"></span>
+          <button class="btn quiet" id="clear-custom" hidden>Forget my colours</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="preview">
+          <div class="screen" id="screen"><canvas id="preview" width="24" height="24" aria-label="Animated preview"></canvas></div>
+          <div>
+            <div class="preview-name" id="preview-name">Unnamed</div>
+            <div class="summary" id="preview-summary"></div>
+          </div>
+        </div>
+
+        <h3>Details</h3>
+        <div class="fields">
+          <label class="field"><span>Name</span>
+            <input class="input" id="name" maxlength="40" autocomplete="off" placeholder="Bog Cantor"></label>
+        </div>
+
+        <div class="fields" id="monster-fields">
+          <div class="field"><span>Tier</span>
+            <div class="row"><div class="segmented" data-segment="tier" data-values="1,2,3,4"></div>
+              <button class="btn quiet" id="tier-defaults" title="Set the stats to the typical values for this tier">Use tier defaults</button></div>
+            <small class="typical" id="typical"></small></div>
+          <label class="field sixth"><span>HP</span><input class="input" type="number" min="1" data-f="hp"></label>
+          <label class="field sixth"><span>Defense</span><input class="input" type="number" min="0" data-f="defense" title="The d20 roll (after bonuses) needed to hit it"></label>
+          <label class="field sixth"><span>Attack</span><input class="input" type="number" data-f="attack" title="Added to its attack roll"></label>
+          <label class="field third"><span>Damage</span><input class="input" data-f="damage" placeholder="1d6" title="Dice like 1d6 or 2d4+1"></label>
+          <label class="field sixth"><span>XP</span><input class="input" type="number" min="0" data-f="xp"></label>
+          <div class="field"><span>Creature type <small>(decides which dungeons it appears in)</small></span>
+            <div class="chips" data-chips="kind"></div>
+            <small class="lives" id="lives"></small></div>
+          <div class="field"><span>Weaknesses <small>(things that work especially well against it)</small></span>
+            <div class="chips" data-chips="weak"></div></div>
+          <label class="field half"><span>More tags</span>
+            <input class="input" data-f="tags_extra" placeholder="swamp, fungus" autocomplete="off"></label>
+          <label class="field half"><span>More weaknesses</span>
+            <input class="input" data-f="weak_extra" placeholder="salt, music" autocomplete="off"></label>
+          <label class="field toggle"><input type="checkbox" data-f="intelligent"> Can be reasoned with: talked down, bribed or bluffed</label>
+          <label class="field"><span>Heavy-attack tell <small>(the warning before a heavy blow: "The Bog Cantor …")</small></span>
+            <input class="input" data-f="tell" maxlength="100" placeholder="draws a deep, gurgling breath" autocomplete="off"></label>
+          <label class="field"><span>Description <small>(what it looks like and how it behaves; the narrator reads this)</small></span>
+            <textarea class="input" data-f="desc" maxlength="400" placeholder="A toad the size of a pew, singing hymns to the drowned."></textarea></label>
+        </div>
+
+        <div class="fields" id="item-fields" hidden>
+          <div class="field"><span>Kind</span>
+            <div class="segmented" data-segment="kind" data-values="weapon,armor,consumable,trinket"></div></div>
+          <div class="field"><span>Tier</span>
+            <div class="row"><div class="segmented" data-segment="tier" data-values="0,1,2,3"></div>
+              <button class="btn quiet" id="item-defaults">Use tier defaults</button></div>
+            <small class="typical" id="item-typical"></small></div>
+          <label class="field third" data-for="weapon"><span>Damage</span><input class="input" data-f="damage" placeholder="1d8"></label>
+          <label class="field third" data-for="armor"><span>Defense bonus</span><input class="input" type="number" min="1" data-f="defense"></label>
+          <label class="field third" data-for="consumable" data-heal><span>Heals</span><input class="input" type="number" min="0" data-f="heal"></label>
+          <label class="field toggle" data-for="consumable"><input type="checkbox" data-f="escape"> Lets you escape a fight instead</label>
+          <div class="field"><span>Tags <small>(used for stunts and monster weaknesses)</small></span>
+            <div class="chips" data-chips="itemtags"></div></div>
+          <label class="field"><span>More tags</span>
+            <input class="input" data-f="tags_extra" placeholder="cursed, musical" autocomplete="off"></label>
+          <label class="field"><span>Description</span>
+            <textarea class="input" data-f="desc" maxlength="300" placeholder="Stirs soup. Stirs trouble."></textarea></label>
+        </div>
+
+        <div class="fields" style="margin-top:10px">
+          <label class="field"><span>Made by</span>
+            <input class="input" id="by" maxlength="40" autocomplete="off" placeholder="Your name or handle"></label>
+        </div>
+
+        <div class="submit">
+          <h2>Submit</h2>
+          <div class="row">
+            <button class="btn primary" id="submit-github">Submit on GitHub</button>
+            <button class="btn accent" id="submit-inbox" hidden>Send to inbox</button>
+            <button class="btn" id="copy-share">Copy link</button>
+            <button class="btn" id="download-one">Download .json</button>
+            <span class="spacer"></span>
+            <button class="btn quiet" id="new-one">New</button>
+          </div>
+          <div class="status" id="status" role="status"></div>
+          <p class="fine-print" id="submit-note"></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" id="library" hidden>
+    <div class="toolbar">
+      <div class="segmented" role="group" aria-label="Show">
+        <button data-shelf="monsters" aria-pressed="true">Monsters</button>
+        <button data-shelf="items" aria-pressed="false">Items</button>
+      </div>
+      <input class="input" id="search" type="search" placeholder="Search names, tags, makers…" autocomplete="off">
+      <span class="summary" id="library-note"></span>
+    </div>
+    <div class="shelf" id="library-shelf"></div>
+    <div id="library-missing" class="card" hidden>
+      <h2>No library here</h2>
+      <p class="summary">On GitHub Pages it loads by itself. From a local copy, pick the <code>library.json</code> next to
+        this page (it's written by <code>uv run ptg export</code>).</p>
+      <input type="file" id="library-file" accept=".json,application/json">
+    </div>
+  </section>
+
+  <section class="view" id="mine" hidden>
+    <div class="toolbar">
+      <button class="btn" id="save-all">Download all (.json)</button>
+      <span class="summary">Kept in this browser until you clear it. Submitted things stay here too.</span>
+    </div>
+    <div class="shelf" id="mine-shelf"></div>
+  </section>
+</main>
+
+<footer>Owner: submissions go into the game with <code>uv run ptg import --github</code> (or <code>uv run ptg import "&lt;link&gt;"</code>).</footer>
+
+<dialog id="arrived-dialog">
+  <h2>Shared with you</h2>
+  <div class="preview">
+    <div class="screen" id="arrived-screen"><canvas id="arrived-preview" width="24" height="24"></canvas></div>
+    <div><div class="preview-name" id="arrived-name"></div><div class="summary" id="arrived-by"></div></div>
+  </div>
+  <div class="row" style="margin-top:14px">
+    <button class="btn primary" id="arrived-open">Open in the maker</button>
+    <button class="btn" id="arrived-keep">Save to My work</button>
+    <button class="btn quiet" id="arrived-close">Close</button>
+  </div>
+  <p class="fine-print">To add it to the game: <code id="arrived-command"></code> <button class="btn quiet" id="arrived-copy">Copy</button></p>
+</dialog>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+"use strict";
+
+// --- what the game knows ------------------------------------------------------------------------------------------
+const SIZE = 24;
+const ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+// Endesga 32: the palette the game's own sprites are drawn in.
+const PALETTE = ["#be4a2f", "#d77643", "#ead4aa", "#e4a672", "#b86f50", "#733e39", "#3e2731", "#a22633",
+  "#e43b44", "#f77622", "#feae34", "#fee761", "#63c74d", "#3e8948", "#265c42", "#193c3e",
+  "#124e89", "#0099db", "#2ce8f5", "#ffffff", "#c0cbdc", "#8b9bb4", "#5a6988", "#3a4466",
+  "#262b44", "#181425", "#ff0044", "#68386c", "#b55088", "#f6757a", "#e8b796", "#c28569"];
+const KINDS = {undead: "Undead", beast: "Beast", plant: "Plant", goblinoid: "Goblinoid", aquatic: "Aquatic",
+               vermin: "Vermin", giant: "Giant"};
+const WEAKNESSES = ["fire", "holy", "shiny", "food", "loud", "water", "light", "heavy", "smelly", "sticky", "slippery",
+                    "spores", "sharp", "glass", "rope", "paper"];
+const ITEM_TAGS = ["fire", "holy", "shiny", "food", "loud", "liquid", "light", "heavy", "throwable", "sharp", "sticky",
+                   "smelly", "glass", "rope", "paper", "lucky", "metal", "cloth", "smoke", "water"];
+const MONSTER_FIELDS = ["name", "hp", "defense", "attack", "damage", "xp", "tier", "tags", "weak", "intelligent", "tell", "desc"];
+const ITEM_FIELDS = ["name", "kind", "damage", "defense", "heal", "escape", "tier", "tags", "desc"];
+const DICE = /^\s*\d+d\d+\s*([+-]\s*\d+)?\s*$/;
+// If library.json can't be read these keep new things fair (they match the game when this page was written).
+const FALLBACK = {
+  reference: {
+    monster: {"1": {hp: 8, defense: 12, attack: 3, xp: 10, damage: "1d6"}, "2": {hp: 16, defense: 12, attack: 4, xp: 25, damage: "1d8"},
+              "3": {hp: 22, defense: 13, attack: 5, xp: 45, damage: "1d10"}},
+    item: {weapon: {"1": {damage: "1d8"}, "2": {damage: "1d10"}, "3": {damage: "2d6"}},
+           armor: {"1": {defense: 1}, "2": {defense: 2}, "3": {defense: 3}},
+           consumable: {"1": {heal: 8}, "2": {heal: 16}, "3": {heal: 24}}}},
+  kinds: {undead: ["The Sunken Crypt"], aquatic: ["The Sunken Crypt"], vermin: ["The Sunken Crypt", "The Goblin Warren"],
+          goblinoid: ["The Goblin Warren", "The Overgrown Ruins"], beast: ["The Goblin Warren", "The Overgrown Ruins"],
+          giant: ["The Goblin Warren"], plant: ["The Overgrown Ruins"]}};
+const STORE = "ptg-maker-v1";
+
+// --- state --------------------------------------------------------------------------------------------------------
+let library = null;     // library.json
+let config = {};        // config.json: {repo, inbox: {url, label}}
+let current = null;     // the creation on the board
+let frame = 0, tool = "draw", mirror = true, colour = PALETTE[8];
+let undo = [], redo = [];
+let creations = [];
+let shelf = "monsters";
+
+const $ = id => document.getElementById(id);
+const blank = () => new Array(SIZE * SIZE).fill(null);
+const uid = () => crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random());
+const ref = () => (library && library.reference) || FALLBACK.reference;
+const kinds = () => (library && library.kinds) || FALLBACK.kinds;
+const tierRef = t => String(Math.min(3, Math.max(1, Number(t) || 1)));
+const tagify = s => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+const tagList = s => (s || "").split(",").map(tagify).filter(Boolean);
+
+function fresh(type) {
+  const c = {id: uid(), type, base: null, frames: [blank(), blank()], by: stored().by || "", submitted: false, saved: Date.now()};
+  if (type === "monster") c.fields = {name: "", tier: 1, tags: ["beast"], weak: [], intelligent: false, tell: "", desc: "", ...ref().monster["1"]};
+  else c.fields = {name: "", kind: "weapon", tier: 1, tags: [], desc: "", ...ref().item.weapon["1"]};
+  return c;
+}
+
+// --- remembering things in this browser (fine if it can't) -----------------------------------------------------
+function stored() { try { return JSON.parse(localStorage.getItem(STORE)) || {}; } catch (e) { return {}; } }
+function store(update) { try { localStorage.setItem(STORE, JSON.stringify({...stored(), ...update})); } catch (e) { /* private mode */ } }
+let saveTimer = null;
+function saveSoon() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const drafts = stored().drafts || {};
+    if (current && !current.base) drafts[current.type] = current;
+    store({creations, drafts});
+  }, 400);
+}
+
+// --- pixel art in and out ------------------------------------------------------------------------------------------
+function encodeArt(frames) {
+  const palette = [];
+  const out = frames.map(px => {
+    const rows = [];
+    for (let y = 0; y < SIZE; y++) {
+      let row = "";
+      for (let x = 0; x < SIZE; x++) {
+        const c = px[y * SIZE + x];
+        if (!c) { row += "."; continue; }
+        let i = palette.indexOf(c);
+        if (i < 0) { if (palette.length >= ALPHABET.length) i = 0; else { palette.push(c); i = palette.length - 1; } }
+        row += ALPHABET[i];
+      }
+      rows.push(row);
+    }
+    return rows;
+  });
+  return {w: SIZE, h: SIZE, palette, frames: out};
+}
+function decodeArt(art) {
+  if (!art) return [blank(), blank()];
+  const frames = art.frames.slice(0, 2).map(rows => {
+    const px = blank();
+    const ox = Math.floor((SIZE - art.w) / 2), oy = Math.floor((SIZE - art.h) / 2);
+    rows.forEach((row, y) => [...row].forEach((ch, x) => {
+      const tx = x + ox, ty = y + oy;
+      if (ch !== "." && tx >= 0 && ty >= 0 && tx < SIZE && ty < SIZE) px[ty * SIZE + tx] = art.palette[ALPHABET.indexOf(ch)].toLowerCase();
+    }));
+    return px;
+  });
+  while (frames.length < 2) frames.push(blank());
+  return frames;
+}
+const hasPixels = px => px.some(Boolean);
+function bobbed(px) { const out = blank(); for (let i = 0; i < SIZE * (SIZE - 1); i++) out[i + SIZE] = px[i]; return out; }
+const shownFrames = c => hasPixels(c.frames[1]) ? c.frames : [c.frames[0], bobbed(c.frames[0])];
+function paintTo(canvas, px) {
+  canvas.width = canvas.height = SIZE;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, SIZE, SIZE);
+  px.forEach((c, i) => { if (c) { ctx.fillStyle = c; ctx.fillRect(i % SIZE, Math.floor(i / SIZE), 1, 1); } });
+}
+
+// --- links and submissions -------------------------------------------------------------------------------------------
+function b64url(bytes) {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+const unb64url = t => Uint8Array.from(atob(t.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((t.length + 3) % 4)), c => c.charCodeAt(0));
+async function pack(obj) {
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  if (window.CompressionStream) {
+    const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream("deflate-raw"));
+    return "z" + b64url(new Uint8Array(await new Response(stream).arrayBuffer()));
+  }
+  return "j" + b64url(bytes);
+}
+async function unpack(code) {
+  const bytes = unb64url(code.slice(1));
+  if (code[0] === "z") {
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+    return JSON.parse(new TextDecoder().decode(await new Response(stream).arrayBuffer()));
+  }
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+function payload(c) {
+  const fields = {};
+  (c.type === "monster" ? MONSTER_FIELDS : ITEM_FIELDS).forEach(k => {
+    const v = c.fields[k];
+    if (v !== undefined && v !== "" && v !== null && !(typeof v === "number" && isNaN(v))) fields[k] = v;
+  });
+  if (c.type === "monster" && !fields.tell) fields.tell = "winds up a powerful attack";
+  const out = {v: 1, type: c.type, fields, by: c.by || "", made: new Date().toISOString().slice(0, 10)};
+  if (c.base) out.base = c.base;
+  if (hasPixels(c.frames[0])) out.art = encodeArt(c.frames);
+  return out;
+}
+const pageLink = code => location.href.split("#")[0] + "#c=" + code;
+const importCommand = link => `uv run ptg import "${link}"`;
+function repo() {
+  if (config.repo) return config.repo;
+  const host = location.hostname.match(/^([\w-]+)\.github\.io$/);
+  const path = location.pathname.split("/").filter(Boolean)[0];
+  return host && path ? `${host[1]}/${path}` : "uncSoft/procedural_terminal_game";
+}
+
+// --- the drawing board ---------------------------------------------------------------------------------------------
+const grid = $("grid"), gctx = grid.getContext("2d");
+let cell = 20;
+function sizeGrid() {
+  const room = Math.min(grid.parentElement.clientWidth - 4, 528);
+  cell = Math.max(10, Math.floor(room / SIZE));
+  const dpr = window.devicePixelRatio || 1;
+  grid.style.width = grid.style.height = cell * SIZE + "px";
+  grid.width = grid.height = Math.round(cell * SIZE * dpr);
+  gctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawGrid();
+}
+function drawGrid() {
+  const px = current.frames[frame];
+  for (let y = 0; y < SIZE; y++) for (let x = 0; x < SIZE; x++) {
+    gctx.fillStyle = (x + y) % 2 ? "#1b1e3d" : "#151832";
+    gctx.fillRect(x * cell, y * cell, cell, cell);
+  }
+  if (frame === 1) {  // frame 1, faintly, to trace the motion over
+    gctx.globalAlpha = 0.28;
+    current.frames[0].forEach((c, i) => { if (c) { gctx.fillStyle = c; gctx.fillRect((i % SIZE) * cell, Math.floor(i / SIZE) * cell, cell, cell); } });
+    gctx.globalAlpha = 1;
+  }
+  px.forEach((c, i) => { if (c) { gctx.fillStyle = c; gctx.fillRect((i % SIZE) * cell, Math.floor(i / SIZE) * cell, cell, cell); } });
+  gctx.strokeStyle = "rgba(255,255,255,0.06)";
+  gctx.lineWidth = 1;
+  gctx.beginPath();
+  for (let i = 1; i < SIZE; i++) {
+    gctx.moveTo(i * cell + 0.5, 0); gctx.lineTo(i * cell + 0.5, SIZE * cell);
+    gctx.moveTo(0, i * cell + 0.5); gctx.lineTo(SIZE * cell, i * cell + 0.5);
+  }
+  gctx.stroke();
+  if (mirror) {
+    gctx.strokeStyle = "rgba(255, 79, 154, 0.55)";
+    gctx.setLineDash([6, 5]);
+    gctx.beginPath(); gctx.moveTo(SIZE / 2 * cell, 0); gctx.lineTo(SIZE / 2 * cell, SIZE * cell); gctx.stroke();
+    gctx.setLineDash([]);
+  }
+}
+function checkpoint() {
+  undo.push({frame, px: current.frames[frame].slice()});
+  if (undo.length > 100) undo.shift();
+  redo = [];
+}
+function setPixel(x, y, c) {
+  if (x < 0 || y < 0 || x >= SIZE || y >= SIZE) return;
+  current.frames[frame][y * SIZE + x] = c;
+  if (mirror) current.frames[frame][y * SIZE + (SIZE - 1 - x)] = c;
+}
+function fill(x, y, c) {
+  const px = current.frames[frame], target = px[y * SIZE + x];
+  if (target === c) return;
+  const filled = [], stack = [[x, y]];
+  while (stack.length) {
+    const [cx, cy] = stack.pop();
+    if (cx < 0 || cy < 0 || cx >= SIZE || cy >= SIZE || px[cy * SIZE + cx] !== target) continue;
+    px[cy * SIZE + cx] = c;
+    filled.push([cx, cy]);
+    stack.push([cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]);
+  }
+  if (mirror) filled.forEach(([fx, fy]) => { px[fy * SIZE + (SIZE - 1 - fx)] = c; });
+}
+function line(a, b, c) {
+  let [x0, y0] = a; const [x1, y1] = b;
+  const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+  let err = dx + dy;
+  for (;;) {
+    setPixel(x0, y0, c);
+    if (x0 === x1 && y0 === y1) break;
+    const e2 = 2 * err;
+    if (e2 >= dy) { err += dy; x0 += sx; }
+    if (e2 <= dx) { err += dx; y0 += sy; }
+  }
+}
+function cellAt(e) {
+  const r = grid.getBoundingClientRect();
+  return [Math.floor((e.clientX - r.left) / (r.width / SIZE)), Math.floor((e.clientY - r.top) / (r.height / SIZE))];
+}
+let drawing = false, last = null;
+grid.addEventListener("pointerdown", e => {
+  e.preventDefault();
+  grid.setPointerCapture(e.pointerId);
+  const at = cellAt(e);
+  if (tool === "pick") {
+    const c = current.frames[frame][at[1] * SIZE + at[0]] || (frame === 1 ? current.frames[0][at[1] * SIZE + at[0]] : null);
+    if (c) { setColour(c); setTool("draw"); }
+    return;
+  }
+  checkpoint();
+  const c = tool === "erase" ? null : colour;
+  if (tool === "fill") { fill(at[0], at[1], c); changed(); return; }
+  drawing = true; last = at;
+  line(at, at, c); changed();
+});
+grid.addEventListener("pointermove", e => {
+  if (!drawing) return;
+  const at = cellAt(e);
+  if (last && at[0] === last[0] && at[1] === last[1]) return;
+  line(last || at, at, tool === "erase" ? null : colour);
+  last = at; changed();
+});
+["pointerup", "pointercancel", "lostpointercapture"].forEach(t => grid.addEventListener(t, () => { drawing = false; last = null; }));
+function changed() { drawGrid(); refreshPreview(); saveSoon(); }
+
+function setTool(t) {
+  tool = t;
+  document.querySelectorAll("[data-tool]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.tool === t)));
+  grid.style.cursor = t === "pick" ? "copy" : "crosshair";
+}
+document.querySelectorAll("[data-tool]").forEach(b => b.addEventListener("click", () => setTool(b.dataset.tool)));
+function toggleMirror() { mirror = !mirror; $("mirror").setAttribute("aria-pressed", String(mirror)); drawGrid(); }
+$("mirror").addEventListener("click", toggleMirror);
+function step(from, to) {
+  const s = from.pop();
+  if (!s) return;
+  to.push({frame: s.frame, px: current.frames[s.frame].slice()});
+  current.frames[s.frame] = s.px;
+  if (s.frame !== frame) showFrame(s.frame); else changed();
+}
+$("undo").addEventListener("click", () => step(undo, redo));
+$("redo").addEventListener("click", () => step(redo, undo));
+$("clear").addEventListener("click", () => {
+  if (!hasPixels(current.frames[frame]) || confirm(`Clear frame ${frame + 1}?`)) { checkpoint(); current.frames[frame] = blank(); changed(); }
+});
+function showFrame(i) {
+  frame = i;
+  document.querySelectorAll("[data-frame]").forEach(b => b.setAttribute("aria-pressed", String(Number(b.dataset.frame) === i)));
+  changed();
+}
+document.querySelectorAll("[data-frame]").forEach(b => b.addEventListener("click", () => showFrame(Number(b.dataset.frame))));
+$("copy-frame").addEventListener("click", () => { frame = 1; checkpoint(); current.frames[1] = current.frames[0].slice(); showFrame(1); });
+$("auto-wiggle").addEventListener("click", () => { frame = 1; checkpoint(); current.frames[1] = bobbed(current.frames[0]); showFrame(1); toast("Frame 2 now bobs."); });
+document.addEventListener("keydown", e => {
+  if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) return;
+  if ($("maker").hidden || document.querySelector("dialog[open]")) return;
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); step(e.shiftKey ? redo : undo, e.shiftKey ? undo : redo); return; }
+  if (mod) return;
+  const keys = {b: "draw", e: "erase", g: "fill", i: "pick"};
+  if (keys[e.key]) setTool(keys[e.key]);
+  if (e.key === "m") toggleMirror();
+});
+
+// --- colours -----------------------------------------------------------------------------------------------------
+const customColours = () => stored().custom || [];
+function swatch(c) {
+  const b = document.createElement("button");
+  b.className = "swatch"; b.style.background = c; b.title = c; b.setAttribute("aria-label", "Colour " + c);
+  b.setAttribute("aria-pressed", String(c === colour));
+  b.addEventListener("click", () => { setColour(c); if (tool === "erase" || tool === "pick") setTool("draw"); });
+  return b;
+}
+function setColour(c) {
+  colour = c.toLowerCase();
+  $("colour-picker").value = colour;
+  $("colour-code").textContent = colour;
+  document.querySelectorAll(".swatch").forEach(s => s.setAttribute("aria-pressed", String(s.title === colour)));
+}
+function buildPalettes() {
+  $("palette").replaceChildren(...PALETTE.map(swatch));
+  const custom = customColours();
+  $("custom-wrap").hidden = !custom.length;
+  $("clear-custom").hidden = !custom.length;
+  $("custom-palette").replaceChildren(...custom.map(swatch));
+  const used = new Set(current.frames.flat().filter(Boolean));
+  const extra = [...used].filter(c => !PALETTE.includes(c) && !custom.includes(c)).slice(0, 32);
+  $("extra-wrap").hidden = !extra.length;
+  $("extra-palette").replaceChildren(...extra.map(swatch));
+  setColour(colour);
+}
+$("colour-picker").addEventListener("input", e => setColour(e.target.value));
+$("colour-picker").addEventListener("change", e => {  // a colour you settle on is kept
+  const c = e.target.value.toLowerCase();
+  if (!PALETTE.includes(c) && !customColours().includes(c)) store({custom: [...customColours(), c].slice(-32)});
+  buildPalettes();
+  if (tool === "erase" || tool === "pick") setTool("draw");
+});
+$("clear-custom").addEventListener("click", () => { store({custom: []}); buildPalettes(); });
+
+// --- details ---------------------------------------------------------------------------------------------------------
+const KIND_LABELS = {weapon: "Weapon", armor: "Armor", consumable: "Consumable", trinket: "Trinket"};
+function buildSegments() {
+  document.querySelectorAll("[data-segment]").forEach(box => {
+    box.replaceChildren(...box.dataset.values.split(",").map(v => {
+      const b = document.createElement("button");
+      b.type = "button"; b.dataset.value = v; b.textContent = KIND_LABELS[v] || v;
+      b.addEventListener("click", () => setSegment(box.dataset.segment, v));
+      return b;
+    }));
+  });
+}
+function chipBox(name, options) {
+  const box = document.querySelector(`#${current.type}-fields [data-chips="${name}"]`);
+  if (!box) return;
+  box.replaceChildren(...options.map(([value, label]) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip"; b.dataset.value = value; b.textContent = label;
+    b.addEventListener("click", () => toggleTag(name, value));
+    return b;
+  }));
+}
+function buildChips() {
+  if (current.type === "monster") {
+    chipBox("kind", Object.entries(KINDS));
+    chipBox("weak", WEAKNESSES.map(w => [w, w]));
+  } else {
+    chipBox("itemtags", ITEM_TAGS.map(t => [t, t]));
+  }
+}
+function toggleTag(name, value) {
+  const f = current.fields, key = name === "weak" ? "weak" : "tags", now = f[key] || [];
+  f[key] = now.includes(value) ? now.filter(v => v !== value) : [...now, value];
+  showDetails(); refreshPreview(); saveSoon();
+}
+function setSegment(name, value) {
+  const f = current.fields;
+  if (name === "tier") f.tier = Number(value);
+  if (name === "kind") {
+    f.kind = value;
+    delete f.damage; delete f.defense; delete f.heal; delete f.escape;
+    applyItemDefaults();
+  }
+  showDetails(); refreshPreview(); saveSoon();
+}
+function applyMonsterDefaults() { Object.assign(current.fields, ref().monster[tierRef(current.fields.tier)]); }
+function applyItemDefaults() {
+  const f = current.fields, tier = tierRef(f.tier), r = ref().item;
+  if (f.kind === "weapon") f.damage = r.weapon[tier].damage;
+  if (f.kind === "armor") f.defense = r.armor[tier].defense;
+  if (f.kind === "consumable" && !f.escape) f.heal = r.consumable[tier].heal;
+}
+$("tier-defaults").addEventListener("click", () => { applyMonsterDefaults(); showDetails(); refreshPreview(); saveSoon(); });
+$("item-defaults").addEventListener("click", () => { applyItemDefaults(); showDetails(); refreshPreview(); saveSoon(); });
+
+function knownTags(field) { return field === "weak" ? WEAKNESSES : current.type === "monster" ? Object.keys(KINDS) : ITEM_TAGS; }
+function bindInputs() {
+  document.querySelectorAll("[data-f]").forEach(input => {
+    input.addEventListener("input", () => {
+      const f = current.fields, key = input.dataset.f;
+      if (key === "tags_extra" || key === "weak_extra") {
+        const field = key === "tags_extra" ? "tags" : "weak", known = knownTags(field);
+        f[field] = [...(f[field] || []).filter(t => known.includes(t)), ...tagList(input.value).filter(t => !known.includes(t))];
+      } else if (input.type === "checkbox") {
+        f[key] = input.checked;
+        if (key === "escape") { if (input.checked) delete f.heal; else applyItemDefaults(); showDetails(); }
+      } else if (input.type === "number") {
+        f[key] = input.value === "" ? undefined : Number(input.value);
+      } else {
+        f[key] = input.value;
+      }
+      if (key === "damage") input.classList.toggle("bad", !!input.value && !DICE.test(input.value));
+      refreshPreview(); saveSoon();
+    });
+  });
+}
+
+function showDetails() {
+  const c = current, f = c.fields, box = $(`${c.type}-fields`);
+  box.querySelectorAll("[data-segment]").forEach(seg => seg.querySelectorAll("button").forEach(b =>
+    b.setAttribute("aria-pressed", String(String(f[seg.dataset.segment]) === b.dataset.value))));
+  box.querySelectorAll("[data-chips]").forEach(chips => chips.querySelectorAll("button").forEach(b => {
+    const field = chips.dataset.chips === "weak" ? "weak" : "tags";
+    b.setAttribute("aria-pressed", String((f[field] || []).includes(b.dataset.value)));
+  }));
+  box.querySelectorAll("[data-f]").forEach(input => {
+    if (document.activeElement === input) return;
+    const key = input.dataset.f;
+    if (key === "tags_extra") input.value = (f.tags || []).filter(t => !knownTags("tags").includes(t)).join(", ");
+    else if (key === "weak_extra") input.value = (f.weak || []).filter(t => !WEAKNESSES.includes(t)).join(", ");
+    else if (input.type === "checkbox") input.checked = !!f[key];
+    else input.value = f[key] === undefined || f[key] === null ? "" : f[key];
+    if (key === "damage") input.classList.toggle("bad", !!input.value && !DICE.test(input.value));
+  });
+  if (c.type === "monster") {
+    const t = ref().monster[tierRef(f.tier)];
+    $("typical").innerHTML = `Typical for tier ${tierRef(f.tier)}: <b>${t.hp} HP</b> · defense <b>${t.defense}</b> · attack <b>+${t.attack}</b> · <b>${t.damage}</b> · <b>${t.xp} XP</b>`;
+    const lives = [...new Set((f.tags || []).flatMap(tag => kinds()[tag] || []))];
+    $("lives").textContent = lives.length ? `Appears in ${lives.join(" and ")}.` : "No dungeon has its type yet: pick a creature type to place it.";
+  } else {
+    box.querySelectorAll("[data-for]").forEach(el => { el.hidden = el.dataset.for !== f.kind || (el.hasAttribute("data-heal") && !!f.escape); });
+    const r = ref().item, tier = tierRef(f.tier);
+    const typical = {weapon: `damage ${r.weapon[tier].damage}`, armor: `+${r.armor[tier].defense} defense`,
+                     consumable: `heals ${r.consumable[tier].heal}`, trinket: "no stats: its tags and description do the work"}[f.kind];
+    $("item-typical").textContent = `Typical for tier ${tier}: ${typical}`;
+  }
+}
+
+// --- the preview ---------------------------------------------------------------------------------------------------
+let tick = 0;
+setInterval(() => { tick++; refreshPreview(); }, 360);
+function describe(type, f) {
+  if (type === "monster") {
+    const parts = [`Tier ${f.tier}`, `${f.hp ?? "?"} HP`, `defense ${f.defense ?? "?"}`, `attack +${f.attack ?? "?"}`, `${f.damage || "?"}`];
+    if (f.weak && f.weak.length) parts.push(`weak to ${f.weak.join(", ")}`);
+    if (f.intelligent) parts.push("intelligent");
+    return parts.join(" · ");
+  }
+  const power = f.kind === "weapon" ? `damage ${f.damage || "?"}` : f.kind === "armor" ? `+${f.defense ?? "?"} defense`
+    : f.kind === "consumable" ? (f.escape ? "escape" : `heals ${f.heal ?? "?"}`) : "";
+  return [KIND_LABELS[f.kind] || f.kind || "Item", `tier ${f.tier ?? 0}`, power, (f.tags || []).join(", ")].filter(Boolean).join(" · ");
+}
+function refreshPreview() {
+  if (!current) return;
+  paintTo($("preview"), shownFrames(current)[tick % 2]);
+  $("preview-name").textContent = current.fields.name || (current.type === "monster" ? "Unnamed monster" : "Unnamed item");
+  $("preview-summary").textContent = describe(current.type, current.fields);
+  $("screen").classList.toggle("item", current.type === "item");
+}
+
+// --- loading something onto the board ------------------------------------------------------------------------------
+function openCreation(c, view) {
+  current = c; frame = 0; undo = []; redo = [];
+  $("name").value = c.fields.name || "";
+  $("by").value = c.by || stored().by || "";
+  $("name").placeholder = c.type === "monster" ? "Bog Cantor" : "Spoon of Destiny";
+  $("monster-fields").hidden = c.type !== "monster";
+  $("item-fields").hidden = c.type !== "item";
+  $("editing-note").hidden = !c.base;
+  $("editing-name").textContent = c.fields.name || c.base || "";
+  setStatus("");
+  buildChips(); buildPalettes(); showDetails();
+  showView(view || c.type, false);
+  showFrame(0);
+}
+function fromLibrary(type, entry) {
+  const c = fresh(type);
+  c.base = entry.key;
+  c.fields = JSON.parse(JSON.stringify(entry.fields));
+  c.frames = decodeArt(entry.art);
+  return c;
+}
+function revive(c) { c.frames = (c.frames || []).map(f => f.slice()); while (c.frames.length < 2) c.frames.push(blank()); return c; }
+$("name").addEventListener("input", e => { current.fields.name = e.target.value; refreshPreview(); saveSoon(); });
+$("by").addEventListener("input", e => { current.by = e.target.value; store({by: e.target.value}); saveSoon(); });
+$("new-one").addEventListener("click", () => {
+  if (hasPixels(current.frames[0]) && !current.submitted && !confirm("Start a new one? This one stays in My work.")) return;
+  keep(current);
+  openCreation(fresh(current.type));
+});
+$("stop-editing").addEventListener("click", () => openCreation(fresh(current.type)));
+
+// --- submitting ------------------------------------------------------------------------------------------------------
+function setStatus(text, kind = "") { const s = $("status"); s.textContent = text; s.className = "status " + kind; }
+function problems(c) {
+  const f = c.fields;
+  if (!(f.name || "").trim()) return "It needs a name.";
+  if (!c.base && c.frames[0].filter(Boolean).length < 6) return "Draw a bit more in frame 1.";
+  if (f.damage && !DICE.test(f.damage)) return "Damage should be dice, like 1d6 or 2d4+1.";
+  if (c.type === "monster") {
+    for (const k of ["hp", "defense", "attack", "xp"]) if (f[k] === undefined || isNaN(f[k])) return `Set its ${k === "xp" ? "XP" : k}.`;
+    if (!f.damage) return "Set its damage dice.";
+    if (f.hp < 1) return "HP should be at least 1.";
+  } else {
+    if (f.kind === "weapon" && !f.damage) return "A weapon needs damage dice.";
+    if (f.kind === "armor" && !(f.defense > 0)) return "Armor needs a defense bonus above 0.";
+    if (f.kind === "consumable" && !f.escape && !(f.heal > 0)) return "A consumable should heal, or let you escape.";
+  }
+  return "";
+}
+function keep(c) {
+  if (!hasPixels(c.frames[0]) && !c.fields.name) return;
+  c.saved = Date.now();
+  creations = [c, ...creations.filter(x => x.id !== c.id)];
+  store({creations});
+}
+async function ready() {
+  const problem = problems(current);
+  if (problem) { setStatus(problem, "bad"); return null; }
+  const data = payload(current), code = await pack(data);
+  return {data, code, link: pageLink(code)};
+}
+function issueBody(data, code, link) {
+  const f = data.fields, kind = data.type === "monster" ? "monster" : "item";
+  const stats = data.type === "monster"
+    ? `| Tier | HP | Defense | Attack | Damage | XP |\n|---|---|---|---|---|---|\n| ${f.tier} | ${f.hp} | ${f.defense} | +${f.attack} | ${f.damage} | ${f.xp} |`
+    : `| Kind | Tier | Power | Tags |\n|---|---|---|---|\n| ${f.kind} | ${f.tier ?? 0} | ${f.damage || (f.defense ? "+" + f.defense + " defense" : "") || (f.escape ? "escape" : f.heal ? "heals " + f.heal : "-")} | ${(f.tags || []).join(", ") || "-"} |`;
+  return [`**${f.name}**: a ${kind}${data.by ? " by " + data.by : ""}${data.base ? ` (a change to \`${data.base}\`)` : ""}`,
+          "", f.desc || "", "", stats, "", `[Open it in the maker](${link})`, "",
+          "<details><summary>Data for the importer</summary>", "", "```ptg-creation", code, "```", "</details>"].join("\n");
+}
+$("submit-github").addEventListener("click", async () => {
+  const r = await ready();
+  if (!r) return;
+  const title = `[maker] ${r.data.type === "monster" ? "Monster" : "Item"}: ${r.data.fields.name}${r.data.base ? " (edit)" : ""}`;
+  const url = `https://github.com/${repo()}/issues/new?labels=maker&title=${encodeURIComponent(title)}&body=${encodeURIComponent(issueBody(r.data, r.code, r.link))}`;
+  window.open(url, "_blank", "noopener");
+  current.submitted = true; keep(current);
+  setStatus("GitHub opened in a new tab: press “Submit new issue” there to send it.", "ok");
+});
+$("submit-inbox").addEventListener("click", async () => {
+  const r = await ready();
+  if (!r) return;
+  const inbox = config.inbox || {}, f = r.data.fields;
+  const text = `${r.data.type === "monster" ? "Monster" : "Item"}: ${f.name}${r.data.by ? " by " + r.data.by : ""}${r.data.base ? " (edit of " + r.data.base + ")" : ""}\n${r.link}`;
+  setStatus("Sending…");
+  try {
+    if (/discord(app)?\.com\/api\/webhooks\//.test(inbox.url)) {  // Discord takes a message
+      const form = new FormData();
+      form.append("payload_json", JSON.stringify({content: text.slice(0, 1990), username: "Monster & Item Maker"}));
+      await fetch(inbox.url, {method: "POST", body: form, mode: "no-cors"});
+    } else {
+      const body = JSON.stringify({kind: "ptg-creation", text, link: r.link, code: r.code, creation: r.data});
+      try {
+        const res = await fetch(inbox.url, {method: "POST", headers: {"Content-Type": "application/json"}, body});
+        if (!res.ok) throw new Error(String(res.status));
+      } catch (e) {  // a server that doesn't answer browsers (CORS) still gets a plain-text copy
+        await fetch(inbox.url, {method: "POST", headers: {"Content-Type": "text/plain"}, body, mode: "no-cors"});
+      }
+    }
+    current.submitted = true; keep(current);
+    setStatus(`Sent to ${inbox.label || "the inbox"}.`, "ok");
+  } catch (e) {
+    setStatus("Couldn't reach the inbox. Use “Copy link” and send it yourself.", "bad");
+  }
+});
+$("copy-share").addEventListener("click", async () => {
+  const r = await ready();
+  if (!r) return;
+  keep(current);
+  copy(r.link, "Link copied: anyone with it can open or import this.");
+});
+$("download-one").addEventListener("click", () => {
+  const problem = problems(current);
+  if (problem) { setStatus(problem, "bad"); return; }
+  keep(current); download([current], `${slug(current.fields.name)}.ptg.json`);
+});
+const slug = s => (s || "creation").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 24) || "creation";
+function download(items, filename) {
+  const blob = new Blob([JSON.stringify({creations: items.map(payload)}, null, 1)], {type: "application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+async function copy(text, done) { try { await navigator.clipboard.writeText(text); toast(done); } catch (e) { prompt("Copy this:", text); } }
+function toast(text) {
+  const t = $("toast");
+  t.textContent = text; t.hidden = false;
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => { t.hidden = true; }, 2600);
+}
+
+// --- views -----------------------------------------------------------------------------------------------------------
+function showView(name, reopen = true) {
+  document.querySelectorAll(".tab").forEach(t => t.setAttribute("aria-selected", String(t.dataset.view === name)));
+  const making = name === "monster" || name === "item";
+  $("maker").hidden = !making;
+  $("library").hidden = name !== "library";
+  $("mine").hidden = name !== "mine";
+  if (making && reopen && current.type !== name) {
+    keep(current);
+    const draft = (stored().drafts || {})[name];
+    openCreation(draft ? revive(draft) : fresh(name), name);
+    return;
+  }
+  if (making) requestAnimationFrame(sizeGrid);
+  if (name === "library") showLibrary();
+  if (name === "mine") showMine();
+}
+document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => showView(t.dataset.view)));
+
+const esc = s => String(s).replace(/[&<>"]/g, ch => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[ch]));
+function card(frames, name, meta, desc, buttons) {
+  const box = document.createElement("div");
+  box.className = "thing";
+  const top = document.createElement("div"); top.className = "thing-top";
+  const canvas = document.createElement("canvas"); paintTo(canvas, frames[0]);
+  const words = document.createElement("div");
+  words.innerHTML = `<div class="name">${esc(name)}</div><div class="meta">${meta}</div>`;
+  top.append(canvas, words);
+  box.append(top);
+  if (desc) { const d = document.createElement("div"); d.className = "desc"; d.textContent = desc; box.append(d); }
+  const actions = document.createElement("div"); actions.className = "actions";
+  buttons.forEach(([label, fn]) => { const b = document.createElement("button"); b.className = "btn"; b.textContent = label; b.addEventListener("click", fn); actions.append(b); });
+  box.append(actions);
+  return box;
+}
+function showLibrary() {
+  document.querySelectorAll("[data-shelf]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.shelf === shelf)));
+  const box = $("library-shelf");
+  if (!library) { box.replaceChildren(); return; }
+  const type = shelf === "monsters" ? "monster" : "item";
+  const find = $("search").value.trim().toLowerCase();
+  const entries = library[shelf].filter(e => !find || [e.fields.name, ...(e.fields.tags || []), ...(e.fields.weak || []), e.by || ""]
+    .join(" ").toLowerCase().includes(find));
+  $("library-note").textContent = `${library[shelf].length} ${shelf} · exported ${library.exported}`;
+  box.replaceChildren(...entries.map(entry => {
+    const meta = [esc(describe(type, entry.fields)), entry.special ? `<span class="badge">${esc(entry.special)}</span>` : "",
+                  entry.by ? `by ${esc(entry.by)}` : "", entry.lives && entry.lives.length ? `in ${esc(entry.lives.join(", "))}` : ""]
+      .filter(Boolean).join("<br>");
+    return card(decodeArt(entry.art), entry.fields.name, meta, entry.fields.desc || "", [["Edit", () => openCreation(fromLibrary(type, entry))]]);
+  }));
+  if (!entries.length) box.innerHTML = `<p class="empty">Nothing matches.</p>`;
+}
+document.querySelectorAll("[data-shelf]").forEach(b => b.addEventListener("click", () => { shelf = b.dataset.shelf; showLibrary(); }));
+$("search").addEventListener("input", showLibrary);
+$("library-file").addEventListener("change", async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try { library = JSON.parse(await file.text()); $("library-missing").hidden = true; showLibrary(); } catch (err) { toast("That isn't a library file."); }
+});
+function showMine() {
+  const box = $("mine-shelf");
+  if (!creations.length) { box.innerHTML = `<p class="empty">Nothing yet.</p>`; return; }
+  box.replaceChildren(...creations.map(c => card(c.frames, c.fields.name || "Unnamed",
+    `${c.type}${c.base ? " · edit of " + esc(c.base) : ""} ${c.submitted ? '<span class="badge ok">submitted</span>' : '<span class="badge">draft</span>'}`,
+    c.fields.desc || "",
+    [["Open", () => openCreation(revive(JSON.parse(JSON.stringify(c))))],
+     ["Delete", () => { if (confirm(`Delete ${c.fields.name || "this"}?`)) { creations = creations.filter(x => x.id !== c.id); store({creations}); showMine(); } }]])));
+}
+$("save-all").addEventListener("click", () => { if (creations.length) download(creations, "my-work.ptg.json"); else toast("Nothing to download yet."); });
+
+// --- a shared link arriving ----------------------------------------------------------------------------------------
+async function arrived() {
+  const hash = location.hash;
+  if (!hash.startsWith("#c=")) return;
+  let data;
+  try { data = await unpack(hash.slice(3)); } catch (e) { toast("That link is broken."); return; }
+  const c = fresh(data.type);
+  c.base = data.base || null; c.fields = {...c.fields, ...(data.fields || {})}; c.frames = decodeArt(data.art); c.by = data.by || "";
+  const frames = shownFrames(c), preview = $("arrived-preview");
+  let t = 0;
+  paintTo(preview, frames[0]);
+  const timer = setInterval(() => paintTo(preview, frames[++t % 2]), 360);
+  $("arrived-name").textContent = c.fields.name;
+  $("arrived-by").textContent = `${data.type === "monster" ? "Monster" : "Item"}${c.by ? " by " + c.by : ""}${c.base ? " · a change to " + c.base : ""}`;
+  $("arrived-screen").classList.toggle("item", data.type === "item");
+  $("arrived-command").textContent = importCommand(location.href);
+  const dialog = $("arrived-dialog");
+  const done = () => { clearInterval(timer); dialog.close(); history.replaceState(null, "", location.pathname + location.search); };
+  $("arrived-open").onclick = () => { done(); openCreation(c); };
+  $("arrived-keep").onclick = () => { keep(c); done(); toast("Saved to My work."); };
+  $("arrived-close").onclick = done;
+  $("arrived-copy").onclick = () => copy(importCommand(pageLink(hash.slice(3))), "Command copied.");
+  dialog.showModal();
+}
+
+// --- start -----------------------------------------------------------------------------------------------------------
+async function start() {
+  buildSegments(); bindInputs();
+  const saved = stored();
+  creations = (saved.creations || []).map(revive);
+  const [lib, conf] = await Promise.all([
+    fetch("library.json", {cache: "no-store"}).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch("config.json", {cache: "no-store"}).then(r => r.ok ? r.json() : null).catch(() => null)]);
+  library = lib; config = conf || {};
+  $("library-missing").hidden = !!library;
+  const inbox = config.inbox || {};
+  $("submit-inbox").hidden = !inbox.url;
+  if (inbox.label) $("submit-inbox").textContent = `Send to ${inbox.label}`;
+  $("submit-note").innerHTML = `“Submit on GitHub” opens a ready-made issue in <a href="https://github.com/${esc(repo())}/issues" target="_blank" rel="noopener">${esc(repo())}</a>
+    (a free GitHub account is needed); the owner reviews it and imports it into the game.${inbox.url ? ` “Send to ${esc(inbox.label || "inbox")}” delivers it directly.` : ""}
+    Everything is also saved in this browser.`;
+  const draft = saved.drafts && saved.drafts.monster;
+  openCreation(draft && draft.fields && "hp" in draft.fields ? revive(draft) : fresh("monster"), "monster");
+  window.addEventListener("resize", () => { if (!$("maker").hidden) sizeGrid(); });
+  await arrived();
+  window.addEventListener("hashchange", arrived);
+}
+start();
+</script>
+</body>
+</html>

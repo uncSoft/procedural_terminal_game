@@ -10,9 +10,40 @@ from ptg.profile import Profile
 
 @pytest.fixture(autouse=True)
 def isolated_home(tmp_path, monkeypatch):
-    """Keep config, saves, the profile database and logs out of the real ~/.ptg."""
+    """Keep config, saves, the profile database and logs out of the real ~/.ptg, and the tests quiet."""
     monkeypatch.setenv("PTG_HOME", str(tmp_path))
+    monkeypatch.setenv("PTG_SOUND", "0")
     return tmp_path
+
+
+class Recorder:
+    """Stands in for the speakers: remembers what was played, and how loud."""
+
+    name = "recorder"
+
+    def __init__(self) -> None:
+        self.played: list[tuple[str, float]] = []
+
+    def play(self, clip, gain: float) -> None:
+        self.played.append((clip.moment, round(gain, 3)))
+
+    def close(self) -> None:
+        pass
+
+    @property
+    def moments(self) -> list[str]:
+        return [moment for moment, _ in self.played]
+
+
+@pytest.fixture
+def speakers(monkeypatch):
+    """Sound on, played into a Recorder."""
+    from ptg import sound
+
+    monkeypatch.delenv("PTG_SOUND", raising=False)
+    recorder = Recorder()
+    monkeypatch.setattr(sound, "_sound", sound.Sound(True, 0.5, player=recorder))
+    return recorder
 
 
 @pytest.fixture

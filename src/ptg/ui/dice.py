@@ -16,6 +16,7 @@ from textual.events import Click
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
+from .. import sound
 from ..dice import Roll
 from ..dice_art import CRIMSON, GOLD, d20
 from ..outcome import AWFUL, BAD, GOOD, GREAT, NEUTRAL
@@ -106,6 +107,7 @@ class DiceScreen(ModalScreen[str]):
         roll = self.roll
         dice_widget = self.query_one("#dice-faces", Static)
         count = len(roll.dice)
+        sound.play("dice_roll")
         # Tumble: turn, bounce and flicker through numbers, slowing down like a real die.
         for i in range(14):
             values = [random.randint(1, 20) for _ in range(count)]
@@ -120,6 +122,7 @@ class DiceScreen(ModalScreen[str]):
             glows[kept_index] = CRIMSON
         dims = [i != kept_index for i in range(count)]  # with advantage, the die you don't keep greys out
         dice_widget.update(dice_row(list(roll.dice), glows=glows, dims=dims))
+        sound.play("dice_land")
         await asyncio.sleep(0.25)
 
         bonus_widget = self.query_one("#dice-bonuses", Static)
@@ -128,6 +131,7 @@ class DiceScreen(ModalScreen[str]):
         bonus_widget.update(line)
         for name, value in roll.bonuses:
             await asyncio.sleep(0.22)
+            sound.play("dice_tick")
             total += value
             line.append(f"  {'+' if value >= 0 else '-'} {abs(value)} ", style="bold #4cff8a" if value > 0 else "#ff7b7b")
             line.append(name, style="#ff4f9a" if name.startswith("✦") else "#9a9cc0")
@@ -149,6 +153,7 @@ class DiceScreen(ModalScreen[str]):
         glows[kept_index] = effects.rgb(how)
         dice_widget.update(dice_row(list(roll.dice), glows=glows, dims=dims))
         effects.flash(verdict, how)
+        sound.play(how)
         if big:
             await self._shake(box)
 

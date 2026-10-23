@@ -14,7 +14,7 @@ from textual.screen import Screen
 from textual.widget import Widget
 from textual.widgets import Footer, Input, Static
 
-from .. import glossary
+from .. import glossary, sound
 from ..events import Event
 from ..glossary import Lexicon
 from ..game import Game
@@ -150,9 +150,11 @@ class GameScreen(Screen):
         for event in events:
             if event.kind == "story" and event.data.get("voice") == "exact":
                 self.add_card(event.data.get("title", ""), event.text, lexicon, event.data.get("sprite", ""))
+                sound.play("story")
             elif event.kind == "story_effect" and event.text:
                 self.add_line(Text("  ◆ " + event.text, style="bold #ff4f9a"), "mechanic")
             elif event.kind == "story_secret" and not event.data.get("repeat"):
+                sound.play("secret")
                 found = len(self.game.profile.secrets())
                 self.add_line(Text(f"  ✧ {event.text}  ({found}/{len(library.secrets)} in the Book of Secrets)",
                                    style="bold #ffd166"), "system-line")
@@ -240,7 +242,8 @@ class GameScreen(Screen):
         choices = game.choices()
         shown = choices[int(text) - 1].label if text.isdigit() and 1 <= int(text) <= len(choices) else text
         self.add_line(f"> {shown}", "player-line")
-        hp_before = game.state.player.hp
+        sound.play("select")
+        hp_before, gold_before = game.state.player.hp, game.state.player.gold
         for sprite in self.live_sprites:  # older story sprites stand still
             sprite.freeze()
         self.live_sprites.clear()
@@ -257,6 +260,7 @@ class GameScreen(Screen):
                 DiceScreen(primary.dice, summary, game.fate_left(), game.can_reroll(), auto=game.config.auto_roll,
                            tone=tone(primary), word=verdict(primary)))
             if choice == "reroll" and game.can_reroll():
+                sound.play("fate")
                 pending = game.reroll()
                 primary = pending.primary
                 self.add_line(Text(f"  ✦ Fate spent. Rerolling... ({game.state.player.fate} left)",
@@ -275,7 +279,10 @@ class GameScreen(Screen):
                 await self.query_one("#story").mount(line, before=narration)
                 await line.play(event, fast=event.dice.actor == "monster")
         self.query_one("#hud", Hud).show(game.state, game.content)
-        await self._roll_feedback(pending.events, hp_before)
+        for moment in dict.fromkeys(effects.EVENT_SOUNDS[e.kind] for e in pending.events
+                                    if e.kind in effects.EVENT_SOUNDS):
+            sound.play(moment)
+        await self._roll_feedback(pending.events, hp_before, gold_before)
         await self._fight_animations(pending.events, before, room_before)
         await self._fixture_moment(pending.events, narration, where)
         if any(e.kind == "descend" for e in pending.events):
@@ -306,6 +313,7 @@ class GameScreen(Screen):
     async def _level_up(self) -> None:
         game = self.game
         choices = list(game.state.pending_perks)
+        sound.play("level_up")
         perk = await self.app.push_screen_wait(LevelUpScreen(game.content, choices, game.state.player.level))
         index = next(i for i, a in enumerate(game.choices(), 1) if a.id == f"perk:{perk}")
         await game.begin(str(index))
@@ -353,7 +361,7 @@ class GameScreen(Screen):
 
     # --- feedback ---
 
-    async def _roll_feedback(self, events: list[Event], hp_before: int) -> None:
+    async def _roll_feedback(self, events: list[Event], hp_before: int, gold_before: int | None = None) -> None:
         """How the turn went, at a glance: the story's border lights up in its colour (and blinks and shakes for a
         natural 20 or 1), damage rises off the monster, and your hearts show what you lost or gained."""
         story = self.query_one("#story")
@@ -377,6 +385,12 @@ class GameScreen(Screen):
                      else f"bold {effects.INK} on {effects.COLORS[GOOD]}")
             await effects.popup(self, f" {change:+d} ♥ ", style, x, hud.y + 1, dx=4, dy=0)
             self._flash_hud("hurt" if change < 0 else "healed")
+            if change > 0:
+                sound.play("heal")
+            elif not any(e.kind == "monster_hit" for e in events):  # a blow already made its own sound
+                sound.play("hurt")
+        if gold_before is not None and player.gold > gold_before:
+            sound.play("coin")
         if how in (GREAT, AWFUL):
             await self._shake(story)
 
@@ -405,6 +419,7 @@ class GameScreen(Screen):
             steps += [("lunge", 0, False), ("lunge", 1, False), ("idle", 0, False)]
         if gone:
             steps += [("death", step, False) for step in range(DEATH_FRAMES)]
+            sound.play("kill")
         if not self._sprites_on():
             steps = [s for s in steps if s[0] == "idle"]  # ASCII art can still flash
         if steps:
@@ -439,6 +454,7 @@ class GameScreen(Screen):
         if kind is None or not self._sprites_on():
             return
         key, steps = FIXTURE_MOMENTS[kind]
+        sound.play(kind)
         story = self.query_one("#story", VerticalScroll)
         sprite = self.fixture_sprites.pop(where, None)
         if sprite is not None and sprite.is_attached and sprite.key == key:

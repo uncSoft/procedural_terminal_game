@@ -35,7 +35,8 @@ class Prop:
 
 def available_props(state: GameState, content: Content) -> list[Prop]:
     room, player = state.room, state.player
-    props = [Prop(bare(f.name), "feature", str(i), content.feature_tags(f.name)) for i, f in room.visible_features()]
+    props = [Prop(bare(f.name), "feature", str(i), content.feature_tags(f.name))
+             for i, f in room.visible_features() if not f.used]  # a prop that's done its stunt is spent
     for key in dict.fromkeys([player.weapon, *([player.armor] if player.armor else []), *player.inventory]):
         item = content.item(key)
         props.append(Prop(item.name, "item", key, item.tags))
@@ -159,6 +160,10 @@ def perform_creative(state: GameState, content: Content, intent: Intent, rng: ra
 
     if roll.success:
         player.bump("creative_win")
+        for prop in props:
+            if prop.kind == "feature":
+                room.features[int(prop.key)].used = summary
+        room.remember(f"{summary} (it worked)")
         if props:
             player.bump("flair")
             state.souls += 1

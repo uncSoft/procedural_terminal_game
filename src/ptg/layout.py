@@ -166,8 +166,9 @@ def render(state: GameState, content: Content) -> tuple[list[list[tuple[str, str
             continue
         glyph = feature_glyph(feature.name)
         x, y = feature.pos
-        rows[y][x] = (glyph, "feature_used" if feature.searched else "feature")
-        legend.append((glyph, "feature_used" if feature.searched else "feature", feature.name))
+        spent = feature.searched or bool(feature.used)
+        rows[y][x] = (glyph, "feature_used" if spent else "feature")
+        legend.append((glyph, "feature_used" if spent else "feature", feature.name))
     for key, (x, y) in zip(room.items, room.item_spots):
         item = content.item(key)
         glyph = ITEM_GLYPHS.get(item.kind, "*")

@@ -11,7 +11,7 @@ from textual.events import Click, Leave, MouseMove
 from textual.message import Message
 from textual.widgets import Static
 
-from .. import layout
+from .. import layout, sound
 from ..content import Content
 from ..events import Action, Event
 from ..glossary import Lexicon
@@ -264,6 +264,7 @@ class DiceLine(Static):
 
     async def play(self, event: Event, fast: bool = False) -> None:
         roll = event.dice
+        sound.play("dice_small")
         frames = 4 if fast else 7
         for i in range(frames):
             face = random.randint(1, 20)
@@ -274,3 +275,4 @@ class DiceLine(Static):
             await asyncio.sleep(0.03 + i * 0.012)
         self.update(roll_text(event))
         effects.flash(self, tone(event))
+        sound.play(effects.roll_sound(event))

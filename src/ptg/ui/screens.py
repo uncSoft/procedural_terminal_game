@@ -114,6 +114,13 @@ class SetupScreen(Screen):
                 yield Select([("Press Space to roll (dramatic)", "manual"), ("Roll automatically", "auto")],
                              value="auto" if config.auto_roll else "manual", allow_blank=False, id="dice",
                              compact=True)
+                yield Label("Sound (F8 turns it on and off)")
+                with Horizontal(id="setup-sound"):
+                    yield Select([("On", "on"), ("Off", "off")], value="on" if config.sound else "off",
+                                 allow_blank=False, id="sound", compact=True)
+                    yield Select([(f"{v}%", v) for v in (25, 50, 70, 100)],
+                                 value=min((25, 50, 70, 100), key=lambda v: abs(v - config.volume)),
+                                 allow_blank=False, id="volume", compact=True)
                 yield Static("", id="setup-status")
                 with Horizontal(id="setup-buttons"):
                     yield Button("Save", id="save", variant="primary")
@@ -186,6 +193,8 @@ class SetupScreen(Screen):
             "api_key": self.query_one("#api_key", Input).value.strip(),
             "auto_roll": self.query_one("#dice", Select).value == "auto",
             "art": self.query_one("#art", Select).value,
+            "sound": self.query_one("#sound", Select).value == "on",
+            "volume": self.query_one("#volume", Select).value,
         })
         self.app.save_settings(config)
 

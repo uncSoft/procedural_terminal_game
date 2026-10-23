@@ -103,10 +103,11 @@ def offline_interpret(raw: str, actions: list[Action]) -> tuple[Intent, bool]:
 
 
 async def interpret(llm: LLM | None, state: GameState, content: Content, raw: str,
-                    actions: list[Action]) -> tuple[Intent, str | None]:
-    """Returns the intent and, if the model failed, an error message for the log."""
+                    actions: list[Action], trust_keywords: bool = True) -> tuple[Intent, str | None]:
+    """Returns the intent and, if the model failed, an error message for the log. Commands the keyword matcher is
+    sure of skip the model, unless `trust_keywords` is off (when checking what the model itself makes of them)."""
     fallback, confident = offline_interpret(raw, actions)
-    if llm is None or confident:
+    if llm is None or (confident and trust_keywords):
         return fallback, None
     system, user = interpreter_messages(state, content, raw, actions)
     try:

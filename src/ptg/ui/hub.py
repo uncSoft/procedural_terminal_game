@@ -13,6 +13,7 @@ from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Static, TabbedContent, TabPane
 
+from .. import sound
 from ..content import Content, Unlock, load_content
 from ..meta import SUNGLASSES, daily_seed, share_card, souls_earned
 from ..models import GameState
@@ -279,6 +280,7 @@ class EndScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
+        sound.play("victory" if self.state.status == "won" else "death")
         self.tally()
 
     @work(exclusive=True)

@@ -129,6 +129,8 @@ def situation(state: GameState, content: Content) -> str:
         traits = ", boss" if monster_def.boss else (", intelligent" if monster_def.intelligent else ", animal-minded")
         move = {"heavy": "winding up a HEAVY attack", "guard": "about to guard", "strike": "about to attack"}[monster.intent]
         lines.append(f"Monster: {monster.name}, {monster.hp}/{monster.max_hp} HP, {mood}{traits}, {move}")
+        if monster_def.desc:
+            lines.append(f"About the {monster_def.name}: {monster_def.desc}")
         known = state.known_weak.get(monster.key)
         if known:
             lines.append(f"Known weaknesses: {', '.join(known)}")
@@ -189,6 +191,8 @@ def narrator_messages(state: GameState, content: Content, raw: str, events: list
     room_line = f"ROOM: {room.name}. Notes: {content.archetypes[room.archetype].blurb}"
     if not (arrived or opening or question):  # on arrival the facts describe it; a question gets the situation
         room_line += f" Now: {room_facts(state, content)}"
+    if room.monster and content.monster(room.monster.key).desc:  # a creature the model has never heard of
+        room_line += f" About the {room.monster.name}: {content.monster(room.monster.key).desc}"
     lines.append(room_line)
     if arrived and not first_visit and room.description:
         lines.append(f"How you described it last time (for flavour; the facts win): {room.description}")

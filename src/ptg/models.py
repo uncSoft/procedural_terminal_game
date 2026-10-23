@@ -46,6 +46,7 @@ class Feature(BaseModel):
     searched: bool = False
     hidden: bool = False
     pos: tuple[int, int] = (0, 0)
+    used: str = ""  # what a stunt did with it; once used, it's spent as a prop
 
 
 class Exit(BaseModel):
@@ -68,6 +69,7 @@ class Room(BaseModel):
     rested: bool = False
     room_searched: bool = False
     creative_uses: list[str] = Field(default_factory=list)
+    history: list[str] = Field(default_factory=list)  # what happened here, for the narrator on later visits
     description: str | None = None
     is_boss: bool = False
     fixture: Fixture = ""
@@ -79,6 +81,10 @@ class Room(BaseModel):
 
     def visible_features(self) -> list[tuple[int, Feature]]:
         return [(i, f) for i, f in enumerate(self.features) if not f.hidden]
+
+    def remember(self, note: str) -> None:
+        """Note something that happened here (the last few are kept)."""
+        self.history = (self.history + [note])[-4:]
 
 
 class Player(BaseModel):

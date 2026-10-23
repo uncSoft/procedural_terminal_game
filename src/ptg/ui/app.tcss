@@ -143,6 +143,15 @@ Clickable:hover {
     margin-top: 1;
 }
 
+#setup-sound {
+    height: auto;
+}
+
+#setup-sound Select {
+    width: 1fr;
+    margin-right: 1;
+}
+
 #setup-buttons Button {
     margin-right: 2;
 }

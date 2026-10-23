@@ -1,5 +1,6 @@
 from textual.widgets import Static
 
+from ptg import sound
 from ptg.config import Config
 from ptg.dice import Roll
 from ptg.events import Event
@@ -309,3 +310,44 @@ async def test_the_mouse_can_begin_and_end_a_run():
         await pilot.click(app.screen.query(".end-hint Clickable").first())
         await pilot.pause(0.3)
         assert isinstance(app.screen, HubScreen)
+
+
+async def test_the_moments_make_sounds(monkeypatch):
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        from conftest import Recorder, put_monster
+
+        monkeypatch.delenv("PTG_SOUND", raising=False)
+        speakers = Recorder()
+        monkeypatch.setattr(sound, "_sound", sound.Sound(True, 1.0, player=speakers))
+        put_monster(screen.game.state, screen.game.content, key="orc", hp=200)
+        screen.refresh_panels()
+        await pilot.press(*"attack", "enter")
+        await settle(app, pilot)
+        heard = speakers.moments
+        assert heard[:2] == ["select", "dice_small"] and {"hit", "crit_hit", "miss", "awful"} & set(heard)
+        await pilot.press("f2")
+        await pilot.pause(0.3)
+        await pilot.click("#close")
+        await pilot.pause(0.2)
+        assert speakers.moments[-2:] == ["open", "close"]
+
+
+async def test_items_drawn_in_the_maker_show_their_art(monkeypatch):
+    from rich.text import Text
+
+    from ptg.ui import panels
+
+    monkeypatch.setattr(panels, "sprite_text", lambda key, width=24: Text("<ART>") if key.startswith("item_") else None)
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        key = screen.game.state.player.inventory[0]
+        screen.action_lookup(f"item:{key}")
+        await pilot.pause(0.3)
+        assert "<ART>" in str(app.screen.query_one(".panel-box Static").render())
+        await pilot.press("escape")
+        await pilot.press("f2")
+        await pilot.pause(0.3)
+        assert "<ART>" in str(app.screen.query_one("#inv-detail").render())

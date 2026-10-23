@@ -4,6 +4,7 @@
     flash     the line lights up in that colour and fades
     pulse     a panel's border lights up for a moment (and blinks for a natural 20 or 1)
     popup     a number or word drifts away from where it happened: damage off the monster, HP by your hearts
+    sounds    which of ptg.sound's moments a roll or an event plays
 """
 
 from __future__ import annotations
@@ -15,11 +16,31 @@ from textual.screen import Screen
 from textual.widget import Widget
 from textual.widgets import Static
 
-from ..outcome import AWFUL, BAD, GOOD, GREAT, NEUTRAL, TONES
+from ..events import Event
+from ..outcome import AWFUL, BAD, GOOD, GREAT, NEUTRAL, TONES, tone
 
 COLORS = {GREAT: "#ffd166", GOOD: "#4cff8a", NEUTRAL: "#c8c8e0", BAD: "#ff4b4b", AWFUL: "#ff2a6d"}
 ICONS = {GREAT: "★", GOOD: "✔", NEUTRAL: "•", BAD: "✘", AWFUL: "✖"}
 INK = "#10122a"
+
+# What happens (that isn't a roll) and the sound it makes. Rolls go by roll_sound().
+EVENT_SOUNDS = {
+    "enter": "step", "flee": "step", "locked": "locked", "unlock": "unlock", "telegraph": "windup", "stun": "stun",
+    "find": "item", "take": "item", "loot": "item", "equip": "item", "key": "item", "fate": "fate", "trait": "fate",
+    "pacify": "good", "exploit": "good",
+}
+
+
+def roll_sound(event: Event) -> str:
+    """The sound a roll makes when its result shows: what happened if it's a blow, otherwise how it went."""
+    how = tone(event)
+    if event.kind == "hit":
+        return "crit_hit" if how == GREAT else "hit"
+    if event.kind == "monster_hit":
+        return "hurt"
+    if event.dice.actor == "player" and how in (GREAT, AWFUL):
+        return how
+    return {"miss": "miss", "monster_miss": "dodge", "evade": "dodge", "secret": "secret"}.get(event.kind, how)
 
 
 def rgb(tone: str) -> tuple[int, int, int]:

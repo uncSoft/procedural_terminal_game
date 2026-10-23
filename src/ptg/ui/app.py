@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from textual import work
 from textual.app import App
+from textual.binding import Binding
 
+from .. import sound
 from ..config import Config, load_game, save_config
 from ..content import load_content
 from ..game import Game
@@ -20,6 +22,7 @@ from .theme import CRT
 class PTGApp(App):
     CSS_PATH = "app.tcss"
     TITLE = "Procedural Terminal Game"
+    BINDINGS = [Binding("f8", "toggle_sound", "Sound")]
 
     def __init__(self, config: Config | None, seed: int | None = None, setup: bool = False,
                  resume: bool = False, daily: bool = False, event: str | None = None) -> None:
@@ -35,6 +38,7 @@ class PTGApp(App):
     def on_mount(self) -> None:
         self.register_theme(CRT)
         self.theme = "crt"
+        sound.configure(self.config.sound, self.config.volume / 100)
         self.push_screen(TitleScreen())
         if self.needs_setup:
             self.push_screen(SetupScreen(self.config))
@@ -46,8 +50,19 @@ class PTGApp(App):
     def save_settings(self, config: Config) -> None:
         self.config = config
         save_config(config)
+        sound.configure(config.sound, config.volume / 100)
         self.pop_screen()
         self.notify(f"Narrator: {describe_backend(config)}", title="Settings saved")
+
+    def action_toggle_sound(self) -> None:
+        self.config = self.config.model_copy(update={"sound": not self.config.sound})
+        save_config(self.config)
+        engine = sound.configure(self.config.sound, self.config.volume / 100)
+        if self.config.sound and not engine.enabled:
+            self.notify("PTG_SOUND=0 is keeping it off.", title="Sound on")
+        else:
+            self.notify("" if self.config.sound else "F8 to turn it back on.",
+                        title="Sound on" if self.config.sound else "Sound off", timeout=3)
 
     async def connect(self, quiet: bool = False) -> LLM | None:
         try:

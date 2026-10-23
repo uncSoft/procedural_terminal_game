@@ -20,6 +20,7 @@ from ..glossary import Lexicon
 from ..game import Game
 from ..models import LogEntry
 from ..outcome import AWFUL, BAD, GOOD, GREAT, overall, tone, verdict
+from ..room_picture import look_of, picture_text
 from ..sprites import DEATH_FRAMES, SMALL, frame_count
 from . import effects
 from .dice import DiceScreen
@@ -40,6 +41,7 @@ FIXTURE_MOMENTS = {
 
 # Idle frames for a fixture waiting to be used (a chest stays shut, with the odd glint).
 ARRIVAL_LOOPS = {"chest": [0, 0, 0, 1]}
+ROOM_CARD = (72, 30)  # the picture of a room you walk into, in pixels: the most the story is given
 # how an item came your way this turn; when an item comes more than one way, the first of these is shown
 LOOT_LABELS = {"equip": "equipped", "find": "found", "key": "found", "take": "picked up", "drop": "dropped"}
 
@@ -233,6 +235,7 @@ class GameScreen(Screen):
     async def _opening(self) -> None:
         state = self.game.state
         self.add_floor_header(f"Floor {state.floor} of {state.floors_total}", self.game.theme.name)
+        self._room_card()
         narration, on_text = self._narration_sink()
         result = await self.game.opening(on_text)
         narration.update(highlight(result.narration, self.lexicon()))
@@ -291,6 +294,8 @@ class GameScreen(Screen):
         await self._loot_moment(pending.events, narration)
         if any(e.kind == "descend" for e in pending.events):
             self._new_floor(narration)
+        if any(e.kind in ("enter", "descend") and e.data.get("first") for e in pending.events):
+            self._room_card(before=narration)
         self.refresh_panels()
 
         result = await game.finish(on_text)
@@ -508,6 +513,28 @@ class GameScreen(Screen):
     async def _sparkle(sprite: AnimatedSprite) -> None:
         await sprite.play([(0, "idle", True), (0, "idle", False), (1, "idle", True), (0, "idle", False)], delay=0.08)
         sprite.resume()
+
+    def _room_card(self, before: Widget | None = None) -> None:
+        """The room you've just walked into for the first time, as a picture above what the narrator makes of it
+        (see room_picture): as wide as the story allows, up to ROOM_CARD."""
+        if not self._sprites_on():
+            return
+        state = self.game.state
+        story = self.query_one("#story", VerticalScroll)
+        # less the card's border and room for a scrollbar: a line wider than the story would wrap
+        space = (story.scrollable_content_region.width or self.app.size.width - 36) - 3
+        width = min(ROOM_CARD[0], space)
+        if width < 36:
+            return
+        art = picture_text(state, self.game.content, width, 2 * round(width * ROOM_CARD[1] / ROOM_CARD[0] / 2))
+        if art is None:
+            return
+        card = Vertical(Static(art, classes="room-art"), classes="room-card")
+        card.border_title = f"✦ {state.room.name}"
+        card.styles.border = ("round", look_of(state.theme).accent)
+        card.styles.border_title_color = look_of(state.theme).accent
+        story.mount(Horizontal(card, classes="room-row"), before=before)
+        story.scroll_end(animate=False)
 
     def _arrival_sprite(self, events: list[Event]) -> None:
         """Arriving somewhere with a shrine, chest, fountain or stairs: show it, alive."""

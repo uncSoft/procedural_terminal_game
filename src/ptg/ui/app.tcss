@@ -257,6 +257,26 @@ Clickable:hover {
     text-align: center;
 }
 
+.room-row {
+    height: auto;
+    margin-top: 1;
+    align-horizontal: center;
+}
+
+.room-card {
+    width: auto;
+    height: auto;
+    border: round $primary;
+    border-title-style: bold;
+}
+
+.room-art {
+    width: auto;
+    height: auto;
+    text-wrap: nowrap;  /* on a terminal made smaller later, a picture is cropped, not wrapped into a mess */
+    text-overflow: clip;
+}
+
 .loot-row {
     height: auto;
     margin-top: 1;

@@ -2,7 +2,8 @@
 # description used when no language model is available, `features` are
 # things in the room the player can search, and `decor` picks how the room's
 # map is painted (water, pillars, bones, rubble, tables, cages, junk, fungus,
-# roots, plants, shelves, furniture, pool, embers).
+# roots, plants, shelves, furniture, pool, embers). Add `sky` for a room open
+# to the sky: its picture shows broken walls under the stars.
 
 # --- The Sunken Crypt -------------------------------------------------------
 
@@ -131,7 +132,7 @@ blurb = "A broken brass orrery hangs from the domed ceiling. Moss has grown into
 features = ["the brass orrery", "a star chart table", "a telescope stand"]
 
 [archetype.greenhouse]
-decor = "plants"
+decor = "plants sky"
 names = ["Greenhouse", "Glass Garden"]
 blurb = "Shattered glass panes overhead. The plants in here are far too large and far too awake."
 features = ["a potting bench", "a glass cloche", "a tangle of creepers"]
@@ -143,7 +144,7 @@ blurb = "Shelves have toppled like dominoes. The books have sprouted."
 features = ["a sprouting bookshelf", "a reading lectern", "a toppled card catalog"]
 
 [archetype.fountain_court]
-decor = "pool plants"
+decor = "pool plants sky"
 names = ["Fountain Court", "Moonwell"]
 blurb = "A dry fountain in a courtyard open to the sky. Petals drift down like slow snow."
 features = ["the dry fountain", "a mossy bench", "a wishing basin"]
@@ -155,7 +156,7 @@ blurb = "Every surface is furred with pale mould. Each step releases a puff of g
 features = ["a mould-covered chest", "a puffing fungus", "a skeleton wrapped in mycelium"]
 
 [archetype.statue_garden]
-decor = "pillars plants"
+decor = "pillars plants sky"
 names = ["Statue Garden", "Hall of Wardens"]
 blurb = "Elven statues stand guard, each one strangled by flowering vines."
 features = ["a statue with an outstretched hand", "a vine-covered plinth", "a broken sword in the soil"]

@@ -18,10 +18,13 @@ from .. import glossary, layout, loot, sound
 from ..content import Content, Theme
 from ..game import Game
 from ..meta import epithet
+from ..room_picture import picture_text
 from ..rules import TRAITS
 from ..sprites import sprite_text
 from .theme import PERK_COLORS
 from .widgets import Clickable, blank_art, item_note, item_tile, map_text, portrait, room_text
+
+LOOK_PICTURE = 76  # how wide the Look panel draws the room: the panel, less its border, padding and scrollbar
 
 HELP = """\
 HOW TO PLAY
@@ -271,7 +274,8 @@ class LookScreen(Panel):
     def compose(self) -> ComposeResult:
         state, content = self.game.state, self.game.content
         room = state.room
-        body = room_text(state, content)
+        picture = self.picture()
+        body = picture or room_text(state, content)  # the floor plan goes last when there's a picture
         body.append("\n\n")
         body.append(room.description or content.archetypes[room.archetype].blurb, style="#c8c8e0")
         body.append("\n\nExits: ", style="bold")
@@ -282,9 +286,20 @@ class LookScreen(Panel):
                 dest.fixture if dest.fixture and not dest.fixture_used else "unexplored"))
             exits.append(f"{direction} ({note})")
         body.append(", ".join(exits))
+        if picture:
+            body.append("\n\n")
+            body.append_text(room_text(state, content))
         with VerticalScroll(classes="panel-box") as box:
             box.border_title = f"{room.name} · floor {state.floor}"
             yield Static(body)
+
+    def picture(self) -> Text | None:
+        """The room as you see it (see room_picture), as wide as the panel and as tall as the screen allows."""
+        width = min(LOOK_PICTURE, self.app.size.width - 8)  # a wider line would wrap, and a picture can't
+        if self.game.config.art != "sprites" or width < 36:
+            return None
+        rows = max(10, min(20, self.app.size.height - 28))
+        return picture_text(self.game.state, self.game.content, width, 2 * rows)
 
 
 class MapScreen(Panel):

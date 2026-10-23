@@ -53,6 +53,7 @@ It scores ten typed commands and five narrated moments, shows what the guard wou
 - **Weaknesses.** Everything is weak to something: fire, holy, shiny, food, heavy, slippery... Turn the right prop on a monster to roll with advantage and hit harder. Once you discover a weakness, the bestiary remembers it forever.
 - **A suggested trick.** The last choice (✦, in pink) is a creative idea built from what's actually in the room, so new players learn they can improvise.
 - **Loot you can see.** What you find, pick up or see a monster drop appears in the story with its art, and the inventory (F2) shows everything you carry as tiles: arrows pick one, Enter uses it.
+- **Rooms you can see.** The first time you walk into a room, the story shows it as you see it from the doorway, a pixel-art picture drawn from the room itself: its exits, decor, features, any monster and whatever's lying on the floor. Look (F4) shows it bigger.
 
 **Every run (about 25-40 minutes)**
 - Three floors, three different dungeons, getting harder, with a boss at the bottom.
@@ -132,6 +133,21 @@ puts them there. Without one, the big sprite is halved block by block, which kee
 The debug screen (F12) shows every small version beside the big one, and lists the items still being halved.
 An item with no art at all shows a plain grey stand-in for its kind (a blade, a jerkin, a loaf, a key...), and its
 inventory card says it has no picture yet.
+
+**Room pictures.** The picture of a room (in the story when you first walk in, and in Look) is drawn in code
+(`room_picture.py`), not from art files, so every room the game makes has one. It's the view from the door you came
+in by, in one-point perspective and in the dungeon's own look: the Crypt's bricks and candles, the Warren's earth,
+timber and torches, the Ruins' marble. Exits are doorways in their walls (dark if unexplored, planked if locked); the
+room map's decor stands where the map has it (water, pillars, tables, cages, plants, fungus...); each feature is a
+small prop of its kind, from its name ("a half-sunken pew", "the throne of chairs"); the fixture, monster and items
+are their own sprites; and candles, torches and glowing things light what's near them. Add `sky` to a room's `decor`
+in `rooms.toml` and its walls stand broken under the stars. Every colour is one the sprites already use, so the
+pictures don't strain a GPU terminal's glyph cache. A new dungeon borrows the Crypt's look until it's given one
+(`LOOKS` in `room_picture.py`).
+
+```bash
+uv run python -m ptg.room_picture 7     # every room on the first floor of seed 7, in your terminal
+```
 
 ## The Monster & Item Maker
 
@@ -272,7 +288,7 @@ The first launch opens Settings: pick LM Studio, Ollama, another OpenAI-compatib
 | F1 | `help` | how to play |
 | F2 | `i` | inventory: what you carry, with its art (arrows pick, Enter uses) |
 | F3 | `c` | character: perks, traits and progress toward the next one |
-| F4 | `l` | the room's floor plan |
+| F4 | `l` | the room: its picture, description, exits and floor plan |
 | F5 | `m` | the floor map and the whole descent |
 | F6 | `b` | bestiary: art, kills, discovered weaknesses, lore |
 | F7 | `j` | journal |
@@ -348,6 +364,7 @@ src/ptg/
   profile.py       SQLite: souls, unlocks, Hall of Legends, bestiary, ghosts, turn log
   meta.py          building the adventurer from unlocks, starting runs, scoring the end
   sprites.py       PNG sprites rendered as half-block pixel art, and their poses
+  room_picture.py  pictures of rooms, seen from the doorway, drawn in code from the room itself
   dice_art.py      the pixel-art d20
   sound.py         8-bit sound effects: the sound bank, your own sounds, and playing them
   library.py       the Monster & Item Maker's library: export it, and import what's made there

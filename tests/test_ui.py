@@ -289,6 +289,10 @@ async def test_a_new_floor_waits_for_you():
         assert isinstance(app.screen, GameScreen) and game.state.floor == 2
         assert len(screen.query(".floor-header")) == 2
         assert [e.kind for e in game.state.log].count("floor") == 2
+        lines = list(screen.query_one("#story").children)
+        header, card = screen.query(".floor-header").last(), screen.query(".room-card").last()
+        assert str(card.border_title) == f"✦ {game.state.room.name}"  # the new floor's first room, under its banner
+        assert lines.index(header) < lines.index(card.parent)
 
 
 async def test_the_mouse_can_begin_and_end_a_run():
@@ -400,6 +404,54 @@ async def test_found_loot_shows_with_its_art():
         art = card.query_one(AnimatedSprite)
         assert art.key == "item_superior_healing_potion" and art.width == SMALL  # its hand-made small version
         assert "Superior Healing Potion" in str(card.query_one(".loot-text", Static).render())
+
+
+async def test_a_room_you_walk_into_is_pictured_once():
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        state = screen.game.state
+        story = screen.query_one("#story")
+        [card] = screen.query(".room-card")
+        assert str(card.border_title) == f"✦ {state.room.name}" and "▀" in str(card.query_one(Static).render())
+        lines = list(story.children)
+        narration = next(w for w in lines if w.has_class("narration"))
+        assert lines.index(card.parent) < lines.index(narration)  # the picture, then the words
+        for room in state.rooms:
+            room.monster = None
+        go = next(n for n, a in enumerate(screen.game.choices(), 1)
+                  if a.id.startswith("go:") and not state.room.exits[a.id[3:]].locked)
+        came_from = state.room.name
+        await pilot.press(*str(go), "enter")
+        await settle(app, pilot)
+        assert [str(c.border_title) for c in screen.query(".room-card")] == [f"✦ {came_from}", f"✦ {state.room.name}"]
+        back = next(n for n, a in enumerate(screen.game.choices(), 1)
+                    if a.id.startswith("go:") and state.rooms[state.room.exits[a.id[3:]].to].name == came_from)
+        await pilot.press(*str(back), "enter")
+        await settle(app, pilot)
+        assert len(screen.query(".room-card")) == 2  # been here before: no new picture
+
+
+async def test_look_shows_the_room_as_a_picture():
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        await into_a_run(app, pilot)
+        await pilot.press("f4")
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, LookScreen)
+        lines = str(app.screen.query_one(".panel-box Static").render()).split("\n")
+        assert set(lines[0]) <= set("▀▄ ") and len(lines[0]) <= 76  # the picture first, never wider than the panel
+        assert any("@" in line for line in lines[20:])  # and the floor plan after the words
+
+
+async def test_no_room_pictures_in_ascii_mode():
+    app = PTGApp(Config(backend="offline", player_name="T", art="ascii"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        assert not screen.query(".room-card")
+        await pilot.press("f4")
+        await pilot.pause(0.3)
+        assert str(app.screen.query_one(".panel-box Static").render()).startswith("#")  # the floor plan, as ever
 
 
 async def test_ctrl_l_wipes_the_terminal_and_draws_everything_again(monkeypatch):

@@ -20,11 +20,15 @@ from ..game import Game
 from ..meta import epithet
 from ..room_picture import picture_text
 from ..rules import TRAITS
-from ..sprites import sprite_text
+from ..sprites import frame_count, sprite_text
 from .theme import PERK_COLORS
-from .widgets import Clickable, blank_art, item_note, item_tile, map_text, portrait, room_text
+from .widgets import (AnimatedSprite, Clickable, blank_art, item_note, item_tile, map_text, portrait, power_lines,
+                      room_text)
+
+IDLE = 0.6  # seconds a monster's frame lasts in a panel (as in the sidebar)
 
 LOOK_PICTURE = 76  # how wide the Look panel draws the room: the panel, less its border, padding and scrollbar
+USES = ("use", "throw", "distract", "reveal")  # the actions that do something with a thing you carry
 
 HELP = """\
 HOW TO PLAY
@@ -43,6 +47,9 @@ The game decides what's possible and rolls the dice; the narrator only describes
 ♥ WEAK      Monsters have weaknesses (fire, holy, shiny, food...). Find them, and the bestiary remembers.
 ↓ FLOORS    Three floors, each a different dungeon. Find the stairs, then the key, then the boss.
 ☽ SOULS     Souls carry over when you die. Spend them at the campfire on blessings and gifts.
+● BOMBS     Every floor hides a sealed secret room, in a gap that touches two rooms or more: bomb the wall
+            to it (search next to it for a draft). ⚷ Small keys open chests; or pick the lock, or smash it.
+» ASK       A creature that's stopped fighting may know what's hidden on its floor: ask it, or watch it.
 ✧ SECRETS   Some moments are written by hand and hidden in the dungeon: a place, a word, a deed.
             The Book of Secrets at the campfire counts the ones you've found.
 ◆ WORDS     Coloured names in the story (monsters, items, things in the room): hover for a hint, click for
@@ -54,8 +61,10 @@ KEYS (or type the word)
   F1     this help      F8     sound on/off       Esc  title (your game is saved)    Ctrl+Q  quit
   F12    debug: the library, art, sounds, story, the game's state, and a model check
   Ctrl+L redraw the screen (if letters or art ever come out garbled)
+  n s e w  go north, south, east or west
 
-MOUSE   Click a choice, a coloured word, or the dice (once to roll, again to carry on).
+MOUSE   Click a choice, a coloured word, a picture (for its card), or the dice (once to roll, again to carry on).
+        The arrows beside the choices take you through a door: lit where there is one.
         Close any panel with its ✕ or a click outside it.
 """
 
@@ -143,7 +152,11 @@ class InventoryScreen(Panel):
 
     def compose(self) -> ComposeResult:
         content, player = self.game.content, self.game.state.player
-        usable = {a.id: a for a in self.game.actions if a.id.startswith("use:")}
+        usable = {}  # an item's action right now: drink or eat it, throw it, distract with it, light the room
+        for action in self.game.actions:
+            verb, _, key = action.id.partition(":")
+            if verb in USES and key not in usable:
+                usable[key] = action
         items = [(player.weapon, f"in hand · {content.item(player.weapon).damage}", None, True)]
         if player.armor:
             items.append((player.armor, f"worn · +{content.item(player.armor).defense} defense", None, True))
@@ -152,7 +165,7 @@ class InventoryScreen(Panel):
             counts[key] = counts.get(key, 0) + 1
         for key, count in counts.items():
             note = (f"×{count} · " if count > 1 else "") + item_note(content, key)
-            items.append((key, note, usable.get(f"use:{key}"), False))
+            items.append((key, note, usable.get(key), False))
         self.items = items
         sprites = self.game.config.art == "sprites"
         width = min(100, self.app.size.width)  # fewer tiles to a row on a narrow terminal, and smaller art
@@ -194,6 +207,7 @@ class InventoryScreen(Panel):
         text.append(item_note(content, key) + might + "\n", style="#c8c8e0")
         if equipped:
             text.append("in your hand\n" if item.kind == "weapon" else "you're wearing it\n", style="#ffb000")
+        text.append_text(power_lines(content, key))
         if item.desc:
             text.append("\n" + item.desc + "\n", style="italic #c8c8e0")
         if item.tags:
@@ -332,7 +346,8 @@ class BestiaryScreen(Panel):
             box.border_title = f"Bestiary · {len(self.entries)} of {len(content.monsters)} discovered"
             names = [ListItem(Label(content.monster(k).name)) for k, _ in self.entries if k in content.monsters]
             yield ListView(*names, id="beast-list")
-            yield VerticalScroll(Static("", id="beast-detail"))
+            yield VerticalScroll(AnimatedSprite("", interval=IDLE, id="beast-art", classes="panel-sprite"),
+                                 Static("", id="beast-detail"))
 
     def on_mount(self) -> None:
         if self.entries:
@@ -348,8 +363,15 @@ class BestiaryScreen(Panel):
         content = self.game.content
         key, entry = self.entries[index]
         monster = content.monster(key)
-        text = portrait(key, content, self.game.config.art == "sprites")
-        text.append("\n\n")
+        animated = self.game.config.art == "sprites" and frame_count(key) > 0
+        art = self.query_one("#beast-art", AnimatedSprite)
+        art.display = animated
+        if animated:
+            art.become(key)
+            text = Text()
+        else:  # ASCII art, or no sprite yet
+            text = portrait(key, content, False)
+            text.append("\n\n")
         text.append(f"{monster.name}\n", style="bold #ffb000")
         if monster.desc:
             text.append(monster.desc + "\n", style="#c8c8e0")
@@ -482,12 +504,15 @@ class InfoScreen(Panel):
         self.game = game
         self.term_id = term_id
         self.action_id: str | None = None
+        self.sprite = ""  # a monster's sprite, animated above the card
 
     def compose(self) -> ComposeResult:
         kind, _, ref = self.term_id.partition(":")
         body, title = getattr(self, f"_{kind}", self._unknown)(ref)
         with VerticalScroll(classes="panel-box") as box:
             box.border_title = title
+            if self.sprite:
+                yield AnimatedSprite(self.sprite, interval=IDLE, classes="panel-sprite")
             yield Static(body)
             if self.action_id:
                 label = next(a.label for a in self.game.choices() if a.id == self.action_id)
@@ -503,8 +528,11 @@ class InfoScreen(Panel):
         content, state = game.content, game.state
         monster = content.monster(key)
         entry = game.profile.bestiary().get(key, {})
-        text = portrait(key, content, game.config.art == "sprites")
-        text.append("\n\n")
+        if game.config.art == "sprites" and frame_count(key):
+            self.sprite, text = key, Text()
+        else:  # ASCII art, or no sprite yet
+            text = portrait(key, content, False)
+            text.append("\n\n")
         text.append(glossary.monster_summary(state, content, key, entry) + "\n", style="bold #ffb000")
         if monster.desc:
             text.append(monster.desc + "\n", style="#c8c8e0")
@@ -526,13 +554,14 @@ class InfoScreen(Panel):
             text.append("\n\n")
         text.append(item.name + "\n", style="bold #4cff8a")
         text.append(glossary.item_summary(self.game.content, key) + "\n\n", style="#9a9cc0")
+        text.append_text(power_lines(self.game.content, key))
         text.append(item.desc, style="#c8c8e0")
         ideas = [TAG_IDEAS[t] for t in item.tags if t in TAG_IDEAS]
         if ideas:
             text.append("\n\nIdeas: " + "; ".join(ideas[:3]), style="#ff4f9a")
-        self._available(f"use:{key}")
-        if not self.action_id:
-            self._available(f"take:{key}")
+        for verb in (*USES, "take"):
+            if not self.action_id:
+                self._available(f"{verb}:{key}")
         return text, "Item"
 
     def _feature(self, ref: str) -> tuple[Text, str]:
@@ -554,10 +583,15 @@ class InfoScreen(Panel):
         return text, "In the room"
 
     def _fixture(self, ref: str) -> tuple[Text, str]:
-        text = Text(ref.title() + "\n\n", style="bold #ff4f9a")
+        text = Text()
+        art = sprite_text(ref) if self.game.config.art == "sprites" else None
+        if art is not None:
+            text.append_text(art)
+            text.append("\n\n")
+        text.append(ref.title() + "\n\n", style="bold #ff4f9a")
         text.append(glossary.FIXTURES[ref], style="#c8c8e0")
-        for action in {"stairs": ["descend"], "shrine": ["shrine_blood", "shrine_gold"], "chest": ["chest"],
-                       "fountain": ["fountain"]}.get(ref, []):
+        for action in {"stairs": ["descend"], "shrine": ["shrine_blood", "shrine_gold"],
+                       "chest": ["chest_key", "chest", "chest_smash"], "fountain": ["fountain"]}.get(ref, []):
             if not self.action_id:
                 self._available(action)
         return text, "Fixture"
@@ -565,7 +599,14 @@ class InfoScreen(Panel):
     def _room(self, ref: str) -> tuple[Text, str]:
         state, content = self.game.state, self.game.content
         room = state.rooms[int(ref)]
-        text = Text(room.name + "\n\n", style="bold #8fa8ff")
+        text = Text()
+        width = min(LOOK_PICTURE, self.app.size.width - 8)
+        if self.game.config.art == "sprites" and room.visited and width >= 36:  # only somewhere you've been
+            art = picture_text(state, content, width, 2 * max(10, min(18, self.app.size.height - 26)), room)
+            if art is not None:
+                text.append_text(art)
+                text.append("\n\n")
+        text.append(room.name + "\n\n", style="bold #8fa8ff")
         text.append(room.description or content.archetypes[room.archetype].blurb, style="#c8c8e0")
         text.append("\n\nExits: " + ", ".join(room.exits), style="#9a9cc0")
         return text, "Room"

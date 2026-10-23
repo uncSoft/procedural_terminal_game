@@ -24,6 +24,12 @@ TAKE_WORDS = {"take", "grab", "pick", "get", "loot", "collect"}
 USE_WORDS = {"drink", "quaff", "eat", "use", "throw", "consume", "chug"}
 SEARCH_WORDS = {"search", "examine", "check", "inspect", "open", "investigate", "rummage", "look"}
 DODGE_WORDS = {"dodge", "duck", "evade", "sidestep", "roll", "jump"}
+DISTRACT_WORDS = {"distract", "wave", "shine", "squeak", "pop", "show"}
+BOMB_WORDS = {"bomb", "bombs", "blast", "blow"}
+ASK_WORDS = {"ask", "question", "inquire", "interrogate", "quiz", "pester"}
+WATCH_WORDS = {"watch", "follow", "observe", "trail"}
+TIP_WORDS = {"secret", "secrets", "hidden", "hide", "treasure", "loot", "stash", "know", "knows", "rumor", "rumors",
+             "rumour", "rumours", "gossip", "lore", "where", "tip", "tips"}
 FIXTURE_WORDS = {
     "descend": {"descend", "downstairs", "stairs"},
     "shrine_blood": {"blood", "bleed"},
@@ -64,6 +70,12 @@ def offline_interpret(raw: str, actions: list[Action]) -> tuple[Intent, bool]:
         return _action(labels[text].id), True
 
     short = len(words) <= 3
+    if BOMB_WORDS & set(words):  # "bomb the east wall", "blow up the west wall", or in a fight, "throw a bomb"
+        for word in words:
+            if f"bomb:{DIRECTION_ALIASES.get(word, word)}" in ids:
+                return _action(f"bomb:{DIRECTION_ALIASES.get(word, word)}"), True
+        if "bomb" in ids:
+            return _action("bomb"), True
     for word in words:
         direction = DIRECTION_ALIASES.get(word, word)
         if f"go:{direction}" in ids and (short or words[0] in MOVE_WORDS):
@@ -84,9 +96,19 @@ def offline_interpret(raw: str, actions: list[Action]) -> tuple[Intent, bool]:
         if match:
             return _action(match.id), True
     if words[0] in USE_WORDS:
-        match = _best_target(words, actions, "use:")
+        match = (_best_target(words, actions, "use:") or _best_target(words, actions, "throw:")
+                 or _best_target(words, actions, "reveal:"))
         if match:
             return _action(match.id), True
+    if words[0] in DISTRACT_WORDS:
+        match = _best_target(words, actions, "distract:")
+        if match:
+            return _action(match.id), True
+    if "ask" in ids:  # a calm creature: "ask the goblin about secrets", "watch the rat" (small talk isn't asking)
+        if words[0] in ASK_WORDS and (TIP_WORDS & set(words) or len(words) <= 3):
+            return _action("ask"), True
+        if words[0] in WATCH_WORDS and (_best_target(words, actions, "ask") or len(words) <= 2):
+            return _action("ask"), True
     if words[0] in SEARCH_WORDS:
         if {"room", "secret", "secrets", "hidden", "around"} & set(words) and "search_room" in ids:
             return _action("search_room"), short or "secrets" in words

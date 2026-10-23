@@ -47,4 +47,5 @@ PERK_COLORS = {"red": "#ff4b4b", "green": "#4cff8a", "cyan": "#5fe3ff", "magenta
                "yellow": "#ffd166", "blue": "#6c8cff", "white": "#e8e8f4"}
 
 MAP_STYLES = {"@": "bold #ffffff", "!": "bold #ff4b4b", "?": "#6c6f99", "#": "#6c8cff", "B": "bold reverse #ff4b4b",
-              ">": "bold #ff4f9a", "†": "bold #ff4f9a", "■": "bold #ff4f9a", "◊": "bold #ff4f9a", "=": "bold #ffb000"}
+              ">": "bold #ff4f9a", "†": "bold #ff4f9a", "■": "bold #ff4f9a", "◊": "bold #ff4f9a", "=": "bold #ffb000",
+              "{": "bold #ffd166", "}": "bold #ffd166", "✧": "bold #ffd166", "$": "bold #ffd166"}  # secrets: gold

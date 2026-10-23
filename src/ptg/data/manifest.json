@@ -1,9 +1,9 @@
 {
  "note": "Fingerprints of the shipped data. Editing the data is allowed, and noticed.",
  "files": {
-  "art.txt": "fbb1b8cd8b801a87837189799fc71276720366a6c9080aa339ed638a499eead8",
-  "items.toml": "9b865c5a6606b6bfe2945d1aac95c2ff0987e9236f38b1fb1dacfad2d74e2869",
-  "monsters.toml": "1c798ecb26e062ab352039af842dcf97ee916474295cace00b280f410c59aea6",
+  "art.txt": "60e4ca0869fc09e5b8e57e3acfd2b9ab610085d412c5861513311440c1fecdf2",
+  "items.toml": "1f89ec2b06e86e5f38a9f83e50b440d71c73f3dfb8c9e8c108d24013a8dee663",
+  "monsters.toml": "ab0a95bc81a1ed798e3857d82429c04df3f3b8267e2cbf16489b1e10d3ba8f97",
   "perks.toml": "0c2ad492ea8a516bc5a7721caed62e60d08b8bf2a80cd12abdbec3bfed44b641",
   "rooms.toml": "b87d29b256fc7acbef9856f92acde7d51ccb8c4b635bd9a3c77feb9f72004f4c",
   "splash.txt": "601a034c5bb5954ad20d2e210866b8665bacb8c99cf85df5b0d09ed09b794493",

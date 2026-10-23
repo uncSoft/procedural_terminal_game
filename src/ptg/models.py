@@ -37,6 +37,8 @@ class MonsterState(BaseModel):
     reward_mult: float = 1.0
     ghost_id: int | None = None
     ghost_of: str = ""
+    distracted: bool = False  # something has drawn its eye once this fight (a distract power)
+    asked: bool = False  # you've asked it what it knows about this floor (once: see rules._ask)
 
 
 class Feature(BaseModel):
@@ -47,6 +49,7 @@ class Feature(BaseModel):
     hidden: bool = False
     pos: tuple[int, int] = (0, 0)
     used: str = ""  # what a stunt did with it; once used, it's spent as a prop
+    told: str = ""  # who told you something's hidden here (it's on your map)
 
 
 class Exit(BaseModel):
@@ -78,6 +81,9 @@ class Room(BaseModel):
     item_spots: list[tuple[int, int]] = Field(default_factory=list)
     monster_pos: tuple[int, int] = (0, 0)
     entered_from: str = ""
+    secret: bool = False  # the floor's hidden room: no doors until a bomb makes one
+    draft: str = ""  # the wall you felt a draft through: the secret room is behind it
+    told: str = ""  # who told you about this secret room (it's on your map)
 
     def visible_features(self) -> list[tuple[int, Feature]]:
         return [(i, f) for i, f in enumerate(self.features) if not f.hidden]
@@ -97,6 +103,8 @@ class Player(BaseModel):
     level: int = 1
     xp: int = 0
     gold: int = 0
+    bombs: int = 1  # for walls with something behind them, or for monsters
+    keys: int = 0  # small keys, for chests
     weapon: str = "rusty_sword"
     armor: str | None = None
     inventory: list[str] = Field(default_factory=lambda: ["healing_potion"])
@@ -181,6 +189,8 @@ class GameState(BaseModel):
     story_seen: list[str] = Field(default_factory=list)  # story events fired this run
     marks_pending: list[str] = Field(default_factory=list)  # profile marks set this turn, not yet saved
     scene: SceneState | None = None
+    mapped_floor: int = 0  # a floor whose whole map you've been handed
+    rares: list[str] = Field(default_factory=list)  # rare items this run has turned up: each comes once
 
     @property
     def room(self) -> Room:

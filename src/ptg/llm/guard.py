@@ -73,6 +73,7 @@ class Rules:
         known += [f.name for f in room.features] + [content.item(k).name for k in room.items]
         known += [content.item(k).name for k in [player.weapon, player.armor, *player.inventory] if k]
         known += [room.monster.name, content.monster(room.monster.key).desc] if room.monster else []
+        known += room.history  # what happened here: the Rat King you killed in this room isn't made up
         if question:
             known.append(situation(state, content))
         things = sorted({i.name.lower() for i in content.items.values()} |

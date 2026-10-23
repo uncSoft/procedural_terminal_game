@@ -10,6 +10,12 @@ from functools import lru_cache
 from importlib import resources
 from typing import Callable, Literal
 
+from .powers import POWERS
+
+# Where an item with `found` may turn up (see loot.py): a chest, a hidden stash, a floor's secret room, or the warden
+# by the stairs (or any elite). An item can also name the monster that drops it.
+FOUND_IN = ("chest", "stash", "secret", "warden")
+
 
 @dataclass(frozen=True)
 class Theme:
@@ -45,6 +51,8 @@ class ItemDef:
     tier: int = 0
     tags: list[str] = field(default_factory=list)
     desc: str = ""
+    powers: list[str] = field(default_factory=list)  # what it does beyond its numbers (see powers.py)
+    found: list[str] = field(default_factory=list)  # the only places it turns up, if it's that rare (see loot.py)
 
 
 @dataclass(frozen=True)
@@ -138,7 +146,8 @@ SCHEMAS: dict[str, dict[str, tuple[str, bool]]] = {
                   "decor": ("text", False)},
     "item": {"name": ("text", True), "kind": ("item_kind", True), "damage": ("dice", False),
              "defense": ("count", False), "heal": ("count", False), "escape": ("bool", False),
-             "tier": ("count", False), "tags": ("names", False), "desc": ("text", False)},
+             "tier": ("count", False), "tags": ("names", False), "desc": ("text", False),
+             "powers": ("powers", False), "found": ("names", False)},
     "monster": {"name": ("text", True), "hp": ("positive", True), "defense": ("count", True),
                 "attack": ("int", True), "damage": ("dice", True), "xp": ("count", True), "tier": ("tier", True),
                 "tags": ("names", False), "intelligent": ("bool", False), "boss": ("bool", False),
@@ -172,6 +181,8 @@ def _value_error(kind: str, value: object) -> str:
         "item_kind": (value in ("weapon", "armor", "consumable", "key", "trinket"),
                       "must be weapon, armor, consumable, key or trinket"),
         "color": (value in COLORS, f"must be one of {', '.join(COLORS)}"),
+        "powers": (isinstance(value, list) and all(v in POWERS for v in value),
+                   f"must be a list of powers the game knows: {', '.join(POWERS)}"),
     }
     ok, message = checks[kind]
     return "" if ok else message
@@ -308,6 +319,12 @@ def _cross_check(content: Content) -> list[str]:
             problems.append(f"items.toml [item.{item.key}]: armor needs defense above 0")
         if item.kind == "consumable" and not (item.heal or item.escape):
             problems.append(f"items.toml [item.{item.key}]: a consumable needs heal or escape = true")
+        if "throw" in item.powers and not item.damage:
+            problems.append(f"items.toml [item.{item.key}]: something to throw needs damage, like \"2d4\"")
+        for place in item.found:
+            if place not in FOUND_IN and place not in content.monsters:
+                problems.append(f"items.toml [item.{item.key}]: found in {place!r}? It can be found in "
+                                f"{', '.join(FOUND_IN)}, or name a monster that drops it")
     for monster in content.monsters.values():
         if not monster.art:
             problems.append(f"art.txt: monster {monster.key} has no art (add an '=== {monster.key} ===' block)")

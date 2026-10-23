@@ -392,6 +392,12 @@ def apply(creations: list[dict], folder: Path | None = None, dry_run: bool = Fal
                     fields[special] = True
             if kind == "item" and existing[base].get("kind") == "key":
                 fields["kind"] = "key"
+            # Set in the game's own data, which the maker doesn't know: an item's powers, where it's found, and what a
+            # thrown trinket does.
+            game_only = ("powers", "found", "damage") if existing[base].get("kind") == "trinket" else ("powers", "found")
+            for name in game_only if kind == "item" else ():
+                if name not in fields and existing[base].get(name):
+                    fields[name] = existing[base][name]
         else:
             key, verb, n = slug(name), "Added", 2
             while key in taken:

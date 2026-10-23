@@ -241,3 +241,160 @@ intelligent = true
 weak = ["slippery", "water"]
 tell = "Slowly undulates in a circle"
 desc = "An unnerving beast that somehow seems both human and alien."
+
+# drawn by JT (2026-10-23)
+[monster.reliquary_hermit]
+name = "Reliquary Hermit"
+hp = 9
+defense = 14
+attack = 3
+damage = "1d6"
+xp = 12
+tier = 1
+tags = ["aquatic", "crab", "bone"]
+weak = ["heavy", "food"]
+tell = "ducks down inside its skull, every claw drawn back to spring"
+desc = "A hermit crab that outgrew its shell and moved into a bishop. It is very protective of the new place."
+
+# drawn by JT (2026-10-23)
+[monster.tallow_saint]
+name = "Tallow Saint"
+hp = 16
+defense = 11
+attack = 4
+damage = "1d8"
+xp = 25
+tier = 2
+tags = ["undead", "wax", "candle"]
+intelligent = true
+weak = ["fire", "water"]
+tell = "lifts its head as its wick flares white-hot"
+desc = "A pilgrim who prayed by candlelight so long he became the candle. He still mumbles the vespers, and he does not like to be interrupted."
+
+# drawn by JT (2026-10-23)
+[monster.goblin_stewmancer]
+name = "Goblin Stewmancer"
+hp = 14
+defense = 12
+attack = 4
+damage = "1d8"
+xp = 28
+tier = 2
+tags = ["goblinoid", "shaman", "cook"]
+intelligent = true
+weak = ["shiny", "loud"]
+tell = "bangs its ladle on its pot-helm and starts chanting into the brew"
+desc = "Goblin shamans don't study magic, they cook it. The pot on its head is the last batch that worked."
+
+# drawn by JT (2026-10-23)
+[monster.lantern_moth]
+name = "Lantern Moth"
+hp = 6
+defense = 13
+attack = 3
+damage = "1d4"
+xp = 9
+tier = 1
+tags = ["vermin", "moth", "insect"]
+weak = ["light", "fire"]
+tell = "folds its wings and dives straight at your light"
+desc = "A moth the size of a shield, drawn to your torch the way you were drawn to this dungeon. One of you is going to regret it."
+
+# drawn by JT (2026-10-23)
+[monster.mossback_warden]
+name = "Mossback Warden"
+hp = 28
+defense = 14
+attack = 5
+damage = "1d10"
+xp = 55
+tier = 3
+tags = ["giant", "plant", "stone", "golem"]
+weak = ["heavy", "slippery"]
+tell = "plants its feet, tearing roots out of the floor, and raises both fists"
+desc = "A temple guardian that stood still so long the forest mistook it for furniture. Something has just reminded it of its orders."
+
+# drawn by JT (2026-10-23)
+[monster.shriekroot]
+name = "Shriekroot"
+hp = 7
+defense = 11
+attack = 3
+damage = "1d4"
+xp = 9
+tier = 1
+tags = ["plant", "root", "turnip"]
+weak = ["fire", "loud"]
+tell = "sucks in one enormous breath, swelling to twice its size"
+desc = "A turnip with opinions and the lungs to back them up. Pull it up and it will tell you exactly how it feels about that."
+
+# drawn by JT (2026-10-23)
+[monster.living_armor]
+name = "Living Armor"
+hp = 18
+defense = 16
+attack = 4
+damage = "1d8"
+xp = 32
+tier = 2
+tags = ["aquatic", "armor", "snail", "shellfish"]
+weak = ["heavy", "fire", "salt"]
+tell = "raises its sword high, and something wet squelches inside the helmet"
+desc = "Not haunted. Infested. A colony of crypt snails moved into an old knight's armor and learned to walk it around. Reportedly delicious with garlic butter."
+
+# drawn by JT (2026-10-23)
+[monster.walking_toadstool]
+name = "Walking Toadstool"
+hp = 8
+defense = 11
+attack = 3
+damage = "1d6"
+xp = 10
+tier = 1
+tags = ["plant", "mushroom", "fungus", "spores"]
+weak = ["fire", "sharp"]
+tell = "shakes its cap, and a cloud of red spores rolls toward you"
+desc = "A toadstool that got tired of waiting for things to die near it and went looking. It smells wonderful. Do not eat the spotted ones. Probably."
+
+# drawn by JT (2026-10-23)
+[monster.fishman]
+name = "Fishman"
+hp = 16
+defense = 13
+attack = 4
+damage = "1d8"
+xp = 25
+tier = 2
+tags = ["aquatic", "fish", "fishfolk"]
+intelligent = true
+weak = ["light", "food"]
+tell = "puffs out its gills and lowers its trident for a lunge"
+desc = "Half fish, half man, entirely damp. It guards the flooded halls with a trident it found down here and a grudge it brought with it."
+
+# drawn by JT (2026-10-23)
+[monster.gelatinous_cube]
+name = "Gelatinous Cube"
+hp = 30
+defense = 8
+attack = 5
+damage = "1d10"
+xp = 50
+tier = 3
+tags = ["vermin", "ooze", "slime", "cube"]
+weak = ["fire", "shiny"]
+tell = "quivers, and everything floating inside it drifts toward you"
+desc = "The dungeon's janitor. It eats whatever is left lying around and keeps the shiny bits, which is why most adventurers meet it face-first, reaching for a coin."
+
+# drawn by JT (2026-10-23)
+[monster.rat_king]
+name = "Rat King"
+hp = 20
+defense = 11
+attack = 4
+damage = "1d8"
+xp = 30
+tier = 2
+tags = ["vermin", "beast", "rat", "swarm"]
+weak = ["food", "loud"]
+tell = "turns every one of its heads toward you at once, screeching"
+desc = "Six rats whose tails knotted together in the dark. They can't agree on which way to go, but they all agree about you."

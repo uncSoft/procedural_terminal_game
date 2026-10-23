@@ -3,14 +3,19 @@ campfire greeting. Each has a plain fallback so the game works offline."""
 
 from __future__ import annotations
 
+import re
+
 from ..content import Content
-from ..creative import available_props
+from ..creative import SPENDING, available_props
 from ..meta import fallback_epitaph
 from ..models import GameState
-from ..text import bare
+from ..text import bare, the
 from .base import LLM, LLMError
 from .narrator import clean
-from .prompts import EPITAPH_SYSTEM, LORE_SYSTEM, RECAP_SYSTEM, SUGGEST_SYSTEM, VOID_SYSTEM, situation
+from .prompts import EPITAPH_SYSTEM, LORE_SYSTEM, RECAP_SYSTEM, SUGGEST_SYSTEM, VOID_SYSTEM, suggestion_situation
+
+THROWING = SPENDING | {"roll"}  # outside a fight, a trick that starts with one of these spends what you carry
+COMMON = {"the", "and", "for", "with", "its", "his", "her", "old"}  # words in a name that don't say which thing
 
 SUGGEST_SCHEMA = {
     "type": "object",
@@ -34,21 +39,21 @@ def offline_suggestion(state: GameState, content: Content) -> str:
         weak = set(content.monster(monster.key).weak) & set(state.known_weak.get(monster.key, []))
         for prop in props:
             if weak & set(prop.tags) and "throwable" in prop.tags:
-                return f"Hurl the {prop.name} at the {name}"
+                return f"Hurl {the(prop.name)} at the {name}"
         for prop in props:
             if prop.kind == "feature" and "heavy" in prop.tags:
-                return f"Topple the {prop.name} onto the {name}"
+                return f"Topple {the(prop.name)} onto the {name}"
         for prop in props:
             if "throwable" in prop.tags:
-                return f"Throw the {prop.name} in the {name}'s face"
+                return f"Throw {the(prop.name)} in the {name}'s face"
         if content.monster(monster.key).intelligent:
             return f"Convince the {name} you're its long-lost cousin"
         return f"Kick dust in the {name}'s eyes"
     for prop in props:
         if prop.kind == "feature" and "holy" in prop.tags:
-            return f"Kneel and pray at the {prop.name}"
+            return f"Kneel and pray at {the(prop.name)}"
         if prop.kind == "feature" and {"heavy", "paper"} & set(prop.tags):
-            return f"Look behind the {prop.name}"
+            return f"Look behind {the(prop.name)}"
     return "Listen at the walls for hidden passages"
 
 
@@ -57,11 +62,27 @@ async def suggestion(llm: LLM | None, state: GameState, content: Content) -> str
     if llm is None:
         return fallback
     try:
-        reply = await llm.complete_json(SUGGEST_SYSTEM, situation(state, content), SUGGEST_SCHEMA, max_tokens=80)
+        reply = await llm.complete_json(SUGGEST_SYSTEM, suggestion_situation(state, content), SUGGEST_SCHEMA,
+                                        max_tokens=80)
         text = str(reply.get("suggestion", "")).strip().rstrip(".")
     except (LLMError, ValueError):
         return fallback
-    return text if 3 <= len(text) <= 80 else fallback
+    return text if 3 <= len(text) <= 80 and sensible(text, state, content) else fallback
+
+
+def sensible(text: str, state: GameState, content: Content) -> bool:
+    """Whether a suggested trick names something that's really here and, outside a fight, doesn't throw or use up what
+    you carry. (A model copied its prompt's example, "Pry up the loose stones by the altar", into rooms with neither,
+    and suggested scattering a Bag of Marbles under everything.)"""
+    words = [w.rstrip("s") for w in re.findall(r"[a-z]+", text.lower())]
+    if not words or (not state.in_combat and words[0] in THROWING):
+        return False
+    props = available_props(state, content)
+    names = [p.name for p in props if state.in_combat or p.kind == "feature"]
+    names += [state.room.monster.name] if state.room.monster else []
+    here = {w.rstrip("s") for name in names for w in re.findall(r"[a-z]+", name.lower())
+            if len(w) > 2 and w not in COMMON}  # "a half-sunken pew": pew counts, "the" doesn't
+    return bool(here & set(words))
 
 
 async def lore(llm: LLM | None, content: Content, monster_key: str) -> str:
@@ -79,7 +100,8 @@ async def epitaph(llm: LLM | None, state: GameState) -> str:
     fallback = fallback_epitaph(state)
     if llm is None:
         return fallback
-    user = (f"Name: {state.player.name}. Outcome: {state.status}, {state.cause}. Level {state.player.level}, "
+    outcome = f"they won and lived ({state.cause})" if state.status == "won" else f"they died ({state.cause})"
+    user = (f"Name: {state.player.name}. Outcome: {outcome}. Level {state.player.level}, "
             f"{state.player.kills} kills, {state.turn} turns. Last moments:\n" + "\n".join(state.journal[-5:]))
     try:
         text = await _text(llm, EPITAPH_SYSTEM, user, max_tokens=80)

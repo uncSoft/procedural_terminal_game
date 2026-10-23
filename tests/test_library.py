@@ -224,6 +224,15 @@ def spoon(**fields) -> dict:
                        **fields}}
 
 
+def test_a_new_picture_keeps_what_the_game_gave_an_item(data):
+    """The maker knows an item's look and numbers; its powers and where it's found live in the game's data only."""
+    edit = {"v": 1, "type": "item", "by": "JT", "made": "2026-10-23", "base": "oil_flask", "art": drawing("#f77622"),
+            "fields": {"name": "Flask of Lamp Oil", "kind": "trinket", "tier": 1, "tags": ["fire", "liquid"]}}
+    apply([edit], data)
+    item = tomllib.loads((data / "items.toml").read_text(encoding="utf-8"))["item"]["oil_flask"]
+    assert item["powers"] == ["throw"] and item["damage"] == "2d4" and item["tags"] == ["fire", "liquid"]
+
+
 def files(folder):
     return {p.name: p.read_bytes() for p in folder.rglob("*") if p.is_file()}
 

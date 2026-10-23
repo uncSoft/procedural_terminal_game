@@ -8,15 +8,20 @@ from __future__ import annotations
 
 import random
 
-from . import dice, layout, loot
-from .combat import dodge, flee, flee_direction, fortune, monster_turn, player_attack, telegraph
+from . import dice, layout, loot, powers
+from .combat import (bomb_monster, discover, distract, dodge, flee, flee_direction, fortune, monster_turn,
+                     player_attack, telegraph, throw)
 from .content import Content, ItemDef
 from .creative import perform_creative as _creative
 from .events import Action, Event
 from .intent import Intent
-from .models import DIRECTIONS, OPPOSITE, Feature, GameState
+from .models import DELTA, DIRECTIONS, OPPOSITE, Exit, Feature, GameState, MonsterState, Room
 from .text import a, cap, the
 from .world import build_floor, monster_for, tier_for
+
+PICKUPS = {"bomb": "bombs", "small_key": "keys"}  # picked up, they go on a counter rather than in your pack
+ASK_DC = 12  # getting a calm creature to tell you what it knows (wits)
+TIP = "a tip!"  # the hint on a choice that something you were told about is here
 
 # Traits are earned by how you play: (name, style counter, threshold, what it does)
 TRAITS = {
@@ -73,19 +78,32 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
         for item in consumables:
             if item.escape or player.hp < player.max_hp:
                 verb = "Throw" if item.escape else heal_verb(item)
-                actions.append(Action(f"use:{item.key}", f"{verb} the {item.name}"))
+                actions.append(Action(f"use:{item.key}", f"{verb} {the(item.name)}"))
+        for item in (content.item(k) for k in _distinct(player.inventory)):
+            if "throw" in item.powers:
+                actions.append(Action(f"throw:{item.key}", f"Throw {the(item.name)} at {the(monster.name)}"))
+            if "distract" in item.powers and not monster.distracted:
+                actions.append(Action(f"distract:{item.key}", f"Distract {the(monster.name)} with {the(item.name)}",
+                                      "once a fight"))
+        if player.bombs:
+            actions.append(Action("bomb", f"Throw a bomb at {the(monster.name)}", f"{player.bombs} left"))
         if flee_direction(state):
             actions.append(Action("flee", "Try to flee"))
         return actions
 
     for key in _distinct(room.items):
-        actions.append(Action(f"take:{key}", f"Pick up the {content.item(key).name}"))
+        actions.append(Action(f"take:{key}", f"Pick up {the(content.item(key).name)}"))
     for index, feature in room.visible_features():
         if not feature.searched:
-            actions.append(Action(f"search:{index}", f"Search {the(feature.name)}"))
+            actions.append(Action(f"search:{index}", f"Search {the(feature.name)}", TIP if feature.told else ""))
     actions += _fixture_actions(state)
     if room.monster:
-        actions.append(Action("attack", f"Attack {the(room.monster.name)}", "it's calm"))
+        monster = room.monster
+        if not monster.asked:
+            talks = content.monster(monster.key).intelligent
+            actions.append(Action("ask", f"Ask {the(monster.name)} what it knows" if talks
+                                  else f"Watch {the(monster.name)} for a while", "wits"))
+        actions.append(Action("attack", f"Attack {the(monster.name)}", "it's calm"))
     theme = content.themes[state.theme]
     for direction in DIRECTIONS:
         exit_ = room.exits.get(direction)
@@ -107,12 +125,51 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
     if player.hp < player.max_hp:
         for item in consumables:
             if item.heal:
-                actions.append(Action(f"use:{item.key}", f"{heal_verb(item)} the {item.name}"))
+                actions.append(Action(f"use:{item.key}", f"{heal_verb(item)} {the(item.name)}"))
     if not room.room_searched:
         actions.append(Action("search_room", "Search the room for secrets"))
+        for item in (content.item(k) for k in _distinct(player.inventory)):
+            if "reveal" in item.powers:
+                actions.append(Action(f"reveal:{item.key}", f"Light up the room with {the(item.name)}",
+                                      "shows what's hidden"))
+    if player.bombs:
+        told = hidden_room_beside(state) if any(r.secret and r.told for r in state.rooms) else None
+        for direction in bombable_walls(state):
+            count = f"{player.bombs} bomb{'s' if player.bombs > 1 else ''}"
+            sign = TIP if direction == told else ("a draft!" if room.draft == direction else "")
+            actions.append(Action(f"bomb:{direction}", f"Bomb the {direction} wall",
+                                  f"{sign} · {count}" if sign else count))
     if not room.rested and player.hp < player.max_hp:
         actions.append(Action("rest", "Rest a while", "risky"))
     return actions
+
+
+def bombable_walls(state: GameState) -> list[str]:
+    """The walls worth a bomb here: no door, and beyond them a gap in the floor's map that touches two rooms or more.
+    That's the only kind of place a floor's secret room is ever built, so a careful player can work out where it is.
+    There's one a floor: once it's open, no wall is worth a bomb."""
+    if any(r.secret and r.exits for r in state.rooms):
+        return []
+    room = state.room
+    taken = {(r.x, r.y) for r in state.rooms if not r.secret or r.exits}  # a sealed secret room still looks a gap
+    walls = []
+    for direction in DIRECTIONS:
+        dx, dy = DELTA[direction]
+        cell = (room.x + dx, room.y + dy)
+        if direction not in room.exits and cell not in taken and \
+                sum((cell[0] + ex, cell[1] + ey) in taken for ex, ey in DELTA.values()) >= 2:
+            walls.append(direction)
+    return walls
+
+
+def hidden_room_beside(state: GameState) -> str | None:
+    """The direction of a sealed secret room on the other side of one of this room's walls, if there is one."""
+    room = state.room
+    for direction in bombable_walls(state):
+        dx, dy = DELTA[direction]
+        if any(r.secret and not r.exits and (r.x, r.y) == (room.x + dx, room.y + dy) for r in state.rooms):
+            return direction
+    return None
 
 
 def _fixture_actions(state: GameState) -> list[Action]:
@@ -129,7 +186,13 @@ def _fixture_actions(state: GameState) -> list[Action]:
             actions.append(Action("shrine_gold", "Offer 10 gold at the shrine", "full heal"))
         return actions
     if room.fixture == "chest":
-        return [Action("chest", "Open the iron-bound chest", "trapped?")]
+        actions = []
+        if player.keys:
+            actions.append(Action("chest_key", "Unlock the chest with a small key",
+                                  f"{player.keys} key{'s' if player.keys > 1 else ''}"))
+        actions.append(Action("chest", "Pick the chest's lock", "agility · trapped?"))
+        actions.append(Action("chest_smash", "Smash the chest open", "might · it may break"))
+        return actions
     if room.fixture == "fountain":
         return [Action("fountain", "Drink from the strange fountain", "roll the dice")]
     return []
@@ -162,14 +225,24 @@ def perform(state: GameState, content: Content, action_id: str) -> list[Event]:
     elif verb == "search":
         events = _search_feature(state, content, state.room.features[int(arg)])
     elif verb == "search_room":
-        events = _search_room(state, rng)
+        events = _search_room(state, content, rng)
     elif verb == "use":
         events, took_turn = _use(state, content, rng, arg)
+    elif verb == "bomb":
+        events = _bomb_wall(state, content, arg) if arg else bomb_monster(state, content, rng)
+    elif verb == "throw":
+        events = throw(state, content, rng, arg)
+    elif verb == "distract":
+        events = distract(state, content, arg)
+    elif verb == "reveal":
+        events = _reveal(state, content, arg)
     elif verb == "flee":
         events = flee(state, content, rng)
     elif verb == "rest":
         events = _rest(state, content, rng)
-    elif verb in ("shrine_blood", "shrine_gold", "chest", "fountain"):
+    elif verb == "ask":
+        events = _ask(state, content, rng)
+    elif verb in ("shrine_blood", "shrine_gold", "chest", "chest_key", "chest_smash", "fountain"):
         events = _fixture(state, content, rng, verb)
     elif verb == "descend":
         events = _descend(state, content)
@@ -281,9 +354,9 @@ def _move(state: GameState, content: Content, direction: str) -> tuple[list[Even
     if exit_.locked:
         key = content.item(content.themes[state.theme].key_item)
         if key.key not in state.player.inventory:
-            return [Event("locked", f"The door to the {direction} is locked. It looks like it needs the {key.name}.")], False
+            return [Event("locked", f"The door to the {direction} is locked. It looks like it needs {the(key.name)}.")], False
         exit_.locked = False
-        events.append(Event("unlock", f"You unlock the door to the {direction} with the {key.name}."))
+        events.append(Event("unlock", f"You unlock the door to the {direction} with {the(key.name)}."))
     return events + travel(state, content, direction, exit_.to), True
 
 
@@ -323,11 +396,14 @@ def exit_notes(state: GameState) -> str:
 
 def room_facts(state: GameState, content: Content) -> str:
     room = state.room
-    lines = []
-    features = [f"{f.name} ({layout.where(f.pos)}{'; already used: ' + f.used if f.used else ''})"
-                for _, f in room.visible_features()]
+    lines = ["A secret room, walled off until a bomb opened it."] if room.secret else []
+    features = [_feature_note(f) for _, f in room.visible_features()]
     if features:
         lines.append("In the room: " + ", ".join(features) + ".")
+    beside = hidden_room_beside(state)
+    told = next((r.told for r in state.rooms if r.secret and r.told and not r.exits), "")
+    if beside and told:
+        lines.append(f"Behind the {beside} wall is the hidden room {the(told)} told you about.")
     if room.items:
         lines.append("On the floor: " + ", ".join(content.item(k).name for k in room.items) + ".")
     if room.fixture and not room.fixture_used:
@@ -337,8 +413,8 @@ def room_facts(state: GameState, content: Content) -> str:
     if monster:
         if monster.ghost_of and state.ghost:
             ghost = state.ghost
-            lines.append(f"The restless ghost of {monster.ghost_of}, the player's previous adventurer, is here and "
-                         f"hostile. In life they were {ghost.get('cause', 'killed down here')}. "
+            lines.append(f"The restless ghost of {monster.ghost_of} is here and hostile. {ghost_truth(monster)} "
+                         f"In that life they were {ghost.get('cause', 'killed down here')}. "
                          f"Their epitaph read: \"{ghost.get('epitaph', '')}\"")
         elif monster.hostile:
             elite = " It looks unusually dangerous." if monster.elite else ""
@@ -349,6 +425,22 @@ def room_facts(state: GameState, content: Content) -> str:
     if room.history:
         lines.append("Earlier here: " + "; ".join(room.history) + ".")
     return " ".join(lines)
+
+
+def ghost_truth(monster: MonsterState) -> str:
+    """Who a ghost really is, for the narrator and the interpreter: without it, a player telling their own ghost "it's
+    me" was narrated as a con."""
+    return (f"It's your own ghost: {monster.ghost_of} was the adventurer you played before, in a life that ended on "
+            "this floor. Anything you say about having been them, or knowing them, is true.")
+
+
+def _feature_note(feature: Feature) -> str:
+    notes = [layout.where(feature.pos)]
+    if feature.used:
+        notes.append(f"already used: {feature.used}")
+    if feature.told and not feature.searched:
+        notes.append(f"{the(feature.told)} said something's hidden here")
+    return f"{feature.name} ({'; '.join(notes)})"
 
 
 def _descend(state: GameState, content: Content) -> list[Event]:
@@ -362,19 +454,42 @@ def _descend(state: GameState, content: Content) -> list[Event]:
     text = (f"You descend from {old_theme} into floor {state.floor}: {theme.name}. {theme.blurb} "
             f"You arrive in {the(room.name)}. {room_facts(state, content)}{goal} +10 souls.")
     journal = f"You went down to floor {state.floor}, {theme.name}, arriving in {the(room.name)}."
-    return [Event("descend", text, data={"first": True, "room": room.id, "floor": state.floor, "journal": journal})]
+    events = [Event("descend", text, data={"first": True, "room": room.id, "floor": state.floor, "journal": journal})]
+    player = state.player
+    for item in powers.holders(state, content, "cursed"):
+        player.max_hp = max(10, player.max_hp - 2)
+        player.hp = min(player.hp, player.max_hp)
+        events.append(Event("curse", f"{cap(the(item.name))} grows heavier on the stairs. Your most HP falls to "
+                                     f"{player.max_hp}."))
+    for item in powers.holders(state, content, "prophecy"):
+        if player.fate < player.max_fate():
+            player.fate += 1
+            events.append(Event("fate", f"{cap(the(item.name))} saw this coming: you gain a Fate token "
+                                        f"({player.fate}/{player.max_fate()})."))
+    return events
 
 
 # --- items and searching -----------------------------------------------------
 
 def gain_item(state: GameState, content: Content, key: str) -> list[Event]:
     player, item = state.player, content.item(key)
+    if key in PICKUPS:
+        count = getattr(player, PICKUPS[key]) + 1
+        setattr(player, PICKUPS[key], count)
+        return [Event("take", f"You take {the(item.name)} ({count} now).", data={"item": key})]
+    if "mapper" in item.powers and state.mapped_floor != state.floor:
+        state.mapped_floor = state.floor
+        player.inventory.append(key)
+        return [Event("take", f"You take {the(item.name)}.", data={"item": key}),
+                Event("map", f"Somehow {the(item.name)} puts the whole floor in your head: every room is on your "
+                             "map now.")]
     if item.kind == "weapon":
         current = content.item(player.weapon)
         if item.tier > current.tier:
             player.weapon = key
             state.room.items.append(current.key)  # it's on the floor, where you tossed it
-            return [Event("equip", f"You take the {item.name} ({item.damage}) and toss aside your {current.name}.",
+            state.room.remember(f"you left your old {current.name} here")  # so it isn't anyone else's
+            return [Event("equip", f"You take {the(item.name)} ({item.damage}) and toss aside your {current.name}.",
                           data={"item": key})]
     if item.kind == "armor":
         current = content.item(player.armor) if player.armor else None
@@ -382,12 +497,13 @@ def gain_item(state: GameState, content: Content, key: str) -> list[Event]:
             player.armor = key
             if current:
                 state.room.items.append(current.key)
+                state.room.remember(f"you left your old {current.name} here")
             swap = f" and leave your {current.name} behind" if current else ""
-            return [Event("equip", f"You put on the {item.name} (+{item.defense} defense){swap}.", data={"item": key})]
+            return [Event("equip", f"You put on {the(item.name)} (+{item.defense} defense){swap}.", data={"item": key})]
     player.inventory.append(key)
     if item.kind == "key":
-        return [Event("key", f"You take the {item.name}. It must open something important.", data={"item": key})]
-    return [Event("take", f"You take the {item.name}.", data={"item": key})]
+        return [Event("key", f"You take {the(item.name)}. It must open something important.", data={"item": key})]
+    return [Event("take", f"You take {the(item.name)}.", data={"item": key})]
 
 
 def _search_feature(state: GameState, content: Content, feature: Feature) -> list[Event]:
@@ -395,7 +511,7 @@ def _search_feature(state: GameState, content: Content, feature: Feature) -> lis
     state.player.bump("searched")
     events = []
     for key in feature.loot:
-        events.append(Event("find", f"You search {the(feature.name)} and find the {content.item(key).name}.",
+        events.append(Event("find", f"You search {the(feature.name)} and find {the(content.item(key).name)}.",
                             data={"item": key}))
         events += gain_item(state, content, key)
     feature.loot = []
@@ -407,7 +523,7 @@ def _search_feature(state: GameState, content: Content, feature: Feature) -> lis
     return events or [Event("search", f"You search {the(feature.name)} but find nothing useful.")]
 
 
-def _search_room(state: GameState, rng: random.Random) -> list[Event]:
+def _search_room(state: GameState, content: Content, rng: random.Random) -> list[Event]:
     room, player = state.room, state.player
     room.room_searched = True
     player.bump("searched")
@@ -416,36 +532,225 @@ def _search_room(state: GameState, rng: random.Random) -> list[Event]:
         bonuses.append(("Keen Eye", 3))
     if "treasure_nose" in player.traits:
         bonuses.append(("Treasure Nose", 2))
-    roll = dice.check(rng, "wits (search)", bonuses, 12)
+    roll = dice.check(rng, "wits (search)", bonuses + powers.roll_bonuses(state, content, "search"), 12)
     hidden = [f for f in room.features if f.hidden]
+    beside = hidden_room_beside(state)
     events = fortune(state, roll)
-    if roll.success and hidden:
-        for feature in hidden:
-            feature.hidden = False
-        names = ", ".join(f.name for f in hidden)
-        return [Event("secret", f"Searching carefully, you discover something hidden: {names}.", dice=roll,
-                      data={"rerollable": True})] + events
+    if roll.success and (hidden or beside):
+        found = []
+        if hidden:
+            for feature in hidden:
+                feature.hidden = False
+            found.append(Event("secret", "Searching carefully, you discover something hidden: "
+                                         f"{', '.join(f.name for f in hidden)}.", dice=roll, data={"rerollable": True}))
+        if beside:
+            found.append(_draft(state, beside, None if hidden else roll))
+        return found + events
     # Only worth a Fate reroll if there really was something to find.
     return [Event("search_room", "You search every corner but find nothing hidden.", dice=roll,
-                  data={"rerollable": bool(hidden)})] + events
+                  data={"rerollable": bool(hidden or beside)})] + events
+
+
+def _draft(state: GameState, direction: str, roll: dice.Roll | None = None) -> Event:
+    """The sign of a secret room next door, for anyone who looks hard enough."""
+    state.room.draft = direction
+    return Event("secret", f"A faint draft whistles through a crack in the {direction} wall. There's space behind it.",
+                 dice=roll, data={"rerollable": True} if roll else {})
+
+
+# --- what a calm creature knows ------------------------------------------------
+
+def _ask(state: GameState, content: Content, rng: random.Random) -> list[Event]:
+    """Ask a creature that's stopped fighting what it knows, or watch where it goes if it can't talk: a wits roll, once
+    each. It knows its floor: where the secret room is, or what's hidden where, and that goes on your map. Failing
+    those, one that talks knows what one of the floor's monsters can't stand."""
+    monster, player = state.room.monster, state.player
+    monster.asked = True
+    talks = content.monster(monster.key).intelligent
+    hidden = _hidden_things(state)
+    weak = _weak_spots(state, content) if talks else []
+    if not (hidden or weak):  # nothing it could tell you, so nothing to roll for
+        return [Event("ask", f"{cap(the(monster.name))} doesn't know anything about this floor that you don't." if talks
+                      else f"You watch {the(monster.name)} for a while. It doesn't lead you anywhere new.")]
+    bonuses = [("wits", player.wits)] + powers.roll_bonuses(state, content, "ask")
+    roll = dice.check(rng, "wits (ask)" if talks else "wits (watch it)", bonuses, ASK_DC,
+                      advantage=int(talks and "silver_tongue" in player.traits))
+    events = fortune(state, roll)
+    if not roll.success:
+        return [Event("ask", f"{cap(the(monster.name))} hums and haws, and tells you nothing you can use." if talks
+                      else f"You watch {the(monster.name)} for a while, but it never goes anywhere that matters.",
+                      dice=roll, data={"rerollable": True})] + events
+    if hidden:
+        room, feature = rng.choice(hidden)
+        told = (_tell_feature(state, content, monster, talks, room, feature) if feature
+                else _tell_room(state, monster, talks, room))
+    else:
+        room, target, tag = weak[0]
+        where = ("behind the locked door" if room.is_boss else "by the stairs" if room.fixture == "stairs"
+                 else _place(state, room))
+        told = [Event("tip", f"{cap(the(monster.name))} tells you a thing or two about {the(target.name)} "
+                             f"{where}.")] + discover(state, target, tag)
+    told[0].dice, told[0].data["rerollable"] = roll, True
+    return told + events
+
+
+def _hidden_things(state: GameState) -> list[tuple[Room, Feature | None]]:
+    """What's still hidden on this floor that nobody's told you about: the sealed secret room (unless you've felt its
+    draft already), and anything tucked away in a room (every floor hides a stash)."""
+    things: list[tuple[Room, Feature | None]] = [
+        (r, None) for r in state.rooms
+        if r.secret and not r.exits and not r.told and not any(other.draft for other in state.rooms)]
+    things += [(r, f) for r in state.rooms for f in r.features if f.hidden and not f.told and (f.loot or f.gold)]
+    return things
+
+
+def _weak_spots(state: GameState, content: Content) -> list[tuple[Room, MonsterState, str]]:
+    """What this floor's monsters can't stand that you haven't found out yet: the boss's first, then the warden's by
+    the stairs."""
+    spots = []
+    for room in sorted(state.rooms, key=lambda r: (not r.is_boss, r.fixture != "stairs", r.id)):
+        monster = room.monster
+        if monster and monster.hostile and room.id != state.room_id:
+            known = state.known_weak.get(monster.key, [])
+            spots += [(room, monster, tag) for tag in content.monster(monster.key).weak if tag not in known]
+    return spots
+
+
+def _place(state: GameState, room: Room, preposition: str = "in") -> str:
+    """Where a room is, in words you'd know it by: "here", "in the Mossy Archive", "in a room you haven't found yet"."""
+    if room.id == state.room_id:
+        return "here"
+    return f"{preposition} {the(room.name)}" if room.visited else f"{preposition} a room you haven't found yet"
+
+
+def _tell_room(state: GameState, monster: MonsterState, talks: bool, room: Room) -> list[Event]:
+    """Where the floor's secret room is: it goes on your map, and the wall to bomb says so."""
+    room.told = monster.name
+    near = [r for r in state.rooms if not r.secret and abs(r.x - room.x) + abs(r.y - room.y) == 1]
+    beside = min(near, key=lambda r: (r.id != state.room_id, not r.visited, r.id))
+    direction = next(d for d, (dx, dy) in DELTA.items() if (beside.x + dx, beside.y + dy) == (room.x, room.y))
+    wall = f"this room's {direction} wall" if beside.id == state.room_id else \
+        f"the {direction} wall {_place(state, beside, 'of')}"
+    if talks:
+        text = f"{cap(the(monster.name))} tells you there's a hidden room behind {wall}."
+    else:
+        text = (f"You watch {the(monster.name)} for a while. It keeps going back to {wall} and scratching at it, as "
+                "if something's behind it.")
+    return [Event("tip", f"{text} It's on your map now.", data={"room": room.id})]
+
+
+def _tell_feature(state: GameState, content: Content, monster: MonsterState, talks: bool, room: Room,
+                  feature: Feature) -> list[Event]:
+    """Where something's hidden (a floor's stash): you can see it now, and search it when you get there."""
+    feature.told, feature.hidden = monster.name, False
+    here = room.id == state.room_id
+    if talks:
+        thing = a(content.item(feature.loot[0]).name) if feature.loot else "a stash of gold"
+        text = (f"{cap(the(monster.name))} lets slip that {thing} is hidden {_place(state, room)}: look for "
+                f"{feature.name}.")
+    elif here:
+        text = (f"You watch {the(monster.name)} for a while. It keeps nosing at {feature.name}: something's hidden "
+                "there.")
+    else:
+        text = (f"You watch {the(monster.name)} for a while. It keeps wandering off {_place(state, room, 'to')} to "
+                f"nose at {feature.name}: something's hidden there.")
+    return [Event("tip", text + ("" if here else " It's on your map now."), data={"room": room.id})]
+
+
+def _reveal(state: GameState, content: Content, key: str) -> list[Event]:
+    """Light the room with something bright (a reveal power): it's used up, and nothing here stays hidden."""
+    room, item = state.room, content.item(key)
+    state.player.inventory.remove(key)
+    room.room_searched = True
+    events = [Event("use", f"You light up the room with {the(item.name)}. It's spent, but every corner is bright.")]
+    hidden = [f for f in room.features if f.hidden]
+    for feature in hidden:
+        feature.hidden = False
+    if hidden:
+        events.append(Event("secret", f"The light shows something hidden: {', '.join(f.name for f in hidden)}."))
+    beside = hidden_room_beside(state)
+    if beside:
+        events.append(_draft(state, beside))
+    if not hidden and not beside:
+        events.append(Event("search_room", "Nothing here was hiding after all."))
+    return events
+
+
+def _bomb_wall(state: GameState, content: Content, direction: str) -> list[Event]:
+    """Blow a hole in a wall. If the floor's secret room is behind it, there's a doorway now."""
+    room, player = state.room, state.player
+    player.bombs -= 1
+    dx, dy = DELTA[direction]
+    secret = next((r for r in state.rooms if r.secret and not r.exits and (r.x, r.y) == (room.x + dx, room.y + dy)),
+                  None)
+    if secret is None:
+        return [Event("bomb", f"The bomb goes off against the {direction} wall. Dust rains down, but the wall holds: "
+                              f"there's only earth behind it. ({player.bombs} bomb{'s' if player.bombs != 1 else ''} "
+                              "left.)")]
+    room.exits[direction] = Exit(to=secret.id)
+    secret.exits[OPPOSITE[direction]] = Exit(to=room.id)
+    room.remember(f"you blew open the {direction} wall")
+    return [Event("secret_room", f"The bomb blows the {direction} wall apart. Behind it is a hidden room, sealed off "
+                                 "until now!", data={"room": secret.id})]
 
 
 def _use(state: GameState, content: Content, rng: random.Random, key: str) -> tuple[list[Event], bool]:
     player, item = state.player, content.item(key)
     if item.escape:
         if not state.in_combat:
-            return [Event("info", f"You decide to save the {item.name} for an emergency.")], False
+            return [Event("info", f"You decide to save {the(item.name)} for an emergency.")], False
         player.inventory.remove(key)
-        return [Event("use", f"You hurl the {item.name} at your feet. Thick smoke fills the room.")] + flee(
+        return [Event("use", f"You hurl {the(item.name)} at your feet. Thick smoke fills the room.")] + flee(
             state, content, rng, guaranteed=True), True
     if player.hp >= player.max_hp:
-        return [Event("info", f"You're not hurt, so you keep the {item.name}.")], False
+        return [Event("info", f"You're not hurt, so you keep {the(item.name)}.")], False
     heal = round(item.heal * (1.5 if "alchemist" in player.perks else 1))
     healed = min(heal, player.max_hp - player.hp)
     player.hp += healed
     player.inventory.remove(key)
     verb = heal_verb(item).lower()
-    return [Event("heal", f"You {verb} the {item.name} and recover {healed} HP ({player.hp}/{player.max_hp}).")], True
+    return [Event("heal", f"You {verb} {the(item.name)} and recover {healed} HP ({player.hp}/{player.max_hp}).")], True
+
+
+def _open_chest(state: GameState, content: Content, rng: random.Random, how: str) -> list[Event]:
+    """A chest three ways: a small key opens it safely; picking the lock (agility) risks the needle trap; smashing it
+    (might) skips the trap, but a blow that goes wrong breaks whatever's inside."""
+    player = state.player
+    broken = False
+    if how == "chest_key":
+        player.keys -= 1
+        events = [Event("chest", "The small key turns, and the lid lifts without a fight "
+                                 f"({player.keys} key{'s' if player.keys != 1 else ''} left).")]
+    elif how == "chest":
+        bonuses = [("agility", player.agility)] + powers.roll_bonuses(state, content, "disarm")
+        roll = dice.check(rng, "agility (pick the lock)", bonuses, 11 + state.floor)
+        events = fortune(state, roll)
+        if roll.success:
+            events.insert(0, Event("chest", "You pick the lock and catch the needle trap before it fires.",
+                                   dice=roll, data={"rerollable": True}))
+        else:
+            damage = dice.roll("1d6", rng) + state.floor
+            player.hp = max(1, player.hp - damage)
+            events.insert(0, Event("chest", f"A poisoned needle jabs your thumb for {damage} damage "
+                                            f"({player.hp}/{player.max_hp}).", dice=roll, data={"rerollable": True}))
+    else:
+        bonuses = [("might", player.might)] + powers.roll_bonuses(state, content, "smash")
+        roll = dice.check(rng, "might (smash it)", bonuses, 10 + state.floor)
+        events = fortune(state, roll)
+        broken = not roll.success
+        text = ("You bring your weight down on the lid and the chest splinters open, trap and all." if roll.success
+                else "The chest bursts open under your blows, and something inside cracks.")
+        events.insert(0, Event("chest", text, dice=roll, data={"rerollable": True}))
+    key = loot.produce(rng, content, state.rares, loot.CHESTS.get(state.floor, loot.CHESTS[3]), "chest")
+    gold = rng.randint(5, 15) * state.floor
+    player.gold += gold
+    if key is None:
+        return events + [Event("find", f"Inside: {gold} gold.")]
+    name = content.item(key).name
+    if broken:
+        return events + [Event("find", f"Inside: {gold} gold, and what's left of {the(name)}, smashed beyond use.")]
+    events.append(Event("find", f"Inside: {the(name)} and {gold} gold.", data={"item": key}))
+    return events + gain_item(state, content, key)
 
 
 def _rest(state: GameState, content: Content, rng: random.Random) -> list[Event]:
@@ -458,16 +763,22 @@ def _rest(state: GameState, content: Content, rng: random.Random) -> list[Event]
                         data={"monster": room.monster.key})]
         events += monster_turn(state, content, rng)
         return events
-    healed = min(dice.roll("1d6", rng) + player.wits + state.floor, player.max_hp - player.hp)
+    cook = powers.holders(state, content, "cook")
+    healed = min(dice.roll("1d6", rng) + player.wits + state.floor + 4 * bool(cook), player.max_hp - player.hp)
     player.hp += healed
-    return [Event("rest", f"You rest for a while and recover {healed} HP ({player.hp}/{player.max_hp}).")]
+    meal = f" A hot meal cooked in your {cook[0].name} helps." if cook else ""
+    return [Event("rest", f"You rest for a while and recover {healed} HP ({player.hp}/{player.max_hp}).{meal}")]
 
 
 def _fixture(state: GameState, content: Content, rng: random.Random, verb: str) -> list[Event]:
     room, player = state.room, state.player
     room.fixture_used = True
     room.remember({"shrine_blood": "you bled on the shrine", "shrine_gold": "you gave gold to the shrine",
-                   "chest": "you opened the chest", "fountain": "you drank from the fountain"}.get(verb, verb))
+                   "chest": "you picked the chest's lock", "chest_key": "you unlocked the chest with a key",
+                   "chest_smash": "you smashed the chest open",
+                   "fountain": "you drank from the fountain"}.get(verb, verb))
+    if verb in ("chest", "chest_key", "chest_smash"):
+        return _open_chest(state, content, rng, verb)
     if verb == "shrine_blood":
         player.hp -= 6
         if player.fate < player.max_fate():
@@ -481,25 +792,6 @@ def _fixture(state: GameState, content: Content, rng: random.Random, verb: str) 
         healed = player.max_hp - player.hp
         player.hp = player.max_hp
         return [Event("shrine", f"The coins vanish into the shrine and warmth floods through you (+{healed} HP).")]
-    if verb == "chest":
-        roll = dice.check(rng, "agility (disarm)", [("agility", player.agility)], 11 + state.floor)
-        events = fortune(state, roll)
-        if roll.success:
-            events.insert(0, Event("chest", "You ease the lid open and catch the needle trap before it fires.",
-                                   dice=roll, data={"rerollable": True}))
-        else:
-            damage = dice.roll("1d6", rng) + state.floor
-            player.hp = max(1, player.hp - damage)
-            events.insert(0, Event("chest", f"A poisoned needle jabs your thumb for {damage} damage "
-                                            f"({player.hp}/{player.max_hp}).", dice=roll, data={"rerollable": True}))
-        key = loot.one_of(rng, content, loot.CHESTS.get(state.floor, loot.CHESTS[3]))
-        gold = rng.randint(5, 15) * state.floor
-        player.gold += gold
-        if key is None:
-            events.append(Event("find", f"Inside: {gold} gold."))
-            return events
-        events.append(Event("find", f"Inside: the {content.item(key).name} and {gold} gold.", data={"item": key}))
-        return events + gain_item(state, content, key)
     if verb == "fountain":
         roll = dice.check(rng, "luck (fountain)", [], 15)
         events = fortune(state, roll)

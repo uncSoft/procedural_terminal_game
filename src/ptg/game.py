@@ -35,7 +35,10 @@ QUIET_KINDS = {"perk"}  # resolved without asking the narrator
 
 
 def narratable(event: Event) -> bool:
-    """Story text written in the author's exact words is shown as-is, never re-told by the narrator."""
+    """Story text written in the author's exact words is shown as-is, never re-told by the narrator (nor is what its
+    effects did, such as a ghost a [calm] laid to rest)."""
+    if event.data.get("told_by") in ("exact", "silent"):
+        return False
     return event.kind not in STORY_KINDS or (event.kind == "story" and event.data.get("voice") == "narrated")
 
 
@@ -99,6 +102,11 @@ class Game:
         if self.state.suggestion and not self.state.pending_perks and not self.state.over:
             actions = actions + [Action("suggest", f"✦ {self.state.suggestion}", "improvise")]
         return actions
+
+    def suggestion_pending(self) -> bool:
+        """Whether a suggested trick for this scene is still to be thought of (see refresh_suggestion)."""
+        state = self.state
+        return not (state.scene or state.over or state.pending_perks) and self.scene_key() != self._suggested_for
 
     def scene_key(self) -> tuple:
         room = self.state.room
@@ -241,6 +249,10 @@ class Game:
                 state.log.append(LogEntry(kind="mechanic", text=event.roll))
         if any(e.kind == "descend" for e in pending.events):
             state.log.append(self.floor_entry())
+        for event in pending.events:
+            if event.kind == "secret_room":
+                state.log.append(LogEntry(kind="system", text=f"✧ Secret room found: "
+                                                               f"{state.rooms[event.data['room']].name} ✧"))
 
         errors = list(pending.errors)
         told = [e for e in pending.events if narratable(e)]

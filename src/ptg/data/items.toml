@@ -118,6 +118,8 @@ kind = "trinket"
 tier = 1
 tags = ["fire", "liquid", "glass", "throwable"]
 desc = "Flammable, throwable, regrettable. Plants and trolls fear fire."
+damage = "2d4"
+powers = ["throw"]
 
 # drawn by JT (2026-10-23)
 [item.holy_water]
@@ -126,6 +128,8 @@ kind = "trinket"
 tier = 1
 tags = ["holy", "liquid", "glass", "throwable"]
 desc = "Blessed by a priest who was mostly sober. The undead hate it."
+damage = "2d4"
+powers = ["throw"]
 
 # drawn by JT (2026-10-23)
 [item.bag_of_marbles]
@@ -134,6 +138,8 @@ kind = "trinket"
 tier = 1
 tags = ["slippery", "throwable", "shiny"]
 desc = "Hundreds of tiny ankle-betrayers."
+damage = "1d4"
+powers = ["throw"]
 
 # drawn by JT (2026-10-23)
 [item.lucky_charm]
@@ -172,3 +178,221 @@ heal = 24
 tier = 3
 tags = ["glass", "liquid", "throwable"]
 desc = "Liquid sunrise in a heart-shaped flask. Glows a little. Hums a little. Restores 24 HP."
+
+# drawn by JT (2026-10-23)
+[item.a_ring_probably_importan]
+name = "A Ring, Probably Important"
+kind = "trinket"
+tier = 3
+tags = ["lucky", "shiny", "metal", "cursed", "rare"]
+desc = "A plain gold ring that gets heavier every floor you descend. It keeps suggesting you put it on. It makes some very good points. Do not listen to it."
+powers = ["unseen", "cursed"]
+found = ["secret"]
+
+# drawn by JT (2026-10-23)
+[item.snitch]
+name = "Snitch"
+kind = "weapon"
+damage = "1d8+1"
+tier = 2
+tags = ["sharp", "shiny", "light", "metal", "rare"]
+desc = "An elven letter-opener that glows blue whenever goblins are near. In the Goblin Warren it never, ever stops glowing."
+powers = ["goblin_bane"]
+found = ["chest", "warden"]
+
+# drawn by JT (2026-10-23)
+[item.moonsilver_vest]
+name = "Moonsilver Vest"
+kind = "armor"
+defense = 4
+tier = 3
+tags = ["metal", "shiny", "light", "rare"]
+desc = "Light as a feather, harder than dragon scale, and worth more than everything else in this dungeon combined. Wear it under your shirt and tell no one."
+found = ["secret"]
+
+# drawn by JT (2026-10-23)
+[item.second_breakfast]
+name = "Second Breakfast"
+kind = "consumable"
+heal = 18
+tier = 2
+tags = ["food", "smelly", "rare"]
+desc = "You had breakfast, yes. This is the second one, which everyone knows is the important one. Restores 18 HP."
+found = ["chest", "stash"]
+
+# drawn by JT (2026-10-23)
+[item.the_compensator]
+name = "The Compensator"
+kind = "weapon"
+damage = "2d6+2"
+tier = 3
+tags = ["heavy", "sharp", "metal", "rare"]
+desc = "A sword so large it is mostly a door. You will need spiky hair and a tragic past to swing it properly."
+found = ["warden"]
+
+# drawn by JT (2026-10-23)
+[item.sword_still_in_the_stone]
+name = "Sword Still in the Stone"
+kind = "weapon"
+damage = "2d8"
+tier = 3
+tags = ["heavy", "holy", "shiny", "metal", "rare"]
+desc = "You couldn't pull it out, so you brought the rock. It hits like a king and weighs like a quarry."
+found = ["secret"]
+
+# drawn by JT (2026-10-23)
+[item.adamant_stewpot]
+name = "Adamant Stewpot"
+kind = "armor"
+defense = 3
+tier = 3
+tags = ["metal", "heavy", "shiny", "pot", "rare"]
+desc = "A cookpot forged from a metal far too precious to cook in, so naturally its last owner cooked in it every night. Wear it, cook in it, hit things with it. A good pot is all three."
+powers = ["cook"]
+found = ["chest", "warden"]
+
+# drawn by JT (2026-10-23)
+[item.basilisk_omelette]
+name = "Basilisk Omelette"
+kind = "consumable"
+heal = 16
+tier = 2
+tags = ["food", "smelly", "rare"]
+desc = "Half chicken, half serpent, entirely breakfast. Cooked by someone who looked at a basilisk and thought about dinner. Restores 16 HP."
+found = ["chest", "stash"]
+
+# drawn by JT (2026-10-23)
+[item.hallowed_hand_grenade]
+name = "Hallowed Hand Grenade"
+kind = "trinket"
+tier = 3
+tags = ["holy", "loud", "fire", "throwable", "rare"]
+desc = "Pull the pin, count to three, throw. The number is three. The instructions are very, very firm about this."
+damage = "4d6"
+powers = ["throw"]
+found = ["chest", "secret"]
+
+# drawn by JT (2026-10-23)
+[item.rubber_chicken]
+name = "Rubber Chicken"
+kind = "weapon"
+damage = "1d3"
+tier = 0
+tags = ["loud", "slippery", "throwable", "rare"]
+desc = "Squeaks on impact. It does almost no damage, but nothing down here has ever seen one before, and that has to count for something."
+found = ["secret", "chest"]
+
+# drawn by JT (2026-10-23)
+[item.suspicious_sweetroll]
+name = "Suspicious Sweetroll"
+kind = "consumable"
+heal = 8
+tier = 1
+tags = ["food", "sticky", "rare"]
+desc = "Someone is going to try to steal this. Someone always tries to steal this. Restores 8 HP."
+found = ["chest", "stash"]
+
+# drawn by JT (2026-10-23)
+[item.x_64gb_ddr5_ram_kit]
+name = "64GB DDR5 RAM Kit"
+kind = "trinket"
+tier = 3
+tags = ["shiny", "light", "metal", "curio", "anachronism"]
+desc = "Two sticks of the rarest treasure of any age. Worth more than this dungeon, the town above it, and possibly your soul. It does nothing down here, but the RGB does light up a room."
+powers = ["valuable"]
+found = ["secret"]
+
+# drawn by JT (2026-10-23)
+[item.almanac_of_future_scores]
+name = "Almanac of Future Scores"
+kind = "trinket"
+tier = 1
+tags = ["paper", "lucky", "curio", "anachronism"]
+desc = "Fifty years of sports results that haven't happened yet. Worth a fortune if you can find a bookie, a sport, and a way home. Until then it's just a very smug book."
+powers = ["prophecy"]
+
+# drawn by JT (2026-10-23)
+[item.laser_pointer]
+name = "Laser Pointer"
+kind = "trinket"
+tier = 1
+tags = ["light", "shiny", "curio", "anachronism"]
+desc = "Click it and a tiny red dot appears. Every beast in the room will chase it, and so will most goblins. Never point it at eyes, even the ones on stalks."
+powers = ["distract"]
+
+# drawn by JT (2026-10-23)
+[item.rubber_duck]
+name = "Rubber Duck"
+kind = "trinket"
+tier = 0
+tags = ["loud", "throwable", "curio", "anachronism"]
+desc = "Explain your problem to it out loud and the answer usually comes to you. It floats, it squeaks, and it has quietly solved half the puzzles in this dungeon."
+powers = ["distract"]
+
+# drawn by JT (2026-10-23)
+[item.ten_foot_pole]
+name = "Ten-Foot Pole"
+kind = "trinket"
+tier = 0
+tags = ["heavy", "curio"]
+desc = "For poking anything you wouldn't touch with your hands: chests, puddles, suspiciously quiet floors. No adventurer has ever regretted bringing one."
+powers = ["careful"]
+
+# drawn by JT (2026-10-23)
+[item.bubble_wrap]
+name = "Bubble Wrap"
+kind = "trinket"
+tier = 0
+tags = ["loud", "curio", "anachronism"]
+desc = "Pop one bubble and every head in the room turns. Pop the whole sheet and something down here will hold a grudge."
+powers = ["distract"]
+
+# drawn by JT (2026-10-23)
+[item.glow_stick]
+name = "Glow Stick"
+kind = "trinket"
+tier = 0
+tags = ["light", "throwable", "curio", "anachronism"]
+desc = "Snap it, shake it, and toss it down a hole to see how deep the hole goes. Glows for one night. Smells faintly of a party you weren't invited to."
+powers = ["reveal"]
+
+# drawn by JT (2026-10-23)
+[item.mysterious_floppy_disk]
+name = "Mysterious Floppy Disk"
+kind = "trinket"
+tier = 0
+tags = ["throwable", "curio", "anachronism"]
+desc = "Labelled DUNGEON_MAP_FINAL_v2(1). There is no way to read it down here, but it flies surprisingly well if you throw it."
+damage = "1d4"
+powers = ["mapper", "throw"]
+
+[item.torch]
+name = "Torch"
+kind = "trinket"
+tier = 1
+tags = ["fire", "light", "wood"]
+desc = "A pitch-soaked torch. Dark corners stop being so dark, and secrets stop being so secret."
+powers = ["seeker"]
+
+[item.weighted_dice]
+name = "Weighted Dice"
+kind = "trinket"
+tier = 3
+tags = ["lucky", "curio"]
+desc = "A pair of dice that always know which way is down. Don't let anyone see you use them."
+powers = ["luck"]
+found = ["secret", "warden"]
+
+[item.bomb]
+name = "Bomb"
+kind = "trinket"
+tier = 0
+tags = ["fire", "loud", "throwable"]
+desc = "A round black bomb with a short fuse. Opens a wall with something behind it, or ruins a monster's day."
+
+[item.small_key]
+name = "Small Key"
+kind = "trinket"
+tier = 0
+tags = ["metal"]
+desc = "A small iron key. It opens most chests without asking questions."

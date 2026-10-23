@@ -401,8 +401,8 @@ class Picture:
     """One room, drawn: surfaces, then decor and everything standing in the room back to front, then reflections
     and flames. `kind` says what each pixel shows (wall, floor, water, sky, void, locked, ceiling, object)."""
 
-    def __init__(self, state: GameState, content: Content, w: int, h: int) -> None:
-        self.state, self.content, self.room = state, content, state.room
+    def __init__(self, state: GameState, content: Content, w: int, h: int, room: Room | None = None) -> None:
+        self.state, self.content, self.room = state, content, room or state.room
         self.look = look_of(state.theme)
         archetype = content.archetypes.get(self.room.archetype)
         self.sky = bool(archetype) and "sky" in archetype.decor.split()
@@ -955,16 +955,17 @@ class Picture:
                 self.px[x, y] = _rgb("#f6757a") if _hash01(i, 103) < 0.7 else _rgb("#faa096")
 
 
-def draw(state: GameState, content: Content, width: int, height: int):
-    """The room you're in as an RGB image, or None without Pillow. `height` should be even (two pixels to a row)."""
+def draw(state: GameState, content: Content, width: int, height: int, room: Room | None = None):
+    """The room you're in (or another on this floor) as an RGB image, or None without Pillow. `height` should be
+    even: two pixels to a row."""
     if Image is None:
         return None
-    return Picture(state, content, width, height).draw()
+    return Picture(state, content, width, height, room).draw()
 
 
-def picture_text(state: GameState, content: Content, width: int, height: int) -> Text | None:
-    """The room you're in as half-block text, `width` cells across and height / 2 rows."""
-    img = draw(state, content, width, height)
+def picture_text(state: GameState, content: Content, width: int, height: int, room: Room | None = None) -> Text | None:
+    """The room you're in (or another on this floor) as half-block text, `width` cells across and height / 2 rows."""
+    img = draw(state, content, width, height, room)
     return None if img is None else sprites.image_text(img.convert("RGBA"), snap=True)
 
 

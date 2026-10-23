@@ -1,8 +1,11 @@
+import random
+
 import pytest
 
 from ptg.config import Config, load_game, save_game
 from ptg.events import Event
-from ptg.game import Game
+from ptg.game import Game, narratable
+from ptg.models import OPPOSITE
 from ptg.story import ProfileView, StoryEngine, StoryError, load_files, load_library
 from ptg.ui.app import PTGApp
 from ptg.ui.game_screen import GameScreen
@@ -277,3 +280,85 @@ def test_reloading_the_story_keeps_what_works(content, monkeypatch):
     with pytest.raises(StoryError):
         reload_library(content)
     assert load_library(content) is good
+
+
+# --- your ghost ------------------------------------------------------------------
+
+GHOST = {"name": "Brannoc", "level": 2, "floor": 1, "items": ["hand_axe"], "gold": 40,
+         "epitaph": "Should have dodged.", "cause": "slain by the Troll on floor 1"}
+GHOST_SCENE = story("id: own_ghost\ntitle: An Old Face\nwhen: enter_room\nif: monster ghost\nsecret: yes\nhint: Hm.",
+                    "{ghost} turns. You remember dying: {ghost_cause}. Your stone said: {ghost_epitaph}\n\n"
+                    "* Say {ghost} (say {ghost}, {ghost})\n  -> It remembers. [calm] [secret]\n"
+                    "* (anything else)\n  -> It doesn't.")
+
+
+def beside_your_ghost(content, ghost: dict, seed: int = 4):
+    """A run haunted by `ghost`, the player in the room next to it (nothing else about), and the way in."""
+    state = generate(seed, ghost=ghost, content=content)
+    haunt = next(r for r in state.rooms if r.monster and r.monster.ghost_of)
+    direction, exit_ = next((d, e) for d, e in haunt.exits.items() if not e.locked)
+    state.room_id = exit_.to
+    state.room.monster = None
+    return state, haunt, OPPOSITE[direction]
+
+
+async def test_your_ghost_scene_names_it_and_calm_lays_it_to_rest_mid_fight(content, profile):
+    profile.add_ghost(1, **GHOST)
+    ghost = profile.pick_ghost(random.Random(0), chance=1.0)
+    state, haunt, way_in = beside_your_ghost(content, ghost)
+    g = Game(state, Config(backend="offline"), None, profile=profile, library=library(content, GHOST_SCENE))
+    entered = await g.act(f"go {way_in}", lambda _: None)
+    card = next(e for e in entered.events if e.kind == "story")
+    assert card.text.startswith("Brannoc turns. You remember dying: slain by the Troll on floor 1.")
+    assert "Should have dodged." in card.text and g.state.in_combat and g.state.scene  # the fight waits
+    assert g.choices()[0].label == "Say Brannoc"
+
+    result = await g.act("Brannoc!", lambda _: None)
+    assert g.state.room.monster is None and not g.state.scene
+    rest = next(e for e in result.events if e.kind == "ghost_rest")
+    assert rest.data["told_by"] == "exact" and not narratable(rest)  # the card says it; the narrator doesn't
+    assert any(e.kind == "story_effect" and "finally rests" in e.text for e in result.events)
+    assert profile.pick_ghost(random.Random(0), chance=1.0) is None  # laid to rest for good
+    assert "own_ghost" in profile.secrets()
+
+
+def test_a_ghost_story_waits_for_a_run_with_a_ghost(content):
+    lib = library(content, story("id: name_it\nwhen: say hello", "Hello, {ghost}."))
+    engine = StoryEngine(lib, content)
+    state = generate(1)
+    assert not engine.wants_say(state, "hello")  # no ghost this run
+    state.ghost = dict(GHOST)
+    assert engine.on_say(state, "hello")[-1].text == "Hello, Brannoc."
+    forced = engine.force(generate(1), "name_it")  # testing it with --event, ghost or not
+    assert forced[-1].text == "Hello, (your ghost's name)."
+
+
+def test_say_its_name(content):
+    lib = library(content, story("id: its_name\nwhen: say {ghost}\nif: monster ghost", "It stops. [calm]"))
+    engine = StoryEngine(lib, content)
+    state, haunt, way_in = beside_your_ghost(content, dict(GHOST, id=1))
+    state.room_id = haunt.id
+    assert state.in_combat and not engine.wants_say(state, "hello there")
+    assert engine.wants_say(state, "Brannoc, it's me")
+    events = engine.on_say(state, "Brannoc, it's me")
+    assert state.room.monster is None and any(e.kind == "ghost_rest" for e in events)
+
+
+def test_a_scene_about_another_monster_still_waits_for_the_fight_to_end(content):
+    lib = library(content, story("id: goblin_talk\nwhen: enter_room\nif: monster goblin",
+                                 "Hi.\n\n* Wave (wave)\n  -> It waves."))
+    engine = StoryEngine(lib, content)
+    state, haunt, way_in = beside_your_ghost(content, dict(GHOST, id=1))
+    state.room_id = haunt.id
+    assert engine.after_turn(state, [Event("enter", "", data={"first": True})]) == [] and not state.scene
+
+
+@pytest.mark.parametrize("text,message", [
+    (story("id: x\nwhen: enter_room", "Hello, {ghots}."), "unknown placeholder {ghots}"),
+    (story("id: x\nwhen: enter_room", "Hello, {Ghost}."), "unknown placeholder {Ghost}"),
+    (story("id: x\ntitle: {ghost}'s Rest\nwhen: enter_room"), "the title and hint can't use placeholders"),
+])
+def test_placeholder_mistakes_are_caught(content, text, message):
+    with pytest.raises(StoryError) as error:
+        library(content, text)
+    assert message in str(error.value)

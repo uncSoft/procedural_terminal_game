@@ -23,6 +23,14 @@ CREATIVE_DAMAGE = {"damage_small": "1d4", "damage_medium": "2d6", "damage_large"
 UPGRADE = {"damage_small": "damage_medium", "damage_medium": "damage_large", "damage_large": "damage_large"}
 DISTRACTIONS = {"food", "shiny"}
 STOPWORDS = {"the", "a", "an", "of", "my", "your", "some", "to", "with", "on", "in", "at", "and"}
+# Doing one of these with a thing you carry leaves you without it, whether or not the interpreter says so.
+SPENDING = {"throw", "toss", "hurl", "fling", "lob", "give", "offer", "bribe", "feed", "trade", "pay", "drink", "eat",
+            "pour", "splash", "spill", "smash", "shatter", "burn", "ignite", "scatter", "sprinkle", "sacrifice", "empty",
+            "dump", "drop", "leave", "lure", "bait"}
+IRREGULAR = {"threw": "throw", "thrown": "throw", "flung": "fling", "gave": "give", "given": "give", "fed": "feed",
+             "paid": "pay", "drank": "drink", "ate": "eat", "eaten": "eat", "spilt": "spill", "burnt": "burn"}
+SPENDABLE = {"consumable", "trinket"}  # never your gear, and never a key: a run could hang on it
+ATTEMPT = re.compile(r"^(?:attempt(?:ing|s)?|try(?:ing)?|tries)\s+to\s+", re.I)  # the check says "You attempt to" itself
 
 
 @dataclass
@@ -63,6 +71,30 @@ def match_props(names: list[str], props: list[Prop]) -> list[Prop]:
         if best and wanted & _words(best.name) and best not in found:
             found.append(best)
     return found
+
+
+def spends(summary: str) -> bool:
+    """Whether an attempt hands over, throws, feeds, drinks or pours what it uses: "bribe the orc with stale bread"."""
+    for word in re.findall(r"[a-z]+", summary.lower()):
+        word = IRREGULAR.get(word, word)
+        forms = {word}
+        for ending in ("ing", "ies", "ied", "es", "ed", "s"):
+            if word.endswith(ending):
+                stem = word[:-len(ending)]
+                forms |= {stem, stem + "e", stem[:-1], stem + "y"}  # bribing, dropped, emptied
+        if forms & SPENDING:
+            return True
+    return False
+
+
+def spent(content: Content, intent: Intent, props_here: list[Prop], props: list[Prop]) -> list[Prop]:
+    """What an attempt uses up: what the interpreter says it does, and anything carried or lying here that it hands
+    over, throws or pours, said or not (a bribe leaves the bread with the orc)."""
+    consumed = [p for p in match_props(intent.consumes, props_here) if p.kind in ("item", "gold", "floor")]
+    if spends(intent.summary):
+        consumed += [p for p in props if p not in consumed and (
+            p.kind == "gold" or p.kind in ("item", "floor") and content.item(p.key).kind in SPENDABLE)]
+    return consumed
 
 
 def clamp_intent(state: GameState, content: Content, intent: Intent, props: list[Prop] | None = None) -> Intent:
@@ -109,21 +141,24 @@ def perform_creative(state: GameState, content: Content, intent: Intent, rng: ra
     """Returns the clamped intent, the events, and whether it took a turn."""
     player, room = state.player, state.room
     props_here = available_props(state, content)
-    consumed = [p for p in match_props(intent.consumes, props_here) if p.kind in ("item", "gold")]
     props = match_props(intent.uses, props_here)
+    consumed = spent(content, intent, props_here, props)
     props += [p for p in consumed if p not in props]  # anything used up was obviously used
     intent = clamp_intent(state, content, intent, props)
-    summary = intent.summary or "try something unexpected"
+    summary = ATTEMPT.sub("", intent.summary) or "try something unexpected"  # "You attempt to attempt to..." no more
     events: list[Event] = []
 
     for prop in consumed:
         if prop.kind == "gold":
-            spent = min(player.gold, 5 * state.floor)
-            player.gold -= spent
-            events.append(Event("spend", f"You part with {spent} gold."))
-        elif prop.key in player.inventory:
+            paid = min(player.gold, 5 * state.floor)
+            player.gold -= paid
+            events.append(Event("spend", f"You part with {paid} gold."))
+        elif prop.kind == "item" and prop.key in player.inventory:
             player.inventory.remove(prop.key)
-            events.append(Event("spend", f"The {prop.name} is used up."))
+            events.append(Event("spend", f"{cap(the(prop.name))} is used up."))
+        elif prop.kind == "floor" and prop.key in room.items:
+            room.items.remove(prop.key)
+            events.append(Event("spend", f"{cap(the(prop.name))} is used up."))
 
     if intent.difficulty == "trivial" or not intent.success_effects:
         return intent, [Event("creative", f"You {summary}.")] + events, state.in_combat
@@ -154,7 +189,7 @@ def perform_creative(state: GameState, content: Content, intent: Intent, rng: ra
                            data={"success": roll.success, "rerollable": True, "props": [p.name for p in props]}))
     if weak_hits and monster:
         prop, tag = weak_hits[0]
-        events.append(Event("exploit", f"The {prop.name} plays on {the(monster.name)}'s weakness to {tag}!"))
+        events.append(Event("exploit", f"{cap(the(prop.name))} plays on {the(monster.name)}'s weakness to {tag}!"))
         events += discover(state, monster, tag)
     events += fortune(state, roll)
 

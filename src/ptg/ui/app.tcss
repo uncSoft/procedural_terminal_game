@@ -114,6 +114,15 @@ Clickable:hover {
     color: $accent;
 }
 
+.secret-banner {  /* a floor's secret room, found (game_screen.secret_banner) */
+    width: 100%;
+    height: auto;
+    margin: 1 0;
+    border-top: heavy $warning;
+    border-bottom: heavy $warning;
+    text-align: center;
+}
+
 #setup-box {
     width: 72;
     max-width: 100%;
@@ -196,6 +205,15 @@ Clickable:hover {
     padding: 0 1;
 }
 
+#scene {  /* clickable (for its card), but a panel: the sidebar's width, and no reverse video on hover */
+    width: 100%;
+}
+
+#scene:hover {
+    text-style: none;
+    border: double $secondary;
+}
+
 #scene.combat {
     border: double $error;
     border-title-color: $error;
@@ -206,15 +224,49 @@ Clickable:hover {
 }
 
 #choices {
-    height: auto;
-    max-height: 13;
+    height: 10;  /* always: a box that grew and shrank moved the choices under the mouse */
     border: double $secondary-darken-2;
     border-title-color: $secondary;
     padding: 0 1;
 }
 
+#choice-list, #choice-more {
+    width: 1fr;
+    height: 100%;
+}
+
+#choice-more {
+    display: none;
+}
+
 .choice {
-    height: auto;
+    height: 1;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+}
+
+#dpad {
+    width: 17;
+    height: 5;
+    border: round $secondary-darken-2;
+}
+
+.dpad-row {
+    height: 1;
+}
+
+.dpad-key, .dpad-gap {
+    width: 1fr;
+    height: 1;
+    text-align: center;
+}
+
+.dpad-key:hover {
+    background: $secondary 30%;
+}
+
+.dpad-key.off:hover {
+    background: transparent;
 }
 
 .choice:hover {
@@ -241,6 +293,12 @@ Clickable:hover {
 }
 
 .recap {
+    margin-bottom: 1;
+}
+
+.panel-sprite {  /* a monster in the bestiary or on its card, animated (ui/panels.py) */
+    width: auto;
+    height: auto;
     margin-bottom: 1;
 }
 
@@ -361,7 +419,7 @@ DiceScreen {
 }
 
 /* How a roll went (see ui/effects.py): the dice box keeps its colour, the story panel pulses it. */
-#dice-box.tone-great, #story.tone-great {
+#dice-box.tone-great, #story.tone-great, #map.tone-great {
     border: double $warning;
     border-title-color: $warning;
 }

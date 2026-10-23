@@ -8,14 +8,23 @@ def the(name: str) -> str:
     for article in ("the ", "a ", "an "):
         if lower.startswith(article):
             return "the " + name[len(article):]
-    return "the " + name
+    return name if _owned(name) else "the " + name
 
 
 def a(name: str) -> str:
     lower = name.lower()
     if lower.startswith(("the ", "a ", "an ")):
+        return name[:1].lower() + name[1:]  # "A Ring, Probably Important" mid-sentence
+    if _owned(name):
         return name
     return ("an " if lower[:1] in "aeiou" else "a ") + name
+
+
+def _owned(name: str) -> bool:
+    """Someone's, by name: "Brannoc's remains" takes no article (a "mourner's lantern" and "the Saint's Alcove", a
+    place's title, still do)."""
+    first, _, rest = name.partition(" ")
+    return first[:1].isupper() and first.endswith(("'s", "s'")) and rest[:1].islower()
 
 
 def cap(text: str) -> str:

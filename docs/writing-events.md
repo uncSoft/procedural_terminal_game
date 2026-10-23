@@ -116,7 +116,7 @@ Separate with `;`. Put `not ` in front of any of them to flip it.
 | `floor >= 2` | Compare `floor`, `level`, `hp`, `gold`, `fate`, `souls`, `turn` (this run), or `runs`, `deaths`, `wins` (ever). Use `>=`, `<=`, `>`, `<`, `=`. |
 | `chance 25%` | A seeded roll: the same seed always gives the same answer, so daily runs share events. |
 | `first_visit` | The player is entering this room for the first time. |
-| `in_combat` | A fight is going on. (Scenes never start mid-fight.) |
+| `in_combat` | A fight is going on. (Scenes never start mid-fight, except one about the monster you're fighting: see Your ghost.) |
 | `theme sunken_crypt` | The current floor's theme. |
 | `room ossuary` | The room type (an archetype key from `rooms.toml`). |
 | `fixture shrine` | The room has this fixture (`shrine`, `chest`, `fountain`, `stairs`). |
@@ -140,10 +140,54 @@ line under the card instead (`◆ -6 HP · +1 Fate`).
 | `[give healing_potion]`, `[take oil_flask]` | Give or take an item (keys from `items.toml`). |
 | `[perk iron_skin]` | Grant a perk (keys from `perks.toml`). |
 | `[spawn goblin]` | A monster appears and a fight starts (keys from `monsters.toml`). Ends the scene. |
+| `[calm]` | The monster here stops fighting, no roll, as if talked down (with the XP and souls for it). Your ghost lays itself to rest, and its belongings are yours to take. |
 | `[flag name]`, `[unflag name]` | Set or clear a flag for this run. |
 | `[mark name]` | Set a mark that lasts across runs, for stories that continue after death. |
 | `[secret]`, `[secret other_id]` | Record this event (or another) in the Book of Secrets. |
 | `[goto part]`, `[end]` | Jump to another part of the scene, or end it. |
+
+## Your ghost
+
+When a run ends in death, that adventurer can come back as a ghost on the floor where they fell, in a later run,
+guarding what they carried. The ghost monster is always that: `if: monster ghost` means your own ghost is in the
+room. Three placeholders fill in who it was, wherever your words go (text, choices, keywords, `say` phrases):
+
+| Placeholder | Becomes |
+| --- | --- |
+| `{ghost}` | Their name. |
+| `{ghost_cause}` | How they died, e.g. "slain by the Troll on floor 1". |
+| `{ghost_epitaph}` | What their tombstone said. |
+
+An event that uses them only plays in a run that has a ghost. (Fired with `--event` in a run without one, they
+show as "(your ghost's name)" and so on.) Titles and hints can't use them: the Book of Secrets shows those outside
+any run.
+
+Meeting your ghost is a fight, and scenes normally wait for fights to end. A scene about the monster you're fighting
+(`if: monster ghost`) doesn't wait: it plays out at once, and the fight waits for it. If the scene ends without a
+`[calm]`, the fight goes on. The narrator knows the ghost is the player's own earlier adventurer, so anything the
+player says about having been them is taken as true.
+
+The shape of one (the words are yours):
+
+```
+---
+id: your_ghost
+title: (a title for the Book of Secrets)
+when: enter_room
+if: monster ghost
+secret: yes
+hint: (what the Book of Secrets says before it's found)
+---
+({ghost}, {ghost_cause}, {ghost_epitaph}: your words around them.)
+
+* (A choice that reaches them) (keywords, {ghost})
+  -> (What happens.) [calm] [secret]
+* (anything else)
+  -> (What happens otherwise. The fight goes on.)
+```
+
+Or set it off with words alone: `when: say {ghost} | it's me` with `if: monster ghost` fires when the player types
+their old name (or "it's me") at the ghost.
 
 ## Tips
 

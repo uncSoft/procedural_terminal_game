@@ -4,7 +4,7 @@ import pytest
 
 from bot import play
 from conftest import put_monster
-from ptg.creative import available_props, clamp_intent, match_props
+from ptg.creative import available_props, clamp_intent, match_props, spends
 from ptg.intent import Intent
 from ptg.rules import TRAITS, available_actions, check_traits, gain_item, perform, perform_creative, room_facts
 from ptg.world import build_floor, generate
@@ -282,6 +282,23 @@ def test_weakness_gives_advantage_and_is_learned(content):
     assert "fire" in state.known_weak["troll"]
     assert "oil_flask" not in state.player.inventory
     assert any(e.kind == "weakness" for e in events)
+
+
+def test_what_you_hand_over_is_gone_even_if_the_interpreter_forgets(content):
+    """Bribing an orc with stale bread leaves the bread with the orc, though the model only said it was used."""
+    state = generate(3)
+    put_monster(state, content, key="orc", hp=200)
+    state.player.inventory += ["stale_bread", "lucky_charm", "hand_axe"]
+    perform_creative(state, content, creative(success_effects=["pacify"], uses=["Stale Bread"],
+                                              summary="bribe the orc with the stale bread"))
+    assert "stale_bread" not in state.player.inventory
+    perform_creative(state, content, creative(success_effects=["stun"], uses=["Lucky Rabbit's Foot"],
+                                              summary="rub the lucky rabbit's foot and glare at the orc"))
+    perform_creative(state, content, creative(success_effects=["damage_small"], uses=["Hand Axe"],
+                                              summary="throw the hand axe at the orc"))
+    assert {"lucky_charm", "hand_axe"} <= set(state.player.inventory)  # only shown; and gear is never assumed spent
+    assert spends("tossing it") and spends("he threw") and spends("emptied the vial") and spends("dropped bait")
+    assert not spends("rub the charm") and not spends("hide behind the table")
 
 
 def test_hiding_behind_a_prop_is_not_exploiting_it(content):

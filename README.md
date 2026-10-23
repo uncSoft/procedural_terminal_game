@@ -47,19 +47,26 @@ It scores ten typed commands and five narrated moments, shows what the guard wou
 **Every turn**
 - **Dice you roll yourself.** Skill checks open a big pixel-art d20: press Space (or click), it tumbles and bounces, bonuses add up one by one, and the result is stamped. Natural 20s glow gold, natural 1s glow red and shake the screen; with advantage you roll two and the one you don't keep greys out. Attacks get small inline dice.
 - **You can see how it went.** Every roll ends in a coloured verdict (✔ HIT, ✘ HIT YOU, • NOTHING, ★ CRITICAL!) and flashes its colour. The story's border lights up green when the turn goes your way, red when it doesn't and silver when it's mixed (or blinks gold or crimson for a 20 or a 1). Damage numbers rise off the monster, your HP changes show by your hearts, and a new floor gets a title card and a banner in the story.
-- **Props and flair.** Using a real thing in the room or your pack ("topple the statue onto it") adds a ✦ flair bonus to the roll and earns a **Fate** token on success.
+- **Props and flair.** Using a real thing in the room or your pack ("topple the statue onto it") adds a ✦ flair bonus to the roll and earns a **Fate** token on success. What you throw, pour, feed or hand over is gone afterwards (bribe an orc with stale bread and the orc has the bread); your weapon, armor and keys only go if you say so.
 - **Fate rerolls.** Spend Fate to rewind a failed check and roll again. Earn it with flair, perfect dodges, natural 20s and shrines.
 - **Telegraphs.** Monsters wind up heavy blows a turn early (`⚠ HEAVY ATTACK NEXT`). Dodge or improvise an evasion to make them whiff, and get advantage and a Fate token.
 - **Weaknesses.** Everything is weak to something: fire, holy, shiny, food, heavy, slippery... Turn the right prop on a monster to roll with advantage and hit harder. Once you discover a weakness, the bestiary remembers it forever.
 - **A suggested trick.** The last choice (✦, in pink) is a creative idea built from what's actually in the room, so new players learn they can improvise.
-- **Loot you can see.** What you find, pick up or see a monster drop appears in the story with its art, and the inventory (F2) shows everything you carry as tiles: arrows pick one, Enter uses it.
+- **Loot you can see.** What you find, pick up or see a monster drop appears in the story with its full art, and the inventory (F2) shows everything you carry as tiles: arrows pick one, Enter uses it.
 - **Rooms you can see.** The first time you walk into a room, the story shows it as you see it from the doorway, a pixel-art picture drawn from the room itself: its exits, decor, features, any monster and whatever's lying on the floor. Look (F4) shows it bigger.
+- **Click a picture for its card.** A room's picture looks around it; a loot card, a chest or shrine in the story, or the monster in the sidebar opens its full card, with the matching action.
+- **Easy to get around.** The ways out carry their arrows (▲ ▼ ◀ ▶) in the choices, and a pad of arrows beside them lights the doors there are: click one to go. Or type `n`, `s`, `e` or `w`. The choices box keeps its size, so nothing moves under your mouse while a suggestion arrives.
 
 **Every run (about 25-40 minutes)**
 - Three floors, three different dungeons, getting harder, with a boss at the bottom.
 - **Pick one of three perks** at each level-up (Ruthless, Acrobatics, Vampiric, Glass Cannon...).
 - **Traits earned by how you play**: talk monsters down and you become *Silver Tongue*; win with props and you become a *Showboat*; dodge enough and you become a *Duelist*.
 - See what's through a door before you go: the map and choices show stairs `>`, shrines `†`, chests `■` and fountains `◊` ahead.
+- **Things that do things.** Beyond their numbers, some items have powers, on their cards and tiles: Weighted Dice add 1 to every roll you make, a Torch 1 to searching, the Ten-Foot Pole 2 to picking locks and disarming traps; the Mysterious Floppy Disk maps the whole floor when you pick it up; flasks, holy water and the odd grenade can be thrown in a fight (and are gone); a Laser Pointer or a Rubber Duck costs a monster its next attack, once a fight; a Glow Stick lights up anything hidden in a room. Some are a mixed blessing.
+- **Rare things.** Some items never lie about on a floor or drop from an everyday monster: they're kept in chests, hidden stashes, each floor's secret room, and by the warden at the stairs (always) or an elite (sometimes), and each turns up at most once a run. The floor caps how good a warden's is, so the best come deeper, and from secret rooms. A warden with nothing rare left to give carries a small key.
+- **Bombs and small keys** (● and ⚷ by your hearts). You start with a bomb; monsters drop bombs and keys now and then, elites more often. A chest opens three ways: a small key (safe), picking its lock (agility: fail and a needle gets you) or smashing it (might: fail and what's inside breaks). A bomb thrown in a fight always goes off.
+- **A secret room on every floor**, sealed until you bomb a wall into it. It's only ever built in a gap in the map that touches two rooms or more, so you can work out where it might be, and only those walls offer a bomb. Search a room next to it and you may feel a draft. There's one a floor: once it's open, no wall is worth a bomb. Finding it is a moment: a bang, a fanfare, a banner across the story, and the room in gold on the map, `{✧}`, from then on.
+- **Creatures that have stopped fighting know things.** Ask one what it knows (or, if it can't talk, watch where it goes): a wits roll, once each. It may put the floor's secret room or its hidden stash on your map (the stash as a gold `$`, and there when you search it), or, if it talks, tell you what one of the floor's monsters can't stand, the warden's or the boss's first.
 
 **Across runs**
 - **Souls** carry over when you die. Spend them at **the campfire** on **blessings** (permanent upgrades) and **gifts** (a starting item for your next descent).
@@ -125,7 +132,7 @@ uv run python -m ptg.sprites goblin troll                # preview sprites in yo
 To use your own art (Aseprite, Piskel, an image model), drop a PNG named after the monster's key
 (`goblin.png`, `drowned_abbot.png`...) into that folder.
 
-**Small versions.** Items are also drawn small, 12 pixels wide, in the inventory and in loot cards, and pixel art
+**Small versions.** Items are also drawn small, 12 pixels wide, on the inventory's tiles, and pixel art
 doesn't shrink well. So each item can have a hand-made small version: a 12×12 PNG strip with the same frames, in
 `src/ptg/data/sprites/small/` under the same name (`item_healing_potion.png`), best drawn in the big sprite's own
 colours with the bottom row left empty for the bob. The Monster & Item Maker draws them too (below), and its import
@@ -224,6 +231,11 @@ first, then an item of it (so adding five tier-3 potions doesn't make tier 3 fiv
 up from floor 1, tier 2 deeper, and the best of each kind in hidden stashes and floor-3 chests; the debug screen's
 Items tab (F12) says where each item can turn up.
 
+An item tagged `rare`, or given a `found` list in `items.toml` (`chest`, `stash`, `secret`, `warden`, or a monster's
+key for one that drops it), only turns up there, at most once a run. An item's `powers` are what it does beyond its
+numbers (`powers = ["luck"]`); `src/ptg/powers.py` lists them. The maker doesn't set either yet; importing a changed
+item keeps what the game already gave it.
+
 **An inbox instead of (or as well as) GitHub**: set `inbox.url` in `docs/maker/config.json` and the page gets a
 "Send to inbox" button that posts each creation there: a Discord webhook gets a message with the link, anything
 else gets the creation as JSON (`{"kind": "ptg-creation", "text", "link", "code", "creation"}`). Use it for a
@@ -296,7 +308,7 @@ The first launch opens Settings: pick LM Studio, Ollama, another OpenAI-compatib
 | F12 | | the debug screen |
 | Ctrl+L | | redraw the screen |
 
-Everything works with a mouse too: click a choice, a highlighted word or the dice (once to roll, again to carry on), and close a panel with its ✕ or a click outside it.
+Everything works with a mouse too: click a choice, an arrow on the pad, a highlighted word, a picture (for its card) or the dice (once to roll, again to carry on), and close a panel with its ✕ or a click outside it. Type `n`, `s`, `e` or `w` to go that way.
 
 Useful flags:
 
@@ -352,12 +364,13 @@ choice for your next descent.
 src/ptg/
   data/            themes, rooms, items, monsters, perks, unlocks, prop tags (TOML), art and story/ events
   content.py       loads and validates the data (broken data fails loudly)
-  world.py         seeded floors: layout, stairs, fixtures, elites, loot, ghosts, the map
-  loot.py          what turns up where: loot by kind and tier, read from the items
+  world.py         seeded floors: layout, stairs, fixtures, elites, loot, ghosts, the secret room, the map
+  loot.py          what turns up where: loot by kind and tier, read from the items, and where rare things are kept
+  powers.py        what items do beyond their numbers: roll bonuses, maps, throwing, distracting, curses
   layout.py        room floor plans and where things stand
   models.py        game state (pydantic; a save file is just this as JSON)
   dice.py          d20 checks with advantage, as data the UI can animate
-  rules.py         available actions, movement, items, fixtures, perks, traits
+  rules.py         available actions, movement, items, fixtures, chests, bombs, perks, traits
   combat.py        attacks, telegraphed intents, dodging, fleeing, defeat
   creative.py      free-text attempts: props, flair, weaknesses, clamped effects
   game.py          one turn: interpret -> resolve -> (reroll) -> narrate -> save -> profile

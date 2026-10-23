@@ -27,8 +27,13 @@ INK = "#10122a"
 EVENT_SOUNDS = {
     "enter": "step", "flee": "step", "locked": "locked", "unlock": "unlock", "telegraph": "windup", "stun": "stun",
     "find": "item", "take": "item", "loot": "item", "equip": "item", "key": "item", "fate": "fate", "trait": "fate",
-    "pacify": "good", "exploit": "good",
+    "pacify": "good", "exploit": "good", "bomb": "bomb", "secret_room": "bomb", "tip": "secret",
 }
+
+
+def event_sound(event: Event) -> str | None:
+    """The sound of something that happened (not a roll): a bomb booms, whatever it was thrown at."""
+    return "bomb" if event.data.get("bomb") else EVENT_SOUNDS.get(event.kind)
 
 
 def roll_sound(event: Event) -> str:

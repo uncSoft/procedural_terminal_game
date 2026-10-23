@@ -17,11 +17,26 @@ def with_items(content, *items: ItemDef):
 
 
 def test_every_slot_has_something_to_give(content):
-    slots = [s for floor in loot.FLOORS.values() for s in floor] + loot.STASH + [loot.DROP] + loot.FINDS
-    slots += [s for chest in loot.CHESTS.values() for s in chest]
-    empty = [slot for slot in slots if not loot.candidates(content, slot)]
+    places = loot.PLACES + [(f"floor {f} wardens", slots, "warden") for f, slots in loot.WARDEN.items()]
+    empty = [(name, slot) for name, slots, place in places for slot in slots  # (a rare slot falls back on a potion)
+             if not loot.candidates(content, slot, place) and not slot.startswith("rare")]
     assert not empty, f"loot asks for things the game doesn't have: {empty}"
     assert all(t in content.items for t in loot.DUNGEON_TRINKETS.values())
+
+
+def test_rare_things_turn_up_only_where_theyre_kept_and_only_once(content):
+    everyday = {k for slots in (loot.FLOORS[1], loot.FLOORS[2], loot.FLOORS[3], loot.FINDS, [loot.DROP])
+                for slot in slots for tier in loot.candidates(content, slot).values() for k in tier}
+    assert not [k for k in everyday if loot.rare(content.item(k))]  # never just lying about
+    assert "sword_still_in_the_stone" in str(loot.candidates(content, "rare", "secret"))
+    assert "sword_still_in_the_stone" not in str(loot.candidates(content, "rare", "chest"))  # found = ["secret"]
+    assert "the_compensator" not in str(loot.candidates(content, "rare -2", "warden"))  # tier 3: not from floor 1
+    rares, rng = [], random.Random(3)
+    got = [loot.produce(rng, content, rares, loot.SECRET, "secret") for _ in range(12)]
+    secret_rares = [k for tier in loot.candidates(content, "rare", "secret").values() for k in tier]
+    assert sorted(got[:len(secret_rares)]) == sorted(secret_rares)  # each once...
+    assert all(content.item(k).heal for k in got[len(secret_rares):])  # ...then a good potion instead
+    assert "dropped by" not in str(loot.where(content, "snitch")) and "secret rooms" in loot.where(content, "weighted_dice")
 
 
 def test_roles_come_from_the_data(content):
@@ -33,7 +48,7 @@ def test_roles_come_from_the_data(content):
 
 
 def test_slots_read_tiers_and_keep_some_items_by_name(content):
-    assert loot.candidates(content, "gear 2") == {2: ["war_pick", "chain_shirt"]}
+    assert loot.candidates(content, "gear 2") == {2: ["war_pick", "chain_shirt"]}  # the Snitch is rare: not here
     assert loot.candidates(content, "potion 2+") == {2: ["greater_healing_potion"], 3: ["superior_healing_potion"]}
     trinkets = [k for keys in loot.candidates(content, "trinket").values() for k in keys]
     assert "lucky_charm" not in trinkets and "oil_flask" in trinkets  # the charm only ever turns up by name

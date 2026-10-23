@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import re
+
 from .. import layout
 from ..content import Content
 from ..creative import available_props
 from ..events import Action, Event
 from ..intent import EFFECT_HELP
 from ..models import GameState
-from ..rules import exit_notes, room_facts
+from ..rules import exit_notes, ghost_truth, room_facts
 from ..text import the
 
 INTERPRETER_SYSTEM = """\
@@ -17,7 +19,9 @@ You do not narrate and you do not decide outcomes. Dice and rules do that. Reply
 
 Choose `kind`:
 - "action": the input clearly means one of the LISTED ACTIONS ("hit it", "go back", "grab the potion", "duck!").
-  Put that action's id in `action_id`.
+  Put that action's id in `action_id`. Asking a creature that's stopped fighting what it knows (where secrets or
+  treasure are, what's hidden, what to watch out for) is its `ask` action; chatting with it about anything else is
+  flavor.
 - "creative": the player attempts something not on the list that could plausibly change things: a trick, a stunt,
   using the room or an item in a new way, talking down / bribing / intimidating a monster, searching a specific spot.
   Choose `stat` (might = force, agility = speed/stealth/aim, wits = cleverness/persuasion/perception),
@@ -54,6 +58,9 @@ The FACTS were decided by dice and rules. Narrate them faithfully:
 - When the player enters a room for the first time, describe it from the room notes and mention every listed
   feature, item, exit direction and monster, woven naturally into prose. Use the positions given.
 - When the player returns to a room they know, keep it brief: don't describe it all again or list its exits.
+- The SETTING and the room notes are background for a first look: don't repeat their smells and sights every turn.
+- Nothing moves, opens, shuts or changes hands unless the facts say so: no doors slam behind the player, and what's
+  dropped or found stays where it lies until the facts say the player takes it.
 - If a heavy blow is coming, end on the monster's wind-up so the player can react to it.
 - If the player asked a question, answer it in character using only the facts and the player status.
 """
@@ -77,8 +84,8 @@ Use only the props and monster listed.
   Props whose tags match the monster's known weaknesses are the best choice.
 - Not in combat: suggest a curious way to investigate a specific feature (pry, climb, listen, read, poke,
   look under) that might reveal a secret. Never suggest throwing or using up carried items outside a fight.
-Reply with JSON: {"suggestion": "..."} where the suggestion is an imperative phrase of at most 9 words,
-e.g. "Kick the brazier over onto the goblin" or "Pry up the loose stones by the altar".
+Reply with JSON: {"suggestion": "..."} where the suggestion is an imperative phrase of at most 9 words that
+names a real prop from the list, shaped like "Kick the [prop] over onto the [monster]" or "Pry at the [feature]".
 No numbers, no quotes inside.
 """
 
@@ -89,8 +96,9 @@ Plain text only.
 """
 
 EPITAPH_SYSTEM = """\
-Write a one-line epitaph (at most 18 words) for a dungeon-crawler adventurer's tombstone. Darkly funny, specific
-to what happened to them. Plain text, no quotes, no hashtags.
+Write a one-line epitaph (at most 18 words) for a dungeon-crawler adventurer: for their tombstone if they died, or,
+if they won and lived, the line carved under their statue in the Hall of Legends. Darkly funny, specific to what
+happened to them. Call them by name or "they", never "he" or "she". Plain text, no quotes, no hashtags.
 """
 
 RECAP_SYSTEM = """\
@@ -129,7 +137,9 @@ def situation(state: GameState, content: Content) -> str:
         traits = ", boss" if monster_def.boss else (", intelligent" if monster_def.intelligent else ", animal-minded")
         move = {"heavy": "winding up a HEAVY attack", "guard": "about to guard", "strike": "about to attack"}[monster.intent]
         lines.append(f"Monster: {monster.name}, {monster.hp}/{monster.max_hp} HP, {mood}{traits}, {move}")
-        if monster_def.desc:
+        if monster.ghost_of:
+            lines.append(ghost_truth(monster))
+        elif monster_def.desc:
             lines.append(f"About the {monster_def.name}: {monster_def.desc}")
         known = state.known_weak.get(monster.key)
         if known:
@@ -148,6 +158,41 @@ def player_status(state: GameState, content: Content) -> str:
     return (f"Player {player.name}: level {player.level}, HP {player.hp}/{player.max_hp}, might {player.might}, "
             f"agility {player.agility}, wits {player.wits}. Weapon: {weapon.name}. Armor: {armor}. "
             f"Carrying: {carrying}. Gold: {player.gold}. Fate tokens: {player.fate}.")
+
+
+def suggestion_situation(state: GameState, content: Content) -> str:
+    """What the suggester sees. Outside a fight, only the room and what's in it: shown what you carry, it kept
+    suggesting you throw it (a Bag of Marbles, at everything)."""
+    if state.in_combat:
+        return situation(state, content)
+    room = state.room
+    theme = content.themes[state.theme]
+    lines = [f"Location: {room.name} ({theme.name}, floor {state.floor} of {state.floors_total})"]
+    features = [f"{f.name} ({layout.where(f.pos)})" for _, f in room.visible_features()]
+    if features:
+        lines.append("Features: " + ", ".join(features))
+    if room.fixture and not room.fixture_used:
+        lines.append(f"Fixture: {room.fixture}")
+    props = [p for p in available_props(state, content) if p.kind == "feature"]
+    lines.append("PROPS: " + ("; ".join(f"{p.name} ({', '.join(p.tags)})" if p.tags else p.name for p in props)
+                              or "(none)"))
+    lines.append("In combat: no")
+    return "\n".join(lines)
+
+
+HP_LEFT = re.compile(r" \((-?\d+)/(\d+) HP left\)")
+TALLY = re.compile(r" \+\d+ XP, \+\d+ souls\.| \(\d+/\d+\)")
+
+
+def plain(fact: str) -> str:
+    """A fact as the narrator gets it: how hurt someone is in words, and no tallies. Handed "(12/20 HP left)", it
+    turned the numbers into prose ("restoring your strength to a manageable forty-one") and got them wrong."""
+    def health(match: re.Match) -> str:
+        left, most = int(match.group(1)), int(match.group(2))
+        return " (" + ("down" if left <= 0 else "barely standing" if left <= most / 4 else "hurt" if left <= most * 0.6
+                       else "still strong") + ")"
+
+    return TALLY.sub("", HP_LEFT.sub(health, fact))
 
 
 def interpreter_messages(state: GameState, content: Content, raw: str, actions: list[Action]) -> tuple[str, str]:
@@ -183,7 +228,8 @@ def narrator_messages(state: GameState, content: Content, raw: str, events: list
     length = "3 to 5 sentences" if first_visit else ("1 to 3 sentences" if state.in_combat else "2 to 4 sentences")
     system = NARRATOR_SYSTEM.format(tone=tone, length=length)
 
-    lines = [f"SETTING: {theme.name}, floor {state.floor} of {state.floors_total}. {theme.blurb}"]
+    setting = f"SETTING: {theme.name}, floor {state.floor} of {state.floors_total}."
+    lines = [f"{setting} {theme.blurb}" if first_visit else setting]  # said every turn, it got repeated every turn
     recent = state.journal[-6:]
     if recent:
         lines.append("RECENTLY (before this turn, oldest first):\n" + "\n".join(f"- {line}" for line in recent))
@@ -198,7 +244,7 @@ def narrator_messages(state: GameState, content: Content, raw: str, events: list
         lines.append(f"How you described it last time (for flavour; the facts win): {room.description}")
     if raw:
         lines.append(f"PLAYER TYPED: {raw}")
-    facts = [e.text for e in events]
+    facts = [plain(e.text) for e in events]
     if question:
         facts.append(situation(state, content))
     lines.append("FACTS:\n" + ("\n".join(f"- {f}" for f in facts) if facts else "- Nothing changes."))

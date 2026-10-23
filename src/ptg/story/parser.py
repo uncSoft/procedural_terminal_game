@@ -32,7 +32,8 @@ from pathlib import Path
 
 from .. import sprites
 from ..content import Content
-from .model import ONCE, TRIGGERS, VOICES, Choice, Condition, Effect, Node, StoryError, StoryEvent
+from .model import (ONCE, PLACEHOLDER, PLACEHOLDERS, TRIGGERS, VOICES, Choice, Condition, Effect, Node, StoryError,
+                    StoryEvent)
 
 HEADER_KEYS = {"id", "title", "when", "if", "once", "voice", "secret", "hint", "sprite"}
 EFFECT = re.compile(r"\[([a-z_]+)((?:\s+[^\]\s]+)*)\s*\]")
@@ -47,6 +48,7 @@ EFFECTS = {
     "xp": (1, 1, "number"), "heal": (0, 0, ""), "give": (1, 1, "item"), "take": (1, 1, "item"),
     "perk": (1, 1, "perk"), "flag": (1, 1, "name"), "unflag": (1, 1, "name"), "mark": (1, 1, "name"),
     "secret": (0, 1, "event"), "spawn": (1, 1, "monster"), "goto": (1, 1, "node"), "end": (0, 0, ""),
+    "calm": (0, 0, ""),
 }
 
 
@@ -78,13 +80,25 @@ def parse(text: str, source: str = "<story>") -> StoryEvent:
     once = header.get("once", ("run", 0))[0]
     voice = header.get("voice", ("exact", 0))[0]
     nodes = _body(lines[end + 1:], end + 2, source)
-    return StoryEvent(
+    event = StoryEvent(
         id=event_id, title=header.get("title", (event_id.replace("_", " ").title(), 0))[0],
         trigger=trigger, trigger_args=trigger_args, conditions=conditions, once=once, voice=voice,
         secret=header.get("secret", ("no", 0))[0].lower() in ("yes", "true", "1"),
         hint=header.get("hint", ("", 0))[0], nodes=nodes, source=source,
         sprite=header.get("sprite", ("", 0))[0],
     )
+    event.needs_ghost = any(name.startswith("ghost") for text in _texts(event) for name in PLACEHOLDER.findall(text))
+    return event
+
+
+def _texts(event: StoryEvent) -> list[str]:
+    """Everything in an event that's shown or typed, where placeholders can go."""
+    texts = list(event.trigger_args)
+    for node in event.nodes.values():
+        texts.append(node.text)
+        for choice in node.choices:
+            texts += [choice.label, choice.text, *choice.keywords]
+    return texts
 
 
 def _trigger(value: str, source: str, line: int) -> tuple[str, list[str]]:
@@ -92,7 +106,7 @@ def _trigger(value: str, source: str, line: int) -> tuple[str, list[str]]:
     if name not in TRIGGERS:
         raise StoryError(f"{source}:{line}: unknown trigger {name!r} (expected one of: {', '.join(TRIGGERS)})")
     if name == "say":
-        phrases = [normalize(p) for p in rest.split("|") if normalize(p)]
+        phrases = [normalize_phrase(p) for p in rest.split("|") if normalize_phrase(p)]
         if not phrases:
             raise StoryError(f"{source}:{line}: 'say' needs at least one phrase, e.g. 'when: say open sesame'")
         return name, phrases
@@ -209,12 +223,19 @@ def _choice(text: str, source: str, line: int) -> Choice:
     label, keywords = (match.group(1), match.group(2)) if match else (text, "")
     if not label:
         raise StoryError(f"{source}:{line}: a choice needs some words before its keywords")
-    return Choice(label, [normalize(k) for k in keywords.split(",") if normalize(k)], line=line)
+    return Choice(label, [normalize_phrase(k) for k in keywords.split(",") if normalize_phrase(k)], line=line)
 
 
 def normalize(text: str) -> str:
     text = re.sub(r"[^a-z0-9' ]+", " ", text.lower())
     return re.sub(r"\s+", " ", text).strip()
+
+
+def normalize_phrase(text: str) -> str:
+    """normalize(), keeping placeholders whole for filling in later: "It's me, {ghost}!" -> "it's me {ghost}"."""
+    parts = PLACEHOLDER.split(text)  # text, name, text, name...
+    words = [f"{{{part}}}" if i % 2 else normalize(part) for i, part in enumerate(parts)]
+    return " ".join(w for w in words if w)
 
 
 def validate(event: StoryEvent, content: Content, event_ids: set[str]) -> list[str]:
@@ -242,6 +263,13 @@ def validate(event: StoryEvent, content: Content, event_ids: set[str]) -> list[s
         for effects in effect_lists:
             for effect in effects:
                 problems += _check_effect(effect, event, content, event_ids)
+    unknown = sorted({name for text in _texts(event) for name in PLACEHOLDER.findall(text)} - set(PLACEHOLDERS))
+    if unknown:
+        problems.append(f"{where}: unknown placeholder {', '.join('{' + n + '}' for n in unknown)} "
+                        f"(expected one of: {', '.join('{' + n + '}' for n in PLACEHOLDERS)})")
+    if PLACEHOLDER.search(event.title) or PLACEHOLDER.search(event.hint):
+        problems.append(f"{where}: the title and hint can't use placeholders (the Book of Secrets shows them "
+                        "outside any run)")
     return problems
 
 

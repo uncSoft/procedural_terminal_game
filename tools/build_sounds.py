@@ -140,12 +140,12 @@ def _hit(pitch: float, seed: int) -> list[Tone]:
             Tone("square", pitch, to=pitch / 3, length=0.09, duty=0.25, volume=0.3)]
 
 
-def _sparkle(names: list[str], step: float, volume: float = 0.3) -> list[Tone]:
+def _sparkle(names: list[str], step: float, volume: float = 0.3, at: float = 0.0) -> list[Tone]:
     """Twinkling: each note with a quieter echo just after it."""
     tones = []
     for i, n in enumerate(names):
-        tones.append(note(n, step * 2, i * step, wave="triangle", volume=volume, release=step * 1.5))
-        tones.append(note(n, step * 2, i * step + step * 0.6, wave="square", duty=0.125, volume=volume * 0.3,
+        tones.append(note(n, step * 2, at + i * step, wave="triangle", volume=volume, release=step * 1.5))
+        tones.append(note(n, step * 2, at + i * step + step * 0.6, wave="square", duty=0.125, volume=volume * 0.3,
                           release=step * 1.5))
     return tones
 
@@ -189,6 +189,9 @@ SOUNDS: dict[str, list[list[Tone]]] = {
               note("E6", 0.3, 0.15, duty=0.125, volume=0.12, vibrato=2.0, vibrato_rate=9, release=0.15)]],
     "kill": [[Tone("noise", 1500, to=150, length=0.4, volume=0.3, release=0.2)]
              + arp(["C5", "G4", "C4"], 0.07, duty=0.25, volume=0.25, hold=0.1)],
+    "bomb": [[Tone("noise", 4000, length=0.06, volume=0.35),
+              Tone("noise", 1100, to=40, length=0.7, volume=0.45, release=0.45),
+              Tone("square", 110, to=28, length=0.45, duty=0.5, volume=0.3, release=0.3)]],
 
     # exploring
     "step": [[Tone("noise", 800, length=0.035, volume=0.22), Tone("noise", 650, length=0.035, at=0.16, volume=0.18)],
@@ -200,6 +203,13 @@ SOUNDS: dict[str, list[list[Tone]]] = {
     "coin": [[note("B5", 0.07, duty=0.5, volume=0.34), note("E6", 0.3, 0.07, duty=0.5, volume=0.34, release=0.25)]],
     "heal": [arp(["C5", "E5", "G5", "C6", "E6"], 0.06, wave="triangle", volume=0.38, attack=0.01, hold=0.15)],
     "secret": [_sparkle(["A6", "E6", "C#6", "A5", "E6", "A6"], 0.06)],
+    # a floor's secret room: two rising runs a step apart, then a bright chord that rings and glitters
+    "secret_room": [arp(["G5", "B5", "D6", "G6"], 0.055, duty=0.25, volume=0.3)
+                    + arp(["A5", "C#6", "E6", "A6"], 0.055, at=0.24, duty=0.25, volume=0.3)
+                    + [note("B6", 0.8, 0.48, duty=0.5, volume=0.24, vibrato=0.25, release=0.5),
+                       note("D#6", 0.8, 0.48, wave="triangle", volume=0.3, release=0.5),
+                       note("B4", 0.8, 0.48, wave="triangle", volume=0.3, release=0.5)]
+                    + _sparkle(["F#7", "D#7", "B6", "F#7", "B7"], 0.07, volume=0.14, at=0.62)],
     "story": [[note("C6", 0.6, wave="triangle", volume=0.32, release=0.45),
                note("G6", 0.5, 0.12, wave="triangle", volume=0.22, release=0.4),
                note("C7", 0.4, 0.24, duty=0.125, volume=0.08, release=0.3)]],

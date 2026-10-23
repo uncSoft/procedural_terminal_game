@@ -10,13 +10,15 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from . import powers
 from .content import Content
 from .models import GameState
 from .text import bare
 
 FIXTURES = {
     "shrine": "A shrine that trades blood for Fate, or gold for healing. One use.",
-    "chest": "An iron-bound chest. Probably trapped. Disarm it with agility for its loot.",
+    "chest": "An iron-bound chest, probably trapped. Open it with a small key, pick the lock (agility: the trap "
+             "may get you) or smash it (might: what's inside may break).",
     "fountain": "A strange fountain. Drink and roll: it might hurt, heal, grant Fate, or bless a stat.",
     "stairs": "Stairs down to the next floor. There's no coming back up.",
 }
@@ -148,6 +150,8 @@ def item_summary(content: Content, key: str) -> str:
     stats = {"weapon": f"weapon, {item.damage} damage", "armor": f"armor, +{item.defense} defense",
              "consumable": "escape" if item.escape else f"restores {item.heal} HP",
              "key": "key", "trinket": "trinket: use it creatively"}[item.kind]
+    if item.powers:
+        stats += "; " + "; ".join(powers.describe(item))
     tags = f" · {', '.join(item.tags)}" if item.tags else ""
     return f"{item.name} · {stats}{tags}"
 

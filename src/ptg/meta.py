@@ -5,8 +5,8 @@ from __future__ import annotations
 import datetime as dt
 import random
 
-from . import dice
-from .content import Content
+from . import dice, powers
+from .content import Content, load_content
 from .integrity import shipped_report
 from .models import FLOORS, GameState, Player
 from .profile import Profile
@@ -67,6 +67,7 @@ def start_run(profile: Profile, content: Content, name: str, seed: int | None = 
 
 def souls_earned(state: GameState) -> int:
     souls = state.souls + state.player.gold // 10
+    souls += 30 * len(powers.holders(state, load_content(), "valuable"))  # treasure you made it out with
     if "soul_siphon" in state.player.blessings:
         souls = round(souls * 1.25)
     return souls

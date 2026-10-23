@@ -36,7 +36,7 @@ from textual.coordinate import Coordinate
 from textual.events import Click
 from textual.widgets import Button, DataTable, Input, ProgressBar, Select, Static, TabbedContent, TabPane, Tree
 
-from .. import __version__, integrity, loot, sound
+from .. import __version__, integrity, loot, powers, sound
 from ..config import DEFAULT_CLAUDE_MODEL, DEFAULT_URLS, Config, home, load_game, save_config
 from ..content import Content, load_content
 from ..game import Game
@@ -422,7 +422,11 @@ class ItemsTab(TableTab):
         if i.escape:
             rows.append(("Escape", "gets you out of a fight"))
         rows.append(("Tags", listed(i.tags, "-")))
+        if i.powers:
+            rows.append(("Powers", "; ".join(powers.describe(i))))
         rows.append(("Turns up", listed(turns_up(self.content, key), "nowhere: nothing places it")))
+        if loot.rare(i):
+            rows.append(("Rare", "once a run at most, and only in those places"))
         gifts = [u.name for u in self.content.unlocks.values() if u.item == key]
         if gifts:
             rows.append(("Campfire gift", listed(gifts)))

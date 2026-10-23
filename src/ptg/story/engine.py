@@ -10,18 +10,33 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .. import dice
+from ..combat import defeat
 from ..content import Content
 from ..events import Action, Event
 from ..models import GameState, MonsterState, SceneState
 from ..rules import apply_perk, check_level, gain_item
 from ..text import a, cap
-from .model import Effect, Node, StoryEvent
+from .model import PLACEHOLDER, PLACEHOLDERS, Effect, Node, StoryEvent
 from .parser import Library, normalize
 
 # Kinds of event the story engine produces. Game shows cards, records the rest, and keeps them all away
 # from the narrator (except cards written in the "narrated" voice).
 STORY_KINDS = {"story", "story_effect", "story_secret", "story_seen", "story_mark"}
 MAX_GOTO_DEPTH = 8
+# What a placeholder says when there's no ghost to fill it (an event forced with --event, say).
+STAND_INS = {"ghost": "(your ghost's name)", "ghost_cause": "(how they died)", "ghost_epitaph": "(their epitaph)"}
+
+
+def fill(text: str, state: GameState) -> str:
+    """A story text with its placeholders filled in: {ghost} is the name of this run's ghost (your adventurer from a
+    run that ended), {ghost_cause} how they died, {ghost_epitaph} what their tombstone said."""
+    ghost = state.ghost or {}
+
+    def value(match) -> str:
+        name = match.group(1)
+        return str(ghost.get(PLACEHOLDERS.get(name, ""), "") or STAND_INS.get(name, match.group(0)))
+
+    return PLACEHOLDER.sub(value, text)
 
 
 @dataclass
@@ -90,7 +105,7 @@ class StoryEngine:
             return None
         text = f" {normalize(raw)} "
         for event in self.library:
-            if event.trigger == "say" and any(f" {p} " in text for p in event.trigger_args) \
+            if event.trigger == "say" and any(f" {normalize(fill(p, state))} " in text for p in event.trigger_args) \
                     and self._eligible(state, event, {}):
                 return event
         return None
@@ -102,7 +117,7 @@ class StoryEngine:
                 continue
             if trigger == "roll" and event.trigger_args[0] != context.get("roll"):
                 continue
-            if event.is_scene and (state.scene or state.in_combat):
+            if event.is_scene and (state.scene or (state.in_combat and not self._about_the_fight(state, event))):
                 continue
             if self._eligible(state, event, context):
                 out += self._fire(state, event)
@@ -114,6 +129,8 @@ class StoryEngine:
 
     def _eligible(self, state: GameState, event: StoryEvent, context: dict) -> bool:
         if event.once != "always" and event.id in state.story_seen:
+            return False
+        if event.needs_ghost and not state.ghost:  # it names a ghost this run doesn't have
             return False
         if event.once == "profile" and event.id in self.view.seen:
             return False
@@ -161,6 +178,13 @@ class StoryEngine:
             return self.tampered
         raise ValueError(f"unknown condition {name!r}")
 
+    @staticmethod
+    def _about_the_fight(state: GameState, event: StoryEvent) -> bool:
+        """Whether an event is about the monster you're fighting (if: monster ghost). Only such a scene plays out in
+        the middle of a fight, and the fight waits while it does."""
+        here = state.room.monster.key if state.room.monster else ""
+        return any(c.name == "monster" and not c.negate and c.value == here for c in event.conditions)
+
     # --- scenes -----------------------------------------------------------------
 
     def current(self, state: GameState) -> tuple[StoryEvent | None, Node | None]:
@@ -174,7 +198,9 @@ class StoryEngine:
 
     def scene_actions(self, state: GameState) -> list[Action]:
         _, node = self.current(state)
-        return [Action(f"scene:{i}", choice.label) for i, choice in enumerate(node.options)] if node else []
+        if node is None:
+            return []
+        return [Action(f"scene:{i}", fill(choice.label, state)) for i, choice in enumerate(node.options)]
 
     def scene_title(self, state: GameState) -> str:
         event, _ = self.current(state)
@@ -188,7 +214,7 @@ class StoryEngine:
         text = f" {normalize(raw)} "
         best, best_length = None, 0
         for index, choice in enumerate(node.options):
-            for phrase in [*choice.keywords, normalize(choice.label)]:
+            for phrase in [normalize(fill(p, state)) for p in [*choice.keywords, choice.label]]:
                 if phrase and f" {phrase} " in text and len(phrase) > best_length:
                     best, best_length = index, len(phrase)
         return best
@@ -203,11 +229,11 @@ class StoryEngine:
             return [Event("info", "Nothing comes of that.")]
         out: list[Event] = []
         if choice.text and event.voice != "silent":
-            out.append(self._card(event, choice.text))
+            out.append(self._card(state, event, choice.text))
         state.scene = None
         effects, goto, end = self._apply(state, event, choice.effects)
         out += effects
-        if goto and not end and not state.over and not state.in_combat:
+        if goto and not end and not state.over and (not state.in_combat or self._about_the_fight(state, event)):
             out += self._enter(state, event, goto)
         state.turn += 1
         return out
@@ -226,19 +252,19 @@ class StoryEngine:
         node = event.nodes[node_id]
         out: list[Event] = []
         if node.text and event.voice != "silent":
-            out.append(self._card(event, node.text))
+            out.append(self._card(state, event, node.text))
         effects, goto, end = self._apply(state, event, node.effects)
         out += effects
         if goto and not end and depth < MAX_GOTO_DEPTH and not state.over:
             return out + self._enter(state, event, goto, depth + 1)
-        if node.choices and not end and not state.in_combat and not state.over:
+        if node.choices and not end and not state.over and (not state.in_combat or self._about_the_fight(state, event)):
             state.scene = SceneState(event=event.id, node=node_id)
         elif state.scene and state.scene.event == event.id:
             state.scene = None
         return out
 
-    def _card(self, event: StoryEvent, text: str) -> Event:
-        return Event("story", text, data={"event": event.id, "title": event.title, "voice": event.voice})
+    def _card(self, state: GameState, event: StoryEvent, text: str) -> Event:
+        return Event("story", fill(text, state), data={"event": event.id, "title": event.title, "voice": event.voice})
 
     def _apply(self, state: GameState, event: StoryEvent, effects: list[Effect]) -> tuple[list[Event], str, bool]:
         player, content = state.player, self.content
@@ -291,6 +317,8 @@ class StoryEngine:
                 target = self.library.get(args[0]) if args else event
                 out.append(Event("story_secret", f"Secret found: {target.title}",
                                  data={"event": target.id, "title": target.title}))
+            elif verb == "calm":
+                notes += self._calm(state, event, out)
             elif verb == "spawn":
                 monster_def = content.monster(args[0])
                 state.room.monster = MonsterState(key=monster_def.key, name=monster_def.name,
@@ -307,3 +335,17 @@ class StoryEngine:
         if notes:
             out.insert(0, Event("story_effect", " · ".join(notes), data={"event": event.id}))
         return out, goto, end
+
+    def _calm(self, state: GameState, event: StoryEvent, out: list[Event]) -> list[str]:
+        """[calm]: the monster here stops fighting, no roll, as if talked down. A ghost lays itself to rest, its
+        belongings yours. What it did goes in `out` (so the profile hears of it) and comes back as notes for the card;
+        the narrator leaves it to the author's words unless the event is narrated."""
+        monster = state.room.monster
+        if monster is None or monster.hp <= 0 or not monster.hostile:
+            return []
+        monster.hostile = False
+        calmed = defeat(state, self.content, dice.stream(state.seed, "story", event.id, state.turn), how="pacified")
+        for done in calmed:
+            done.data["told_by"] = event.voice
+        out += calmed
+        return [done.text for done in calmed if done.text]

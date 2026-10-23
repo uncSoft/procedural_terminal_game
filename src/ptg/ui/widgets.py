@@ -9,11 +9,13 @@ from functools import lru_cache
 
 from rich.style import Style
 from rich.text import Text
+from textual.app import ComposeResult
+from textual.containers import Horizontal, Vertical
 from textual.events import Click, Leave, MouseMove
 from textual.message import Message
 from textual.widgets import Static
 
-from .. import layout, loot, sound
+from .. import layout, loot, powers, sound
 from ..content import Content
 from ..events import Action, Event
 from ..glossary import Lexicon
@@ -93,7 +95,7 @@ def roll_text(event: Event) -> Text:
 
 
 class Hud(Static):
-    """The top status bar: hearts, defense, Fate, gold, souls, keys, XP and floor."""
+    """The top status bar: hearts, defense, Fate, gold, souls, bombs and small keys, the boss key, XP and floor."""
 
     def show(self, state: GameState, content: Content) -> None:
         player = state.player
@@ -108,6 +110,10 @@ class Hud(Static):
         text.append(str(player.gold))
         text.append("   ☽ ", style="#5fe3ff")
         text.append(str(state.souls))
+        text.append("   ● ", style="#ff7b39")
+        text.append(str(player.bombs))
+        text.append("   ⚷ ", style="#c0cbdc")
+        text.append(str(player.keys))
         if content.themes[state.theme].key_item in player.inventory:
             text.append("   ♀ key", style="bold #ffb000")
         next_xp = player.next_level_xp()
@@ -139,11 +145,18 @@ def room_text(state: GameState, content: Content, legend: bool = True) -> Text:
 
 def map_text(state: GameState) -> Text:
     text = Text()
-    for line in render_map(state):
+    lines = render_map(state)
+    for line in lines:
         for ch in line:
             text.append(ch, style=MAP_STYLES.get(ch, "#6c6f99"))
         text.append("\n")
     text.append("@ you ! foe ? unknown\n> stairs † shrine ■ chest ◊ fountain = locked", style="#6c6f99")
+    secrets = [(glyph, label) for mark, glyph, label in (("{", "{✧}", "secret room"), ("$", "$", "a tip"))
+               if any(mark in line for line in lines)]
+    for i, (glyph, label) in enumerate(secrets):
+        text.append("\n" if i == 0 else "  ")
+        text.append(glyph, style=MAP_STYLES["$"])
+        text.append(f" {label}", style="#6c6f99")
     return text
 
 
@@ -197,6 +210,8 @@ class ChoiceItem(Static):
 
     def __init__(self, index: int, action: Action) -> None:
         text = Text(f"{index}. ", style="bold #ffb000")
+        if action.id.startswith("go:"):
+            text.append(ARROWS.get(action.id[3:], "·") + " ", style="bold #5fe3ff")
         if action.id == "suggest":
             text.append(action.label, style="italic #ff4f9a")
         elif action.id.startswith("perk:"):
@@ -208,32 +223,93 @@ class ChoiceItem(Static):
             text.append(f"  [{action.hint}]", style=hint_style)
         super().__init__(text, classes="choice")
         self.index = index
+        if len(text.plain) > 56:  # a long one may be cut short in its row: hovering shows all of it
+            self.tooltip = text.plain
 
     def on_click(self) -> None:
         self.post_message(self.Chosen(self.index))
 
 
+ARROWS = {"north": "▲", "south": "▼", "east": "▶", "west": "◀"}
+# A way out on the pad, by its choice's hint: open, a fixture ahead, danger, locked, or a door you have the key to.
+WAY_STYLES = {"": "bold #5fe3ff", "danger": "bold #ff4b4b", "locked": "#7a3b4c", "boss": "bold #ff4f9a"}
+NO_WAY = "#2e3149"
+
+
+class DPad(Vertical):
+    """The ways out of the room as a pad of arrows, lit where there's a door: click one to go that way. Hovering an
+    arrow says where it leads, as its choice does."""
+
+    def compose(self) -> ComposeResult:
+        for row in (("", "north", ""), ("west", "@", "east"), ("", "south", "")):
+            with Horizontal(classes="dpad-row"):
+                for cell in row:
+                    if cell in ARROWS:
+                        yield Clickable(Text(""), f"screen.go('{cell}')", id=f"dpad-{cell}", classes="dpad-key")
+                    else:
+                        yield Static(Text(cell, style="bold #ffffff"), classes="dpad-gap")
+
+    def show(self, actions: list[Action]) -> None:
+        ways = {a.id[3:]: a for a in actions if a.id.startswith("go:")}
+        for direction, arrow in ARROWS.items():
+            key = self.query_one(f"#dpad-{direction}", Clickable)
+            way = ways.get(direction)
+            style = NO_WAY if way is None else WAY_STYLES.get(way.hint, "bold #ffd166")  # else: a fixture ahead
+            key.update(Text(arrow, style=style))
+            key.set_class(way is None, "off")
+            key.tooltip = None if way is None else way.label + (f"  [{way.hint}]" if way.hint else "")
+
+
+class ClickableBox(Vertical):
+    """A card in the story that runs an action when clicked anywhere on it, such as
+    "screen.lookup('item:healing_potion')" to show what's pictured on it."""
+
+    def __init__(self, *children, action: str, **kwargs) -> None:
+        super().__init__(*children, **kwargs)
+        self.action = action
+
+    async def on_click(self, event: Click) -> None:
+        event.stop()
+        await self.run_action(self.action)
+
+
 class AnimatedSprite(Static):
     """A sprite that animates where it stands: in the story, or on a story card. `loop` picks which frames its
-    idle animation cycles through (all of them by default)."""
+    idle animation cycles through (all of them by default); `action`, if given, runs when it's clicked (such as
+    "screen.lookup('fixture:chest')", for its card)."""
 
     def __init__(self, key: str, interval: float = 0.25, loop: list[int] | None = None, width: int = DEFAULT_WIDTH,
-                 **kwargs) -> None:
+                 action: str | None = None, **kwargs) -> None:
         self.key = key
         self.interval = interval
         self.width = width
         self.loop = loop or list(range(max(1, frame_count(key))))
         self.index = 0
         self._timer = None
+        self.action = action
         super().__init__(sprite_text(key, self.loop[0], width) or Text(""), **kwargs)
 
     def on_mount(self) -> None:
         self.resume()
 
+    async def on_click(self, event: Click) -> None:
+        if self.action:
+            event.stop()
+            await self.run_action(self.action)
+
     def resume(self) -> None:
         """Animate again (after a play())."""
         if self._timer is None and len(self.loop) > 1:
             self._timer = self.set_interval(self.interval, self._tick)
+
+    def become(self, key: str) -> None:
+        """Show another sprite instead (a panel's picture as you page through), animating all its frames."""
+        self.freeze()
+        self.key, self.index = key, 0
+        self.loop = list(range(max(1, frame_count(key))))
+        self.update(sprite_text(key, self.loop[0], self.width) or Text(""))
+        if self.is_mounted:
+            self.resume()
 
     def _tick(self) -> None:
         self.index = (self.index + 1) % len(self.loop)
@@ -259,10 +335,22 @@ ITEM_COLORS = {"weapon": "#c8c8e0", "armor": "#8fa8ff", "consumable": "#ff4b4b",
 
 
 def item_note(content: Content, key: str) -> str:
-    """What an item does, in a few words: "1d8 damage", "+2 defense", "heals 8"."""
+    """What an item does, in a few words: "1d8 damage", "+2 defense", "heals 8", "+1 every roll"."""
     item = content.item(key)
+    if key in powers.PICKED_UP:
+        return powers.PICKED_UP[key]
+    if item.kind == "trinket" and item.powers:
+        return powers.SHORT[item.powers[0]] + (f" ({item.damage})" if item.powers[0] == "throw" else "")
     return {"weapon": f"{item.damage} damage", "armor": f"+{item.defense} defense", "key": "a key",
             "consumable": "escape a fight" if item.escape else f"heals {item.heal}", "trinket": "trinket"}[item.kind]
+
+
+def power_lines(content: Content, key: str) -> Text:
+    """What an item's powers do, a line each, for its card."""
+    text = Text()
+    for line in powers.describe(content.item(key)):
+        text.append(f"◆ {line}\n", style="bold #ffd166")
+    return text
 
 
 # "No picture yet": a plain grey icon for each kind of item (see loot.role), for items nobody has drawn.

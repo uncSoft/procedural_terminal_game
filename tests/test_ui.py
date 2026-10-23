@@ -4,16 +4,16 @@ from ptg import sound
 from ptg.config import Config
 from ptg.dice import Roll
 from ptg.events import Event
-from ptg.sprites import DEATH_FRAMES, SMALL
+from ptg.sprites import DEATH_FRAMES, DEFAULT_WIDTH
 from ptg.ui.app import PTGApp
 from ptg.ui.dice import DiceScreen
 from ptg.ui.game_screen import GameScreen
 from ptg.ui.hub import EndScreen, HubScreen
 from ptg.ui.effects import Popup
-from ptg.ui.panels import (BestiaryScreen, CharacterScreen, FloorScreen, HelpScreen, InventoryScreen, JournalScreen,
-                           LevelUpScreen, LookScreen, MapScreen)
+from ptg.ui.panels import (BestiaryScreen, CharacterScreen, FloorScreen, HelpScreen, InfoScreen, InventoryScreen,
+                           JournalScreen, LevelUpScreen, LookScreen, MapScreen)
 from ptg.ui.screens import IntroScreen, SetupScreen, TitleScreen
-from ptg.ui.widgets import AnimatedSprite, roll_text
+from ptg.ui.widgets import AnimatedSprite, ChoiceItem, roll_text
 
 
 async def settle(app, pilot, limit: float = 10.0) -> None:
@@ -402,8 +402,12 @@ async def test_found_loot_shows_with_its_art():
         [card] = screen.query(".loot-card")
         assert str(card.border_title) == "✦ found"
         art = card.query_one(AnimatedSprite)
-        assert art.key == "item_superior_healing_potion" and art.width == SMALL  # its hand-made small version
+        assert art.key == "item_superior_healing_potion" and art.width == DEFAULT_WIDTH  # the full picture
         assert "Superior Healing Potion" in str(card.query_one(".loot-text", Static).render())
+        await pilot.click(".loot-card")
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, InfoScreen)  # its card, with the full art and what it does
+        assert "Superior Healing Potion" in str(app.screen.query_one(".panel-box Static").render())
 
 
 async def test_a_room_you_walk_into_is_pictured_once():
@@ -430,6 +434,71 @@ async def test_a_room_you_walk_into_is_pictured_once():
         await pilot.press(*str(back), "enter")
         await settle(app, pilot)
         assert len(screen.query(".room-card")) == 2  # been here before: no new picture
+
+
+async def test_the_pad_lights_the_ways_out_and_takes_you_there():
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=57)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        state = screen.game.state
+        for room in state.rooms:
+            room.monster = None
+        ways = {a.id[3:] for a in screen.game.choices() if a.id.startswith("go:")}
+        for direction in ("north", "south", "east", "west"):
+            assert screen.query_one(f"#dpad-{direction}").has_class("off") == (direction not in ways)
+        go = next(c for c in screen.query(ChoiceItem) if "Go " in str(c.render()))
+        assert str(go.render()).split(". ")[1][0] in "▲▼▶◀"  # the way's arrow by its choice
+        way = sorted(ways)[0]
+        target = state.room.exits[way].to
+        await pilot.click(f"#dpad-{way}")
+        await settle(app, pilot)
+        assert state.room_id == target
+        here = state.room_id
+        off = next(d for d in ("north", "south", "east", "west") if screen.query_one(f"#dpad-{d}").has_class("off"))
+        await pilot.click(f"#dpad-{off}")  # no door that way: nothing happens
+        await settle(app, pilot)
+        assert state.room_id == here
+
+
+async def test_the_choices_box_keeps_its_height():
+    """Nothing moves under the mouse: the box doesn't grow or shrink, and more choices start a second column."""
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=57)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        box = screen.query_one("#choices")
+        height = box.size.height
+        assert not screen.query_one("#choice-more").display
+        state = screen.game.state
+        state.player.inventory += ["healing_potion", "stale_bread", "smoke_bomb"]
+        state.player.hp, state.room.items = 10, ["war_pick", "oil_flask", "hand_axe"]
+        screen.refresh_choices()
+        await pilot.pause(0.2)
+        assert len(screen.game.choices()) > 8 and box.size.height == height
+        assert screen.query_one("#choice-more").display and len(screen.query_one("#choice-list").children) == 8
+
+
+async def test_pictures_in_the_story_open_their_cards():
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=57)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        screen.query_one("#story").scroll_home(animate=False)
+        await pilot.pause(0.2)
+        await pilot.click(".room-card")  # the room you're in: look around
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, LookScreen)
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+        await pilot.click("#scene")  # no fight: the sidebar's floor plan looks around too
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, LookScreen)
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+        assert screen._card_of("chest") == "screen.lookup('fixture:chest')"
+        assert screen._card_of("goblin") == "screen.lookup('monster:goblin')"
+        assert screen._card_of("item_rusty_sword") == "screen.lookup('item:rusty_sword')"
+        screen.action_lookup("fixture:shrine")
+        await pilot.pause(0.3)
+        assert "▀" in str(app.screen.query_one(".panel-box Static").render())  # a fixture's card has its picture
 
 
 async def test_look_shows_the_room_as_a_picture():
@@ -480,3 +549,66 @@ async def test_the_game_redraws_itself_every_few_turns(monkeypatch):
             await settle(app, pilot)
         await pilot.pause(0.2)
         assert len(redraws) == 1
+
+
+async def test_a_secret_room_is_a_celebration(monkeypatch):
+    """A bang, a fanfare, a gold banner in the story, a toast, and the room in gold on the map."""
+    from conftest import Recorder
+
+    from ptg.rules import hidden_room_beside
+
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=11)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        monkeypatch.delenv("PTG_SOUND", raising=False)
+        speakers = Recorder()
+        monkeypatch.setattr(sound, "_sound", sound.Sound(True, 1.0, player=speakers))
+        state = screen.game.state
+        for room in state.rooms:
+            room.monster = None
+        secret = next(r for r in state.rooms if r.secret)
+        beside = next(r for r in state.rooms if not r.secret and abs(r.x - secret.x) + abs(r.y - secret.y) == 1)
+        state.room_id, beside.visited = beside.id, True
+        screen.refresh_panels()
+        index = next(i for i, a in enumerate(screen.game.choices(), 1) if a.id == f"bomb:{hidden_room_beside(state)}")
+        await pilot.press(*str(index), "enter")
+        await settle(app, pilot)
+        await pilot.pause(0.6)  # the fanfare comes just after the bang
+        assert speakers.moments.index("bomb") < speakers.moments.index("secret_room")
+        assert "SECRET ROOM" in str(screen.query_one(".secret-banner").render())
+        assert "{" in str(screen.query_one("#map").render())
+        assert any("Secret room found" in str(n.title) for n in app._notifications)
+        assert any(e.kind == "system" and "Secret room found" in e.text for e in state.log)  # and after Continue
+
+
+async def test_monsters_move_in_the_sidebar_the_bestiary_and_on_their_cards():
+    """Their frames take turns: the sidebar's timer was once silently dead (Textual's own _animate hid it)."""
+    from conftest import put_monster
+
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=3)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        game = screen.game
+        put_monster(game.state, game.content, key="goblin", hp=200)
+        screen.refresh_panels()
+        before = screen.frame
+        await pilot.pause(1.5)
+        assert screen.frame >= before + 2
+
+        game.profile.bump_beast("goblin", "seen")
+        await pilot.press("f6")
+        await pilot.pause(0.3)
+        art = app.screen.query_one("#beast-art", AnimatedSprite)
+        assert art.key == "goblin" and art.display and len(art.loop) == 2
+        shown = set()
+        for _ in range(6):
+            await pilot.pause(0.25)
+            shown.add(art.index)
+        assert shown == {0, 1}
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+
+        screen.action_lookup("monster:goblin")
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, InfoScreen)
+        assert app.screen.query_one(AnimatedSprite).key == "goblin"

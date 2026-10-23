@@ -51,7 +51,11 @@ def test_floors_are_well_formed(seed, number, content):
         for direction, exit_ in room.exits.items():
             assert state.rooms[exit_.to].exits[OPPOSITE[direction]].to == room.id
     assert state.rooms[0].monster is None and state.rooms[0].visited
-    assert reachable(state, through_locked=True) == set(range(len(state.rooms)))
+    secret = {r.id for r in state.rooms if r.secret}
+    assert len(secret) <= 1 and reachable(state, through_locked=True) == set(range(len(state.rooms))) - secret
+    for room in (r for r in state.rooms if r.secret):  # sealed, in a gap that touches two rooms or more
+        assert not room.exits and room.items
+        assert sum(abs(r.x - room.x) + abs(r.y - room.y) == 1 for r in state.rooms) >= 2
 
     if number < 3:
         stairs = [r for r in state.rooms if r.fixture == "stairs"]
@@ -60,7 +64,7 @@ def test_floors_are_well_formed(seed, number, content):
     else:
         boss = [r for r in state.rooms if r.is_boss]
         assert len(boss) == 1 and boss[0].monster.key == theme.boss
-        assert reachable(state, through_locked=False) == set(range(len(state.rooms))) - {boss[0].id}
+        assert reachable(state, through_locked=False) == set(range(len(state.rooms))) - {boss[0].id} - secret
         keys = [r for r in state.rooms for f in r.features if theme.key_item in f.loot and not f.hidden]
         assert len(keys) == 1 and not keys[0].is_boss
 

@@ -6,11 +6,15 @@ only the parser has to.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 TRIGGERS = ("enter_room", "say", "roll", "defeat", "pacify", "run_start", "turn")
 VOICES = ("exact", "narrated", "silent")
 ONCE = ("run", "profile", "always")
+# Words filled in when the event plays: this run's ghost (your adventurer from a run that ended), from the profile.
+PLACEHOLDER = re.compile(r"\{([A-Za-z_]+)\}")
+PLACEHOLDERS = {"ghost": "name", "ghost_cause": "cause", "ghost_epitaph": "epitaph"}
 
 
 class StoryError(ValueError):
@@ -75,6 +79,7 @@ class StoryEvent:
     nodes: dict[str, Node]
     source: str
     sprite: str = ""
+    needs_ghost: bool = False  # it names this run's ghost ({ghost}...), so it only plays in a run that has one
 
     @property
     def start(self) -> Node:

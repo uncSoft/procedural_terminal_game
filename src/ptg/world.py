@@ -68,6 +68,9 @@ def build_floor(state: GameState, content: Content) -> None:
     _place_loot(rng, content, state, theme, rooms, end_id, max_distance, final)
     if ghost and ghost.get("floor", 1) == state.floor:
         _place_ghost(rng, content, rooms, end_id, ghost)
+    secret = _secret_room(rng, content, state, theme, rooms)
+    if secret:
+        rooms.append(secret)
 
     for room in rooms:
         layout.build(dice.stream(state.seed, "layout", state.floor, room.id), room,
@@ -204,7 +207,8 @@ def _place_monsters(rng, content, state, theme, rooms: list[Room], max_distance:
 
 def _place_loot(rng, content: Content, state: GameState, theme, rooms: list[Room], end_id: int, max_distance: int,
                 final: bool) -> None:
-    """The floor's loot (see loot.py), scattered: potions sometimes just lie on the floor."""
+    """The floor's loot (see loot.py), spread out: one thing to a hiding place, and each room's turn before any room
+    gets a second. Potions sometimes just lie on the floor, as does anything there's no hiding place left for."""
     others = [r for r in rooms if r.id not in (0, end_id)]
     if final:
         # The key sits in a visible feature somewhere past the halfway point (never in the boss room).
@@ -213,29 +217,84 @@ def _place_loot(rng, content: Content, state: GameState, theme, rooms: list[Room
 
     found = [loot.pick(rng, content, slot) for slot in loot.FLOORS.get(state.floor, ["potion 1"])]
     found.append(loot.DUNGEON_TRINKETS.get(theme.key, "oil_flask"))
+    spots = _spots(rng, others)
     for item in filter(None, found):
-        room = rng.choice(others)
-        if loot.role(content.item(item)) == "potion" and rng.random() < 0.35:
-            room.items.append(item)
+        if spots and not (loot.role(content.item(item)) == "potion" and rng.random() < 0.35):
+            spots.pop(0)[1].loot.append(item)
         else:
-            rng.choice(room.features).loot.append(item)
+            _emptiest(rng, others).items.append(item)
 
     for room in others:
         for feature in room.features:
             if not feature.loot and rng.random() < 0.5:
                 feature.gold = rng.randint(2, 8) * max(1, room.distance) + 2 * state.floor
 
-    secret_room = rng.choice(others)
-    secret_room.features.append(Feature(
+    stash_room = rng.choice(others)
+    stash_room.features.append(Feature(
         name=rng.choice(HIDDEN_FEATURES), hidden=True, gold=rng.randint(15, 30) * state.floor,
-        loot=[key for key in [loot.one_of(rng, content, loot.STASH)] if key],
+        loot=[key for key in [loot.produce(rng, content, state.rares, loot.STASH, "stash")] if key],
     ))
 
 
+def _spots(rng: random.Random, rooms: list[Room]) -> list[tuple[Room, Feature]]:
+    """Where a floor's loot goes, in turn: a free spot in each room (the rooms in a random order), then a second spot
+    in each, and so on. So things spread out over the floor instead of piling up three to a cupboard."""
+    free: dict[int, list[Feature]] = {}
+    for room in rooms:
+        empty = [f for f in room.features if not f.loot]
+        if empty:
+            free[room.id] = rng.sample(empty, len(empty))
+    order = [r for r in rng.sample(rooms, len(rooms)) if r.id in free]
+    return [(r, free[r.id][depth]) for depth in range(max(map(len, free.values()), default=0))
+            for r in order if depth < len(free[r.id])]
+
+
+def _emptiest(rng: random.Random, rooms: list[Room]) -> Room:
+    """One of the rooms with the least lying about or hidden in it so far."""
+    def held(room: Room) -> int:
+        return len(room.items) + sum(len(f.loot) for f in room.features)
+
+    fewest = min(map(held, rooms))
+    return rng.choice([r for r in rooms if held(r) == fewest])
+
+
+def _secret_room(rng: random.Random, content: Content, state: GameState, theme, rooms: list[Room]) -> Room | None:
+    """Each floor's secret room: built in a gap in the map that touches two rooms or more (as many as can be had),
+    with no doors at all until a bomb makes one. It keeps something rare, and now and then something guarding it."""
+    taken = {(r.x, r.y) for r in rooms}
+    touching = {}
+    for x, y in taken:
+        for dx, dy in DELTA.values():
+            cell = (x + dx, y + dy)
+            if cell not in taken:
+                touching[cell] = touching.get(cell, 0) + 1
+    gaps = [cell for cell, n in touching.items() if n >= 2]
+    if not gaps:
+        return None
+    most = max(touching[cell] for cell in gaps)
+    x, y = rng.choice(sorted(cell for cell in gaps if touching[cell] == most))
+    near = [r for r in rooms if abs(r.x - x) + abs(r.y - y) == 1]
+    # A kind of room the floor hasn't had (or at least not next door), so it isn't the room you bombed out of again.
+    unused = [k for k in theme.archetypes if k not in {r.archetype for r in rooms}]
+    archetype = content.archetypes[rng.choice(unused or [k for k in theme.archetypes
+                                                         if k not in {r.archetype for r in near}])]
+    names = [n for n in archetype.names if n not in {r.name for r in rooms}] or archetype.names
+    room = Room(id=len(rooms), x=x, y=y, name=f"Hidden {rng.choice(names)}", archetype=archetype.key,
+                distance=min(r.distance for r in near) + 1, secret=True,
+                features=[Feature(name=rng.choice(archetype.features), gold=rng.randint(10, 20) * state.floor)])
+    prize = loot.produce(rng, content, state.rares, loot.SECRET, "secret")
+    if prize:
+        room.items.append(prize)
+    if rng.random() < 0.3:  # something got here first, and won't share
+        room.monster = monster_for(rng, content, theme.key, min(3, state.floor + 1), elite=rng.choice(sorted(ELITES)))
+    return room
+
+
 def _place_ghost(rng, content: Content, rooms: list[Room], end_id: int, ghost: dict) -> None:
-    """A previous adventurer died on this floor. Their ghost guards what they carried."""
+    """A previous adventurer died on this floor. Their ghost guards what they carried (somewhere with nothing else to
+    find, if there's such a room, so it isn't one big heap)."""
     spots = [r for r in rooms if r.id not in (0, end_id) and not r.fixture] or [r for r in rooms if r.id != 0]
-    room = rng.choice(spots)
+    room = rng.choice([r for r in spots if not r.items and not any(f.loot for f in r.features)] or spots)
     base = content.monster("ghost")
     level = int(ghost.get("level", 1))
     hp = base.hp + 4 * (level - 1)
@@ -247,10 +306,15 @@ def _place_ghost(rng, content: Content, rooms: list[Room], end_id: int, ghost: d
 
 
 def render_map(state: GameState) -> list[str]:
-    """ASCII map of this floor. @ you, ! danger, ? unexplored, > stairs, † shrine, ■ chest, ◊ fountain."""
-    known = {r.id for r in state.rooms if r.visited}
+    """ASCII map of this floor. @ you, ! danger, ? unexplored, > stairs, † shrine, ■ chest, ◊ fountain, $ something
+    hidden that you were told about; the secret room in braces, {✧}. Once you've been handed the floor's map, every
+    room and door is on it (except a secret room no bomb has opened). A room you were told about is on it too, before
+    you've found the way there."""
+    mapped = state.mapped_floor == state.floor
+    known = {r.id for r in state.rooms if r.visited or (mapped and (not r.secret or r.exits))}
     for room_id in list(known):
         known.update(e.to for e in state.rooms[room_id].exits.values())
+    known.update(r.id for r in state.rooms if r.told or any(f.told for f in r.features))
     rooms = [state.rooms[i] for i in known]
     min_x, max_x = min(r.x for r in rooms), max(r.x for r in rooms)
     min_y, max_y = min(r.y for r in rooms), max(r.y for r in rooms)
@@ -258,8 +322,9 @@ def render_map(state: GameState) -> list[str]:
     grid = [[" "] * width for _ in range(height)]
     for room in rooms:
         cx, cy = (room.x - min_x) * 4 + 1, (room.y - min_y) * 2
-        grid[cy][cx - 1], grid[cy][cx], grid[cy][cx + 1] = "[", map_glyph(state, room), "]"
-        if not room.visited:
+        left, right = "{}" if room.secret else "[]"
+        grid[cy][cx - 1], grid[cy][cx], grid[cy][cx + 1] = left, map_glyph(state, room), right
+        if not (room.visited or mapped):
             continue
         for direction, exit_ in room.exits.items():
             door = "=" if exit_.locked else ("-" if direction in ("east", "west") else "|")
@@ -279,6 +344,10 @@ def map_glyph(state: GameState, room: Room) -> str:
         return "@"
     if room.monster and room.monster.hostile and room.visited:
         return "!"
+    if any(f.told and not f.searched for f in room.features):
+        return "$"
+    if room.secret:
+        return "✧"
     if room.fixture and not room.fixture_used:
         return layout.FIXTURE_GLYPHS[room.fixture]  # you can see what's through the door, like Tiny Rogues
     if room.is_boss:

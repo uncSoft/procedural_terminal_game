@@ -18,7 +18,8 @@
  * again. Deleting a row removes it for good.
  *
  * What the page sends and gets back, as JSON:
- *   GET               → {"creations": [{id, no, saved, type, fields, by, made, base?, art}, ...]}, newest first
+ *   GET               → {"creations": [{id, no, saved, type, fields, by, made, base?, art, small?}, ...]},
+ *                       newest first (small: an item's 12x12 version, drawn by hand)
  *   POST (plain text) {"id", "secret", "creation"} saves a creation; the same id and secret update it later
  *                     {"id", "secret", "remove": true} takes it out
  *                     → {"ok": true, "id", "no", "saved"} or {"ok": false, "error": "..."}
@@ -126,6 +127,10 @@ function clean(c) {
     out.art = {w: c.art.w, h: c.art.h, palette: c.art.palette, frames: c.art.frames};
   } else if (!out.base) {
     return "it needs a drawing";
+  }
+  if (c.small && c.type === "item") {  // an item's 12x12 version, drawn by hand for the inventory
+    if (!goodArt(c.small) || c.small.w !== 12 || c.small.h !== 12) return "the small drawing is damaged";
+    out.small = {w: 12, h: 12, palette: c.small.palette, frames: c.small.frames};
   }
   if (JSON.stringify(out).length > MAX_SIZE) return "that's too big to save";
   return out;

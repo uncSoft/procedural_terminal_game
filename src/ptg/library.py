@@ -36,6 +36,7 @@ from PIL.PngImagePlugin import PngInfo
 
 from . import integrity
 from .content import ContentError, build_content, load_content
+from .sprites import SMALL
 
 ALPHABET = string.ascii_lowercase + string.ascii_uppercase + string.digits
 MONSTER_FIELDS = {"name": str, "hp": int, "defense": int, "attack": int, "damage": str, "xp": int, "tier": int,
@@ -60,6 +61,11 @@ def maker_folder() -> Path | None:
 
 def sprite_file(kind: str, key: str, folder: Path) -> Path:
     return folder / "sprites" / (f"{key}.png" if kind == "monster" else f"item_{key}.png")
+
+
+def small_file(key: str, folder: Path) -> Path:
+    """An item's hand-made small version (see ptg/sprites.py): 12 pixels square, drawn in the maker or by hand."""
+    return folder / "sprites" / "small" / f"item_{key}.png"
 
 
 def read_frames(path: Path) -> list[Image.Image]:
@@ -121,6 +127,10 @@ def decode_art(art: dict) -> list[Image.Image]:
         bob.alpha_composite(frames[0], (0, 1))
         frames = [frames[0], bob]
     return frames
+
+
+def _same_picture(path: Path, frames: list[Image.Image]) -> bool:
+    return path.is_file() and [f.tobytes() for f in read_frames(path)] == [f.tobytes() for f in frames]
 
 
 def save_sprite(frames: list[Image.Image], path: Path) -> None:
@@ -220,6 +230,8 @@ def export_library(folder: Path | None = None) -> dict:
     def entry(kind: str, key: str, fields: dict) -> dict:
         path = sprite_file(kind, key, folder)
         out = {"key": key, "fields": fields, "art": encode_art(read_frames(path)) if path.is_file() else None}
+        if kind == "item" and small_file(key, folder).is_file():
+            out["small"] = encode_art(read_frames(small_file(key, folder)))
         out.update(credits[kind].get(key, {}))
         if kind == "monster":
             out["lives"] = lives(key, fields.get("tags", []), fields.get("ghost", False), themes)
@@ -359,6 +371,7 @@ def apply(creations: list[dict], folder: Path | None = None, dry_run: bool = Fal
     folder = folder or data_folder()
     texts = {name: (folder / name).read_text(encoding="utf-8") for name in ("monsters.toml", "items.toml", "art.txt")}
     sprites: dict[Path, list[Image.Image]] = {}
+    stale: list[Path] = []  # small versions drawn for a picture that's being replaced
     messages = []
     for creation in creations:
         kind = creation["type"]
@@ -388,18 +401,31 @@ def apply(creations: list[dict], folder: Path | None = None, dry_run: bool = Fal
         by = str(creation.get("by", "")).strip()[:40]
         made = str(creation.get("made") or date.today().isoformat())[:10]
         texts[file] = replace_section(texts[file], kind, key, _section(kind, key, fields, by, made))
+        with_small = stale_note = ""
         if creation.get("art"):
             frames = decode_art(creation["art"])
-            sprites[sprite_file(kind, key, folder)] = frames
+            picture = sprite_file(kind, key, folder)
+            if (kind == "item" and not creation.get("small") and small_file(key, folder).is_file()
+                    and not _same_picture(picture, frames)):
+                stale.append(small_file(key, folder))
+                stale_note = " Its small version was drawn for the old picture, so it's halved until there's a new one."
+            sprites[picture] = frames
             if kind == "monster" and not re.search(rf"^=== {re.escape(key)} ===$", texts["art.txt"], re.M):
                 texts["art.txt"] = _replace_art(texts["art.txt"], key, ascii_art(frames[0]))
         elif kind == "monster" and verb == "Added":
             raise ValueError(f"{name} needs a drawing")
+        if kind == "item" and creation.get("small"):
+            small = decode_art(creation["small"])
+            if small[0].size != (SMALL, SMALL):
+                raise ValueError(f"{name}'s small version should be {SMALL}x{SMALL} pixels, not "
+                                 f"{small[0].width}x{small[0].height}")
+            sprites[small_file(key, folder)] = small
+            with_small = ", with a small version drawn by hand"
         where = ""
         if kind == "monster":
             lives = [t.name for t in load_content().themes.values() if set(fields.get("tags", [])) & set(t.monster_tags)]
             where = f", lives in {' and '.join(lives)}" if lives else ", but no dungeon has its kind of creature"
-        messages.append(f"{verb} {kind} {name} ({key}){' by ' + by if by else ''}{where}.")
+        messages.append(f"{verb} {kind} {name} ({key}){' by ' + by if by else ''}{where}{with_small}.{stale_note}")
 
     def read(name: str) -> str:
         return texts.get(name) if name in texts else (folder / name).read_text(encoding="utf-8")
@@ -412,6 +438,8 @@ def apply(creations: list[dict], folder: Path | None = None, dry_run: bool = Fal
         return messages + ["(dry run: nothing written)"]
     for name, text in texts.items():
         (folder / name).write_text(text, encoding="utf-8")
+    for path in stale:
+        path.unlink(missing_ok=True)
     for path, frames in sprites.items():
         save_sprite(frames, path)
     integrity.sign(folder)

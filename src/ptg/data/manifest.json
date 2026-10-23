@@ -2,7 +2,7 @@
  "note": "Fingerprints of the shipped data. Editing the data is allowed, and noticed.",
  "files": {
   "art.txt": "fbb1b8cd8b801a87837189799fc71276720366a6c9080aa339ed638a499eead8",
-  "items.toml": "9490a076b714c8c427f740fe781719279e88a3a91c640f20d9364fed8e32d02d",
+  "items.toml": "556297a4c34d5604039a009c4a3f07d212f1a98f93b855c7490e326499590228",
   "monsters.toml": "1c798ecb26e062ab352039af842dcf97ee916474295cace00b280f410c59aea6",
   "perks.toml": "0c2ad492ea8a516bc5a7721caed62e60d08b8bf2a80cd12abdbec3bfed44b641",
   "rooms.toml": "1052bd18c23b1987ea56ef01c7fb6c4f1ca4376732c3ef6027e28c7909e9569d",

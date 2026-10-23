@@ -36,7 +36,7 @@ from textual.coordinate import Coordinate
 from textual.events import Click
 from textual.widgets import Button, DataTable, Input, ProgressBar, Select, Static, TabbedContent, TabPane, Tree
 
-from .. import __version__, integrity, sound
+from .. import __version__, integrity, loot, sound
 from ..config import DEFAULT_CLAUDE_MODEL, DEFAULT_URLS, Config, home, load_game, save_config
 from ..content import Content, load_content
 from ..game import Game
@@ -44,8 +44,8 @@ from ..library import credits, lives, maker_folder
 from ..llm import LLMError, check, make_llm
 from ..llm.base import Exchange, read_log
 from ..llm.openai_compat import OpenAICompatLLM
-from ..models import GameState
-from ..sprites import DEATH_FRAMES, frame_count, side_by_side, sprite_text
+from ..models import GameState, Player
+from ..sprites import DEATH_FRAMES, DEFAULT_WIDTH, SMALL, frame_count, has_small, side_by_side, sprite_text
 from ..story import StoryError, StoryEvent, load_library, reload_library
 from ..text import mid_sentence
 from .panels import Panel
@@ -113,7 +113,7 @@ def tiles(shots: list[tuple[str, Text | None]], width: int, room: int, gap: int 
     return out
 
 
-def poses(key: str, room: int, width: int = 16) -> Text:
+def poses(key: str, room: int, width: int = SMALL) -> Text:
     """The sprite in every pose a fight can put it in."""
     return tiles([(pose, sprite_text(key, 2 if pose == "death" else 1, width, pose=pose)) for pose in POSES],
                  width, room)
@@ -282,6 +282,7 @@ def overview(app) -> Group:
     state, where = current_state(app)
     monsters, items = list(content.monsters.values()), list(content.items.values())
     no_sprite = [m.name for m in monsters if not frame_count(m.key)]
+    halved = [i.name for i in items if frame_count(f"item_{i.key}") and not has_small(f"item_{i.key}")]
     item_art = [i for i in items if frame_count(f"item_{i.key}")]
     clips = [clip for found in engine.bank.values() for clip in found]
     sprites = sorted((integrity.data_folder() / "sprites").glob("*.png"))
@@ -293,6 +294,9 @@ def overview(app) -> Group:
     problems += [Text(f"Sounds: {problem}", style=WARN) for problem in engine.problems]
     if no_sprite:
         problems.append(Text(f"No sprite yet, so ASCII art stands in: {listed(no_sprite)}", style=DIM))
+    if halved:
+        problems.append(Text(f"Shown small by halving, with no hand-made 12×12 yet (sprites/small): {listed(halved)}",
+                             style=WARN))
     if config.backend == "offline":
         problems.append(Text("The narrator is offline: the game tells the facts plainly.", style=DIM))
 
@@ -319,7 +323,7 @@ def overview(app) -> Group:
         ("Campfire", f"{blessings} blessings, {len(content.unlocks) - blessings} gifts"),
         ("Story events", f"{len(library.events)} ({plural(sum(e.is_scene for e in library), 'scene')}, "
                          f"{plural(len(library.secrets), 'secret')})"),
-        ("Sprites", len(sprites)),
+        ("Sprites", f"{len(sprites)} ({sum(has_small(p.stem) for p in sprites)} with a hand-made small version)"),
         ("Sounds", f"{len(clips)} files for {len(engine.bank)} moments ({sum(not c.builtin for c in clips)} yours)"),
     ]
     player = getattr(engine.player, "name", None) or "not open yet (it opens for the first sound)"
@@ -418,6 +422,7 @@ class ItemsTab(TableTab):
         if i.escape:
             rows.append(("Escape", "gets you out of a fight"))
         rows.append(("Tags", listed(i.tags, "-")))
+        rows.append(("Turns up", listed(turns_up(self.content, key), "nowhere: nothing places it")))
         gifts = [u.name for u in self.content.unlocks.values() if u.item == key]
         if gifts:
             rows.append(("Campfire gift", listed(gifts)))
@@ -430,10 +435,19 @@ class ItemsTab(TableTab):
         return f"item_{key}", "", Group(*parts)
 
 
+def turns_up(content: Content, key: str) -> list[str]:
+    """Where an item comes from: loot (see loot.py), your starting kit, or a boss door it opens."""
+    fresh = Player(name="")
+    places = ["you start with it"] if key == fresh.weapon or key in fresh.inventory else []
+    places += loot.where(content, key)
+    places += [f"the key to {t.name}'s boss" for t in content.themes.values() if t.key_item == key]
+    return places
+
+
 # --- Art ----------------------------------------------------------------------------------------------------------
 
 class ArtTab(TableTab):
-    columns = ("Sprite", "Frames", "Size", "Used for")
+    columns = ("Sprite", "Frames", "Size", "Small", "Used for")
     chosen_pose = "idle"
 
     def toolbar(self) -> ComposeResult:
@@ -457,18 +471,25 @@ class ArtTab(TableTab):
         self.paths = {p.stem: p for p in sorted((integrity.data_folder() / "sprites").glob("*.png"))}
         for key, path in self.paths.items():
             count, width, height = sheet(path)
-            yield key, [Text(key, style="bold"), count, f"{width}×{height}", listed(uses.get(key, []), "")]
+            small = (Text("hand-made", style=GOOD) if has_small(key) else
+                     Text("halved", style=WARN) if key.startswith("item_") else "")
+            yield key, [Text(key, style="bold"), count, f"{width}×{height}", small, listed(uses.get(key, []), "")]
         self.set_pose(self.chosen_pose)
 
     def detail(self, key: str):
         path = self.paths[key]
         count, width, height = sheet(path)
         room = self.room()
-        frames = tiles([(f"frame {n + 1}", sprite_text(key, n, 16)) for n in range(count)], 16, room)
+        frames = tiles([(f"frame {n + 1}", sprite_text(key, n, DEFAULT_WIDTH)) for n in range(count)],
+                       DEFAULT_WIDTH, room)
+        small = tiles([(f"frame {n + 1}", sprite_text(key, n, SMALL)) for n in range(count)], SMALL, room)
+        how = ("hand-made" if has_small(key) else
+               f"halved automatically: draw one by hand as sprites/small/{key}.png (12×12, same frames)")
         info = pairs([("File", short(path)), ("Frames", f"{count}, {width}×{height} pixels each"),
                       ("Used for", listed(self.uses.get(key, []), "nothing yet")),
                       ("Drawn by", credit_line(self.credits.get(key)))])
-        return key, "", Group(info, heading("Frames"), frames, heading("Poses"), poses(key, room))
+        return key, "", Group(info, heading("Frames"), frames, heading(f"Small ({SMALL} px): {how}"), small,
+                              heading("Poses"), poses(key, room))
 
     def pose(self) -> str:
         return self.chosen_pose

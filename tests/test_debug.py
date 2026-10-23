@@ -35,6 +35,15 @@ def tab(app, kind):
     return app.screen.query_one(kind)
 
 
+async def until(pilot, check, limit: float = 3.0) -> bool:
+    """Wait for something to come true (a busy test run can be slow to handle a click)."""
+    for _ in range(int(limit / 0.05)):
+        if check():
+            return True
+        await pilot.pause(0.05)
+    return check()
+
+
 async def test_f12_opens_every_tab_and_closes_again():
     content = load_content()
     app = PTGApp(Config(backend="offline"))
@@ -151,14 +160,14 @@ async def test_story_events_fire_on_the_next_descent_and_reload():
         await pilot.pause(0.3)
         story = tab(app, debug.StoryTab)
         await pilot.click("#story-fire")
-        await pilot.pause(0.1)
-        assert app.event == story.current
+        assert await until(pilot, lambda: app.event == story.current)
+        fire = app.screen.query_one("#story-fire")
+        assert await until(pilot, lambda: not fire.has_class("-active"))  # a button ignores clicks while it's pressed
         await pilot.click("#story-fire")  # again: never mind
-        await pilot.pause(0.1)
-        assert app.event is None
+        assert await until(pilot, lambda: app.event is None)
         await pilot.click("#story-reload")
-        await pilot.pause(0.2)
-        assert story.query_one(DataTable).row_count == len(load_library(load_content()).events)
+        events = len(load_library(load_content()).events)
+        assert await until(pilot, lambda: story.query_one(DataTable).row_count == events)
 
 
 async def test_the_model_check_runs_in_the_app_and_is_kept(monkeypatch, fake_llm):

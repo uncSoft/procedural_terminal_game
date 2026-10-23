@@ -4,7 +4,7 @@ from ptg import sound
 from ptg.config import Config
 from ptg.dice import Roll
 from ptg.events import Event
-from ptg.sprites import DEATH_FRAMES
+from ptg.sprites import DEATH_FRAMES, SMALL
 from ptg.ui.app import PTGApp
 from ptg.ui.dice import DiceScreen
 from ptg.ui.game_screen import GameScreen
@@ -351,3 +351,72 @@ async def test_items_drawn_in_the_maker_show_their_art(monkeypatch):
         await pilot.press("f2")
         await pilot.pause(0.3)
         assert "<ART>" in str(app.screen.query_one("#inv-detail").render())
+
+
+async def test_the_inventory_is_tiles_and_enter_uses_the_one_picked():
+    from ptg.ui.panels import ItemTile
+
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        player = screen.game.state.player
+        player.inventory = ["healing_potion", "healing_potion", "oil_flask"]
+        player.hp = 10
+        await pilot.press("f2")
+        await pilot.pause(0.3)
+        inventory = app.screen
+        assert isinstance(inventory, InventoryScreen)
+        assert len(inventory.query(ItemTile)) == 3  # the sword in hand, both potions on one tile, the oil
+        await pilot.press("right")
+        await pilot.pause(0.1)
+        assert inventory.items[inventory.current][0] == "healing_potion"
+        assert "Drink the Healing Potion" in str(inventory.query_one("#inv-use").render())
+        await pilot.press("enter")
+        await settle(app, pilot)
+        assert isinstance(app.screen, GameScreen)
+        assert player.inventory.count("healing_potion") == 1 and player.hp > 10
+
+
+async def test_found_loot_shows_with_its_art():
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=4)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        state = screen.game.state
+        index, feature = next((i, f) for i, f in state.room.visible_features() if not f.searched)
+        feature.loot = ["superior_healing_potion"]
+        number = next(n for n, a in enumerate(screen.game.choices(), 1) if a.id == f"search:{index}")
+        await pilot.press(*str(number), "enter")
+        await settle(app, pilot)
+        [card] = screen.query(".loot-card")
+        assert str(card.border_title) == "✦ found"
+        art = card.query_one(AnimatedSprite)
+        assert art.key == "item_superior_healing_potion" and art.width == SMALL  # its hand-made small version
+        assert "Superior Healing Potion" in str(card.query_one(".loot-text", Static).render())
+
+
+async def test_ctrl_l_wipes_the_terminal_and_draws_everything_again(monkeypatch):
+    from textual.drivers.headless_driver import HeadlessDriver
+
+    app = PTGApp(Config(backend="offline"))
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        written: list[str] = []
+        monkeypatch.setattr(HeadlessDriver, "is_headless", property(lambda self: False))  # as if on a terminal
+        monkeypatch.setattr(app._driver, "write", written.append)
+        await pilot.press("ctrl+l")
+        await pilot.pause()
+        out = "".join(written)
+        assert "\x1b[2J" in out and out.index("\x1b[2J") < out.index("Play")  # wiped, then every cell again
+
+
+async def test_the_game_redraws_itself_every_few_turns(monkeypatch):
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        redraws = []
+        monkeypatch.setattr(app, "action_redraw", lambda: redraws.append(screen.game.state.turn))
+        for _ in range(app.REDRAW_EVERY):
+            await pilot.press(*"hum a tune", "enter")
+            await settle(app, pilot)
+        await pilot.pause(0.2)
+        assert len(redraws) == 1

@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import random
 
-from . import dice, layout
+from . import dice, layout, loot
 from .combat import dodge, flee, flee_direction, fortune, monster_turn, player_attack, telegraph
-from .content import Content
+from .content import Content, ItemDef
 from .creative import perform_creative as _creative
 from .events import Action, Event
 from .intent import Intent
@@ -31,10 +31,13 @@ TRAITS = {
     "duelist": ("Duelist", "dodged", 3, "Dodging has advantage."),
 }
 
-HEAL_VERBS = {"stale_bread": "Eat", "cheese_wheel": "Eat"}
-CHEST_LOOT = {1: ["leather_jerkin", "oil_flask", "smoke_bomb", "healing_potion"],
-              2: ["chain_shirt", "war_pick", "greater_healing_potion", "lucky_charm"],
-              3: ["scale_hauberk", "silvered_blade", "greater_healing_potion", "lucky_charm"]}
+
+
+def heal_verb(item: ItemDef) -> str:
+    """Food is eaten; anything else that heals is drunk."""
+    return "Eat" if "food" in item.tags else "Drink"
+
+
 FIXTURE_FACTS = {
     "stairs": "A staircase leads down into the dark.",
     "shrine": "A small shrine stands in the middle of the room, hungry for an offering.",
@@ -69,7 +72,7 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
         actions.append(Action("dodge", "Dodge", "counter the heavy blow!" if monster.intent == "heavy" else ""))
         for item in consumables:
             if item.escape or player.hp < player.max_hp:
-                verb = "Throw" if item.escape else HEAL_VERBS.get(item.key, "Drink")
+                verb = "Throw" if item.escape else heal_verb(item)
                 actions.append(Action(f"use:{item.key}", f"{verb} the {item.name}"))
         if flee_direction(state):
             actions.append(Action("flee", "Try to flee"))
@@ -104,7 +107,7 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
     if player.hp < player.max_hp:
         for item in consumables:
             if item.heal:
-                actions.append(Action(f"use:{item.key}", f"{HEAL_VERBS.get(item.key, 'Drink')} the {item.name}"))
+                actions.append(Action(f"use:{item.key}", f"{heal_verb(item)} the {item.name}"))
     if not room.room_searched:
         actions.append(Action("search_room", "Search the room for secrets"))
     if not room.rested and player.hp < player.max_hp:
@@ -371,7 +374,8 @@ def gain_item(state: GameState, content: Content, key: str) -> list[Event]:
         if item.tier > current.tier:
             player.weapon = key
             state.room.items.append(current.key)  # it's on the floor, where you tossed it
-            return [Event("equip", f"You take the {item.name} ({item.damage}) and toss aside your {current.name}.")]
+            return [Event("equip", f"You take the {item.name} ({item.damage}) and toss aside your {current.name}.",
+                          data={"item": key})]
     if item.kind == "armor":
         current = content.item(player.armor) if player.armor else None
         if current is None or item.tier > current.tier:
@@ -379,11 +383,11 @@ def gain_item(state: GameState, content: Content, key: str) -> list[Event]:
             if current:
                 state.room.items.append(current.key)
             swap = f" and leave your {current.name} behind" if current else ""
-            return [Event("equip", f"You put on the {item.name} (+{item.defense} defense){swap}.")]
+            return [Event("equip", f"You put on the {item.name} (+{item.defense} defense){swap}.", data={"item": key})]
     player.inventory.append(key)
     if item.kind == "key":
-        return [Event("key", f"You take the {item.name}. It must open something important.")]
-    return [Event("take", f"You take the {item.name}.")]
+        return [Event("key", f"You take the {item.name}. It must open something important.", data={"item": key})]
+    return [Event("take", f"You take the {item.name}.", data={"item": key})]
 
 
 def _search_feature(state: GameState, content: Content, feature: Feature) -> list[Event]:
@@ -391,7 +395,8 @@ def _search_feature(state: GameState, content: Content, feature: Feature) -> lis
     state.player.bump("searched")
     events = []
     for key in feature.loot:
-        events.append(Event("find", f"You search {the(feature.name)} and find the {content.item(key).name}."))
+        events.append(Event("find", f"You search {the(feature.name)} and find the {content.item(key).name}.",
+                            data={"item": key}))
         events += gain_item(state, content, key)
     feature.loot = []
     gold = feature.gold + (3 if feature.gold and "scavenger" in state.player.perks else 0)
@@ -439,7 +444,7 @@ def _use(state: GameState, content: Content, rng: random.Random, key: str) -> tu
     healed = min(heal, player.max_hp - player.hp)
     player.hp += healed
     player.inventory.remove(key)
-    verb = HEAL_VERBS.get(key, "Drink").lower()
+    verb = heal_verb(item).lower()
     return [Event("heal", f"You {verb} the {item.name} and recover {healed} HP ({player.hp}/{player.max_hp}).")], True
 
 
@@ -487,10 +492,13 @@ def _fixture(state: GameState, content: Content, rng: random.Random, verb: str) 
             player.hp = max(1, player.hp - damage)
             events.insert(0, Event("chest", f"A poisoned needle jabs your thumb for {damage} damage "
                                             f"({player.hp}/{player.max_hp}).", dice=roll, data={"rerollable": True}))
-        key = rng.choice(CHEST_LOOT.get(state.floor, CHEST_LOOT[3]))
+        key = loot.one_of(rng, content, loot.CHESTS.get(state.floor, loot.CHESTS[3]))
         gold = rng.randint(5, 15) * state.floor
         player.gold += gold
-        events.append(Event("find", f"Inside: the {content.item(key).name} and {gold} gold."))
+        if key is None:
+            events.append(Event("find", f"Inside: {gold} gold."))
+            return events
+        events.append(Event("find", f"Inside: the {content.item(key).name} and {gold} gold.", data={"item": key}))
         return events + gain_item(state, content, key)
     if verb == "fountain":
         roll = dice.check(rng, "luck (fountain)", [], 15)

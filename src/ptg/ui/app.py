@@ -23,7 +23,9 @@ from .theme import CRT
 class PTGApp(App):
     CSS_PATH = "app.tcss"
     TITLE = "Procedural Terminal Game"
-    BINDINGS = [Binding("f8", "toggle_sound", "Sound"), Binding("f12", "debug", "Debug", show=False)]
+    BINDINGS = [Binding("f8", "toggle_sound", "Sound"), Binding("f12", "debug", "Debug", show=False),
+                Binding("ctrl+l", "redraw", "Redraw", show=False)]
+    REDRAW_EVERY = 6  # turns between the game's own redraws (see action_redraw)
 
     def __init__(self, config: Config | None, seed: int | None = None, setup: bool = False,
                  resume: bool = False, daily: bool = False, event: str | None = None, debug: bool = False) -> None:
@@ -67,6 +69,20 @@ class PTGApp(App):
         else:
             self.notify("" if self.config.sound else "F8 to turn it back on.",
                         title="Sound on" if self.config.sound else "Sound off", timeout=3)
+
+    def action_redraw(self) -> None:
+        """Wipe the terminal and draw every cell again, as a resize would. Some terminals (ones drawing with the
+        GPU, like xterm.js in an editor or app panel) cache each character in each pair of colours, and the pixel
+        art fills that cache fast; when it overflows, letters and art come out garbled or tiny. Sending the same
+        screen again doesn't help, because they skip cells that haven't changed; wiping it first makes them redraw
+        each one from scratch."""
+        if self._driver is None or self.is_headless or not self._screen_stack or self._batch_count:
+            return  # (mid-batch, nothing would be drawn after the wipe)
+        screen = self.screen
+        self._begin_update()  # a terminal that can, swaps the whole picture at once: no blank frame
+        self._driver.write("\x1b[2J")
+        self._display(screen, screen._compositor.render_update(full=True, screen_stack=self._background_screens))
+        self._end_update()
 
     def action_debug(self) -> None:
         if not isinstance(self.screen, DebugScreen):  # on the debug screen, F12 closes it

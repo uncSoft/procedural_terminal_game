@@ -6,6 +6,11 @@ Sprites are PNG strips in ptg/data/sprites: frames side by side with a transpare
 square unless the PNG says otherwise (the build tool stores a "frames" count). Anything without a sprite,
 or a player who prefers it, gets the ASCII art instead.
 
+Pixel art doesn't shrink well, so a sprite can have a hand-made small version in ptg/data/sprites/small (items
+are drawn 12 pixels wide in the inventory and in loot cards; the Monster & Item Maker draws them). Without one, a
+sprite drawn at half size is halved block by block (see halve, which the maker page copies), which keeps its lines
+whole but is no match for a version drawn by hand.
+
 Poses are made from a sprite's own frames at draw time, so every sprite gets them for free:
 
     idle     the sprite's own animation
@@ -35,19 +40,39 @@ except ImportError:  # sprites are optional; the game falls back to ASCII art
     Image = None
 
 DEFAULT_WIDTH = 24
+SMALL = 12  # how wide items are drawn small; a hand-made small version is this size
+OUTLINE = 40  # colours darker than this are outline: they barely show on a dark terminal
 DEATH_FRAMES = 6
 BAYER = ((0, 8, 2, 10), (12, 4, 14, 6), (3, 11, 1, 9), (15, 7, 13, 5))
 GLOW = ((228, 59, 68), (254, 174, 52))
 STAR = (254, 231, 97)
-RED = (228, 59, 68)
+# Effects recolour a sprite in a few fixed shades, picked by how light each pixel is: greyed out when calm, flushed
+# red when it lunges, white when it's hit. Few fixed colours keep a GPU terminal's glyph cache small (see palette).
+GREYS = ((46, 48, 62), (82, 86, 104), (122, 126, 144), (166, 170, 186), (210, 212, 222))
+REDS = ((96, 26, 40), (150, 38, 52), (204, 58, 66), (236, 104, 98), (250, 160, 150))
+LIGHTS = ((200, 206, 224), (232, 234, 244), (255, 255, 255))
 
 
 @lru_cache(maxsize=128)
 def frames(key: str, width: int = DEFAULT_WIDTH) -> tuple | None:
-    """The frames of a sprite, scaled (nearest neighbour) to `width` pixels wide, or None if there isn't one."""
+    """The frames of a sprite `width` pixels wide, or None if there isn't one: its hand-made small version if
+    that's the size, otherwise the sprite scaled (halved block by block, or nearest neighbour for other sizes)."""
     if Image is None:
         return None
-    path = resources.files("ptg") / "data" / "sprites" / f"{key}.png"
+    small = _strip(key, small=True)
+    if small and small[0].width == width:
+        return small
+    sheet = _strip(key)
+    if sheet is None:
+        return None
+    return tuple(_fit(frame, width) for frame in sheet)
+
+
+@lru_cache(maxsize=256)
+def _strip(key: str, small: bool = False) -> tuple | None:
+    """A sprite strip's frames at their own size."""
+    folder = resources.files("ptg") / "data" / "sprites"
+    path = (folder / "small" if small else folder) / f"{key}.png"
     if not path.is_file():
         return None
     with path.open("rb") as f:
@@ -57,13 +82,40 @@ def frames(key: str, width: int = DEFAULT_WIDTH) -> tuple | None:
         sheet.load()
     count = count or max(1, sheet.width // sheet.height)
     frame_width = sheet.width // count
-    out = []
-    for i in range(count):
-        frame = sheet.crop((i * frame_width, 0, (i + 1) * frame_width, sheet.height))
-        if frame.width != width:
-            frame = frame.resize((width, max(2, round(frame.height * width / frame.width))), Image.NEAREST)
-        out.append(frame)
-    return tuple(out)
+    return tuple(sheet.crop((i * frame_width, 0, (i + 1) * frame_width, sheet.height)) for i in range(count))
+
+
+def has_small(key: str) -> bool:
+    """Whether a sprite has a hand-made small version."""
+    return Image is not None and _strip(key, small=True) is not None
+
+
+def _fit(frame, width: int):
+    if frame.width == width:
+        return frame
+    if frame.width == 2 * width:
+        return halve(frame)
+    return frame.resize((width, max(2, round(frame.height * width / frame.width))), Image.NEAREST)
+
+
+def halve(img):
+    """Half size, block by block. Each 2x2 block takes its most common colour (the lighter one in a tie), leaving
+    out the outline when there's colour too, so thin lines stay whole; it's see-through only if all four are."""
+    out = Image.new("RGBA", (img.width // 2, img.height // 2), (0, 0, 0, 0))
+    source, target = img.load(), out.load()
+    for y in range(out.height):
+        for x in range(out.width):
+            solid = [source[2 * x + dx, 2 * y + dy][:3] for dy in (0, 1) for dx in (0, 1)
+                     if source[2 * x + dx, 2 * y + dy][3] >= 128]
+            if solid:
+                colour = [p for p in solid if _light(p) >= OUTLINE] or solid
+                target[x, y] = (*max(set(colour), key=lambda p: (colour.count(p), _light(p))), 255)
+    return out
+
+
+def _light(rgb: tuple) -> float:
+    r, g, b = rgb
+    return 0.3 * r + 0.59 * g + 0.11 * b
 
 
 def frame_count(key: str) -> int:
@@ -84,7 +136,7 @@ def _render(key: str, frame: int, width: int, flash: bool, pose: str) -> Text | 
     if not found:
         return None
     base = found[0] if pose == "death" else found[frame % len(found)]
-    return image_text(posed(base, pose, frame), flash)
+    return image_text(posed(base, pose, frame), flash, snap=True)
 
 
 def posed(img, pose: str, frame: int = 0):
@@ -94,9 +146,9 @@ def posed(img, pose: str, frame: int = 0):
     if pose == "dizzy":
         return _stars(img, frame)
     if pose == "calm":
-        return _recolour(img, lambda r, g, b: _grey(r, g, b, 0.7, 0.8))
+        return _recolour(img, lambda r, g, b: _shade(GREYS, r, g, b, 0.85))
     if pose == "lunge":
-        return _recolour(_shift(img, 0, 1 + frame % 2), lambda r, g, b: _mix((r, g, b), RED, 0.35))
+        return _recolour(_shift(img, 0, 1 + frame % 2), lambda r, g, b: _shade(REDS, r, g, b))
     if pose == "shake":
         return _shift(img, (-1, 1)[frame % 2], 0)
     if pose == "death":
@@ -104,14 +156,15 @@ def posed(img, pose: str, frame: int = 0):
     return img
 
 
-def image_text(img, flash: bool = False) -> Text:
-    """Any RGBA image as half-block text."""
+def image_text(img, flash: bool = False, snap: bool = False) -> Text:
+    """Any RGBA image as half-block text. With `snap`, colours an effect made up (a flash, a tint, a grey) become
+    the nearest colour the sprites are drawn in (see palette)."""
     pixels = img.load()
     text = Text(no_wrap=True, overflow="crop")
     for y in range(0, img.height, 2):
         for x in range(img.width):
-            top = _colour(pixels[x, y], flash)
-            bottom = _colour(pixels[x, y + 1], flash) if y + 1 < img.height else None
+            top = _colour(pixels[x, y], flash, snap)
+            bottom = _colour(pixels[x, y + 1], flash, snap) if y + 1 < img.height else None
             if top and bottom:
                 text.append("▀", Style(color=top, bgcolor=bottom))
             elif top:
@@ -142,13 +195,34 @@ def side_by_side(texts: list[Text], gap: int = 3) -> Text:
 
 # --- pixel helpers ------------------------------------------------------------------
 
-def _colour(pixel: tuple, flash: bool) -> Color | None:
+def _colour(pixel: tuple, flash: bool, snap: bool = False) -> Color | None:
     r, g, b, alpha = pixel
     if alpha < 128:
         return None
-    if flash:  # a white hit-flash that keeps a hint of the original colour
-        r, g, b = (255 - (255 - r) // 4, 255 - (255 - g) // 4, 255 - (255 - b) // 4)
+    if flash:  # a white hit-flash
+        r, g, b = _shade(LIGHTS, r, g, b)
+    if snap:
+        r, g, b = _nearest((r, g, b))
     return Color.from_rgb(r, g, b)
+
+
+@lru_cache(maxsize=1)
+def palette() -> tuple:
+    """Every colour the sprites are drawn in. Effects keep to these, because a terminal that draws with the GPU
+    caches each character in each pair of colours it meets: made-up shades on top of the art fill that cache, and a
+    full one garbles the screen (see PTGApp.action_redraw)."""
+    folder = resources.files("ptg") / "data" / "sprites"
+    keys = [(p.name[:-4], False) for p in folder.iterdir() if p.name.endswith(".png")]
+    if (folder / "small").is_dir():
+        keys += [(p.name[:-4], True) for p in (folder / "small").iterdir() if p.name.endswith(".png")]
+    colours = {pixel[:3] for key, small in keys for frame in _strip(key, small) or ()
+               for pixel in frame.get_flattened_data() if pixel[3] >= 128}
+    return tuple(sorted(colours | {GLOW[0], GLOW[1], STAR, *GREYS, *REDS, *LIGHTS}))
+
+
+@lru_cache(maxsize=4096)
+def _nearest(rgb: tuple) -> tuple:
+    return min(palette(), key=lambda c: (c[0] - rgb[0]) ** 2 + (c[1] - rgb[1]) ** 2 + (c[2] - rgb[2]) ** 2)
 
 
 def _shift(img, dx: int, dy: int):
@@ -157,13 +231,10 @@ def _shift(img, dx: int, dy: int):
     return out
 
 
-def _mix(a: tuple, b: tuple, t: float) -> tuple:
-    return tuple(round(x + (y - x) * t) for x, y in zip(a, b))
-
-
-def _grey(r: int, g: int, b: int, amount: float, dim: float) -> tuple:
-    lum = 0.3 * r + 0.59 * g + 0.11 * b
-    return tuple(round((c + (lum - c) * amount) * dim) for c in (r, g, b))
+def _shade(shades: tuple, r: int, g: int, b: int, dim: float = 1.0) -> tuple:
+    """The one of `shades` (darkest first) as light as this pixel."""
+    light = (0.3 * r + 0.59 * g + 0.11 * b) * dim / 256
+    return shades[min(len(shades) - 1, int(light * len(shades)))]
 
 
 def _recolour(img, fn):
@@ -212,7 +283,7 @@ def _stars(img, frame: int):
 
 
 def _dissolve(img, step: int):
-    """Ordered-dither dissolve: each step removes more pixels, drifts down and fades to grey."""
+    """Ordered-dither dissolve: each step removes more pixels, drifts down and, from the third, turns grey."""
     out = Image.new("RGBA", img.size, (0, 0, 0, 0))
     src, px = img.load(), out.load()
     threshold = step * 16 / (DEATH_FRAMES - 1)
@@ -222,7 +293,7 @@ def _dissolve(img, step: int):
             r, g, b, a = src[x, y]
             if not a or BAYER[y % 4][x % 4] < threshold or y + drop >= img.height:
                 continue
-            px[x, y + drop] = (*_grey(r, g, b, step / DEATH_FRAMES, 1 - step * 0.08), a)
+            px[x, y + drop] = (*((r, g, b) if step < 2 else _shade(GREYS, r, g, b, 1 - step * 0.08)), a)
     return out
 
 

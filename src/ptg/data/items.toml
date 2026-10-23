@@ -4,6 +4,7 @@
 # `tags` matter for creative actions: using a tagged thing earns a flair bonus,
 # and a tag a monster is weak to gives advantage and bigger effects.
 
+# drawn by JT (2026-10-23)
 [item.rusty_sword]
 name = "Rusty Sword"
 kind = "weapon"
@@ -12,6 +13,7 @@ tier = 0
 tags = ["sharp", "metal"]
 desc = "More rust than sword. It has opinions about tetanus."
 
+# drawn by JT (2026-10-23)
 [item.hand_axe]
 name = "Hand Axe"
 kind = "weapon"
@@ -86,6 +88,7 @@ tier = 0
 tags = ["food", "throwable", "heavy"]
 desc = "Technically food. Technically a weapon. Restores 3 HP."
 
+# drawn by JT (2026-10-23)
 [item.cheese_wheel]
 name = "Wheel of Cheese"
 kind = "consumable"
@@ -94,6 +97,7 @@ tier = 1
 tags = ["food", "throwable", "heavy", "smelly"]
 desc = "A whole wheel. Beasts find it irresistible. Restores 6 HP."
 
+# drawn by JT (2026-10-23)
 [item.smoke_bomb]
 name = "Smoke Bomb"
 kind = "consumable"
@@ -116,6 +120,7 @@ tier = 1
 tags = ["holy", "liquid", "glass", "throwable"]
 desc = "Blessed by a priest who was mostly sober. The undead hate it."
 
+# drawn by JT (2026-10-23)
 [item.bag_of_marbles]
 name = "Bag of Marbles"
 kind = "trinket"

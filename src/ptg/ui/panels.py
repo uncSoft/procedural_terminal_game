@@ -9,7 +9,7 @@ from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
 from textual.events import Click
 from textual.screen import ModalScreen
 from textual.widgets import Label, ListItem, ListView, Static
@@ -21,7 +21,7 @@ from ..meta import epithet
 from ..rules import TRAITS
 from ..sprites import sprite_text
 from .theme import PERK_COLORS
-from .widgets import Clickable, map_text, portrait, room_text
+from .widgets import Clickable, item_note, item_tile, map_text, portrait, room_text
 
 HELP = """\
 HOW TO PLAY
@@ -50,6 +50,7 @@ KEYS (or type the word)
   F5  m  map            F6  b  bestiary      F7  j  journal
   F1     this help      F8     sound on/off       Esc  title (your game is saved)    Ctrl+Q  quit
   F12    debug: the library, art, sounds, story, the game's state, and a model check
+  Ctrl+L redraw the screen (if letters or art ever come out garbled)
 
 MOUSE   Click a choice, a coloured word, or the dice (once to roll, again to carry on).
         Close any panel with its ✕ or a click outside it.
@@ -107,68 +108,113 @@ class HelpScreen(Panel):
             yield Static(Text(HELP))
 
 
+class ItemTile(Static):
+    """One thing you carry, in the inventory's grid. Moving to it (or clicking it) shows it in full."""
+
+    can_focus = True
+
+    def __init__(self, index: int, text: Text, equipped: bool) -> None:
+        super().__init__(text, classes="item-tile equipped" if equipped else "item-tile")
+        self.index = index
+
+    def on_focus(self) -> None:
+        self.screen.show_detail(self.index)
+
+
 class InventoryScreen(Panel):
-    """Pick an item to use it (if it's usable right now); everything else is for creative use."""
+    """What you carry, as tiles with their art: move to one (or click it) to see it in full, Enter to use it.
+    Anything that isn't usable on its own is for creative use: close this and type what you do with it."""
+
+    BINDINGS = [Binding("left", "move(-1)", show=False, priority=True),
+                Binding("right", "move(1)", show=False, priority=True),
+                Binding("up", "move_rows(-1)", show=False, priority=True),
+                Binding("down", "move_rows(1)", show=False, priority=True),
+                Binding("enter", "use", "Use", priority=True)]
 
     def __init__(self, game: Game) -> None:
         super().__init__()
         self.game = game
+        self.current = 0
+        self.columns = 3
+        self.art_width = 24
 
     def compose(self) -> ComposeResult:
         content, player = self.game.content, self.game.state.player
         usable = {a.id: a for a in self.game.actions if a.id.startswith("use:")}
-        items = []
-        weapon = content.item(player.weapon)
-        items.append((f") {weapon.name}  {weapon.damage}+{player.might}  [equipped]", weapon, None))
+        items = [(player.weapon, f"in hand · {content.item(player.weapon).damage}", None, True)]
         if player.armor:
-            armor = content.item(player.armor)
-            items.append((f"[ {armor.name}  +{armor.defense} defense  [equipped]", armor, None))
+            items.append((player.armor, f"worn · +{content.item(player.armor).defense} defense", None, True))
         counts: dict[str, int] = {}
         for key in player.inventory:
             counts[key] = counts.get(key, 0) + 1
         for key, count in counts.items():
-            item = content.item(key)
-            glyph = layout.ITEM_GLYPHS.get(item.kind, "*")
-            label = f"{glyph} {item.name}" + (f" ×{count}" if count > 1 else "")
-            action = usable.get(f"use:{key}")
-            if action:
-                label += f"   → {action.label}"
-            items.append((label, item, action.id if action else None))
+            note = (f"×{count} · " if count > 1 else "") + item_note(content, key)
+            items.append((key, note, usable.get(f"use:{key}"), False))
         self.items = items
-        with Vertical(classes="panel-box") as box:
+        sprites = self.game.config.art == "sprites"
+        width = min(100, self.app.size.width)  # fewer tiles to a row on a narrow terminal, and smaller art
+        self.columns = 3 if width >= 100 else 2 if width >= 76 else 1
+        self.art_width = 24 if width - 8 - (self.columns * 21 + 1) >= 24 else 12
+        with Horizontal(classes="panel-box inventory-box") as box:
             box.border_title = f"Inventory · ¤ {player.gold} gold"
-            yield ListView(*[ListItem(Label(Text(label))) for label, _, _ in items], id="inv-list")
-            yield Static("", id="inv-detail")
-            yield Static(Text("[enter] use   ·   anything else: type what you do with it   ·   [esc] close",
-                              style="#6c6f99"))
+            with VerticalScroll(id="inv-shelf") as shelf:
+                shelf.styles.width = self.columns * 21 + 1
+                grid = Grid(*[ItemTile(i, item_tile(content, key, note, sprites, room=18), equipped)
+                              for i, (key, note, _, equipped) in enumerate(items)], id="inv-grid")
+                grid.styles.grid_size_columns = self.columns
+                yield grid
+            with Vertical(id="inv-side"):
+                yield Static("", id="inv-detail")
+                yield Clickable("", "screen.use", id="inv-use")
+                yield Static(Text("arrows pick · enter uses · esc closes\n\nTo use something creatively, close "
+                                  "this and type what you do with it.", style="#6c6f99"), id="inv-hint")
 
     def on_mount(self) -> None:
-        self.show_detail(0)
-
-    @on(ListView.Highlighted)
-    def highlighted(self, event: ListView.Highlighted) -> None:
-        self.show_detail(event.list_view.index or 0)
+        self.query(ItemTile).first().focus()
 
     def show_detail(self, index: int) -> None:
-        if not self.items:
-            return
-        _, item, _ = self.items[index]
+        self.current = index
+        content, player = self.game.content, self.game.state.player
+        key, _, action, equipped = self.items[index]
+        item = content.item(key)
         text = Text()
-        art = sprite_text(f"item_{item.key}", width=12) if self.game.config.art == "sprites" else None
-        if art is not None:
+        art = sprite_text(f"item_{key}", width=self.art_width) if self.game.config.art == "sprites" else None
+        if art is not None:  # drawn in the Monster & Item Maker (docs/maker)
             text.append_text(art)
             text.append("\n")
-        text.append(item.name + "\n", style="bold #ffb000")
-        text.append(item.desc + "\n", style="#c8c8e0")
+        text.append(item.name + "\n", style="bold #4cff8a")
+        might = f" + {player.might} for your might" if key == player.weapon else ""
+        text.append(item_note(content, key) + might + "\n", style="#c8c8e0")
+        if equipped:
+            text.append("in your hand\n" if item.kind == "weapon" else "you're wearing it\n", style="#ffb000")
+        if item.desc:
+            text.append("\n" + item.desc + "\n", style="italic #c8c8e0")
         if item.tags:
-            text.append("tags: " + ", ".join(item.tags), style="#5fe3ff")
+            text.append("\ntags: " + ", ".join(item.tags) + "\n", style="#5fe3ff")
+        ideas = [TAG_IDEAS[t] for t in item.tags if t in TAG_IDEAS]
+        if ideas:
+            text.append("Ideas: " + "; ".join(ideas[:2]), style="#ff4f9a")
         self.query_one("#inv-detail", Static).update(text)
+        if action:
+            use = Text(f"▶ {action.label}  (enter)", style="bold #4cff8a")
+        else:
+            idle = {"key": "It must open something important.", "trinket": "No use on its own: try it creatively.",
+                    "consumable": "Throw it in a fight to get away." if item.escape else
+                    "You're at full health." if player.hp >= player.max_hp else "Not now."}
+            use = Text(idle.get(item.kind, ""), style="#6c6f99")
+        self.query_one("#inv-use", Clickable).update(use)
 
-    @on(ListView.Selected)
-    def selected(self, event: ListView.Selected) -> None:
-        _, _, action_id = self.items[event.list_view.index or 0]
-        if action_id:
-            self.dismiss(action_id)
+    def action_move(self, step: int) -> None:
+        tiles = list(self.query(ItemTile))
+        tiles[max(0, min(len(tiles) - 1, self.current + step))].focus()
+
+    def action_move_rows(self, rows: int) -> None:
+        self.action_move(rows * self.columns)
+
+    def action_use(self) -> None:
+        _, _, action, _ = self.items[self.current]
+        if action:
+            self.dismiss(action.id)
         else:
             self.notify("Not usable on its own. Try typing what you want to do with it.", timeout=3)
 

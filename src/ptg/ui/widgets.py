@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import textwrap
 
 from rich.style import Style
 from rich.text import Text
@@ -17,7 +18,7 @@ from ..events import Action, Event
 from ..glossary import Lexicon
 from ..models import LEVEL_XP, GameState
 from ..outcome import tone, verdict
-from ..sprites import frame_count, sprite_text
+from ..sprites import DEFAULT_WIDTH, SMALL, frame_count, sprite_text
 from ..world import render_map
 from . import effects
 from .theme import CELL_STYLES, MAP_STYLES
@@ -215,21 +216,27 @@ class AnimatedSprite(Static):
     """A sprite that animates where it stands: in the story, or on a story card. `loop` picks which frames its
     idle animation cycles through (all of them by default)."""
 
-    def __init__(self, key: str, interval: float = 0.25, loop: list[int] | None = None, **kwargs) -> None:
+    def __init__(self, key: str, interval: float = 0.25, loop: list[int] | None = None, width: int = DEFAULT_WIDTH,
+                 **kwargs) -> None:
         self.key = key
         self.interval = interval
+        self.width = width
         self.loop = loop or list(range(max(1, frame_count(key))))
         self.index = 0
         self._timer = None
-        super().__init__(sprite_text(key, self.loop[0]) or Text(""), **kwargs)
+        super().__init__(sprite_text(key, self.loop[0], width) or Text(""), **kwargs)
 
     def on_mount(self) -> None:
-        if len(self.loop) > 1:
+        self.resume()
+
+    def resume(self) -> None:
+        """Animate again (after a play())."""
+        if self._timer is None and len(self.loop) > 1:
             self._timer = self.set_interval(self.interval, self._tick)
 
     def _tick(self) -> None:
         self.index = (self.index + 1) % len(self.loop)
-        self.update(sprite_text(self.key, self.loop[self.index]) or Text(""))
+        self.update(sprite_text(self.key, self.loop[self.index], self.width) or Text(""))
 
     def freeze(self, frame: int | None = None) -> None:
         """Stop animating (older story sprites stand still so the newest one draws the eye)."""
@@ -237,14 +244,47 @@ class AnimatedSprite(Static):
             self._timer.stop()
             self._timer = None
         if frame is not None:
-            self.update(sprite_text(self.key, frame) or Text(""))
+            self.update(sprite_text(self.key, frame, self.width) or Text(""))
 
     async def play(self, steps: list[tuple[int, str, bool]], delay: float = 0.09) -> None:
         """Play a one-off sequence of (frame, pose, flash) steps, then stop on the last one."""
         self.freeze()
         for frame, pose, flash in steps:
-            self.update(sprite_text(self.key, frame, flash=flash, pose=pose) or Text(""))
+            self.update(sprite_text(self.key, frame, self.width, flash=flash, pose=pose) or Text(""))
             await asyncio.sleep(delay)
+
+
+ITEM_COLORS = {"weapon": "#c8c8e0", "armor": "#8fa8ff", "consumable": "#ff4b4b", "trinket": "#ffb000", "key": "#ffd166"}
+
+
+def item_note(content: Content, key: str) -> str:
+    """What an item does, in a few words: "1d8 damage", "+2 defense", "heals 8"."""
+    item = content.item(key)
+    return {"weapon": f"{item.damage} damage", "armor": f"+{item.defense} defense", "key": "a key",
+            "consumable": "escape a fight" if item.escape else f"heals {item.heal}", "trinket": "trinket"}[item.kind]
+
+
+def item_picture(content: Content, key: str, sprites: bool, width: int = SMALL) -> Text:
+    """An item's art (its hand-made small version, at the small size), or without any its glyph, as tall as the
+    art would be."""
+    art = sprite_text(f"item_{key}", width=width) if sprites else None
+    if art is not None:
+        return art
+    item = content.item(key)
+    rows = width // 2  # two pixels to a row, and item art is square
+    glyph = layout.ITEM_GLYPHS.get(item.kind, "*")
+    return Text("\n" * (rows // 2) + glyph + "\n" * (rows - rows // 2 - 1), style=f"bold {ITEM_COLORS[item.kind]}")
+
+
+def item_tile(content: Content, key: str, note: str, sprites: bool, room: int = 16) -> Text:
+    """An item at a glance: its picture, its name (on up to two lines) and a short note (centre it with CSS)."""
+    name = textwrap.wrap(content.item(key).name, room)
+    if len(name) > 2:
+        name = [name[0], textwrap.shorten(" ".join(name[1:]), room, placeholder="…")]
+    out = item_picture(content, key, sprites)
+    out.append("\n" + "\n".join(name + [""] * (2 - len(name))), style="bold")
+    out.append("\n" + (note if len(note) <= room else note[:room - 1] + "…"), style="#9a9cc0")
+    return out
 
 
 class Clickable(Static):

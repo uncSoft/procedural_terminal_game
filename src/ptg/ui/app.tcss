@@ -257,6 +257,31 @@ Clickable:hover {
     text-align: center;
 }
 
+.loot-row {
+    height: auto;
+    margin-top: 1;
+    align-horizontal: center;
+}
+
+.loot-card {
+    width: 26;
+    height: auto;
+    margin: 0 1;
+    border: round $success;
+    border-title-color: $success;
+}
+
+.loot-card.drop {
+    border: round $warning;
+    border-title-color: $warning;
+}
+
+.loot-art, .loot-text {
+    width: 100%;
+    height: auto;
+    text-align: center;
+}
+
 .story-card {
     height: auto;
     margin-top: 1;
@@ -383,15 +408,51 @@ LevelUpScreen, Panel, HelpScreen {
     height: 32;
 }
 
-#inv-list {
-    height: auto;
-    max-height: 14;
-    background: $surface;
+.panel-box.inventory-box {
+    width: 100;
 }
 
-#inv-detail {
-    margin-top: 1;
+#inv-shelf {
+    width: 65;
     height: auto;
+    max-height: 34;
+}
+
+#inv-grid {
+    grid-size: 3;
+    grid-gutter: 0 1;
+    height: auto;
+}
+
+.item-tile {
+    width: 20;
+    height: 11;
+    border: round $primary-darken-2;
+    text-align: center;
+}
+
+.item-tile.equipped {
+    border: round $secondary-darken-2;
+}
+
+.item-tile:focus {
+    border: round $accent;
+    background: $panel;
+}
+
+#inv-side {
+    width: 1fr;
+    height: auto;
+    padding-left: 2;
+}
+
+#inv-detail, #inv-use, #inv-hint {
+    height: auto;
+}
+
+#inv-use, #inv-hint {
+    width: 100%;
+    margin-top: 1;
 }
 
 #beast-list {

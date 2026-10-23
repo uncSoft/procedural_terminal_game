@@ -7,7 +7,7 @@ import random
 import re
 from dataclasses import dataclass
 
-from . import dice
+from . import dice, loot
 from .combat import defeat, discover, flee, fortune
 from .content import Content
 from .events import Event
@@ -220,8 +220,11 @@ def _apply_effect(state: GameState, content: Content, rng: random.Random, effect
     if effect == "find_item":
         from .rules import gain_item
 
-        key = rng.choice(["stale_bread", "stale_bread", "healing_potion", "smoke_bomb", "oil_flask"])
-        return [Event("find", f"You turn up {a(content.item(key).name)}.")] + gain_item(state, content, key)
+        key = loot.one_of(rng, content, loot.FINDS)
+        if key is None:
+            return [Event("info", "You turn up nothing worth keeping.")]
+        found = Event("find", f"You turn up {a(content.item(key).name)}.", data={"item": key})
+        return [found] + gain_item(state, content, key)
     if effect == "find_gold":
         gold = rng.randint(2, 8) * max(1, room.distance) + (4 if "scavenger" in player.perks else 0)
         player.gold += gold

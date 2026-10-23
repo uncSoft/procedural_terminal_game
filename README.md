@@ -52,6 +52,7 @@ It scores ten typed commands and five narrated moments, shows what the guard wou
 - **Telegraphs.** Monsters wind up heavy blows a turn early (`⚠ HEAVY ATTACK NEXT`). Dodge or improvise an evasion to make them whiff, and get advantage and a Fate token.
 - **Weaknesses.** Everything is weak to something: fire, holy, shiny, food, heavy, slippery... Turn the right prop on a monster to roll with advantage and hit harder. Once you discover a weakness, the bestiary remembers it forever.
 - **A suggested trick.** The last choice (✦, in pink) is a creative idea built from what's actually in the room, so new players learn they can improvise.
+- **Loot you can see.** What you find, pick up or see a monster drop appears in the story with its art, and the inventory (F2) shows everything you carry as tiles: arrows pick one, Enter uses it.
 
 **Every run (about 25-40 minutes)**
 - Three floors, three different dungeons, getting harder, with a boss at the bottom.
@@ -123,6 +124,13 @@ uv run python -m ptg.sprites goblin troll                # preview sprites in yo
 To use your own art (Aseprite, Piskel, an image model), drop a PNG named after the monster's key
 (`goblin.png`, `drowned_abbot.png`...) into that folder.
 
+**Small versions.** Items are also drawn small, 12 pixels wide, in the inventory and in loot cards, and pixel art
+doesn't shrink well. So each item can have a hand-made small version: a 12×12 PNG strip with the same frames, in
+`src/ptg/data/sprites/small/` under the same name (`item_healing_potion.png`), best drawn in the big sprite's own
+colours with the bottom row left empty for the bob. The Monster & Item Maker draws them too (below), and its import
+puts them there. Without one, the big sprite is halved block by block, which keeps its lines whole but looks rough.
+The debug screen (F12) shows every small version beside the big one, and lists the items still being halved.
+
 ## The Monster & Item Maker
 
 `docs/maker` is a one-page web app for drawing monsters and items and setting their stats, hosted free on GitHub
@@ -131,6 +139,10 @@ Pages so friends can contribute. It works on a laptop, a tablet or a phone, with
 - **Draw** on a 24x24 grid in the game's own 32 colours plus any colour you pick (kept as "your colours"), with
   pencil, eraser, fill, colour picker, mirror mode, undo and redo (B, E, G, I, M and Ctrl/Cmd+Z), and a second frame
   for the idle animation. The preview shows it moving, the way it'll look in the dungeon.
+- **A small version** (items): a 12x12 board under the drawing for how the inventory and loot cards show the item.
+  It starts as the drawing halved exactly the way the game would; draw on it to fix it up by hand, with the same
+  tools, frames and undo. Once it's hand-made it stops following the drawing, says so if the drawing changes after,
+  and "Start again from the drawing" goes back. Only a hand-made one is sent, and imported.
 - **Set everything**: tier (with typical values for it, one click to apply), HP, defense, attack, damage dice and XP;
   creature type, which decides which dungeons it appears in; weaknesses; any extra tags; whether it can be reasoned
   with; its heavy-attack tell; and a description, which the in-game narrator reads so it describes the thing the way
@@ -154,6 +166,10 @@ a small Apps Script web app (free, about five minutes to set up, nothing to run 
 2. Deploy → New deployment → Web app, executing as you, with access for "Anyone". Allow what it asks for (Google
    warns that the app isn't verified: it's yours, so Advanced → Go to …).
 3. Put the web app URL (it ends in `/exec`) in `docs/maker/config.json` as `"saves": {"url": "…"}`, commit and push.
+
+When `tools/maker_saves.gs` changes (it learned to keep an item's small version, for one), paste it in again and
+publish it: Deploy → Manage deployments → Edit → Version: New version → Deploy. The URL stays the same. Until then
+the old script quietly leaves out what it doesn't know, and links and downloads still carry everything.
 
 Each saved creation is a row in the sheet: its number, name, type, who created it and when. The number (#1, #2, …)
 never changes and is never reused; it shows on the creation's card in the library and when it's saved. Type anything
@@ -182,6 +198,13 @@ Each import writes the sprite (`src/ptg/data/sprites`), the entry in `monsters.t
 mode, checks the whole game still loads before writing anything, re-signs the data, and refreshes
 `docs/maker/library.json`. A submission that doesn't load is reported and skipped; the rest still go in. Commit and
 push, and the page's library shows them too.
+
+**Where new things turn up**: no code changes needed. Monsters appear in every dungeon that calls for their tags,
+at their tier. Items drop by kind and tier (`src/ptg/loot.py`): each place that hands one out asks for something
+like "a tier-1 weapon" or "a potion of tier 2 or more" and picks among every item in the game that fits, a tier
+first, then an item of it (so adding five tier-3 potions doesn't make tier 3 five times as likely). Tier 1 turns
+up from floor 1, tier 2 deeper, and the best of each kind in hidden stashes and floor-3 chests; the debug screen's
+Items tab (F12) says where each item can turn up.
 
 **An inbox instead of (or as well as) GitHub**: set `inbox.url` in `docs/maker/config.json` and the page gets a
 "Send to inbox" button that posts each creation there: a Discord webhook gets a message with the link, anything
@@ -245,7 +268,7 @@ The first launch opens Settings: pick LM Studio, Ollama, another OpenAI-compatib
 | Key | Typed | Opens |
 | --- | --- | --- |
 | F1 | `help` | how to play |
-| F2 | `i` | inventory (Enter uses an item) |
+| F2 | `i` | inventory: what you carry, with its art (arrows pick, Enter uses) |
 | F3 | `c` | character: perks, traits and progress toward the next one |
 | F4 | `l` | the room's floor plan |
 | F5 | `m` | the floor map and the whole descent |
@@ -253,6 +276,7 @@ The first launch opens Settings: pick LM Studio, Ollama, another OpenAI-compatib
 | F7 | `j` | journal |
 | F8 | | sound on or off |
 | F12 | | the debug screen |
+| Ctrl+L | | redraw the screen |
 
 Everything works with a mouse too: click a choice, a highlighted word or the dice (once to roll, again to carry on), and close a panel with its ✕ or a click outside it.
 
@@ -276,6 +300,12 @@ uv run ptg --backend anthropic
 ```
 
 Model requests and responses are logged to `~/.ptg/llm.log`.
+
+**Garbled letters or tiny art?** Terminals that draw with the GPU (xterm.js in an editor or an app's terminal panel,
+for one) keep every character they've drawn, in each pair of colours, in a cache; the pixel art fills it fast, and
+when it overflows, letters turn into the wrong glyphs and pictures shrink. The game keeps its colours few (effects
+use fixed shades), redraws the whole screen every few turns, and Ctrl+L redraws it now. If it still happens, play in
+a terminal app (Terminal, iTerm2, Ghostty, WezTerm, kitty).
 
 ## The debug screen
 
@@ -305,6 +335,7 @@ src/ptg/
   data/            themes, rooms, items, monsters, perks, unlocks, prop tags (TOML), art and story/ events
   content.py       loads and validates the data (broken data fails loudly)
   world.py         seeded floors: layout, stairs, fixtures, elites, loot, ghosts, the map
+  loot.py          what turns up where: loot by kind and tier, read from the items
   layout.py        room floor plans and where things stand
   models.py        game state (pydantic; a save file is just this as JSON)
   dice.py          d20 checks with advantage, as data the UI can animate

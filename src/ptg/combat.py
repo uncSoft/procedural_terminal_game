@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import random
 
-from . import dice
+from . import dice, loot
 from .content import Content
 from .events import Event
 from .models import GameState, MonsterState
-from .text import cap, mid_sentence, the
+from .text import a, cap, mid_sentence, the
 
 INTENT_WEIGHTS = {
     "boss": {"strike": 45, "heavy": 40, "guard": 15},
@@ -276,7 +276,9 @@ def defeat(state: GameState, content: Content, rng: random.Random, how: str = "s
         gold = rng.randint(1, 6) * monster_def.tier * (2 if monster.elite else 1)
         player.gold += gold
         events.append(Event("loot", f"You find {gold} gold on the body."))
-        if rng.random() < 0.3:
-            room.items.append("healing_potion")
-            events.append(Event("drop", f"{cap(the(monster.name))} dropped a Healing Potion."))
+        dropped = loot.pick(rng, content, loot.DROP) if rng.random() < 0.3 else None
+        if dropped:
+            room.items.append(dropped)
+            events.append(Event("drop", f"{cap(the(monster.name))} dropped {a(content.item(dropped).name)}.",
+                                data={"item": dropped}))
     return events + check_level(state, content)

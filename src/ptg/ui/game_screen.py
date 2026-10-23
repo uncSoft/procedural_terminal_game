@@ -20,13 +20,13 @@ from ..glossary import Lexicon
 from ..game import Game
 from ..models import LogEntry
 from ..outcome import AWFUL, BAD, GOOD, GREAT, overall, tone, verdict
-from ..sprites import DEATH_FRAMES
+from ..sprites import DEATH_FRAMES, SMALL, frame_count
 from . import effects
 from .dice import DiceScreen
 from .panels import (BestiaryScreen, CharacterScreen, FloorScreen, HelpScreen, InfoScreen, InventoryScreen,
                      JournalScreen, LevelUpScreen, LookScreen, MapScreen)
-from .widgets import (AnimatedSprite, ChoiceItem, DiceLine, Hud, StoryLine, bar, hearts, highlight, map_text,
-                      monster_text, portrait, roll_text, room_text)
+from .widgets import (AnimatedSprite, ChoiceItem, DiceLine, Hud, StoryLine, bar, hearts, highlight, item_note,
+                      item_picture, map_text, monster_text, portrait, roll_text, room_text)
 
 # (sprite, steps of (frame, pose, flash)) for the moment you use a fixture
 FIXTURE_MOMENTS = {
@@ -40,6 +40,8 @@ FIXTURE_MOMENTS = {
 
 # Idle frames for a fixture waiting to be used (a chest stays shut, with the odd glint).
 ARRIVAL_LOOPS = {"chest": [0, 0, 0, 1]}
+# how an item came your way this turn; when an item comes more than one way, the first of these is shown
+LOOT_LABELS = {"equip": "equipped", "find": "found", "key": "found", "take": "picked up", "drop": "dropped"}
 
 COMMANDS = {
     "i": "inventory", "inv": "inventory", "inventory": "inventory",
@@ -81,6 +83,7 @@ class GameScreen(Screen):
         self.animating = False  # a one-off scene animation is playing; the idle loop waits
         self.live_sprites: list[AnimatedSprite] = []
         self.fixture_sprites: dict[tuple[int, int], AnimatedSprite] = {}  # (floor, room) -> its fixture's sprite
+        self.since_redraw = 0  # turns since the whole screen was last drawn afresh (see PTGApp.action_redraw)
 
     def compose(self) -> ComposeResult:
         yield Hud(id="hud")
@@ -285,6 +288,7 @@ class GameScreen(Screen):
         await self._roll_feedback(pending.events, hp_before, gold_before)
         await self._fight_animations(pending.events, before, room_before)
         await self._fixture_moment(pending.events, narration, where)
+        await self._loot_moment(pending.events, narration)
         if any(e.kind == "descend" for e in pending.events):
             self._new_floor(narration)
         self.refresh_panels()
@@ -298,6 +302,10 @@ class GameScreen(Screen):
             self.add_line(f"  ({error})", "system-line")
         self._arrival_sprite(result.events)
         self._show_story(result.events)
+        self.since_redraw += 1
+        if self.since_redraw >= self.app.REDRAW_EVERY:  # keeps a struggling terminal's picture from drifting
+            self.since_redraw = 0
+            self.call_after_refresh(self.app.action_redraw)
         self._toasts(result.events)
         self.refresh_panels()
 
@@ -466,6 +474,40 @@ class GameScreen(Screen):
         await sprite.play(steps)
         if kind == "descend":
             await sprite.remove()  # it dissolved into the dark
+
+    async def _loot_moment(self, events: list[Event], narration: Static) -> None:
+        """What turned up this turn (found, picked up, or left behind by a monster), shown with its art."""
+        found: dict[str, str] = {}
+        order = list(LOOT_LABELS)
+        for event in events:
+            key = event.data.get("item")
+            if key and event.kind in LOOT_LABELS and (key not in found or
+                                                       order.index(event.kind) < order.index(found[key])):
+                found[key] = event.kind
+        if not found:
+            return
+        content, sprites, shine = self.game.content, self._sprites_on(), []
+        cards = []
+        for key, kind in found.items():
+            if sprites and frame_count(f"item_{key}"):
+                picture = AnimatedSprite(f"item_{key}", interval=0.35, width=SMALL, classes="loot-art")
+                shine.append(picture)
+            else:
+                picture = Static(item_picture(content, key, False, width=SMALL), classes="loot-art")
+            words = Text.assemble((content.item(key).name, "bold #4cff8a"), "\n", (item_note(content, key), "#9a9cc0"))
+            card = Vertical(picture, Static(words, classes="loot-text"), classes=f"loot-card {kind}")
+            card.border_title = f"✦ {LOOT_LABELS[kind]}"
+            cards.append(card)
+        story = self.query_one("#story", VerticalScroll)
+        await story.mount(Horizontal(*cards, classes="loot-row"), before=narration)
+        story.scroll_end(animate=False)
+        self.live_sprites += shine
+        await asyncio.gather(*(self._sparkle(picture) for picture in shine))
+
+    @staticmethod
+    async def _sparkle(sprite: AnimatedSprite) -> None:
+        await sprite.play([(0, "idle", True), (0, "idle", False), (1, "idle", True), (0, "idle", False)], delay=0.08)
+        sprite.resume()
 
     def _arrival_sprite(self, events: list[Event]) -> None:
         """Arriving somewhere with a shrine, chest, fountain or stairs: show it, alive."""

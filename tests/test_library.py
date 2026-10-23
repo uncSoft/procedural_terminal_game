@@ -329,3 +329,51 @@ def test_the_cli_lists_and_imports_saves(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(library, "maker_folder", lambda: None)
     assert library.main(["import", "--saves"]) == 1
     assert "no shared library" in capsys.readouterr().out
+
+
+def small_drawing(colour: str = "#feae34") -> dict:
+    rows = ["." * 12] * 3 + ["...aaaaaa..."] * 6 + ["." * 12] * 3
+    return {"w": 12, "h": 12, "palette": [colour], "frames": [rows]}
+
+
+def test_an_item_can_bring_its_small_version(data):
+    item = spoon()
+    item["small"] = small_drawing()
+    assert apply([item], data)[0] == ("Added item Spoon of Destiny (spoon_of_destiny) by Ada, with a small version "
+                                      "drawn by hand.")
+    small = read_frames(library.small_file("spoon_of_destiny", data))
+    assert small[0].size == (12, 12) and len(small) == 2  # one picture gets the bob, like the big one
+    lib = export_library(data)
+    entry = next(i for i in lib["items"] if i["key"] == "spoon_of_destiny")
+    assert entry["small"]["w"] == 12 and decode_art(entry["small"])[0].tobytes() == small[0].tobytes()
+    assert "small" not in next(i for i in lib["items"] if i["key"] == "stale_bread")
+
+
+def test_a_small_version_must_be_small(data):
+    item = spoon()
+    item["small"] = drawing()  # 24 across
+    with pytest.raises(ValueError, match="should be 12x12"):
+        apply([item], data)
+    assert not library.small_file("spoon_of_destiny", data).exists()
+
+
+def test_a_new_picture_without_a_small_version_retires_the_old_one(data):
+    with_small = spoon()
+    with_small["small"] = small_drawing()
+    apply([with_small], data)
+    numbers_only = spoon(damage="1d10")  # the same picture: the small version still fits
+    numbers_only["base"] = "spoon_of_destiny"
+    apply([numbers_only], data)
+    assert library.small_file("spoon_of_destiny", data).exists()
+    repainted = spoon()
+    repainted["base"], repainted["art"] = "spoon_of_destiny", drawing("#e43b44")
+    message = apply([repainted], data)[0]
+    assert "small version was drawn for the old picture" in message
+    assert not library.small_file("spoon_of_destiny", data).exists()
+
+
+def test_monsters_dont_get_small_versions(data):
+    creature = monster()
+    creature["small"] = small_drawing()
+    apply([creature], data)
+    assert not list((data / "sprites" / "small").glob("*squeaks*"))

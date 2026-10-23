@@ -6,7 +6,7 @@ from __future__ import annotations
 import random
 from collections import deque
 
-from . import dice, layout
+from . import dice, layout, loot
 from .content import Content, load_content
 from .models import DELTA, DIRECTIONS, FLOORS, OPPOSITE, Exit, Feature, GameState, MonsterState, Player, Room
 
@@ -17,8 +17,6 @@ ELITES = {
     "Hulking": {"hp_mult": 1.5, "damage_mod": 1},
     "Cursed": {"reward_mult": 2.0},
 }
-THEME_TRINKETS = {"sunken_crypt": "holy_water", "goblin_warren": "bag_of_marbles", "overgrown_ruins": "oil_flask"}
-
 
 def generate(seed: int, player_name: str = "Adventurer", content: Content | None = None,
              player: Player | None = None, ghost: dict | None = None) -> GameState:
@@ -67,7 +65,7 @@ def build_floor(state: GameState, content: Content) -> None:
         room.fixture = fixture
 
     _place_monsters(rng, content, state, theme, rooms, max_distance, end_id, final)
-    _place_loot(rng, state, theme, rooms, end_id, max_distance, final)
+    _place_loot(rng, content, state, theme, rooms, end_id, max_distance, final)
     if ghost and ghost.get("floor", 1) == state.floor:
         _place_ghost(rng, content, rooms, end_id, ghost)
 
@@ -204,22 +202,20 @@ def _place_monsters(rng, content, state, theme, rooms: list[Room], max_distance:
         room.monster = monster_for(rng, content, theme.key, tier_for(room.distance, max_distance, state.floor), elite)
 
 
-def _place_loot(rng, state: GameState, theme, rooms: list[Room], end_id: int, max_distance: int, final: bool) -> None:
+def _place_loot(rng, content: Content, state: GameState, theme, rooms: list[Room], end_id: int, max_distance: int,
+                final: bool) -> None:
+    """The floor's loot (see loot.py), scattered: potions sometimes just lie on the floor."""
     others = [r for r in rooms if r.id not in (0, end_id)]
     if final:
         # The key sits in a visible feature somewhere past the halfway point (never in the boss room).
         deep = [r for r in others if r.distance >= max(1, max_distance // 2)] or others
         rng.choice(rng.choice(deep).features).loot.append(theme.key_item)
 
-    loot = {
-        1: ["hand_axe", "leather_jerkin", "healing_potion", "healing_potion", "stale_bread"],
-        2: [rng.choice(["war_pick", "chain_shirt"]), "healing_potion", "healing_potion", "smoke_bomb", "cheese_wheel"],
-        3: ["greater_healing_potion", "healing_potion", "healing_potion", rng.choice(["war_pick", "chain_shirt"])],
-    }.get(state.floor, ["healing_potion"])
-    loot.append(THEME_TRINKETS.get(theme.key, "oil_flask"))
-    for item in loot:
+    found = [loot.pick(rng, content, slot) for slot in loot.FLOORS.get(state.floor, ["potion 1"])]
+    found.append(loot.DUNGEON_TRINKETS.get(theme.key, "oil_flask"))
+    for item in filter(None, found):
         room = rng.choice(others)
-        if item.endswith("potion") and rng.random() < 0.35:
+        if loot.role(content.item(item)) == "potion" and rng.random() < 0.35:
             room.items.append(item)
         else:
             rng.choice(room.features).loot.append(item)
@@ -232,7 +228,7 @@ def _place_loot(rng, state: GameState, theme, rooms: list[Room], end_id: int, ma
     secret_room = rng.choice(others)
     secret_room.features.append(Feature(
         name=rng.choice(HIDDEN_FEATURES), hidden=True, gold=rng.randint(15, 30) * state.floor,
-        loot=[rng.choice(["silvered_blade", "scale_hauberk", "greater_healing_potion", "lucky_charm"])],
+        loot=[key for key in [loot.one_of(rng, content, loot.STASH)] if key],
     ))
 
 

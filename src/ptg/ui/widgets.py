@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import random
 import textwrap
+from functools import lru_cache
 
 from rich.style import Style
 from rich.text import Text
@@ -12,13 +13,13 @@ from textual.events import Click, Leave, MouseMove
 from textual.message import Message
 from textual.widgets import Static
 
-from .. import layout, sound
+from .. import layout, loot, sound
 from ..content import Content
 from ..events import Action, Event
 from ..glossary import Lexicon
 from ..models import LEVEL_XP, GameState
 from ..outcome import tone, verdict
-from ..sprites import DEFAULT_WIDTH, SMALL, frame_count, sprite_text
+from ..sprites import DEFAULT_WIDTH, GREYS, SMALL, Image, frame_count, image_text, sprite_text
 from ..world import render_map
 from . import effects
 from .theme import CELL_STYLES, MAP_STYLES
@@ -264,13 +265,132 @@ def item_note(content: Content, key: str) -> str:
             "consumable": "escape a fight" if item.escape else f"heals {item.heal}", "trinket": "trinket"}[item.kind]
 
 
+# "No picture yet": a plain grey icon for each kind of item (see loot.role), for items nobody has drawn.
+BLANKS = {
+    "weapon": [
+        "...........c",
+        "..........cb",
+        ".........cb.",
+        "........cb..",
+        ".......cb...",
+        "..b...cb....",
+        "...b.cb.....",
+        "....bb......",
+        "...a.b......",
+        "..a...b.....",
+        ".a..........",
+        "............",
+    ],
+    "armor": [
+        "............",
+        "...bb..bb...",
+        "..bcbbbbcb..",
+        ".bccccccccb.",
+        ".bbccccccbb.",
+        "..bccccccb..",
+        "..bccccccb..",
+        "..bccccccb..",
+        "..bccccccb..",
+        "..bbbbbbbb..",
+        "............",
+        "............",
+    ],
+    "potion": [
+        "............",
+        ".....aa.....",
+        ".....bb.....",
+        "....bccb....",
+        ".....cc.....",
+        "....bccb....",
+        "...bccccb...",
+        "..bccccccb..",
+        "..bccccccb..",
+        "..bbccccbb..",
+        "...bbbbbb...",
+        "............",
+    ],
+    "food": [
+        "............",
+        "............",
+        "............",
+        "....bbbb....",
+        "..bbccccbb..",
+        ".bccccccccb.",
+        ".bcbccbccbb.",
+        ".bccccccccb.",
+        ".abbbbbbbba.",
+        "..aaaaaaaa..",
+        "............",
+        "............",
+    ],
+    "escape": [
+        "..........c.",
+        ".........c..",
+        "........b...",
+        "......bb....",
+        "....bbbbb...",
+        "...bccbbbb..",
+        "...bcbbbbb..",
+        "...bbbbbbb..",
+        "...abbbbba..",
+        "....aaaaa...",
+        "............",
+        "............",
+    ],
+    "trinket": [
+        "............",
+        "...bbbbbb...",
+        "..b......b..",
+        "..b......b..",
+        "...b....b...",
+        "....b..b....",
+        ".....bb.....",
+        "....bccb....",
+        "....bccb....",
+        ".....bb.....",
+        "............",
+        "............",
+    ],
+    "key": [
+        "............",
+        "............",
+        "............",
+        "..bbb.......",
+        ".bc..b......",
+        ".b...bbbbbbb",
+        ".b...b..b.b.",
+        "..bbb...b.b.",
+        "............",
+        "............",
+        "............",
+        "............",
+    ],
+}
+SHADES = {"a": GREYS[1], "b": GREYS[2], "c": GREYS[3]}
+
+
+@lru_cache(maxsize=32)
+def blank_art(role: str, width: int = SMALL) -> Text | None:
+    """The grey stand-in for an item with no art, `width` pixels wide (whole multiples of 12 stay crisp)."""
+    if Image is None:
+        return None
+    img = Image.new("RGBA", (12, 12), (0, 0, 0, 0))
+    for y, row in enumerate(BLANKS.get(role, BLANKS["trinket"])):
+        for x, ch in enumerate(row):
+            if ch != ".":
+                img.putpixel((x, y), (*SHADES[ch], 255))
+    if width != 12:
+        img = img.resize((width, width), Image.NEAREST)
+    return image_text(img)
+
+
 def item_picture(content: Content, key: str, sprites: bool, width: int = SMALL) -> Text:
-    """An item's art (its hand-made small version, at the small size), or without any its glyph, as tall as the
-    art would be."""
-    art = sprite_text(f"item_{key}", width=width) if sprites else None
-    if art is not None:
-        return art
+    """An item's art (its hand-made small version, at the small size); with no art, a grey stand-in for its kind;
+    in ASCII mode, its glyph, as tall as the art would be."""
     item = content.item(key)
+    art = (sprite_text(f"item_{key}", width=width) or blank_art(loot.role(item), width)) if sprites else None
+    if art is not None:
+        return art.copy()
     rows = width // 2  # two pixels to a row, and item art is square
     glyph = layout.ITEM_GLYPHS.get(item.kind, "*")
     return Text("\n" * (rows // 2) + glyph + "\n" * (rows - rows // 2 - 1), style=f"bold {ITEM_COLORS[item.kind]}")
@@ -281,7 +401,8 @@ def item_tile(content: Content, key: str, note: str, sprites: bool, room: int = 
     name = textwrap.wrap(content.item(key).name, room)
     if len(name) > 2:
         name = [name[0], textwrap.shorten(" ".join(name[1:]), room, placeholder="…")]
-    out = item_picture(content, key, sprites)
+    out = Text()
+    out.append_text(item_picture(content, key, sprites))  # its colour stays its own, not the name's
     out.append("\n" + "\n".join(name + [""] * (2 - len(name))), style="bold")
     out.append("\n" + (note if len(note) <= room else note[:room - 1] + "…"), style="#9a9cc0")
     return out

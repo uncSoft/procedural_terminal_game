@@ -22,6 +22,7 @@ tier = 1
 tags = ["sharp", "heavy", "metal"]
 desc = "A woodcutter's axe that took up a more exciting career."
 
+# drawn by JT (2026-10-23)
 [item.war_pick]
 name = "War Pick"
 kind = "weapon"
@@ -30,6 +31,7 @@ tier = 2
 tags = ["heavy", "metal"]
 desc = "Built for opening armor the way a can opener opens cans."
 
+# drawn by JT (2026-10-23)
 [item.silvered_blade]
 name = "Silvered Blade"
 kind = "weapon"
@@ -38,14 +40,15 @@ tier = 3
 tags = ["sharp", "holy", "shiny", "metal"]
 desc = "Silver-chased steel. The undead hate it, which says a lot about the undead."
 
+# drawn by JT (2026-10-23)
 [item.leather_jerkin]
 name = "Leather Jerkin"
 kind = "armor"
 defense = 1
 tier = 1
-tags = []
 desc = "Smells like a cow that had a hard life."
 
+# drawn by JT (2026-10-23)
 [item.chain_shirt]
 name = "Chain Shirt"
 kind = "armor"
@@ -54,6 +57,7 @@ tier = 2
 tags = ["metal", "loud"]
 desc = "Jingles when you sneak. You will not be sneaking."
 
+# drawn by JT (2026-10-23)
 [item.scale_hauberk]
 name = "Scale Hauberk"
 kind = "armor"
@@ -80,6 +84,7 @@ tier = 2
 tags = ["glass", "liquid", "throwable"]
 desc = "The good stuff. Restores 16 HP."
 
+# drawn by JT (2026-10-23)
 [item.stale_bread]
 name = "Stale Bread"
 kind = "consumable"
@@ -106,6 +111,7 @@ tier = 1
 tags = ["smoke", "throwable"]
 desc = "Throw it, then leave dramatically. Guaranteed escape."
 
+# drawn by JT (2026-10-23)
 [item.oil_flask]
 name = "Flask of Lamp Oil"
 kind = "trinket"
@@ -113,6 +119,7 @@ tier = 1
 tags = ["fire", "liquid", "glass", "throwable"]
 desc = "Flammable, throwable, regrettable. Plants and trolls fear fire."
 
+# drawn by JT (2026-10-23)
 [item.holy_water]
 name = "Vial of Holy Water"
 kind = "trinket"
@@ -128,6 +135,7 @@ tier = 1
 tags = ["slippery", "throwable", "shiny"]
 desc = "Hundreds of tiny ankle-betrayers."
 
+# drawn by JT (2026-10-23)
 [item.lucky_charm]
 name = "Lucky Rabbit's Foot"
 kind = "trinket"
@@ -135,18 +143,21 @@ tier = 1
 tags = ["lucky"]
 desc = "Less lucky for the rabbit. Raises your Fate limit by 1 while carried."
 
+# drawn by JT (2026-10-23)
 [item.reliquary_key]
 name = "Barnacled Reliquary Key"
 kind = "key"
 tags = ["metal"]
 desc = "Opens the Abbot's sanctum. Crusted with things that used to be alive."
 
+# drawn by JT (2026-10-23)
 [item.warren_key]
 name = "Greasy Throne-Room Key"
 kind = "key"
 tags = ["metal"]
 desc = "Opens the Goblin King's throne cave. Sticky in a way you'd rather not investigate."
 
+# drawn by JT (2026-10-23)
 [item.seed_key]
 name = "Living Seed-Key"
 kind = "key"

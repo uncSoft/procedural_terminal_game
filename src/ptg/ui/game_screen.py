@@ -493,7 +493,7 @@ class GameScreen(Screen):
                 picture = AnimatedSprite(f"item_{key}", interval=0.35, width=SMALL, classes="loot-art")
                 shine.append(picture)
             else:
-                picture = Static(item_picture(content, key, False, width=SMALL), classes="loot-art")
+                picture = Static(item_picture(content, key, sprites, width=SMALL), classes="loot-art")
             words = Text.assemble((content.item(key).name, "bold #4cff8a"), "\n", (item_note(content, key), "#9a9cc0"))
             card = Vertical(picture, Static(words, classes="loot-text"), classes=f"loot-card {kind}")
             card.border_title = f"✦ {LOOT_LABELS[kind]}"

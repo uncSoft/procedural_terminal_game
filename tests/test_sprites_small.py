@@ -1,8 +1,11 @@
 """Hand-made small versions of sprites, and halving for the ones without."""
 
+from dataclasses import replace
+
 from PIL import Image
 
 from ptg import sprites
+from ptg.content import ItemDef
 from ptg.library import data_folder
 
 
@@ -51,3 +54,26 @@ def test_effects_keep_to_the_colours_the_sprites_use():
                             if colour is not None:
                                 seen.add(tuple(colour.triplet))
         assert seen <= allowed, f"{key}: {seen - allowed}"
+
+
+def test_items_nobody_has_drawn_get_a_grey_stand_in(content):
+    """Not the old glyph, which looked like a broken picture next to the drawn ones."""
+    from ptg import loot
+    from ptg.ui.widgets import BLANKS, blank_art, item_picture, item_tile
+
+    allowed = set(sprites.palette())
+    for role in {loot.role(item) for item in content.items.values()} | set(BLANKS):
+        design = BLANKS.get(role, BLANKS["trinket"])
+        assert len(design) == sprites.SMALL and all(len(row) == sprites.SMALL for row in design), role
+        art = blank_art(role)
+        lines = art.plain.split("\n")
+        assert len(lines) == sprites.SMALL // 2 and all(len(line) == sprites.SMALL for line in lines), role
+        colours = {tuple(c.triplet) for s in art.spans for c in (s.style.color, s.style.bgcolor) if c is not None}
+        assert colours and colours <= allowed, role  # greys the GPU terminal has already cached
+    roast = ItemDef(key="roast_boar", name="Roast Boar", kind="consumable", heal=12, tier=2, tags=["food"])
+    content = replace(content, items={**content.items, "roast_boar": roast})  # nobody has drawn it
+    assert item_picture(content, "roast_boar", True).plain == blank_art("food").plain
+    for key in ("roast_boar", "stale_bread"):
+        for drawn in (True, False):  # the art's (or glyph's) colour stays its own and doesn't leak into the name
+            tile = item_tile(content, key, "heals", drawn)
+            assert not tile.style and content.item(key).name in tile.plain

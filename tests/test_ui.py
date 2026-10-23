@@ -353,9 +353,12 @@ async def test_items_drawn_in_the_maker_show_their_art(monkeypatch):
         assert "<ART>" in str(app.screen.query_one("#inv-detail").render())
 
 
-async def test_the_inventory_is_tiles_and_enter_uses_the_one_picked():
+async def test_the_inventory_is_tiles_and_enter_uses_the_one_picked(monkeypatch):
+    from ptg.ui import panels
     from ptg.ui.panels import ItemTile
 
+    drawn = panels.sprite_text  # pretend nobody has drawn the oil yet
+    monkeypatch.setattr(panels, "sprite_text", lambda key, **kw: None if key == "item_oil_flask" else drawn(key, **kw))
     app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
@@ -367,7 +370,12 @@ async def test_the_inventory_is_tiles_and_enter_uses_the_one_picked():
         inventory = app.screen
         assert isinstance(inventory, InventoryScreen)
         assert len(inventory.query(ItemTile)) == 3  # the sword in hand, both potions on one tile, the oil
-        await pilot.press("right")
+        detail = lambda: str(inventory.query_one("#inv-detail").render())  # noqa: E731
+        assert "No picture yet" not in detail()  # the sword is drawn
+        await pilot.press("right", "right")
+        await pilot.pause(0.1)
+        assert "No picture yet" in detail()  # the oil isn't
+        await pilot.press("left")
         await pilot.pause(0.1)
         assert inventory.items[inventory.current][0] == "healing_potion"
         assert "Drink the Healing Potion" in str(inventory.query_one("#inv-use").render())

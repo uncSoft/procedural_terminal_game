@@ -14,14 +14,14 @@ from textual.events import Click
 from textual.screen import ModalScreen
 from textual.widgets import Label, ListItem, ListView, Static
 
-from .. import glossary, layout, sound
+from .. import glossary, layout, loot, sound
 from ..content import Content, Theme
 from ..game import Game
 from ..meta import epithet
 from ..rules import TRAITS
 from ..sprites import sprite_text
 from .theme import PERK_COLORS
-from .widgets import Clickable, item_note, item_tile, map_text, portrait, room_text
+from .widgets import Clickable, blank_art, item_note, item_tile, map_text, portrait, room_text
 
 HELP = """\
 HOW TO PLAY
@@ -178,7 +178,11 @@ class InventoryScreen(Panel):
         key, _, action, equipped = self.items[index]
         item = content.item(key)
         text = Text()
-        art = sprite_text(f"item_{key}", width=self.art_width) if self.game.config.art == "sprites" else None
+        sprites = self.game.config.art == "sprites"
+        art = sprite_text(f"item_{key}", width=self.art_width) if sprites else None
+        blank = art is None and sprites
+        if blank:  # nobody has drawn it yet: its kind's grey stand-in
+            art = blank_art(loot.role(item), self.art_width)
         if art is not None:  # drawn in the Monster & Item Maker (docs/maker)
             text.append_text(art)
             text.append("\n")
@@ -194,6 +198,8 @@ class InventoryScreen(Panel):
         ideas = [TAG_IDEAS[t] for t in item.tags if t in TAG_IDEAS]
         if ideas:
             text.append("Ideas: " + "; ".join(ideas[:2]), style="#ff4f9a")
+        if blank:
+            text.append("\n\nNo picture yet: draw one in the Monster & Item Maker.", style="#6c6f99")
         self.query_one("#inv-detail", Static).update(text)
         if action:
             use = Text(f"▶ {action.label}  (enter)", style="bold #4cff8a")

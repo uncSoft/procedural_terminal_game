@@ -343,6 +343,7 @@ def test_an_item_can_bring_its_small_version(data):
                                       "drawn by hand.")
     small = read_frames(library.small_file("spoon_of_destiny", data))
     assert small[0].size == (12, 12) and len(small) == 2  # one picture gets the bob, like the big one
+    library.small_file("stale_bread", data).unlink()  # one that's only ever been halved
     lib = export_library(data)
     entry = next(i for i in lib["items"] if i["key"] == "spoon_of_destiny")
     assert entry["small"]["w"] == 12 and decode_art(entry["small"])[0].tobytes() == small[0].tobytes()

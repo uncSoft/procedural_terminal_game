@@ -130,6 +130,8 @@ doesn't shrink well. So each item can have a hand-made small version: a 12×12 P
 colours with the bottom row left empty for the bob. The Monster & Item Maker draws them too (below), and its import
 puts them there. Without one, the big sprite is halved block by block, which keeps its lines whole but looks rough.
 The debug screen (F12) shows every small version beside the big one, and lists the items still being halved.
+An item with no art at all shows a plain grey stand-in for its kind (a blade, a jerkin, a loaf, a key...), and its
+inventory card says it has no picture yet.
 
 ## The Monster & Item Maker
 

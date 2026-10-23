@@ -55,6 +55,21 @@ def test_monsters_telegraph_heavy_blows_and_dodging_counters_them(content):
     assert monster.intent in ("strike", "heavy", "guard")
 
 
+def test_a_tell_written_as_a_sentence_carries_on_from_the_name(content):
+    from dataclasses import replace
+
+    from ptg.combat import telegraph
+    from ptg.text import mid_sentence
+
+    assert mid_sentence("NPC-style chatter") == "NPC-style chatter"
+    orc = replace(content.monster("orc"), tell="Slowly undulates in a circle.")
+    content = replace(content, monsters={**content.monsters, "orc": orc})
+    state = generate(3)
+    put_monster(state, content, key="orc", intent="heavy")
+    [event] = telegraph(state, content)
+    assert event.text == "The Orc slowly undulates in a circle. A heavy blow is coming!"
+
+
 def test_guarding_monsters_are_harder_to_hit(content):
     state = generate(3)
     monster = put_monster(state, content, key="orc", intent="guard")

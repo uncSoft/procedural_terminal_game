@@ -8,7 +8,7 @@ from . import dice
 from .content import Content
 from .events import Event
 from .models import GameState, MonsterState
-from .text import cap, the
+from .text import cap, mid_sentence, the
 
 INTENT_WEIGHTS = {
     "boss": {"strike": 45, "heavy": 40, "guard": 15},
@@ -30,7 +30,7 @@ def choose_intent(rng: random.Random, monster: MonsterState, content: Content) -
 def telegraph(state: GameState, content: Content) -> list[Event]:
     monster = state.room.monster
     if monster and monster.hostile and monster.intent == "heavy":
-        tell = content.monster(monster.key).tell
+        tell = mid_sentence(content.monster(monster.key).tell)  # makers sometimes write it as a sentence
         return [Event("telegraph", f"{cap(the(monster.name))} {tell}. A heavy blow is coming!")]
     return []
 

@@ -226,3 +226,18 @@ intelligent = true
 boss = true
 weak = ["fire", "sharp"]
 tell = "draws every root in the room taut, ready to lash"
+
+# drawn by PalpPush (2026-10-23)
+[monster.palp_guard]
+name = "Palp Guard"
+hp = 8
+defense = 12
+attack = 3
+damage = "1d6"
+xp = 10
+tier = 1
+tags = ["undead"]
+intelligent = true
+weak = ["slippery", "water"]
+tell = "Slowly undulates in a circle"
+desc = "An unnerving beast that somehow seems both human and alien."

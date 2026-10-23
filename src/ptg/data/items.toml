@@ -60,6 +60,7 @@ tier = 3
 tags = ["metal", "shiny"]
 desc = "Overlapping scales from something you hope is extinct."
 
+# drawn by jptjptjpt (2026-10-23)
 [item.healing_potion]
 name = "Healing Potion"
 kind = "consumable"
@@ -68,6 +69,7 @@ tier = 1
 tags = ["glass", "liquid", "throwable"]
 desc = "Red, fizzy, tastes like pennies. Restores 8 HP."
 
+# drawn by JT (2026-10-23)
 [item.greater_healing_potion]
 name = "Greater Healing Potion"
 kind = "consumable"
@@ -145,3 +147,12 @@ name = "Living Seed-Key"
 kind = "key"
 tags = ["plant"]
 desc = "Opens the Heartwood. It occasionally sprouts."
+
+# drawn by JT (2026-10-23)
+[item.superior_healing_potion]
+name = "Superior Healing Potion"
+kind = "consumable"
+heal = 24
+tier = 3
+tags = ["glass", "liquid", "throwable"]
+desc = "Liquid sunrise in a heart-shaped flask. Glows a little. Hums a little. Restores 24 HP."

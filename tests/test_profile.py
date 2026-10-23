@@ -73,3 +73,12 @@ def test_epithet_follows_play_style(content):
     assert epithet(state) == "the Brief"
     state.player.style.update({"pacify": 3, "kills": 1})
     assert epithet(state) == "the Silver-Tongued"
+
+
+def test_remembered_values_and_story_counts(profile):
+    profile.set("intro_seen", 1)
+    profile.add_souls(5)
+    profile.mark_seen("old_word")
+    profile.mark_seen("old_word")
+    assert profile.meta() == {"intro_seen": "1", "souls": "5"}
+    assert profile.story_counts() == {"old_word": 2}

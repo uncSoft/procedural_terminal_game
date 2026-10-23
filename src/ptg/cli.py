@@ -33,6 +33,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--model", help="model name (default: whatever the server has loaded)")
     parser.add_argument("--name", help="your character's name")
     parser.add_argument("--event", metavar="ID", help="fire a story event right after the opening (to test it)")
+    parser.add_argument("--debug", action="store_true",
+                        help="open the debug screen: the library, art, sounds, story, state and a model check (F12)")
     return parser.parse_args(argv)
 
 
@@ -85,7 +87,8 @@ def main(argv: list[str] | None = None) -> None:
         return
     from .ui.app import PTGApp
 
-    PTGApp(config, seed=args.seed, setup=args.setup, resume=args.resume, daily=args.daily, event=args.event).run()
+    PTGApp(config, seed=args.seed, setup=args.setup, resume=args.resume, daily=args.daily, event=args.event,
+           debug=args.debug).run()
 
 
 def show_portrait(game: Game) -> None:

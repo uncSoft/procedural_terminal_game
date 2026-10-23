@@ -57,6 +57,10 @@ class Profile:
 
     # --- meta values ---
 
+    def meta(self) -> dict[str, str]:
+        """Every remembered value (souls, gift, intro_seen...)."""
+        return {r["key"]: r["value"] for r in self.db.execute("select key, value from meta order by key")}
+
     def get(self, key: str, default: str = "") -> str:
         row = self.db.execute("select value from meta where key = ?", (key,)).fetchone()
         return row["value"] if row else default
@@ -170,6 +174,10 @@ class Profile:
 
     def story_seen(self) -> set[str]:
         return {r["event"] for r in self.db.execute("select event from story_seen")}
+
+    def story_counts(self) -> dict[str, int]:
+        """How many times each story event has fired, over every run."""
+        return {r["event"]: r["count"] for r in self.db.execute("select event, count from story_seen")}
 
     def mark_seen(self, event: str) -> None:
         self.db.execute("insert into story_seen (event, count, first_at) values (?, 1, ?) "

@@ -5,7 +5,7 @@ Story files live in ptg/data/story/*.md; see docs/writing-events.md.
 
 from .engine import STORY_KINDS, ProfileView, StoryEngine
 from .model import StoryError, StoryEvent
-from .parser import Library, load_files, load_folder, load_library, parse
+from .parser import Library, load_files, load_folder, load_library, parse, reload_library
 
 __all__ = ["STORY_KINDS", "Library", "ProfileView", "StoryEngine", "StoryError", "StoryEvent", "load_files",
-           "load_folder", "load_library", "parse"]
+           "load_folder", "load_library", "parse", "reload_library"]

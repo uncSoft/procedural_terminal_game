@@ -261,3 +261,19 @@ async def test_scene_in_the_ui_and_the_book_of_secrets():
         book = app.screen.query_one("#secrets-list").render()
         total = len(load_library(app.screen.content).secrets)
         assert f"1/{total} found" in str(book) and "The Mirror Trial" in str(book)
+
+
+def test_reloading_the_story_keeps_what_works(content, monkeypatch):
+    from ptg.story import parser, reload_library
+
+    before = load_library(content)
+    assert reload_library(content) is not before  # read again from the files
+    good = load_library(content)
+
+    def broken(paths, content):
+        raise StoryError("Problems in the story files:\n  story/new.md line 3: no such trigger")
+
+    monkeypatch.setattr(parser, "load_files", broken)
+    with pytest.raises(StoryError):
+        reload_library(content)
+    assert load_library(content) is good

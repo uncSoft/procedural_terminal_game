@@ -172,6 +172,19 @@ def _credits(text: str, section: str) -> dict[str, dict]:
     return found
 
 
+def credits(folder: Path | None = None) -> dict[str, dict[str, dict]]:
+    """Who drew which monsters and items: {"monster": {key: {"by": ..., "made": ...}}, "item": {...}}."""
+    folder = folder or data_folder()
+    return {kind: _credits((folder / f"{kind}s.toml").read_text(encoding="utf-8"), kind)
+            for kind in ("monster", "item")}
+
+
+def lives(key: str, tags: list[str], ghost: bool, themes) -> list[str]:
+    """The dungeons a monster turns up in: the one it rules as boss, or every one that calls for its tags."""
+    return ([t.name for t in themes if t.boss == key] or
+            [t.name for t in themes if set(tags) & set(t.monster_tags) and not ghost])
+
+
 def reference(monsters: dict, items: dict) -> dict:
     """Typical numbers for each tier, so new things fit the game's balance."""
     pool = [m for m in monsters.values() if not (m.get("boss") or m.get("ghost"))]
@@ -207,9 +220,7 @@ def export_library(folder: Path | None = None) -> dict:
         out = {"key": key, "fields": fields, "art": encode_art(read_frames(path)) if path.is_file() else None}
         out.update(credits[kind].get(key, {}))
         if kind == "monster":
-            out["lives"] = ([t.name for t in themes if t.boss == key] or
-                            [t.name for t in themes if set(fields.get("tags", [])) & set(t.monster_tags)
-                             and not fields.get("ghost")])
+            out["lives"] = lives(key, fields.get("tags", []), fields.get("ghost", False), themes)
             out["special"] = "boss" if fields.get("boss") else ("ghost" if fields.get("ghost") else "")
         return out
 

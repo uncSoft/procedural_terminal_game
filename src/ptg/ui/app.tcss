@@ -518,3 +518,128 @@ EndScreen {
     border: round $primary-darken-2;
     padding: 0 1;
 }
+
+/* --- the debug screen (ui/debug.py) --- */
+
+.panel-box.debug-box {
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
+    padding: 0 1;
+    border: double $accent;
+    border-title-color: $accent;
+    border-subtitle-color: $text-muted;
+}
+
+#debug-tabs {
+    height: 1fr;
+}
+
+#debug-tabs TabPane {
+    height: 1fr;
+    padding: 0;
+}
+
+DebugTab {
+    height: 1fr;
+}
+
+.debug-toolbar {
+    height: auto;
+    margin: 1 0 0 0;
+}
+
+.debug-toolbar Button {
+    margin-right: 2;
+    padding: 0 1;
+    background: $panel;
+}
+
+.debug-toolbar Button:hover {
+    background: $primary-darken-1;
+}
+
+.debug-toolbar Button.-primary {
+    background: $primary;
+}
+
+.debug-status {
+    width: 1fr;
+    padding-left: 1;
+}
+
+#check-progress {
+    display: none;
+    width: auto;
+    margin-right: 1;
+}
+
+.debug-split {
+    height: 1fr;
+    margin-top: 1;
+}
+
+.debug-split DataTable {
+    width: 1fr;
+    height: 1fr;
+}
+
+.debug-detail {
+    width: 40%;
+    min-width: 48;
+    height: 1fr;
+    border-left: tall $primary-darken-2;
+    padding: 0 1;
+}
+
+LogTab .debug-detail {
+    width: 60%;
+}
+
+.debug-sprite {
+    height: auto;
+    margin-bottom: 1;
+}
+
+#state-text, #state-tree {
+    width: 1fr;
+    height: 1fr;
+}
+
+#state-tree {
+    border-left: tall $primary-darken-2;
+    padding-left: 1;
+}
+
+#check-backend {
+    width: 22;
+    margin-right: 2;
+}
+
+#log-filter {
+    width: 28;
+    margin-right: 2;
+}
+
+#check-url {
+    width: 1fr;
+    margin-right: 2;
+}
+
+#check-model {
+    width: 1fr;
+    margin-right: 2;
+}
+
+#check-results {
+    height: 1fr;
+    margin-top: 1;
+    border: round $primary-darken-2;
+    padding: 0 1;
+}
+
+#check-history {
+    height: 9;
+    margin-top: 1;
+}
+

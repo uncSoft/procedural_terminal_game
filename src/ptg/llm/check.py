@@ -6,7 +6,8 @@
 It asks the model to interpret ten typed commands (does it pick the action a player means? is its JSON valid?)
 and to narrate five moments (a first visit, a return, a fight, a failed stunt, a question). Each narration goes
 through the guard (guard.py), which reports what it would have cut and why. Then it says how fast it all was.
-Nothing is saved: the dungeon is made up for the test, the same one every time.
+Nothing is saved: the dungeon is made up for the test, the same one every time. (The debug screen, F12, runs the
+same check inside the game, and keeps a line about each run in ~/.ptg/checks.jsonl so models can be compared.)
 
 A weaker model isn't unplayable: numbered choices never need the model, and the guard keeps the narration honest.
 This shows how much of that safety net a model leans on.
@@ -16,12 +17,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
-from typing import Iterator
+from datetime import datetime
+from pathlib import Path
+from typing import Callable, Iterator
 
 from pydantic import ValidationError
 
@@ -38,11 +42,13 @@ from .prompts import narrator_messages
 
 SEED = 7
 TONE = "darkly funny, vivid and fair"
+SCENES = ("first visit", "a return", "a fight", "a failed stunt", "a question")
 
 
 @dataclass
 class Report:
     model: str
+    planned: int = 0  # how many cases this check runs, for a progress bar
     commands: list[tuple[str, str, str, float]] = field(default_factory=list)  # (typed, wanted, got, seconds)
     errors: list[str] = field(default_factory=list)
     scenes: list[tuple[str, int, list[tuple[str, str]], float]] = field(default_factory=list)  # (name, kept, cut, s)
@@ -59,6 +65,15 @@ class Report:
     def sentences(self) -> int:
         return sum(kept + len(dropped) for _, kept, dropped, _ in self.scenes)
 
+    @property
+    def done(self) -> int:
+        return len(self.commands) + len(self.scenes)
+
+    @property
+    def speed(self) -> float:
+        """Seconds to narrate a turn, on average."""
+        return sum(s for *_, s in self.scenes) / (len(self.scenes) or 1)
+
     def lines(self) -> list[str]:
         out = [f"Model: {self.model}", "", "Typed commands (does it pick what the player means?)"]
         for typed, wanted, got, seconds in self.commands:
@@ -73,8 +88,7 @@ class Report:
         return out
 
     def verdict(self) -> str:
-        commands, scenes = len(self.commands) or 1, len(self.scenes) or 1
-        speed = sum(s for *_, s in self.scenes) / scenes
+        commands = len(self.commands) or 1
         understanding = ("understands typed commands well" if self.right >= 0.8 * commands else
                          "often misreads typed commands (numbered choices always work)" if self.right >= 0.5 * commands
                          else "struggles with typed commands: stick to numbered choices, or try a bigger model")
@@ -82,7 +96,7 @@ class Report:
         honesty = ("narrates faithfully" if rate < 0.05 else
                    "slips now and then (the guard catches it)" if rate < 0.2 else
                    "slips a lot: the guard cuts much of what it writes")
-        return f"Verdict: it {understanding}, {honesty}, about {speed:.1f}s to narrate a turn."
+        return f"Verdict: it {understanding}, {honesty}, about {self.speed:.1f}s to narrate a turn."
 
 
 def _situation(content: Content):
@@ -121,8 +135,16 @@ def _command_cases(state, content: Content) -> list[tuple[str, str, object]]:
     return cases
 
 
-async def _commands(llm: LLM, content: Content, report: Report) -> None:
+Progress = Callable[[Report, str], None]  # called before each case with what's next ("" when it's all done)
+
+
+def _quiet(report: Report, step: str) -> None:
+    pass
+
+
+async def _commands(llm: LLM, content: Content, report: Report, progress: Progress) -> None:
     for typed, wanted, setup in _command_cases(_situation(content), content):
+        progress(report, f"reading {typed!r}")
         state = _situation(content)
         setup(state)
         actions = available_actions(state, content)
@@ -139,22 +161,24 @@ async def _commands(llm: LLM, content: Content, report: Report) -> None:
 
 def _scenes(content: Content) -> Iterator[tuple[str, object, str, list[Event], bool]]:
     """(name, state, what the player typed, the facts, is it a question) for each moment to narrate."""
+    first_visit, a_return, a_fight, a_failed_stunt, a_question = SCENES
     state = _situation(content)
     direction = sorted(state.room.exits)[0]
     first = perform(state, content, f"go:{direction}")
-    yield "first visit", state, f"go {direction}", first, False
+    yield first_visit, state, f"go {direction}", first, False
     back = next(d for d, e in state.room.exits.items() if e.to == state.prev_room_id)
-    yield "a return", state, f"go {back}", perform(state, content, f"go:{back}"), False
+    yield a_return, state, f"go {back}", perform(state, content, f"go:{back}"), False
     state.room.monster = MonsterState(key="goblin", name="Goblin", hp=30, max_hp=30, intent="strike")
-    yield "a fight", state, "attack", perform(state, content, "attack"), False
+    yield a_fight, state, "attack", perform(state, content, "attack"), False
     roll = Roll("agility", "player", [4], 4, [("agility", 1)], dc=13, success=False)
     stunt = [Event("check", "You attempt to swing from the rafters onto the goblin. It fails.", dice=roll)]
-    yield "a failed stunt", state, "swing from the rafters onto the goblin", stunt, False
-    yield "a question", state, "what's in this room?", [], True
+    yield a_failed_stunt, state, "swing from the rafters onto the goblin", stunt, False
+    yield a_question, state, "what's in this room?", [], True
 
 
-async def _narration(llm: LLM, content: Content, report: Report) -> None:
+async def _narration(llm: LLM, content: Content, report: Report, progress: Progress) -> None:
     for name, state, typed, events, question in _scenes(content):
+        progress(report, f"narrating {name}")
         system, user = narrator_messages(state, content, typed, events, TONE, question=question)
         rules = Rules.for_turn(state, content, events, question=question)
         started = time.perf_counter()
@@ -168,12 +192,49 @@ async def _narration(llm: LLM, content: Content, report: Report) -> None:
         report.scenes.append((name, len(gate.kept), gate.dropped, time.perf_counter() - started))
 
 
-async def run(llm: LLM, content: Content | None = None) -> Report:
+async def run(llm: LLM, content: Content | None = None, progress: Progress = _quiet) -> Report:
     content = content or load_content()
     report = Report(getattr(llm, "name", "model"))
-    await _commands(llm, content, report)
-    await _narration(llm, content, report)
+    report.planned = len(_command_cases(_situation(content), content)) + len(SCENES)
+    await _commands(llm, content, report, progress)
+    await _narration(llm, content, report, progress)
+    progress(report, "")
     return report
+
+
+# --- earlier checks (the debug screen keeps them, to compare models) -------------------------------------------
+
+def history_path() -> Path:
+    from ..config import home
+
+    return home() / "checks.jsonl"
+
+
+def save(report: Report) -> dict:
+    """Add a finished check to ~/.ptg/checks.jsonl."""
+    entry = {"when": datetime.now().isoformat(timespec="seconds"), "model": report.model, "right": report.right,
+             "commands": len(report.commands), "cut": report.cut, "sentences": report.sentences,
+             "speed": round(report.speed, 2), "errors": len(report.errors), "lines": report.lines()}
+    with history_path().open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    return entry
+
+
+def history(limit: int = 30) -> list[dict]:
+    """Earlier checks, newest first."""
+    try:
+        lines = history_path().read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    found = []
+    for line in reversed(lines):
+        try:
+            found.append(json.loads(line))
+        except ValueError:
+            continue
+        if len(found) >= limit:
+            break
+    return found
 
 
 async def _main(args: argparse.Namespace) -> int:

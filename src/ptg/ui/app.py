@@ -13,6 +13,7 @@ from ..game import Game
 from ..llm import LLM, LLMError, make_llm
 from ..meta import start_run
 from ..profile import Profile
+from .debug import DebugScreen
 from .game_screen import GameScreen
 from .hub import EndScreen, HubScreen
 from .screens import IntroScreen, SetupScreen, TitleScreen, describe_backend
@@ -22,10 +23,10 @@ from .theme import CRT
 class PTGApp(App):
     CSS_PATH = "app.tcss"
     TITLE = "Procedural Terminal Game"
-    BINDINGS = [Binding("f8", "toggle_sound", "Sound")]
+    BINDINGS = [Binding("f8", "toggle_sound", "Sound"), Binding("f12", "debug", "Debug", show=False)]
 
     def __init__(self, config: Config | None, seed: int | None = None, setup: bool = False,
-                 resume: bool = False, daily: bool = False, event: str | None = None) -> None:
+                 resume: bool = False, daily: bool = False, event: str | None = None, debug: bool = False) -> None:
         super().__init__()
         self.needs_setup = config is None or setup
         self.config = config or Config()
@@ -33,6 +34,7 @@ class PTGApp(App):
         self.resume = resume
         self.daily = daily
         self.event = event  # a story event to fire at the start of the next descent (for testing)
+        self.open_debug = debug
         self.profile = Profile.open()
 
     def on_mount(self) -> None:
@@ -46,6 +48,8 @@ class PTGApp(App):
             self.continue_game()
         elif self.daily:
             self.start_descent(daily=True)
+        if self.open_debug:
+            self.push_screen(DebugScreen())
 
     def save_settings(self, config: Config) -> None:
         self.config = config
@@ -63,6 +67,10 @@ class PTGApp(App):
         else:
             self.notify("" if self.config.sound else "F8 to turn it back on.",
                         title="Sound on" if self.config.sound else "Sound off", timeout=3)
+
+    def action_debug(self) -> None:
+        if not isinstance(self.screen, DebugScreen):  # on the debug screen, F12 closes it
+            self.push_screen(DebugScreen())
 
     async def connect(self, quiet: bool = False) -> LLM | None:
         try:

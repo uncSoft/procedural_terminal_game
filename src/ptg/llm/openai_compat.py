@@ -30,9 +30,10 @@ class OpenAICompatLLM:
     def name(self) -> str:
         return f"{self.model or '?'} @ {self.base}"
 
-    async def list_models(self) -> list[str]:
-        """Chat models the server offers, loaded ones first when the server says (LM Studio does)."""
-        loaded: list[str] = []
+    async def catalog(self) -> list[tuple[str, bool | None]]:
+        """(model, is it loaded?) for each chat model the server offers, loaded ones first. Only LM Studio says
+        what's loaded; for other servers that's None."""
+        loaded: list[str] | None = None
         try:
             response = await self.client.get(self.base.removesuffix("/v1") + "/api/v0/models")
             if response.status_code == 200:
@@ -47,7 +48,13 @@ class OpenAICompatLLM:
         except (httpx.HTTPError, ValueError, KeyError) as e:
             raise LLMError(f"can't reach {self.base}: {e}") from e
         chat = [i for i in ids if "embed" not in i.lower()]
-        return loaded + [i for i in chat if i not in loaded]
+        if loaded is None:
+            return [(i, None) for i in chat]
+        return [(i, True) for i in loaded] + [(i, False) for i in chat if i not in loaded]
+
+    async def list_models(self) -> list[str]:
+        """Chat models the server offers, loaded ones first when the server says (LM Studio does)."""
+        return [model for model, _ in await self.catalog()]
 
     async def prepare(self) -> None:
         models = await self.list_models()

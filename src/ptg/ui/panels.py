@@ -49,6 +49,7 @@ KEYS (or type the word)
   F2  i  inventory      F3  c  character     F4  l  look at the room
   F5  m  map            F6  b  bestiary      F7  j  journal
   F1     this help      F8     sound on/off       Esc  title (your game is saved)    Ctrl+Q  quit
+  F12    debug: the library, art, sounds, story, the game's state, and a model check
 
 MOUSE   Click a choice, a coloured word, or the dice (once to roll, again to carry on).
         Close any panel with its ✕ or a click outside it.

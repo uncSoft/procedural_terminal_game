@@ -40,7 +40,7 @@ uv run python -m ptg.llm.check                                          # the mo
 uv run python -m ptg.llm.check --url http://localhost:11434/v1 --model llama3.2:3b
 ```
 
-It scores ten typed commands and five narrated moments, shows what the guard would cut and why, and times it all. Without a model the game still runs: commands go through a keyword matcher and narration is stitched together from the facts.
+It scores ten typed commands and five narrated moments, shows what the guard would cut and why, and times it all. The same check runs inside the game on the debug screen (F12, the Models tab), where you can pick any model the server offers and compare it with earlier checks. Without a model the game still runs: commands go through a keyword matcher and narration is stitched together from the facts.
 
 ## The loop
 
@@ -78,6 +78,9 @@ AI at all. See [docs/writing-events.md](docs/writing-events.md).
 uv run python -m ptg.story                    # check every story file
 uv run ptg --event mirror_trial               # jump straight into one
 ```
+
+While you write, the debug screen's Story tab (F12) reloads the files without restarting the game, shows any
+problems, and can fire any event at the start of your next descent.
 
 ## Data files
 
@@ -222,6 +225,8 @@ The first launch opens Settings: pick LM Studio, Ollama, another OpenAI-compatib
 | F5 | `m` | the floor map and the whole descent |
 | F6 | `b` | bestiary: art, kills, discovered weaknesses, lore |
 | F7 | `j` | journal |
+| F8 | | sound on or off |
+| F12 | | the debug screen |
 
 Everything works with a mouse too: click a choice, a highlighted word or the dice (once to roll, again to carry on), and close a panel with its ✕ or a click outside it.
 
@@ -234,6 +239,7 @@ uv run ptg --continue                    # straight into your autosave
 uv run ptg --plain                       # line-by-line mode, no full-screen UI
 uv run ptg --offline                     # no language model
 uv run ptg --url http://localhost:11434  # one-off server override (Ollama here)
+uv run ptg --debug                       # open the debug screen (F12)
 ```
 
 For Claude, install the extra and sign in with `ANTHROPIC_API_KEY` (or `ant auth login`):
@@ -244,6 +250,27 @@ uv run ptg --backend anthropic
 ```
 
 Model requests and responses are logged to `~/.ptg/llm.log`.
+
+## The debug screen
+
+F12 anywhere in the game (or `uv run ptg --debug`) opens a page of everything at a glance. The number keys pick
+a tab:
+
+| Tab | Shows |
+| --- | --- |
+| Overview | anything that looks wrong, the narrator and settings, what's loaded, your files, the data's signatures |
+| Monsters | every monster's numbers, art and every pose a fight puts it in, who drew it, where it lives, your bestiary |
+| Items | every item, its numbers and art, and who drew it |
+| Art | every sprite, frame by frame, animated in any pose |
+| Sounds | every moment's sound: click one (or Enter) to play it, reload after adding yours, open your sounds folder |
+| Story | every story event and its parts, choices and effects; reload the files, or fire one on the next descent |
+| State | this run's story flags, the player, and the whole save as a tree; your profile's marks, secrets and souls |
+| Models | the model check against any model on the server, with earlier results kept to compare |
+| Log | the latest exchanges with the model, what the guard cut, newest first |
+
+The Models tab lists the server's models with the loaded ones first. Picking one that isn't loaded warns you first:
+LM Studio would load it to answer, which can unload the one you have loaded. **Use for the narrator** saves the
+choice for your next descent.
 
 ## Project layout
 
@@ -269,7 +296,7 @@ src/ptg/
   integrity.py     fingerprints of the shipped data, and noticing edits
   story/           story events: file format, checker, and the engine that plays them
   llm/             backends (OpenAI-compatible, Claude), prompts, interpreter, narrator, guard, check, extras
-  ui/              Textual app: title, settings, campfire, game screen, dice, panels, endings
+  ui/              Textual app: title, settings, campfire, game screen, dice, panels, endings, debug screen
   cli.py           `ptg` entry point and plain-text mode
 tests/             world, rules, profile, interpreter and UI tests, plus a bot that plays whole runs
 docs/maker/        the Monster & Item Maker page and its library.json (GitHub Pages serves docs/)

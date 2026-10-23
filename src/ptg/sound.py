@@ -23,6 +23,8 @@ ptg/data/sounds. To use your own, put WAV files (8- or 16-bit PCM, any rate) in 
 
     uv run python -m ptg.sound              # every moment, where its sound comes from, and any problems
     uv run python -m ptg.sound great coin   # play some
+
+The debug screen (F12) lists them too, with a play button for each.
 """
 
 from __future__ import annotations
@@ -101,6 +103,10 @@ def _moment(filename: str) -> str:
     return VARIANT.match(filename.rsplit(".", 1)[0]).group(1)
 
 
+def clip_name(clip: Clip) -> str:
+    return getattr(clip.source, "name", str(clip.source))
+
+
 def user_folder() -> Path:
     from .config import home
 
@@ -174,6 +180,27 @@ def decode(source) -> tuple[array, int]:
     if channels > 1:
         samples = array("h", (sum(samples[i:i + channels]) // channels for i in range(0, len(samples), channels)))
     return samples, rate
+
+
+def clip_length(clip: Clip) -> float | None:
+    """How long a clip plays, in seconds, from its header (None if the file can't be read)."""
+    try:
+        with clip.source.open("rb") as f, wave.open(f) as w:
+            return w.getnframes() / w.getframerate()
+    except (wave.Error, EOFError, OSError, ZeroDivisionError):
+        return None
+
+
+BARS = "▁▂▃▄▅▆▇█"
+
+
+def envelope(clip: Clip, width: int = 32) -> str:
+    """The clip's loudness over time, as a row of little bars."""
+    samples, _ = decode(clip.source)
+    step = max(1, -(-len(samples) // width))
+    peaks = [max(abs(v) for v in samples[i:i + step]) for i in range(0, len(samples), step)]
+    top = max(peaks, default=0) + 1
+    return "".join(BARS[peak * len(BARS) // top] for peak in peaks)
 
 
 def resample(samples: array, rate: int, target: int) -> array:
@@ -386,6 +413,27 @@ def engine() -> Sound:
     return _sound
 
 
+def preview(clip: Clip) -> str | None:
+    """Play one clip at the game's volume, even with sound off in Settings (the debug screen's play button).
+    Returns why it can't, or None. It may have to open the audio device, so call it off the main thread."""
+    if os.environ.get("PTG_SOUND", "1") == "0":
+        return "PTG_SOUND=0 is keeping the game quiet"
+    if _sound.volume <= 0:
+        return "the volume is at 0% (Settings)"
+    deadline = time.monotonic() + 3
+    while _sound.player is None and _sound._opening and time.monotonic() < deadline:
+        time.sleep(0.05)  # the engine is already opening the device
+    if _sound.player is None:
+        _sound.player = open_player() or Silent()
+    if isinstance(_sound.player, Silent):
+        return "there's no way to play sound here"
+    try:
+        _sound.player.play(clip, _sound.volume * clip.volume)
+    except Exception as error:  # the same safety net as play()
+        return f"{clip_name(clip)}: {error}"
+    return None
+
+
 def audition(moments: list[str]) -> None:
     """Play some moments one after another, waiting for each (for trying sounds out)."""
     player = open_player()
@@ -396,7 +444,7 @@ def audition(moments: list[str]) -> None:
     for moment in moments:
         for clip in bank.get(moment, []):
             samples, rate = decode(clip.source)
-            print(f"  {moment}: {getattr(clip.source, 'name', clip.source)}")
+            print(f"  {moment}: {clip_name(clip)}")
             player.play(clip, 0.8 * clip.volume)
             time.sleep(len(samples) / rate + 0.25)
     time.sleep(0.2)
@@ -414,7 +462,7 @@ def main() -> None:
     print(f"Your sounds go in {folder} (see the top of ptg/sound.py for how).\n")
     for moment, what in MOMENTS.items():
         clips = bank.get(moment, [])
-        files = ", ".join(getattr(c.source, "name", str(c.source)) for c in clips) or "(none)"
+        files = ", ".join(clip_name(c) for c in clips) or "(none)"
         source = "built in" if all(c.builtin for c in clips) else "; ".join(
             sorted({f"{c.credit}" + (f", {c.license}" if c.license else "") for c in clips}))
         print(f"  {moment:<11} {what:<42} {files}  [{source}]")
@@ -422,7 +470,7 @@ def main() -> None:
             try:
                 decode(clip.source)
             except (ValueError, wave.Error, EOFError, OSError) as error:
-                problems.append(f"{getattr(clip.source, 'name', clip.source)}: {error}")
+                problems.append(f"{clip_name(clip)}: {error}")
     if problems:
         print("\nProblems:")
         for problem in problems:

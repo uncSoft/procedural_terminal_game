@@ -203,3 +203,46 @@ async def test_moves_are_journaled_as_one_line(content, profile):
     await game.begin(str(go))
     await game.finish(lambda _: None)
     assert game.state.journal[-1].startswith("You went ") and "Exits" not in game.state.journal[-1]
+
+
+async def test_lm_studio_says_which_models_are_loaded():
+    import httpx
+
+    from ptg.llm.openai_compat import OpenAICompatLLM
+
+    def lm_studio(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v0/models":
+            return httpx.Response(200, json={"data": [{"id": "big", "type": "llm", "state": "loaded"},
+                                                      {"id": "small", "type": "llm", "state": "not-loaded"},
+                                                      {"id": "nomic-embed", "type": "embeddings", "state": "loaded"}]})
+        return httpx.Response(200, json={"data": [{"id": "small"}, {"id": "big"}, {"id": "nomic-embed"}]})
+
+    llm = OpenAICompatLLM("http://localhost:1234")
+    llm.client = httpx.AsyncClient(transport=httpx.MockTransport(lm_studio))
+    assert await llm.catalog() == [("big", True), ("small", False)]
+    assert await llm.list_models() == ["big", "small"]
+    await llm.prepare()
+    assert llm.model == "big"  # never a model that would have to be loaded
+
+    def ollama(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v0/models":
+            return httpx.Response(404)
+        return httpx.Response(200, json={"data": [{"id": "llama3.2:3b"}]})
+
+    llm.client = httpx.AsyncClient(transport=httpx.MockTransport(ollama))
+    assert await llm.catalog() == [("llama3.2:3b", None)]  # it doesn't say
+
+
+def test_the_log_reads_back_newest_first(tmp_path):
+    from ptg.llm.base import log_exchange, read_log
+
+    log_exchange("json", {"model": "m", "messages": [{"role": "user", "content": "hi"}]}, '{"a": 1}')
+    log_exchange("guard", ["meta: As an AI, I can't."], "The torch gutters.")
+    with (tmp_path / "llm.log").open("a", encoding="utf-8") as f:  # a request the log cut short
+        f.write('--- 12:00:00 stream\n>>> {\n "model": "m", "messa\n<<< The door creaks.\n\n')
+    stream, guard, json_ = read_log()
+    assert (stream.label, stream.request, stream.response) == ("stream", '{\n "model": "m", "messa', "The door creaks.")
+    assert guard.request == ["meta: As an AI, I can't."] and guard.response == "The torch gutters."
+    assert json_.request["messages"][0]["content"] == "hi" and json_.response == '{"a": 1}'
+    assert len(read_log(limit=2)) == 2
+    assert read_log(path=tmp_path / "missing.log") == []

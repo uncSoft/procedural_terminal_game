@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import AsyncIterator, Protocol
 
 from ..config import log_path
@@ -86,3 +88,39 @@ def log_exchange(label: str, request: object, response: object) -> None:
             f.write(f"<<< {response if isinstance(response, str) else json.dumps(response, ensure_ascii=False)}\n\n")
     except OSError:
         pass
+
+
+@dataclass
+class Exchange:
+    """One entry in llm.log: what went to the model and what came back (for "guard": what it cut, and kept)."""
+
+    time: str
+    label: str
+    request: object  # the request as sent (a dict), the guard's cuts (a list), or the raw text if it was cut short
+    response: str
+
+
+LOG_ENTRY = re.compile(r"^--- (\d\d:\d\d:\d\d) (\S+)$", re.M)
+
+
+def read_log(limit: int = 80, path: Path | None = None, tail: int = 600_000) -> list[Exchange]:
+    """The latest exchanges in llm.log, newest first (only the end of the file is read)."""
+    try:
+        with (path or log_path()).open("rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - tail))
+            text = f.read().decode("utf-8", errors="replace")
+    except OSError:
+        return []
+    headers = list(LOG_ENTRY.finditer(text))
+    found = []
+    for header, after in zip(headers, headers[1:] + [None]):
+        body = text[header.end():after.start() if after else len(text)]
+        request, _, response = body.partition("\n<<< ")
+        request = request.strip().removeprefix(">>> ")
+        try:
+            request = json.loads(request)
+        except ValueError:
+            pass
+        found.append(Exchange(header.group(1), header.group(2), request, response.strip()))
+    return found[::-1][:limit]

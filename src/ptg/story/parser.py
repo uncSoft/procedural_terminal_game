@@ -314,6 +314,18 @@ def load_library(content: Content) -> Library:
     return _LIBRARY
 
 
+def reload_library(content: Content) -> Library:
+    """Read the story files again (after editing them) for the next descent. If they have problems, raises
+    StoryError and keeps the library the game already has."""
+    global _LIBRARY
+    previous, _LIBRARY = _LIBRARY, None
+    try:
+        return load_library(content)
+    except StoryError:
+        _LIBRARY = previous
+        raise
+
+
 def load_folder(folder: Path, content: Content) -> Library:
     files = sorted(folder.glob("*.md"))
     return load_files([(str(p), p.read_text(encoding="utf-8")) for p in files], content)

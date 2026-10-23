@@ -135,21 +135,49 @@ Pages so friends can contribute. It works on a laptop, a tablet or a phone, with
   creature type, which decides which dungeons it appears in; weaknesses; any extra tags; whether it can be reasoned
   with; its heavy-attack tell; and a description, which the in-game narrator reads so it describes the thing the way
   its creator imagined. Items get their kind, tier, damage, defense, healing or escape, tags and description.
-- **The library** shows every monster and item in the game with its art, stats and maker, searchable. Anything in it
-  can be edited and submitted back as a change.
-- **Submit**: "Submit on GitHub" opens a ready-made issue in this repo (submitters need a free GitHub account), with
-  the stats, a link back to the maker and the data for the importer. "Copy link" and "Download .json" work without
-  an account. Work is also kept in the browser.
+- **Save**: put your name in "Created by" and press Save. The creation goes into the library straight away, whether
+  or not it ever goes into the game (for everyone once the shared library below is set up; until then, just in that
+  browser). Saving again updates it, a reminder shows when it's changed since, and deleting it from "My work" takes it
+  out of the library too.
+- **The library** shows what's been saved but isn't in the game yet, newest first, then every monster and item in
+  the game, each with its art, stats and who created it, searchable. Your own saved things can be edited, anyone
+  else's remixed into a new one of yours, and the game's own edited and saved as a suggested change. Once the owner
+  brings a saved one into the game, it moves to the game's shelf.
+- **Other ways to share** (tucked under Save): "Submit on GitHub" opens a ready-made issue in this repo (submitters
+  need a free GitHub account), with the stats, a link back to the maker and the data for the importer. "Copy link"
+  and "Download .json" work without an account. Work is also kept in the browser.
 
-To bring submissions into the game (in a checkout of this repo, with the GitHub CLI logged in):
+**The shared library**: GitHub Pages can only serve files, so the saves everyone sees live in a Google Sheet, behind
+a small Apps Script web app (free, about five minutes to set up, nothing to run yourself):
+
+1. Make a Google Sheet (sheets.new), then Extensions → Apps Script, and paste in
+   [`tools/maker_saves.gs`](tools/maker_saves.gs) in place of what's there.
+2. Deploy → New deployment → Web app, executing as you, with access for "Anyone". Allow what it asks for (Google
+   warns that the app isn't verified: it's yours, so Advanced → Go to …).
+3. Put the web app URL (it ends in `/exec`) in `docs/maker/config.json` as `"saves": {"url": "…"}`, commit and push.
+
+Each saved creation is a row in the sheet: its number, name, type, who created it and when. The number (#1, #2, …)
+never changes and is never reused; it shows on the creation's card in the library and when it's saved. Type anything
+in a row's `hide` cell to take it out of the library (saving it again won't bring it back), or delete the row. Only
+the browser that saved something can change or remove it. The URL is in the page source, so anyone could post to it;
+the script only keeps things shaped like creations, and at most 1,000 of them.
+
+To bring things into the game (in a checkout of this repo; `--github` needs the GitHub CLI logged in):
 
 ```bash
-uv run ptg import --github --dry-run    # see what's waiting: every open "[maker]" issue
+uv run ptg import --saves               # what's been saved in the maker but isn't in the game yet, by number
+uv run ptg import --saves 3 7           # bring #3 and #7 into the game (--dry-run to only look)
+uv run ptg import --github --dry-run    # see what's waiting on GitHub: every open "[maker]" issue
 uv run ptg import --github              # import them all, then comment and close each issue
 uv run ptg import --github 12 15        # just those issues (--keep-open to leave them open)
-uv run ptg import "<link>"              # a link someone sent, a .json file, or a URL serving creations
+uv run ptg import "<link>"              # a link someone sent (or a saved one's Link button), a .json file,
+                                        # or a URL serving creations
 uv run ptg export                       # refresh the page's library by hand
 ```
+
+`--saves` reads the shared library from `docs/maker/config.json` (or `--url`). A save counts as in the game once the
+game has something by its name from the same creator, the same rule the page uses to move it to the game's shelf, so
+picking one twice doesn't add it twice.
 
 Each import writes the sprite (`src/ptg/data/sprites`), the entry in `monsters.toml` or `items.toml` with a
 `# drawn by` credit (the GitHub username if the maker left their name blank), ASCII art for a new monster's ASCII
@@ -300,7 +328,8 @@ src/ptg/
   cli.py           `ptg` entry point and plain-text mode
 tests/             world, rules, profile, interpreter and UI tests, plus a bot that plays whole runs
 docs/maker/        the Monster & Item Maker page and its library.json (GitHub Pages serves docs/)
-tools/             build_sprites.py: the hand-drawn sprite maps; build_sounds.py: the synthesized sounds
+tools/             build_sprites.py: the hand-drawn sprite maps; build_sounds.py: the synthesized sounds;
+                   maker_saves.gs: the maker's shared library (a Google Apps Script)
 legacy/            the v1 curses prototype, kept for reference
 ```
 

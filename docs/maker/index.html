@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Monster & Item Maker</title>
-<meta name="description" content="Draw monsters and items for the Procedural Terminal Game, set their stats, and submit them to the dungeon.">
+<meta name="description" content="Draw monsters and items for the Procedural Terminal Game, set their stats, and save them to the library.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Pixelify+Sans:wght@500;700&display=swap" rel="stylesheet">
@@ -140,6 +140,13 @@ textarea.input { min-height: 78px; resize: vertical; }
 .status.ok { color: var(--green); }
 .status.bad { color: var(--red); }
 .fine-print { color: var(--dim); font-size: 12.5px; margin: 6px 0 0; }
+.save-row { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: end; }
+.save-row .field { flex: 1 1 220px; }
+.btn.big { min-height: 44px; padding: 9px 28px; font-size: 16px; }
+.more { margin-top: 16px; }
+.more summary { cursor: pointer; color: var(--muted); font-size: 14px; font-weight: 600; }
+.more[open] summary { margin-bottom: 10px; }
+.preview-by b { color: var(--text); font-weight: 600; }
 
 /* --- library and my work --- */
 .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
@@ -155,7 +162,14 @@ textarea.input { min-height: 78px; resize: vertical; }
 .thing .actions { display: flex; gap: 6px; margin-top: 2px; }
 .badge { font-size: 11.5px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
 .badge.ok { color: var(--green); border-color: #1f6b3d; }
+.badge.warn { color: var(--amber); border-color: #6b4a00; }
 .empty { color: var(--muted); padding: 20px 0; }
+.shelf > .empty { grid-column: 1 / -1; padding: 4px 0 8px; }
+.shelf-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; margin: 28px 0 6px; }
+.toolbar + .shelf-head { margin-top: 4px; }
+.shelf-head h2 { margin: 0; }
+.shelf-note { margin: 0 0 12px; }
+.thing .meta b { color: var(--text); font-weight: 600; }
 
 dialog { border: 1px solid var(--amber); border-radius: 14px; background: var(--surface); color: var(--text); padding: 20px; width: min(560px, calc(100vw - 32px)); }
 dialog::backdrop { background: rgba(5, 6, 14, 0.75); }
@@ -184,7 +198,8 @@ footer { color: var(--dim); font-size: 13px; text-align: center; padding: 16px; 
   <section class="view" id="maker">
     <div class="maker">
       <div class="editing-note" id="editing-note" hidden>
-        <span>Editing <b id="editing-name"></b> from the library. Submitting changes the game's version.</span>
+        <span>Editing <b id="editing-name"></b>, which is in the game. Saving puts your version in the library; the game
+          only changes if its owner adds it.</span>
         <button class="btn" id="stop-editing">Start a new one instead</button>
       </div>
 
@@ -236,6 +251,7 @@ footer { color: var(--dim); font-size: 13px; text-align: center; padding: 16px; 
           <div>
             <div class="preview-name" id="preview-name">Unnamed</div>
             <div class="summary" id="preview-summary"></div>
+            <div class="summary preview-by" id="preview-by"></div>
           </div>
         </div>
 
@@ -290,23 +306,26 @@ footer { color: var(--dim); font-size: 13px; text-align: center; padding: 16px; 
             <textarea class="input" data-f="desc" maxlength="300" placeholder="Stirs soup. Stirs trouble."></textarea></label>
         </div>
 
-        <div class="fields" style="margin-top:10px">
-          <label class="field"><span>Made by</span>
-            <input class="input" id="by" maxlength="40" autocomplete="off" placeholder="Your name or handle"></label>
-        </div>
-
         <div class="submit">
-          <h2>Submit</h2>
-          <div class="row">
-            <button class="btn primary" id="submit-github">Submit on GitHub</button>
-            <button class="btn accent" id="submit-inbox" hidden>Send to inbox</button>
-            <button class="btn" id="copy-share">Copy link</button>
-            <button class="btn" id="download-one">Download .json</button>
-            <span class="spacer"></span>
+          <h2>Save</h2>
+          <div class="save-row">
+            <label class="field"><span>Created by</span>
+              <input class="input" id="by" maxlength="40" autocomplete="off" placeholder="Your name or a nickname"></label>
+            <button class="btn primary big" id="save">Save</button>
             <button class="btn quiet" id="new-one">New</button>
           </div>
           <div class="status" id="status" role="status"></div>
-          <p class="fine-print" id="submit-note"></p>
+          <p class="fine-print" id="save-note"></p>
+          <details class="more" id="more">
+            <summary>Other ways to share</summary>
+            <div class="row">
+              <button class="btn" id="submit-github">Submit on GitHub</button>
+              <button class="btn accent" id="submit-inbox" hidden>Send to inbox</button>
+              <button class="btn" id="copy-share">Copy link</button>
+              <button class="btn" id="download-one">Download .json</button>
+            </div>
+            <p class="fine-print" id="submit-note"></p>
+          </details>
         </div>
       </div>
     </div>
@@ -318,10 +337,16 @@ footer { color: var(--dim); font-size: 13px; text-align: center; padding: 16px; 
         <button data-shelf="monsters" aria-pressed="true">Monsters</button>
         <button data-shelf="items" aria-pressed="false">Items</button>
       </div>
-      <input class="input" id="search" type="search" placeholder="Search names, tags, makers…" autocomplete="off">
-      <span class="summary" id="library-note"></span>
+      <input class="input" id="search" type="search" placeholder="Search names, tags, creators…" autocomplete="off">
     </div>
-    <div class="shelf" id="library-shelf"></div>
+    <div class="shelf-head"><h2>Saved, not in the game yet</h2><span class="badge" id="saved-count"></span></div>
+    <p class="summary shelf-note" id="saved-note"></p>
+    <div class="shelf" id="saved-shelf"></div>
+    <div id="game-part">
+      <div class="shelf-head"><h2>In the game</h2><span class="badge" id="game-count"></span>
+        <span class="summary" id="library-note"></span></div>
+      <div class="shelf" id="library-shelf"></div>
+    </div>
     <div id="library-missing" class="card" hidden>
       <h2>No library here</h2>
       <p class="summary">On GitHub Pages it loads by itself. From a local copy, pick the <code>library.json</code> next to
@@ -333,13 +358,14 @@ footer { color: var(--dim); font-size: 13px; text-align: center; padding: 16px; 
   <section class="view" id="mine" hidden>
     <div class="toolbar">
       <button class="btn" id="save-all">Download all (.json)</button>
-      <span class="summary">Kept in this browser until you clear it. Submitted things stay here too.</span>
+      <span class="summary">Everything you've made in this browser, saved or not. Saved ones are in the Library too.</span>
     </div>
     <div class="shelf" id="mine-shelf"></div>
   </section>
 </main>
 
-<footer>Owner: submissions go into the game with <code>uv run ptg import --github</code> (or <code>uv run ptg import "&lt;link&gt;"</code>).</footer>
+<footer>Owner: <code>uv run ptg import --saves</code> lists what's been saved but isn't in the game yet, and
+  <code>uv run ptg import --saves 3</code> brings #3 in. GitHub submissions: <code>uv run ptg import --github</code>.</footer>
 
 <dialog id="arrived-dialog">
   <h2>Shared with you</h2>
@@ -349,7 +375,7 @@ footer { color: var(--dim); font-size: 13px; text-align: center; padding: 16px; 
   </div>
   <div class="row" style="margin-top:14px">
     <button class="btn primary" id="arrived-open">Open in the maker</button>
-    <button class="btn" id="arrived-keep">Save to My work</button>
+    <button class="btn" id="arrived-keep">Keep in My work</button>
     <button class="btn quiet" id="arrived-close">Close</button>
   </div>
   <p class="fine-print">To add it to the game: <code id="arrived-command"></code> <button class="btn quiet" id="arrived-copy">Copy</button></p>
@@ -392,7 +418,9 @@ const STORE = "ptg-maker-v1";
 
 // --- state --------------------------------------------------------------------------------------------------------
 let library = null;     // library.json
-let config = {};        // config.json: {repo, inbox: {url, label}}
+let config = {};        // config.json: {repo, inbox: {url, label}, saves: {url}}
+let shared = null;      // what people have saved, from the shared library (config.saves.url), once it has loaded
+let sharedFailed = false;
 let current = null;     // the creation on the board
 let frame = 0, tool = "draw", mirror = true, colour = PALETTE[8];
 let undo = [], redo = [];
@@ -401,7 +429,8 @@ let shelf = "monsters";
 
 const $ = id => document.getElementById(id);
 const blank = () => new Array(SIZE * SIZE).fill(null);
-const uid = () => crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random());
+const uid = () => crypto.randomUUID ? crypto.randomUUID() : "c" + b64url(crypto.getRandomValues(new Uint8Array(16)));
+const secret = () => b64url(crypto.getRandomValues(new Uint8Array(18)));
 const ref = () => (library && library.reference) || FALLBACK.reference;
 const kinds = () => (library && library.kinds) || FALLBACK.kinds;
 const tierRef = t => String(Math.min(3, Math.max(1, Number(t) || 1)));
@@ -425,6 +454,10 @@ function saveSoon() {
     const drafts = stored().drafts || {};
     if (current && !current.base) drafts[current.type] = current;
     store({creations, drafts});
+    if (current && current.posted) {
+      if (fingerprint(current) !== current.postedPrint) setStatus(CHANGED);
+      else if ($("status").textContent === CHANGED) setStatus("Saved.", "ok");
+    }
   }, 400);
 }
 
@@ -448,14 +481,14 @@ function encodeArt(frames) {
   });
   return {w: SIZE, h: SIZE, palette, frames: out};
 }
-function decodeArt(art) {
-  if (!art) return [blank(), blank()];
+function decodeArt(art) {  // careful: saved art comes from anyone
+  if (!art || !Array.isArray(art.frames) || !Array.isArray(art.palette)) return [blank(), blank()];
+  const ox = Math.floor((SIZE - art.w) / 2) || 0, oy = Math.floor((SIZE - art.h) / 2) || 0;
   const frames = art.frames.slice(0, 2).map(rows => {
     const px = blank();
-    const ox = Math.floor((SIZE - art.w) / 2), oy = Math.floor((SIZE - art.h) / 2);
-    rows.forEach((row, y) => [...row].forEach((ch, x) => {
-      const tx = x + ox, ty = y + oy;
-      if (ch !== "." && tx >= 0 && ty >= 0 && tx < SIZE && ty < SIZE) px[ty * SIZE + tx] = art.palette[ALPHABET.indexOf(ch)].toLowerCase();
+    (Array.isArray(rows) ? rows : []).forEach((row, y) => [...String(row)].forEach((ch, x) => {
+      const tx = x + ox, ty = y + oy, c = art.palette[ALPHABET.indexOf(ch)];
+      if (ch !== "." && /^#[0-9a-f]{6}$/i.test(c) && tx >= 0 && ty >= 0 && tx < SIZE && ty < SIZE) px[ty * SIZE + tx] = c.toLowerCase();
     }));
     return px;
   });
@@ -822,6 +855,8 @@ function refreshPreview() {
   paintTo($("preview"), shownFrames(current)[tick % 2]);
   $("preview-name").textContent = current.fields.name || (current.type === "monster" ? "Unnamed monster" : "Unnamed item");
   $("preview-summary").textContent = describe(current.type, current.fields);
+  const by = (current.by || "").trim();
+  $("preview-by").innerHTML = by ? `Created by <b>${esc(by)}</b>` : "";
   $("screen").classList.toggle("item", current.type === "item");
 }
 
@@ -847,11 +882,26 @@ function fromLibrary(type, entry) {
   c.frames = decodeArt(entry.art);
   return c;
 }
+function tidy(type, fields) {  // a linked or saved creation's fields, as the maker keeps them (saves come from anyone)
+  const out = {};
+  (type === "monster" ? MONSTER_FIELDS : ITEM_FIELDS).forEach(k => {
+    const v = (fields || {})[k];
+    if (k === "tags" || k === "weak") out[k] = Array.isArray(v) ? v.map(String) : [];
+    else if (["string", "number", "boolean"].includes(typeof v)) out[k] = v;
+  });
+  return out;
+}
+function fromData(data) {  // a creation from a link or the shared library, on a board of its own
+  const c = fresh(data.type);
+  c.base = data.base ? String(data.base) : null; c.by = String(data.by || "");
+  c.fields = tidy(data.type, data.fields); c.frames = decodeArt(data.art);
+  return c;
+}
 function revive(c) { c.frames = (c.frames || []).map(f => f.slice()); while (c.frames.length < 2) c.frames.push(blank()); return c; }
 $("name").addEventListener("input", e => { current.fields.name = e.target.value; refreshPreview(); saveSoon(); });
-$("by").addEventListener("input", e => { current.by = e.target.value; store({by: e.target.value}); saveSoon(); });
+$("by").addEventListener("input", e => { current.by = e.target.value; store({by: e.target.value}); refreshPreview(); saveSoon(); });
 $("new-one").addEventListener("click", () => {
-  if (hasPixels(current.frames[0]) && !current.submitted && !confirm("Start a new one? This one stays in My work.")) return;
+  if (hasPixels(current.frames[0]) && !current.submitted && !current.posted && !confirm("Start a new one? This one stays in My work.")) return;
   keep(current);
   openCreation(fresh(current.type));
 });
@@ -956,6 +1006,72 @@ function toast(text) {
   clearTimeout(toast.timer); toast.timer = setTimeout(() => { t.hidden = true; }, 2600);
 }
 
+// --- saving, and the shared library ----------------------------------------------------------------------------------
+// Save keeps a creation in this browser and puts it in the Library. With a shared library (config.json's saves.url,
+// such as tools/maker_saves.gs) it goes there too, so everyone sees it; its secret lets only this browser change it.
+const CHANGED = "Changed since you saved it: press Save to update it in the Library.";
+const savesUrl = () => (config.saves && config.saves.url) || "";
+function fingerprint(c) {
+  const s = JSON.stringify([c.fields, c.frames, c.by, c.base]);
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return h;
+}
+async function send(body) {
+  const res = await fetch(savesUrl(), {method: "POST", body: JSON.stringify(body)});  // plain text: no CORS preflight
+  const out = await res.json().catch(() => ({}));
+  if (!out.ok) throw new Error(out.error ? `said “${out.error}”` : `had a problem (${res.status})`);
+  return out;
+}
+$("save").addEventListener("click", async () => {
+  const c = current, problem = problems(c);
+  if (problem) { setStatus(problem, "bad"); if (!(c.fields.name || "").trim()) $("name").focus(); return; }
+  if (!(c.by || "").trim()) { setStatus("Put your name in “Created by” so everyone knows who made it.", "bad"); $("by").focus(); return; }
+  c.posted = Date.now(); c.secret = c.secret || secret(); c.postedPrint = fingerprint(c);
+  keep(c);
+  if (!savesUrl()) { setStatus("Saved! It's in the Library on this device.", "ok"); return; }
+  setStatus("Saving…");
+  const data = payload(c);
+  try {
+    const out = await send({id: c.id, secret: c.secret, creation: data});
+    if (shared) shared = [{...data, id: c.id, no: out.no, saved: out.saved || new Date().toISOString()}, ...shared.filter(d => d.id !== c.id)];
+    if (current === c) setStatus(`Saved! It's ${out.no ? "#" + out.no + " " : ""}in the Library for everyone to see.`, "ok");
+  } catch (e) {
+    const why = e instanceof TypeError ? "couldn't be reached" : e.message;
+    if (current === c) setStatus(`Saved on this device, but the shared library ${why}. Press Save to try again.`, "bad");
+  }
+});
+let sharedLoading = null;
+function loadShared() {
+  if (!savesUrl() || sharedLoading) return;
+  sharedLoading = fetch(savesUrl())
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(data => {
+      shared = (Array.isArray(data.creations) ? data.creations : []).filter(d => d && d.id && (d.type === "monster" || d.type === "item"));
+      sharedFailed = false;
+    })
+    .catch(() => { sharedFailed = true; })
+    .finally(() => { sharedLoading = null; if (!$("library").hidden) showLibrary(); });
+}
+const same = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+function inGame(c) {  // brought into the game already: it has one by that name from the same maker
+  return !!library && (library[c.type === "monster" ? "monsters" : "items"] || []).some(e => same(e.fields.name, c.fields.name) && same(e.by, c.by));
+}
+function savedList(type) {  // what's been saved, by anyone or in this browser, that isn't in the game yet: newest first
+  const mine = new Map(creations.filter(c => c.posted).map(c => [c.id, c]));
+  const found = new Map();
+  (shared || []).forEach(d => {
+    if (d.type !== type) return;
+    try {
+      const c = fromData(d), {id, no, saved, ...data} = d;
+      c.id = id; c.posted = Date.parse(saved) || 0;
+      found.set(id, {c, data, no, mine: mine.get(id)});
+    } catch (e) { /* a damaged save: leave it out */ }
+  });
+  mine.forEach(c => { if (c.type === type && !found.has(c.id)) found.set(c.id, {c, mine: c, here: true}); });
+  return [...found.values()].filter(s => !inGame(s.c)).sort((a, b) => b.c.posted - a.c.posted);
+}
+
 // --- views -----------------------------------------------------------------------------------------------------------
 function showView(name, reopen = true) {
   document.querySelectorAll(".tab").forEach(t => t.setAttribute("aria-selected", String(t.dataset.view === name)));
@@ -970,7 +1086,7 @@ function showView(name, reopen = true) {
     return;
   }
   if (making) requestAnimationFrame(sizeGrid);
-  if (name === "library") showLibrary();
+  if (name === "library") { showLibrary(); loadShared(); }
   if (name === "mine") showMine();
 }
 document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => showView(t.dataset.view)));
@@ -991,22 +1107,45 @@ function card(frames, name, meta, desc, buttons) {
   box.append(actions);
   return box;
 }
+const day = t => new Date(t).toLocaleDateString(undefined, {day: "numeric", month: "short", year: "numeric"});
+function savedCard(s) {
+  const c = s.c;
+  const meta = [esc(describe(c.type, c.fields)),
+                `Created by <b>${esc(c.by || "someone")}</b>${c.posted ? " · " + esc(day(c.posted)) : ""}${Number.isInteger(s.no) ? " · #" + s.no : ""}`,
+                c.base ? `A change to ${esc(c.base)}` : "",
+                s.here && savesUrl() && shared ? '<span class="badge warn">only on this device</span>' : ""].filter(Boolean).join("<br>");
+  const open = s.mine ? ["Edit", () => openCreation(revive(JSON.parse(JSON.stringify(s.mine))))]
+    : ["Remix", () => { const remix = fromData(s.data); remix.by = stored().by || ""; openCreation(remix); }];
+  const link = async () => copy(pageLink(await pack(s.data || payload(c))), "Link copied: it opens this in the maker, and the owner can import it.");
+  return card(c.frames, c.fields.name || "Unnamed", meta, c.fields.desc || "", [open, ["Link", link]]);
+}
+function gameCard(type, entry) {
+  const meta = [esc(describe(type, entry.fields)), entry.special ? `<span class="badge">${esc(entry.special)}</span>` : "",
+                entry.by ? `Created by <b>${esc(entry.by)}</b>` : "", entry.lives && entry.lives.length ? `in ${esc(entry.lives.join(", "))}` : ""]
+    .filter(Boolean).join("<br>");
+  return card(decodeArt(entry.art), entry.fields.name, meta, entry.fields.desc || "", [["Edit", () => openCreation(fromLibrary(type, entry))]]);
+}
 function showLibrary() {
   document.querySelectorAll("[data-shelf]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.shelf === shelf)));
-  const box = $("library-shelf");
-  if (!library) { box.replaceChildren(); return; }
   const type = shelf === "monsters" ? "monster" : "item";
   const find = $("search").value.trim().toLowerCase();
-  const entries = library[shelf].filter(e => !find || [e.fields.name, ...(e.fields.tags || []), ...(e.fields.weak || []), e.by || ""]
-    .join(" ").toLowerCase().includes(find));
-  $("library-note").textContent = `${library[shelf].length} ${shelf} · exported ${library.exported}`;
-  box.replaceChildren(...entries.map(entry => {
-    const meta = [esc(describe(type, entry.fields)), entry.special ? `<span class="badge">${esc(entry.special)}</span>` : "",
-                  entry.by ? `by ${esc(entry.by)}` : "", entry.lives && entry.lives.length ? `in ${esc(entry.lives.join(", "))}` : ""]
-      .filter(Boolean).join("<br>");
-    return card(decodeArt(entry.art), entry.fields.name, meta, entry.fields.desc || "", [["Edit", () => openCreation(fromLibrary(type, entry))]]);
-  }));
-  if (!entries.length) box.innerHTML = `<p class="empty">Nothing matches.</p>`;
+  const matches = (f, by) => !find || [f.name, ...(f.tags || []), ...(f.weak || []), by || ""].join(" ").toLowerCase().includes(find);
+  const saved = savedList(type), showing = saved.filter(s => matches(s.c.fields, s.c.by));
+  const loading = savesUrl() && !shared && !sharedFailed;
+  $("saved-count").textContent = saved.length;
+  $("saved-note").textContent = !savesUrl() ? "Saved in this browser. The game's owner picks which ones go into the game."
+    : sharedFailed ? "Couldn't reach the shared library just now, so this only shows what was saved on this device."
+    : loading ? "Loading what people have saved…" : "Saved by people using this page. The game's owner picks which ones go into the game.";
+  $("saved-shelf").replaceChildren(...showing.map(savedCard));
+  if (!showing.length && !loading) $("saved-shelf").innerHTML = `<p class="empty">${saved.length ? "Nothing matches."
+    : `No ${shelf} saved yet. Make one, put your name in “Created by” and press Save.`}</p>`;
+  $("game-part").hidden = !library;
+  if (!library) return;
+  const entries = library[shelf].filter(e => matches(e.fields, e.by));
+  $("game-count").textContent = library[shelf].length;
+  $("library-note").textContent = `as of ${library.exported}`;
+  $("library-shelf").replaceChildren(...entries.map(entry => gameCard(type, entry)));
+  if (!entries.length) $("library-shelf").innerHTML = `<p class="empty">Nothing matches.</p>`;
 }
 document.querySelectorAll("[data-shelf]").forEach(b => b.addEventListener("click", () => { shelf = b.dataset.shelf; showLibrary(); }));
 $("search").addEventListener("input", showLibrary);
@@ -1019,10 +1158,18 @@ function showMine() {
   const box = $("mine-shelf");
   if (!creations.length) { box.innerHTML = `<p class="empty">Nothing yet.</p>`; return; }
   box.replaceChildren(...creations.map(c => card(c.frames, c.fields.name || "Unnamed",
-    `${c.type}${c.base ? " · edit of " + esc(c.base) : ""} ${c.submitted ? '<span class="badge ok">submitted</span>' : '<span class="badge">draft</span>'}`,
+    `${c.type}${c.base ? " · edit of " + esc(c.base) : ""} ${c.posted ? '<span class="badge ok">saved</span>'
+      : c.submitted ? '<span class="badge ok">submitted</span>' : '<span class="badge">draft</span>'}`,
     c.fields.desc || "",
-    [["Open", () => openCreation(revive(JSON.parse(JSON.stringify(c))))],
-     ["Delete", () => { if (confirm(`Delete ${c.fields.name || "this"}?`)) { creations = creations.filter(x => x.id !== c.id); store({creations}); showMine(); } }]])));
+    [["Open", () => openCreation(revive(JSON.parse(JSON.stringify(c))))], ["Delete", () => forget(c)]])));
+}
+async function forget(c) {
+  if (!confirm(`Delete ${c.fields.name || "this"}?${c.posted ? " It comes out of the Library too." : ""}`)) return;
+  if (c.posted && c.secret && savesUrl()) {
+    try { await send({id: c.id, secret: c.secret, remove: true}); } catch (e) { toast("The shared library didn't take it out, so it's still there. Try again later."); return; }
+    if (shared) shared = shared.filter(d => d.id !== c.id);
+  }
+  creations = creations.filter(x => x.id !== c.id); store({creations}); showMine();
 }
 $("save-all").addEventListener("click", () => { if (creations.length) download(creations, "my-work.ptg.json"); else toast("Nothing to download yet."); });
 
@@ -1032,8 +1179,7 @@ async function arrived() {
   if (!hash.startsWith("#c=")) return;
   let data;
   try { data = await unpack(hash.slice(3)); } catch (e) { toast("That link is broken."); return; }
-  const c = fresh(data.type);
-  c.base = data.base || null; c.fields = {...c.fields, ...(data.fields || {})}; c.frames = decodeArt(data.art); c.by = data.by || "";
+  const c = fromData(data);
   const frames = shownFrames(c), preview = $("arrived-preview");
   let t = 0;
   paintTo(preview, frames[0]);
@@ -1045,7 +1191,7 @@ async function arrived() {
   const dialog = $("arrived-dialog");
   const done = () => { clearInterval(timer); dialog.close(); history.replaceState(null, "", location.pathname + location.search); };
   $("arrived-open").onclick = () => { done(); openCreation(c); };
-  $("arrived-keep").onclick = () => { keep(c); done(); toast("Saved to My work."); };
+  $("arrived-keep").onclick = () => { keep(c); done(); toast("Kept in My work."); };
   $("arrived-close").onclick = done;
   $("arrived-copy").onclick = () => copy(importCommand(pageLink(hash.slice(3))), "Command copied.");
   dialog.showModal();
@@ -1066,7 +1212,12 @@ async function start() {
   if (inbox.label) $("submit-inbox").textContent = `Send to ${inbox.label}`;
   $("submit-note").innerHTML = `“Submit on GitHub” opens a ready-made issue in <a href="https://github.com/${esc(repo())}/issues" target="_blank" rel="noopener">${esc(repo())}</a>
     (a free GitHub account is needed); the owner reviews it and imports it into the game.${inbox.url ? ` “Send to ${esc(inbox.label || "inbox")}” delivers it directly.` : ""}
-    Everything is also saved in this browser.`;
+    “Copy link” and “Download .json” give you something to send the owner yourself.`;
+  $("save-note").textContent = savesUrl()
+    ? "Save puts it in the Library, where everyone using this page can see it and your Created by name. The game's owner picks which ones go into the game."
+    : "Save keeps it in this browser and shows it in the Library here. To get it to the game's owner, use another way to share.";
+  $("more").open = !savesUrl();
+  loadShared();
   const draft = saved.drafts && saved.drafts.monster;
   openCreation(draft && draft.fields && "hp" in draft.fields ? revive(draft) : fresh("monster"), "monster");
   window.addEventListener("resize", () => { if (!$("maker").hidden) sizeGrid(); });

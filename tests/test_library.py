@@ -201,3 +201,131 @@ def test_one_bad_submission_doesnt_stop_the_rest(data):
 def test_monsters_can_carry_a_description(data):
     apply([monster(name="Bog Cantor", desc="A toad the size of a pew.")], data)
     assert load(data).monsters["bog_cantor"].desc == "A toad the size of a pew."
+
+
+SAVES = "https://script.example/macros/s/abc/exec"
+
+
+def fake_saves(*creations):
+    """Stands in for the maker's shared library: answers with these saves, numbered in order, newest first."""
+    saves = [{**c, "id": f"save{n}", "no": n, "saved": f"2026-10-22T10:0{n}:00.000Z"}
+             for n, c in enumerate(creations, 1)]
+    asked = []
+
+    def get(url):
+        asked.append(url)
+        return {"creations": [dict(s) for s in reversed(saves)]}
+    return get, asked
+
+
+def spoon(**fields) -> dict:
+    return {"v": 1, "type": "item", "by": "Ada", "made": "2026-10-23", "art": drawing("#feae34"),
+            "fields": {"name": "Spoon of Destiny", "kind": "weapon", "damage": "1d8", "tier": 1, "tags": ["shiny"],
+                       **fields}}
+
+
+def files(folder):
+    return {p.name: p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+
+
+def test_saves_waiting_for_the_game_are_listed_by_number(data):
+    from ptg.library import import_saves
+
+    edit = monster(name="Goblin", tags=["goblinoid"], weak=["shiny"])
+    edit["base"] = "goblin"
+    get, asked = fake_saves(monster(name="Bog Cantor"), spoon(), edit)
+    before = files(data)
+    assert import_saves(SAVES, folder=data, get=get) == [
+        "Saved in the maker, not in the game yet:",
+        "  #1  Monster Bog Cantor by Lily (2026-10-22): tier 1, 8 HP, 1d6",
+        "  #2  Item Spoon of Destiny by Ada (2026-10-23): weapon, tier 1, 1d8",
+        "  #3  Monster Goblin by Lily (2026-10-22): tier 1, 8 HP, 1d6, a change to goblin",
+        "Bring some in with: uv run ptg import --saves 1 2",
+    ]
+    assert asked == [SAVES] and files(data) == before  # only looking
+
+
+def test_picked_saves_join_the_game_and_stop_waiting(data):
+    from ptg.library import import_saves
+
+    get, _ = fake_saves(monster(name="Bog Cantor"), spoon())
+    assert import_saves(SAVES, [2], folder=data, get=get) == \
+        ["#2: Added item Spoon of Destiny (spoon_of_destiny) by Ada."]
+    assert "spoon_of_destiny" in load(data).items
+    listed = import_saves(SAVES, folder=data, get=get)
+    assert listed[1].startswith("  #1  Monster Bog Cantor") and "(1 more is in the game already.)" in listed
+    assert import_saves(SAVES, [2], folder=data, get=get) == \
+        ["#2 Item Spoon of Destiny by Ada: it's in the game already."]
+    assert "spoon_of_destiny_2" not in load(data).items  # picking it twice doesn't add it twice
+    assert import_saves(SAVES, [1], folder=data, get=get) == \
+        ["#1: Added monster Bog Cantor (bog_cantor) by Lily, lives in The Sunken Crypt."]
+    assert import_saves(SAVES, folder=data, get=get) == \
+        ["Nothing waiting: everything saved in the maker is in the game already."]
+
+
+def test_saves_that_cant_come_in_dont_stop_the_rest(data):
+    from ptg.library import import_saves
+
+    get, _ = fake_saves(monster(name="Broken", damage="lots"), monster(name="Bog Cantor"))
+    lines = import_saves(SAVES, [3, 1, 2], folder=data, get=get)
+    assert lines[0] == "#3: there's no save with that number."
+    assert lines[1].startswith("#1 Monster Broken by Lily: couldn't import it: the game wouldn't load")
+    assert lines[2].startswith("#2: Added monster Bog Cantor (bog_cantor)")
+
+
+def test_a_saves_dry_run_writes_nothing(data):
+    from ptg.library import import_saves
+
+    get, _ = fake_saves(monster(name="Bog Cantor"))
+    before = files(data)
+    assert import_saves(SAVES, [1], dry_run=True, folder=data, get=get) == [
+        "#1: Added monster Bog Cantor (bog_cantor) by Lily, lives in The Sunken Crypt.", "(dry run: nothing written)"]
+    assert files(data) == before
+
+
+def test_a_shared_library_without_numbers_is_counted_oldest_first(data):
+    from ptg.library import import_saves, saved_creations
+
+    newer = {**monster(name="Second"), "saved": "2026-10-23T09:00:00Z"}
+    older = {**monster(name="First"), "saved": "2026-10-22T09:00:00Z"}
+    junk = [{"type": "spell"}, "nonsense", {"type": "monster", "fields": "not a dict"}]
+    creations = saved_creations(SAVES, get=lambda url: {"creations": [newer, *junk, older]})
+    assert [(c["no"], c["fields"]["name"]) for c in creations] == [(1, "First"), (2, "Second")]
+    assert saved_creations(SAVES, get=lambda url: {"something": "else"}) == []
+    assert import_saves(SAVES, folder=data, get=lambda url: {"creations": []}) == \
+        ["Nothing's been saved in the maker yet."]
+
+
+def test_the_shared_library_is_found_in_the_makers_config(tmp_path, monkeypatch):
+    from ptg.library import saves_url
+
+    assert saves_url("https://given.example") == "https://given.example"
+    maker = tmp_path / "maker"
+    maker.mkdir()
+    monkeypatch.setattr(library, "maker_folder", lambda: maker)
+    with pytest.raises(ValueError, match="no shared library"):
+        saves_url()
+    (maker / "config.json").write_text(json.dumps({"repo": "me/game", "saves": {"url": ""}}))
+    with pytest.raises(ValueError, match="saves.url"):
+        saves_url()
+    (maker / "config.json").write_text(json.dumps({"saves": {"url": SAVES}}))
+    assert saves_url() == SAVES
+
+
+def test_the_cli_lists_and_imports_saves(tmp_path, monkeypatch, capsys):
+    from ptg.library import saved_creations
+
+    maker = tmp_path / "maker"
+    maker.mkdir()
+    (maker / "config.json").write_text(json.dumps({"saves": {"url": SAVES}}))
+    monkeypatch.setattr(library, "maker_folder", lambda: maker)
+    get, asked = fake_saves(monster(name="Quizzical Newt"))
+    monkeypatch.setattr(library, "saved_creations", lambda url, _=None: saved_creations(url, get))
+    assert library.main(["import", "--saves"]) == 0
+    assert "  #1  Monster Quizzical Newt by Lily" in capsys.readouterr().out and asked == [SAVES]
+    assert library.main(["import", "--saves", "#1", "--dry-run", "--url", "https://elsewhere.example"]) == 0
+    out = capsys.readouterr().out
+    assert "#1: Added monster Quizzical Newt" in out and "(dry run" in out and asked[-1] == "https://elsewhere.example"
+    monkeypatch.setattr(library, "maker_folder", lambda: None)
+    assert library.main(["import", "--saves"]) == 1
+    assert "no shared library" in capsys.readouterr().out

@@ -2,6 +2,8 @@
 way things made there come back into the game.
 
     uv run ptg export                        # write docs/maker/library.json, the library the maker page shows
+    uv run ptg import --saves                # list what's been saved in the maker but isn't in the game yet
+    uv run ptg import --saves 3 7            # bring those saves into the game (add --dry-run to only look)
     uv run ptg import --github               # import every open "[maker]" issue on GitHub, then close them
     uv run ptg import --github 12 15         # just those issues (add --dry-run to only look, --keep-open to not close)
     uv run ptg import "<link>"               # a link from the maker, a saved .json file, or a URL serving creations
@@ -497,6 +499,110 @@ def import_github(repo: str, numbers: list[int] | None = None, dry_run: bool = F
     return lines
 
 
+# --- the maker's shared library ------------------------------------------------------------------------------------
+
+def saves_url(explicit: str | None = None) -> str:
+    """Where the maker's Save button puts things: as given, or docs/maker/config.json's saves.url."""
+    if explicit:
+        return explicit
+    folder = maker_folder()
+    if folder and (folder / "config.json").is_file():
+        saves = json.loads((folder / "config.json").read_text(encoding="utf-8")).get("saves") or {}
+        if saves.get("url"):
+            return saves["url"]
+    raise ValueError("there's no shared library to read: set one up (tools/maker_saves.gs) and put its URL in "
+                     "docs/maker/config.json as saves.url, or pass --url")
+
+
+def saved_creations(url: str, get=None) -> list[dict]:
+    """Everything saved in the shared library, by number. A library that doesn't number them counts oldest first."""
+    if get is None:
+        import httpx
+
+        def get(address: str):
+            try:
+                return httpx.get(address, timeout=30, follow_redirects=True).raise_for_status().json()
+            except (httpx.HTTPError, ValueError) as error:
+                raise ValueError(f"couldn't read the shared library at {address}: {error}") from None
+    data = get(url)
+    creations = [c for c in (data.get("creations") if isinstance(data, dict) else None) or []
+                 if isinstance(c, dict) and c.get("type") in ("monster", "item") and isinstance(c.get("fields"), dict)]
+    creations.sort(key=lambda c: str(c.get("saved", "")))
+    if not all(type(c.get("no")) is int for c in creations):
+        for n, creation in enumerate(creations, 1):
+            creation["no"] = n
+    return sorted(creations, key=lambda c: c["no"])
+
+
+def _folded(text) -> str:
+    return str(text or "").strip().lower()
+
+
+def in_the_game(folder: Path | None = None) -> set[tuple[str, str, str]]:
+    """(kind, name, who drew it) for everything in the game: a save matching one is in already, as the maker sees it."""
+    folder = folder or data_folder()
+    drawn = credits(folder)
+    return {(kind, _folded(fields.get("name")), _folded(drawn[kind].get(key, {}).get("by")))
+            for kind in ("monster", "item")
+            for key, fields in tomllib.loads((folder / f"{kind}s.toml").read_text(encoding="utf-8"))
+            .get(kind, {}).items()}
+
+
+def _title(creation: dict) -> str:
+    return f"{creation['type'].capitalize()} {creation['fields'].get('name', '?')} by {creation.get('by') or 'someone'}"
+
+
+def _about(creation: dict) -> str:
+    """One line on a save: what it is, who made it and when, and the numbers that matter."""
+    f = creation["fields"]
+    if creation["type"] == "monster":
+        stats = [f"tier {f.get('tier', '?')}", f"{f.get('hp', '?')} HP", str(f.get("damage", "?"))]
+    else:
+        power = (f.get("damage") or (f"+{f['defense']} defense" if f.get("defense") else "") or
+                 ("escape" if f.get("escape") else f"heals {f['heal']}" if f.get("heal") else ""))
+        stats = [str(f.get("kind", "item")), f"tier {f.get('tier', 0)}", power]
+    if creation.get("base"):
+        stats.append(f"a change to {creation['base']}")
+    made = f" ({creation['made']})" if creation.get("made") else ""
+    return f"{_title(creation)}{made}: " + ", ".join(s for s in stats if s)
+
+
+def import_saves(url: str, numbers: list[int] | None = None, dry_run: bool = False, folder: Path | None = None,
+                 get=None) -> list[str]:
+    """List what's been saved in the maker but isn't in the game yet, or bring in the ones picked by number (one at
+    a time, so one that doesn't load doesn't stop the rest)."""
+    creations = saved_creations(url, get)
+    have = in_the_game(folder)
+    waiting = [c for c in creations if (c["type"], _folded(c["fields"].get("name")), _folded(c.get("by"))) not in have]
+    if not numbers:
+        if not creations:
+            return ["Nothing's been saved in the maker yet."]
+        if not waiting:
+            return ["Nothing waiting: everything saved in the maker is in the game already."]
+        lines = ["Saved in the maker, not in the game yet:"] + [f"  #{c['no']}  {_about(c)}" for c in waiting]
+        if (more := len(creations) - len(waiting)):
+            lines.append(f"({more} more {'is' if more == 1 else 'are'} in the game already.)")
+        return lines + [f"Bring some in with: uv run ptg import --saves {' '.join(str(c['no']) for c in waiting[:2])}"]
+    lines, refreshed = [], ""
+    numbered, still_waiting = {c["no"]: c for c in creations}, {c["no"] for c in waiting}
+    for number in numbers:
+        creation = numbered.get(number)
+        if creation is None:
+            lines.append(f"#{number}: there's no save with that number.")
+            continue
+        if number not in still_waiting:
+            lines.append(f"#{number} {_title(creation)}: it's in the game already.")
+            continue
+        try:
+            messages = apply([creation], folder, dry_run)
+        except (ValueError, KeyError, IndexError, TypeError) as error:
+            lines.append(f"#{number} {_title(creation)}: couldn't import it: {error}")
+            continue
+        lines += [f"#{number}: {m}" for m in messages if m.startswith(("Added", "Updated"))]
+        refreshed = next((m for m in messages if m.startswith("Refreshed")), refreshed)
+    return lines + ([refreshed] if refreshed else []) + (["(dry run: nothing written)"] if dry_run else [])
+
+
 def main(argv: list[str]) -> int:
     command, rest = (argv[0], argv[1:]) if argv else ("", [])
     if command == "export":
@@ -506,6 +612,12 @@ def main(argv: list[str]) -> int:
     if command == "import" and rest:
         dry_run = "--dry-run" in rest
         try:
+            if "--saves" in rest:
+                explicit = rest[rest.index("--url") + 1] if "--url" in rest[:-1] else None
+                numbers = [int(a.lstrip("#")) for a in rest if a.lstrip("#").isdigit()]
+                for line in import_saves(saves_url(explicit), numbers or None, dry_run):
+                    print(line)
+                return 0
             if "--github" in rest:
                 explicit = rest[rest.index("--repo") + 1] if "--repo" in rest else None
                 numbers = [int(a.lstrip("#")) for a in rest if a.lstrip("#").isdigit()]

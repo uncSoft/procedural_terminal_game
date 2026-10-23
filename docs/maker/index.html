@@ -319,7 +319,6 @@ footer { color: var(--dim); font-size: 13px; text-align: center; padding: 16px; 
           <details class="more" id="more">
             <summary>Other ways to share</summary>
             <div class="row">
-              <button class="btn" id="submit-github">Submit on GitHub</button>
               <button class="btn accent" id="submit-inbox" hidden>Send to inbox</button>
               <button class="btn" id="copy-share">Copy link</button>
               <button class="btn" id="download-one">Download .json</button>
@@ -365,7 +364,7 @@ footer { color: var(--dim); font-size: 13px; text-align: center; padding: 16px; 
 </main>
 
 <footer>Owner: <code>uv run ptg import --saves</code> lists what's been saved but isn't in the game yet, and
-  <code>uv run ptg import --saves 3</code> brings #3 in. GitHub submissions: <code>uv run ptg import --github</code>.</footer>
+  <code>uv run ptg import --saves 3</code> brings #3 in.</footer>
 
 <dialog id="arrived-dialog">
   <h2>Shared with you</h2>
@@ -418,7 +417,7 @@ const STORE = "ptg-maker-v1";
 
 // --- state --------------------------------------------------------------------------------------------------------
 let library = null;     // library.json
-let config = {};        // config.json: {repo, inbox: {url, label}, saves: {url}}
+let config = {};        // config.json: {saves: {url}, inbox: {url, label}}
 let shared = null;      // what people have saved, from the shared library (config.saves.url), once it has loaded
 let sharedFailed = false;
 let current = null;     // the creation on the board
@@ -542,12 +541,6 @@ function payload(c) {
 }
 const pageLink = code => location.href.split("#")[0] + "#c=" + code;
 const importCommand = link => `uv run ptg import "${link}"`;
-function repo() {
-  if (config.repo) return config.repo;
-  const host = location.hostname.match(/^([\w-]+)\.github\.io$/);
-  const path = location.pathname.split("/").filter(Boolean)[0];
-  return host && path ? `${host[1]}/${path}` : "uncSoft/procedural_terminal_game";
-}
 
 // --- the drawing board ---------------------------------------------------------------------------------------------
 const grid = $("grid"), gctx = grid.getContext("2d");
@@ -937,24 +930,6 @@ async function ready() {
   const data = payload(current), code = await pack(data);
   return {data, code, link: pageLink(code)};
 }
-function issueBody(data, code, link) {
-  const f = data.fields, kind = data.type === "monster" ? "monster" : "item";
-  const stats = data.type === "monster"
-    ? `| Tier | HP | Defense | Attack | Damage | XP |\n|---|---|---|---|---|---|\n| ${f.tier} | ${f.hp} | ${f.defense} | +${f.attack} | ${f.damage} | ${f.xp} |`
-    : `| Kind | Tier | Power | Tags |\n|---|---|---|---|\n| ${f.kind} | ${f.tier ?? 0} | ${f.damage || (f.defense ? "+" + f.defense + " defense" : "") || (f.escape ? "escape" : f.heal ? "heals " + f.heal : "-")} | ${(f.tags || []).join(", ") || "-"} |`;
-  return [`**${f.name}**: a ${kind}${data.by ? " by " + data.by : ""}${data.base ? ` (a change to \`${data.base}\`)` : ""}`,
-          "", f.desc || "", "", stats, "", `[Open it in the maker](${link})`, "",
-          "<details><summary>Data for the importer</summary>", "", "```ptg-creation", code, "```", "</details>"].join("\n");
-}
-$("submit-github").addEventListener("click", async () => {
-  const r = await ready();
-  if (!r) return;
-  const title = `[maker] ${r.data.type === "monster" ? "Monster" : "Item"}: ${r.data.fields.name}${r.data.base ? " (edit)" : ""}`;
-  const url = `https://github.com/${repo()}/issues/new?labels=maker&title=${encodeURIComponent(title)}&body=${encodeURIComponent(issueBody(r.data, r.code, r.link))}`;
-  window.open(url, "_blank", "noopener");
-  current.submitted = true; keep(current);
-  setStatus("GitHub opened in a new tab: press “Submit new issue” there to send it.", "ok");
-});
 $("submit-inbox").addEventListener("click", async () => {
   const r = await ready();
   if (!r) return;
@@ -1210,9 +1185,8 @@ async function start() {
   const inbox = config.inbox || {};
   $("submit-inbox").hidden = !inbox.url;
   if (inbox.label) $("submit-inbox").textContent = `Send to ${inbox.label}`;
-  $("submit-note").innerHTML = `“Submit on GitHub” opens a ready-made issue in <a href="https://github.com/${esc(repo())}/issues" target="_blank" rel="noopener">${esc(repo())}</a>
-    (a free GitHub account is needed); the owner reviews it and imports it into the game.${inbox.url ? ` “Send to ${esc(inbox.label || "inbox")}” delivers it directly.` : ""}
-    “Copy link” and “Download .json” give you something to send the owner yourself.`;
+  $("submit-note").innerHTML = `“Copy link” and “Download .json” give you something to send the game's owner yourself.${inbox.url
+    ? ` “Send to ${esc(inbox.label || "inbox")}” delivers it directly.` : ""}`;
   $("save-note").textContent = savesUrl()
     ? "Save puts it in the Library, where everyone using this page can see it and your Created by name. The game's owner picks which ones go into the game."
     : "Save keeps it in this browser and shows it in the Library here. To get it to the game's owner, use another way to share.";

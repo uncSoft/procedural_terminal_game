@@ -143,9 +143,8 @@ Pages so friends can contribute. It works on a laptop, a tablet or a phone, with
   the game, each with its art, stats and who created it, searchable. Your own saved things can be edited, anyone
   else's remixed into a new one of yours, and the game's own edited and saved as a suggested change. Once the owner
   brings a saved one into the game, it moves to the game's shelf.
-- **Other ways to share** (tucked under Save): "Submit on GitHub" opens a ready-made issue in this repo (submitters
-  need a free GitHub account), with the stats, a link back to the maker and the data for the importer. "Copy link"
-  and "Download .json" work without an account. Work is also kept in the browser.
+- **Other ways to share** (tucked under Save): "Copy link" and "Download .json" give you something to send the
+  game's owner yourself. Work is also kept in the browser. (The maker no longer files GitHub issues.)
 
 **The shared library**: GitHub Pages can only serve files, so the saves everyone sees live in a Google Sheet, behind
 a small Apps Script web app (free, about five minutes to set up, nothing to run yourself):
@@ -162,14 +161,11 @@ in a row's `hide` cell to take it out of the library (saving it again won't brin
 the browser that saved something can change or remove it. The URL is in the page source, so anyone could post to it;
 the script only keeps things shaped like creations, and at most 1,000 of them.
 
-To bring things into the game (in a checkout of this repo; `--github` needs the GitHub CLI logged in):
+To bring things into the game (in a checkout of this repo):
 
 ```bash
 uv run ptg import --saves               # what's been saved in the maker but isn't in the game yet, by number
 uv run ptg import --saves 3 7           # bring #3 and #7 into the game (--dry-run to only look)
-uv run ptg import --github --dry-run    # see what's waiting on GitHub: every open "[maker]" issue
-uv run ptg import --github              # import them all, then comment and close each issue
-uv run ptg import --github 12 15        # just those issues (--keep-open to leave them open)
 uv run ptg import "<link>"              # a link someone sent (or a saved one's Link button), a .json file,
                                         # or a URL serving creations
 uv run ptg export                       # refresh the page's library by hand
@@ -177,7 +173,9 @@ uv run ptg export                       # refresh the page's library by hand
 
 `--saves` reads the shared library from `docs/maker/config.json` (or `--url`). A save counts as in the game once the
 game has something by its name from the same creator, the same rule the page uses to move it to the game's shelf, so
-picking one twice doesn't add it twice.
+picking one twice doesn't add it twice. Submissions from before Save, made as GitHub issues with "[maker]" in the
+title, can still be brought in with `uv run ptg import --github` (`--dry-run` to look first; it needs the GitHub CLI
+logged in, and comments on and closes each issue it imports).
 
 Each import writes the sprite (`src/ptg/data/sprites`), the entry in `monsters.toml` or `items.toml` with a
 `# drawn by` credit (the GitHub username if the maker left their name blank), ASCII art for a new monster's ASCII

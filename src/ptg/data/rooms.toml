@@ -58,7 +58,7 @@ features = ["the cracked bell", "a coil of bell rope"]
 [archetype.abbots_sanctum]
 decor = "water pillars"
 names = ["The Abbot's Sanctum"]
-blurb = "A flooded chapel lit by drowned candles. An altar rises from the water, and someone is still at prayer."
+blurb = "A flooded chapel lit by drowned candles. An altar rises from the water; the air tastes of old prayer."
 features = ["the drowned altar"]
 
 # --- The Goblin Warren ------------------------------------------------------
@@ -114,7 +114,7 @@ features = ["the bathtub forge", "a scrap bin", "a tool wall"]
 [archetype.throne_cave]
 decor = "pillars junk"
 names = ["The Throne Cave"]
-blurb = "A cavern lit by a hundred stolen lanterns. On a throne of stacked chairs sits the Goblin King."
+blurb = "A cavern lit by a hundred stolen lanterns. A throne of stacked chairs leans against the far wall."
 features = ["the throne of chairs"]
 
 # --- The Overgrown Ruins ----------------------------------------------------
@@ -170,7 +170,7 @@ features = ["a knot hole", "a bird's nest", "a sap-filled crack"]
 [archetype.heartwood]
 decor = "roots plants"
 names = ["The Heartwood"]
-blurb = "A cathedral of living wood around a pulsing green heart. The Thornmother unfolds from it."
+blurb = "A cathedral of living wood around a pulsing green heart. Everything in it leans toward you, as if listening."
 features = ["the pulsing heart"]
 
 # --- Shops: in no dungeon's list, a shopkeeper sets up wherever she likes (world._shop) ---

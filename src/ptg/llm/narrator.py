@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from typing import Callable
 
 from ..content import Content
 from ..models import GameState
 from ..events import Event
-from ..rules import room_facts
+from ..text import the
 from .base import LLM, LLMError, log_exchange
 from .guard import Gate, Rules, sentence_limit
-from .prompts import INTRO_SYSTEM, OFFLINE_INTRO, narrator_messages, player_status
+from .prompts import INTRO_SYSTEM, OFFLINE_INTRO, health_word, narrator_messages, plain
 
 TextSink = Callable[[str], None]
+EARLIER = re.compile(r" Earlier here: .*$")  # (what the model is told of a room's past: the stage shows how it is)
 
 
 def clean(text: str) -> str:
@@ -21,17 +23,31 @@ def clean(text: str) -> str:
     return re.sub(r"\s+\n", "\n", text).strip()
 
 
+def offline_answer(state: GameState, content: Content) -> str:
+    """A question put to the dungeon with no model: how you are and what you hold, in a line, not the status block."""
+    player = state.player
+    carried = [f"{content.item(key).name}{f' ×{n}' if n > 1 else ''}" for key, n in Counter(player.inventory).items()]
+    carried += [f"{n} {word}{'s' if n > 1 else ''}" for n, word in ((player.gold, "gold"), (player.bombs, "bomb"),
+                                                                 (player.keys, "small key")) if n]
+    armor = f"wear {the(content.item(player.armor).name)}" if player.armor else "wear no armor"
+    return (f"You are {health_word(player.hp, player.max_hp)}. You wield {the(content.item(player.weapon).name)} and "
+            f"{armor}. In your pack: {', '.join(carried) or 'nothing'}.")
+
+
 def offline_narration(state: GameState, content: Content, events: list[Event], raw: str = "",
                       question: bool = False, opening: bool = False) -> str:
+    """The story with no model (or none of what it said fit to show): the room's blurb on arrival, then what happened in
+    the facts' own words, without the numbers the screen shows (damage, HP, XP, counts), and without listing what's
+    here, which the screen shows too. A question is answered, not read the prompt."""
     parts: list[str] = []
     if opening:
         parts.append(content.themes[state.theme].blurb)
     for event in events:
         if event.kind in ("enter", "descend") and event.data.get("first"):
             parts.append(content.archetypes[state.rooms[event.data["room"]].archetype].blurb)
-        parts.append(event.text)
+        parts.append(EARLIER.sub("", plain(event.text, health=False)))
     if question:
-        parts += [player_status(state, content), room_facts(state, content)]
+        parts.append(offline_answer(state, content))
     if not parts:  # words that came to nothing: told as tried, never as done ("You give the tooth to lenny.")
         said = re.sub(r"^i\s+", "", raw.strip().rstrip(".!").lower())
         parts.append(f"You try to {said}, but nothing comes of it. The dungeon is unimpressed." if said

@@ -138,7 +138,7 @@ def test_the_map_and_the_narrator_know_the_shop(content):
     assert "¤" in "".join(render_map(state)) and "=" in "".join(render_map(state))
     state, shop = in_the_shop(content)
     facts = room_facts(state, content)
-    assert "Granny Gristle keeps a shop here" in facts and f"({shop.wares[0].price} gold)" in facts
+    assert "Granny Gristle keeps a shop here" in facts and "gold)" not in facts  # (the counter is the shop's to show)
     assert next(a for a in available_actions(state, content) if a.id == "shop").label == "Browse Granny Gristle's wares"
     state.player.bombs = 3  # her shop is hers: no searching it for secrets, no bombing its walls
     assert not {"search_room"} & {a.id for a in available_actions(state, content)}

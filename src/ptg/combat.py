@@ -438,7 +438,9 @@ def defeat(state: GameState, content: Content, rng: random.Random, how: str = "s
         player.gold += gold
         events.append(Event("loot", f"You find {gold} gold on the body."))
         for dropped in _drops(state, content, rng, monster):
-            events.append(Event("drop", f"{cap(the(monster.name))} dropped {a(content.item(dropped).name)}.",
+            # (a bomb or small key is yours at once, in the next event; anything else lies there until it's taken)
+            lies = "" if dropped in inventory.PICKUPS else "; it lies on the floor (not picked up)"
+            events.append(Event("drop", f"{cap(the(monster.name))} dropped {a(content.item(dropped).name)}{lies}.",
                                 data=inventory.lay(state, dropped, "drop", monster.key)))
     elif not monster.ghost_of:  # talked down, it still parts with what it was keeping (a warden always has something)
         for kept in _kept(state, content, rng, monster):

@@ -489,7 +489,8 @@ def check_level(state: GameState, content: Content) -> list[Event]:
             state.perk_debt += 1
         else:
             _offer_perks(state, content)
-        events.append(Event("level", f"You reach level {player.level}! Choose a perk.", data={"level": player.level}))
+        events.append(Event("level", f"You reach level {player.level}! Choose a perk.",
+                            data={"level": player.level, "journal": f"You reached level {player.level}."}))
     return events
 
 
@@ -574,7 +575,7 @@ def travel(state: GameState, content: Content, direction: str, to: int) -> list[
     room.visited = True
     arrival = f"You go {direction} into {the(room.name)}" + (" for the first time." if first else ", where you've been before.")
     journal = f"You went {direction} into {the(room.name)}" + (" for the first time." if first else ".")
-    events = [Event("enter", f"{arrival} {room_facts(state, content)}",
+    events = [Event("enter", f"{arrival} {arrival_facts(state, content)}".strip(),
                     data={"first": first, "room": room.id,  # whoever's here goes in the bestiary, a shopkeeper too
                           "monster": room.monster.key if room.monster else (room.shop.keeper if room.shop else ""),
                           "journal": journal, "direction": direction})]
@@ -601,6 +602,26 @@ def exit_notes(state: GameState) -> str:
     return ", ".join(notes)
 
 
+def arrival_facts(state: GameState, content: Content) -> str:
+    """What there is to tell of a room just come into, which isn't the room: its things, who's here and the ways out are
+    on the screen (the stage, Here, the choices). The narrator is told only what stands out: a secret room, a shop's
+    keeper, a ghost, a fight about to begin, and on a return what happened here since. (room_facts is the whole room,
+    for a question about it.)"""
+    room = state.room
+    lines = ["A secret room, walled off until a bomb opened it."] if room.secret else []
+    if room.shop:
+        lines.append(shop_facts(room.shop, content))
+    monster = room.monster
+    if monster and monster.ghost_of and state.ghost:
+        lines.append(_ghost_facts(state, monster))
+    elif monster and monster.hostile:
+        elite = " It looks unusually dangerous." if monster.elite else ""
+        lines.append(f"{cap(the(monster.name))} is here and hostile. A fight begins.{elite}")
+    if room.history:
+        lines.append("Earlier here: " + "; ".join(room.history) + ".")
+    return " ".join(lines)
+
+
 def room_facts(state: GameState, content: Content) -> str:
     room = state.room
     lines = ["A secret room, walled off until a bomb opened it."] if room.secret else []
@@ -621,10 +642,7 @@ def room_facts(state: GameState, content: Content) -> str:
     monster = room.monster
     if monster:
         if monster.ghost_of and state.ghost:
-            ghost = state.ghost
-            lines.append(f"The restless ghost of {monster.ghost_of} is here and hostile. {ghost_truth(monster)} "
-                         f"In that life they were {ghost.get('cause', 'killed down here')}. "
-                         f"Their epitaph read: \"{ghost.get('epitaph', '')}\"")
+            lines.append(_ghost_facts(state, monster))
         elif monster.hostile:
             elite = " It looks unusually dangerous." if monster.elite else ""
             lines.append(f"{cap(the(monster.name))} is here ({layout.where(room.monster_pos)}) and hostile. "
@@ -641,6 +659,13 @@ def room_facts(state: GameState, content: Content) -> str:
     if room.history:
         lines.append("Earlier here: " + "; ".join(room.history) + ".")
     return " ".join(lines)
+
+
+def _ghost_facts(state: GameState, monster: MonsterState) -> str:
+    ghost = state.ghost
+    return (f"The restless ghost of {monster.ghost_of} is here and hostile. {ghost_truth(monster)} "
+            f"In that life they were {ghost.get('cause', 'killed down here')}. "
+            f"Their epitaph read: \"{ghost.get('epitaph', '')}\"")
 
 
 def ghost_truth(monster: MonsterState) -> str:
@@ -660,15 +685,15 @@ def _feature_note(feature: Feature) -> str:
 
 
 def _descend(state: GameState, content: Content) -> list[Event]:
-    old_theme = content.themes[state.theme].name
     state.floor += 1
     state.souls += 10
     build_floor(state, content)
     theme = content.themes[state.theme]
     room = state.room
-    goal = f" Your goal: {theme.goal}" if state.final_floor else ""
-    text = (f"You descend from {old_theme} into floor {state.floor}: {theme.name}. {theme.blurb} "
-            f"You arrive in {the(room.name)}. {room_facts(state, content)}{goal} +10 souls.")
+    goal = f"Your goal: {theme.goal}" if state.final_floor else ""
+    told = [f"You go down the stairs to floor {state.floor}, {theme.name}, and arrive in {the(room.name)}.",
+            arrival_facts(state, content), goal]  # (the floor's header has its blurb, the HUD its souls)
+    text = " ".join(part for part in told if part)
     journal = f"You went down to floor {state.floor}, {theme.name}, arriving in {the(room.name)}."
     events = [Event("descend", text, data={"first": True, "room": room.id, "floor": state.floor, "journal": journal})]
     player = state.player
@@ -906,11 +931,9 @@ def _bomb_door(state: GameState, door: Exit, direction: str) -> list[Event]:
 # --- shops --------------------------------------------------------------------
 
 def shop_facts(shop, content: Content) -> str:
-    """A shop as the narrator knows it: who keeps it, and what's on her counter at what price."""
+    """A shop as the narrator knows it: who keeps it, and what she's like. Her wares are the shop's to show."""
     keeper = content.monster(shop.keeper)
-    wares = ", ".join(f"{content.item(w.item).name} ({w.price} gold)" for w in shop.wares) or "nothing: sold out"
-    return (f"{keeper.name} keeps a shop here, behind a counter: a shopkeeper, not a monster, and she won't fight "
-            f"unless crossed. About her: {keeper.desc} On her counter: {wares}.")
+    return f"{keeper.name} keeps a shop here. About {keeper.name}: {keeper.desc}"
 
 
 def off_the_list(state: GameState, content: Content, action_id: str) -> bool:

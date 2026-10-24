@@ -11,7 +11,7 @@ from ..creative import available_props
 from ..events import Action, Event
 from ..intent import EFFECT_HELP
 from ..models import GameState
-from ..rules import exit_notes, ghost_truth, room_facts
+from ..rules import exit_notes, ghost_truth
 from ..scene import RoomView
 from ..text import the
 
@@ -70,13 +70,17 @@ The FACTS were decided by dice and rules. Narrate them faithfully:
 - If an attempt failed, make the failure vivid or funny, never a lecture.
 - RECENTLY is what happened before this turn; THIS TURN says where the player is now. Treat a room as
   familiar only if THIS TURN says they have been there before.
-- When the player enters a room for the first time, describe it from the room notes and mention every listed
-  feature, item, exit direction and monster, woven naturally into prose. Use the positions given.
-- When the player returns to a room they know, keep it brief: don't describe it all again or list its exits.
+- The screen already shows the room's things, who is here and the ways out. Don't list them, and don't give
+  directions or positions. Name one only when something happens to it this turn.
+- When the player enters a room for the first time, set the mood from the room notes: the light, the air, the sound.
+  A fight about to begin, or a secret room, is worth a line.
+- When the player returns to a room they know, keep it brief: a line on how it feels now or what has changed, not
+  the room all over again.
 - The SETTING and the room notes are background for a first look: don't repeat their smells and sights every turn.
 - Nothing moves, opens, shuts or changes hands unless the facts say so: no doors slam behind the player, and what's
-  dropped or found stays where it lies until the facts say the player takes it. What the player holds and wears
-  changes only when the facts say so too: never narrate a weapon drawn, swapped or put away, or armor put on or off.
+  dropped or found stays where it lies ("not picked up" means it lies there still) until the facts say the player
+  takes it. What the player holds and wears changes only when the facts say so too:
+  never narrate a weapon drawn, swapped or put away, or armor put on or off.
 - If a heavy blow is coming, end on the monster's wind-up so the player can react to it.
 - If the player asked a question, answer it in character using only the facts and the player status.
 - What a character says to the player is shown beside your words, in the character's own: never quote a character
@@ -207,18 +211,29 @@ def suggestion_situation(state: GameState, content: Content) -> str:
 
 
 HP_LEFT = re.compile(r" \((-?\d+)/(\d+) HP left\)")
-TALLY = re.compile(r" \+\d+ XP, \+\d+ souls\.| \(\d+/\d+\)")
+TAKES_DAMAGE = re.compile(r" takes \d+ damage")
+FOR_DAMAGE = re.compile(r" for \d+ damage")
+# What the screen shows as numbers: XP and souls, counts "(2/3)" "(1 now)" "(88 left)" "(27/30 HP)" "(-3 HP)", and
+# gear's dice and defense "(1d8+1 & goblin-bane)" "(1d6 → 1d10)" "(+2 defense)".
+TALLY = re.compile(r" \+\d+ XP, \+\d+ souls\.| \+\d+ souls\.| \((?:\d+/\d+(?: HP)?|\d+ now|\d+ left|-\d+ HP)\)"
+                   r"| \((?=[^)]*(?:\d+d\d+|\+\d))[^)]*\)")
 
 
-def plain(fact: str) -> str:
-    """A fact as the narrator gets it: how hurt someone is in words, and no tallies. Handed "(12/20 HP left)", it
-    turned the numbers into prose ("restoring your strength to a manageable forty-one") and got them wrong."""
-    def health(match: re.Match) -> str:
-        left, most = int(match.group(1)), int(match.group(2))
-        return " (" + ("down" if left <= 0 else "barely standing" if left <= most / 4 else "hurt" if left <= most * 0.6
-                       else "still strong") + ")"
+def health_word(left: int, most: int) -> str:
+    return ("down" if left <= 0 else "barely standing" if left <= most / 4 else "hurt" if left <= most * 0.6
+            else "still strong")
 
-    return TALLY.sub("", HP_LEFT.sub(health, fact))
+
+def plain(fact: str, health: bool = True) -> str:
+    """A fact as the narrator gets it: how hurt someone is in words (or, with `health` off, not at all), and none of
+    the numbers the screen shows: damage, tallies, counts, dice and defense. Handed "(12/20 HP left)", it turned the
+    numbers into prose ("restoring your strength to a manageable forty-one") and got them wrong, and "for 7 damage"
+    came back as "seven points of pain" under the damage popup."""
+    def hurt(match: re.Match) -> str:
+        return f" ({health_word(int(match.group(1)), int(match.group(2)))})" if health else ""
+
+    fact = TAKES_DAMAGE.sub(" takes a hit", FOR_DAMAGE.sub("", HP_LEFT.sub(hurt, fact)))
+    return TALLY.sub("", fact)
 
 
 def interpreter_messages(state: GameState, content: Content, raw: str, actions: list[Action],
@@ -261,16 +276,12 @@ def narrator_messages(state: GameState, content: Content, raw: str, events: list
     lines = [f"{setting} {theme.blurb}" if first_visit else setting]  # said every turn, it got repeated every turn
     recent = state.journal[-6:]
     if recent:
-        lines.append("RECENTLY (before this turn, oldest first):\n" + "\n".join(f"- {line}" for line in recent))
+        lines.append("RECENTLY (before this turn, oldest first):\n" + "\n".join(f"- {plain(line)}" for line in recent))
     lines.append(f"THIS TURN: {this_turn(state, events, opening)}")
     room_line = f"ROOM: {room.name}. Notes: {content.archetypes[room.archetype].blurb}"
-    if not (arrived or opening or question):  # on arrival the facts describe it; a question gets the situation
-        room_line += f" Now: {room_facts(state, content)}"
     if room.monster and content.monster(room.monster.key).desc:  # a creature the model has never heard of
         room_line += f" About {the(room.monster.name)}: {content.monster(room.monster.key).desc}"
     lines.append(room_line)
-    if arrived and not first_visit and room.description:
-        lines.append(f"How you described it last time (for flavour; the facts win): {room.description}")
     if raw:
         lines.append(f"PLAYER TYPED: {raw}")
     facts = [plain(e.text) for e in events]

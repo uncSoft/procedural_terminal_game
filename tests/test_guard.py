@@ -31,9 +31,11 @@ def test_exits_must_be_real_and_complete(content):
     assert check(f"A pew sits to the {missing}.", rules).text  # a position in the room, not a way out
     assert check("To the north-east, water pools.", rules).text
     exits = sorted(state.room.exits)
-    if len(exits) > 1:  # "you can go" lists that leave some out mislead the player
-        assert check(f"You can head {exits[0]} if you wish.", rules).dropped[0][1] == "lists only some of the exits"
-    assert check(f"You can head {' or '.join(exits)}.", rules).text
+    # (the screen shows the ways out: a sentence that lists them, or says "you can" go one, is left out)
+    assert check(f"You can head {exits[0]} if you wish.", rules).dropped[0][1] == "lists the ways out"
+    if len(exits) > 1:
+        assert check(f"Passages lead {exits[0]} and {exits[1]}.", rules).dropped[0][1] == "lists the ways out"
+    assert check(f"A passage leads {exits[0]}.", rules).text  # one real way, named in passing
 
 
 def test_no_echoes_no_meta_no_questions(content):

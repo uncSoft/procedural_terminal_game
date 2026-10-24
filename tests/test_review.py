@@ -68,8 +68,8 @@ def test_gear_changing_hands_is_not_a_rooms_memory(content):
 
 
 def test_the_narrator_gets_health_in_words_and_the_setting_once(content):
-    assert plain("The Goblin hits you for 3 damage (32/35 HP left).") == "The Goblin hits you for 3 damage (still strong)."
-    assert plain("You hit the Troll for 9 damage (2/30 HP left).") == "You hit the Troll for 9 damage (barely standing)."
+    assert plain("The Goblin hits you for 3 damage (32/35 HP left).") == "The Goblin hits you (still strong)."
+    assert plain("You hit the Troll for 9 damage (2/30 HP left).") == "You hit the Troll (barely standing)."
     assert plain("The Goblin is defeated. +10 XP, +3 souls.") == "The Goblin is defeated."
     assert plain("You gain a Fate token (2/3).") == "You gain a Fate token."
     state = generate(3)

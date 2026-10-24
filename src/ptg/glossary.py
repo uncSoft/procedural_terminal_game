@@ -65,10 +65,11 @@ def build(state: GameState, content: Content, bestiary: dict | None = None) -> d
         if len(alias) >= 3 and alias not in terms:
             terms[alias] = term
 
-    # Monsters: everything in the library by full name; short names for what's on this floor.
+    # Monsters: by full name those who are here, on this floor or in the bestiary (seen); short names for the floor's.
     on_floor = {r.monster.key: r.monster for r in state.rooms if r.monster}
+    near = set(on_floor) | set(bestiary) | {r.shop.keeper for r in state.rooms if r.shop}
     for key, monster in content.monsters.items():
-        if monster.ghost:
+        if monster.ghost or key not in near:
             continue
         term = Term(f"monster:{key}", creature_kind(state, content, key), monster.name.removeprefix("The "),
                     monster_summary(state, content, key, bestiary.get(key)))
@@ -124,6 +125,12 @@ def build(state: GameState, content: Content, bestiary: dict | None = None) -> d
             add(other.name, Term(f"room:{other.id}", "room", other.name,
                                  f"{other.name} · exits {', '.join(other.exits)}"
                                  + (" · you are here" if other.id == state.room_id else "")))
+
+    # Place names, so the words inside them ("Goblin" in The Goblin Warren) aren't taken for what they're named after:
+    # found, they're left plain (Lexicon.find).
+    for place in [*(theme.name for theme in content.themes.values()), *(other.name for other in state.rooms)]:
+        for alias in (place, place.removeprefix("The ")):
+            add(alias, Term("", "place", place, ""))
 
     for key, (name, summary) in RULES.items():
         add(name, Term(f"rule:{key}", "rule", name, summary))
@@ -188,4 +195,5 @@ class Lexicon:
     def find(self, text: str) -> list[tuple[int, int, Term]]:
         if self.regex is None:
             return []
-        return [(m.start(), m.end(), self.terms[m.group(0).lower()]) for m in self.regex.finditer(text)]
+        found = [(m.start(), m.end(), self.terms[m.group(0).lower()]) for m in self.regex.finditer(text)]
+        return [hit for hit in found if hit[2].kind != "place"]

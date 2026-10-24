@@ -6,7 +6,8 @@ The facts are the truth, so a sentence that breaks one of these rules is left ou
 rest is kept. If nothing survives, the narration falls back to the facts themselves. Each dropped sentence and the
 reason is returned (and written to llm.log), so `python -m ptg.llm.check` can show how often a model slips.
 
-The rules are deliberately narrow: they look for contradictions of things the game knows, not for good writing.
+The rules are deliberately narrow: they look for contradictions of things the game knows, not for good writing. The
+screen shows the room's things and its ways out, so a sentence that lists the ways out is left out too.
 """
 
 from __future__ import annotations
@@ -40,6 +41,33 @@ NEAR = 5
 YOU_CAN = re.compile(r"\byou (can|could|may|might)\b", re.I)
 DIRECTION = re.compile(r"(north|south|east|west)(ern|ward|wards)?$")
 SIMILE = re.compile(r"\b(like|as)\s+(a|an)\s*$", re.I)
+# Idioms that borrow a monster's name ("gave up the ghost").
+IDIOM = re.compile(r"\b(?:give|gives|gave|given|giving) up the ghost\b|\b(?:any|no|every) ghost\b", re.I)
+# Taking what still lies on the floor, or putting on what is still in the pack, is for the facts to say.
+TAKES = re.compile(r"\b(?:take[sn]?|took|taking|pick(?:s|ed|ing)? up|pocket(?:s|ed|ing)?|snatch(?:es|ed|ing)?|"
+                   r"scoop(?:s|ed|ing)?|grab(?:s|bed|bing)?|claim(?:s|ed|ing)?|retriev(?:e|es|ed|ing)|"
+                   r"gather(?:s|ed|ing)?|collect(?:s|ed|ing)?|stow(?:s|ed|ing)?|swipe[sd]?|palm(?:s|ed)?)\b", re.I)
+WEARS = re.compile(r"\b(?:strap(?:s|ped|ping)?(?: \w+)? on|put(?:s|ting)?(?: \w+)? on|slip(?:s|ped|ping)?(?: \w+)? on|"
+                   r"buckle[sd]?(?: \w+)? on|don(?:s|ned|ning)?|wield(?:s|ed|ing)?|draw(?:s|n|ing)?|drew|"
+                   r"equip(?:s|ped|ping)?|wear(?:s|ing)?|wore)\b", re.I)
+# A sentence about how a fight ended is the turn's main news, whatever it calls the creature.
+ENDS = re.compile(r"\b(?:die[sd]?|dead|falls?|fell|fallen|collapse[sd]?|crumbl\w+|crumple[sd]?|slain|slays?|slew|"
+                  r"kill(?:s|ed)?|defeat\w*|destroy\w*|vanquish\w*|oblivion|blast\w*|shatter\w*|dissolve[sd]?|"
+                  r"vanish\w*|lifeless|last breath|calm\w*|relent\w*|yield\w*|surrender\w*|at peace|stand[s]? down)\b",
+                  re.I)
+OUTCOMES = {"defeat", "victory", "pacify", "appease", "ghost_rest"}
+
+
+def called(name: str) -> list[str]:
+    """What a thing might be called in a sentence: its whole name, and the word it's mostly known by ("healing potion"
+    is "the potion", "vial of holy water" is "the vial")."""
+    name = name.lower()
+    head = name.split(" of ")[0] if " of " in name else name.split()[-1]
+    return [name] + ([head] if head != name and len(head) >= 4 else [])
+
+
+def mentions(lowered: str, name: str) -> bool:
+    return any(re.search(rf"(?<![-\w]){re.escape(word)}s?(?![-\w])", lowered) for word in called(name))
 
 
 def tidy(sentence: str) -> str:
@@ -59,6 +87,9 @@ class Rules:
     things: list[str]  # names of items and monsters it could invent
     room: str = ""  # the room the player is in, lower case
     travel: set[str] = field(default_factory=set)  # the way the player moved this turn
+    lying: list[str] = field(default_factory=list)  # items on the floor here, not picked up
+    packed: list[str] = field(default_factory=list)  # gear in the pack, not on
+    outcome: bool = False  # a fight ended this turn: defeated or pacified
 
     @classmethod
     def for_turn(cls, state: GameState, content: Content, events: list[Event], opening: bool = False,
@@ -72,15 +103,18 @@ class Rules:
         known += [content.themes[state.theme].blurb, content.archetypes[room.archetype].blurb, room.name]
         known += [f.name for f in room.features] + [content.item(k).name for k in room.items]
         known += [content.item(k).name for k in [player.weapon, player.armor, *player.inventory] if k]
-        known += [room.monster.name, content.monster(room.monster.key).desc] if room.monster else []
+        known += [room.monster.name, content.monster(room.monster.key).desc,
+                  *content.monster(room.monster.key).tags] if room.monster else []
         known += room.history  # what happened here: the Rat King you killed in this room isn't made up
         if question:
             known.append(situation(state, content))
         things = sorted({i.name.lower() for i in content.items.values()} |
                         {m.name.lower() for m in content.monsters.values()}, key=len, reverse=True)
         travel = {e.data["direction"] for e in events if e.kind == "enter" and e.data.get("direction")}
+        lying = sorted({content.item(k).name for k in room.items})
+        packed = sorted({content.item(k).name for k in player.inventory if content.item(k).kind in ("weapon", "armor")})
         return cls(set(room.exits), opening or bool(arrived and arrived.data.get("first")), " ".join(known).lower(),
-                   things, room.name.lower(), travel)
+                   things, room.name.lower(), travel, lying, packed, any(e.kind in OUTCOMES for e in events))
 
     def _names_room(self, lowered: str) -> bool:
         head = self.room.split()[-1] if self.room else ""
@@ -109,11 +143,22 @@ class Rules:
         ways = self._ways_out(sentence)
         if ways - self.exits - self.travel:
             return f"invents a way {', '.join(sorted(ways - self.exits - self.travel))}"
-        if ways and YOU_CAN.search(sentence) and ways != self.exits:
-            return "lists only some of the exits"
+        if len(ways) > 1 or (ways and YOU_CAN.search(sentence)):  # (the screen shows the ways out)
+            return "lists the ways out"
+        if TAKES.search(sentence):
+            for name in self.lying:
+                if mentions(lowered, name):
+                    return f"takes {name.lower()}, which still lies there"
+        if WEARS.search(sentence):
+            for name in self.packed:
+                if mentions(lowered, name):
+                    return f"puts on {name.lower()}, which is still in the pack"
+        if self.outcome and ENDS.search(sentence):  # (the sentence that says how it ended is never the one to cut)
+            return None
+        said = IDIOM.sub(" ", lowered)
         for name in self.things:  # "the ghost of a plan" and "pale as a ghost" aren't monsters
-            for match in re.finditer(rf"(?<![-\w]){re.escape(name)}s?(?![-\w])(?! of\b)", lowered):
-                if name not in self.known and not SIMILE.search(lowered[:match.start()]):
+            for match in re.finditer(rf"(?<![-\w]){re.escape(name)}s?(?![-\w])(?! of\b)", said):
+                if name not in self.known and not SIMILE.search(said[:match.start()]):
                     return f"invents {name}"
         return None
 

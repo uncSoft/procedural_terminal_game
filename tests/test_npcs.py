@@ -692,7 +692,7 @@ def test_the_glossary_colours_characters_as_friends(content):
     from ptg.glossary import Lexicon, build
 
     state, _ = walk_in(content, "lenny")
-    terms = {t.id: t for t in build(state, content).values()}
+    terms = {t.id: t for t in build(state, content, {"granny_gristle": {}, "goblin": {}}).values()}  # (met, so named)
     assert terms[f"monster:{npcs.LENNY}"].kind == "character" and terms["monster:granny_gristle"].kind == "character"
     assert terms["monster:goblin"].kind == "monster"
     assert "wants his bad tooth back" in terms[f"monster:{npcs.LENNY}"].summary

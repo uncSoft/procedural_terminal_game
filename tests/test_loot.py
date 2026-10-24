@@ -123,4 +123,4 @@ def test_a_slain_monster_drops_what_loot_says(content):
     dropped = next(e for e in events if e.kind == "drop")
     assert dropped.data["item"] == "healing_potion" and "healing_potion" in state.room.items
     assert (dropped.data["how"], dropped.data["to"]) == ("drop", "room")
-    assert dropped.text.endswith("dropped a Healing Potion.")
+    assert dropped.text.endswith("dropped a Healing Potion; it lies on the floor (not picked up).")  # (yet to be taken)

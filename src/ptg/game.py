@@ -26,20 +26,21 @@ from .llm.narrator import narrate
 from .meta import record_end
 from .models import GameState, LogEntry
 from .profile import Profile
-from .rules import (available_actions, locked_doors, perform, perform_creative, perform_flavor, room_facts,
+from .rules import (arrival_facts, available_actions, locked_doors, perform, perform_creative, perform_flavor,
                     unlisted)
 from .story import STORY_KINDS, Library, ProfileView, StoryEngine, load_library
 from .text import the
 
-JOURNAL_SKIP = {"miss", "monster_miss", "stunned", "check", "info", "spend", "fate", "story_seen", "story_mark",
-                "story_context"}
+JOURNAL_SKIP = {"miss", "monster_miss", "stunned", "check", "info", "spend", "fate", "fate_spent", "story_seen",
+                "story_mark", "story_context"}
 QUIET_KINDS = {"perk"}  # resolved without asking the narrator
+MECHANICS = {"fate_spent", "level", "trait"}  # the screen says these (a line, the level-up screen, a banner): not told
 
 
 def narratable(event: Event) -> bool:
     """Story text written in the author's exact words is shown as-is, never re-told by the narrator (nor is what its
     effects did, such as a ghost a [calm] laid to rest)."""
-    if event.data.get("told_by") in ("exact", "silent"):
+    if event.data.get("told_by") in ("exact", "silent") or event.kind in MECHANICS:
         return False
     return event.kind not in STORY_KINDS or (event.kind == "story" and event.data.get("voice") == "narrated")
 
@@ -145,12 +146,11 @@ class Game:
     async def opening(self, on_text: Callable[[str], None]) -> TurnResult:
         room, state = self.state.room, self.state
         where = (f"somewhere in {self.theme.name}" if state.test_room else f"at the entrance of {self.theme.name}")
-        arrival = Event("enter", f"You stand in {the(room.name)}, {where}, floor {state.floor} of "
-                                 f"{state.floors_total}. {room_facts(state, self.content)}",
-                        data={"first": True, "room": room.id})
+        told = f"You stand in {the(room.name)}, {where}. {arrival_facts(state, self.content)}"
+        arrival = Event("enter", told.strip(), data={"first": True, "room": room.id})
         text, error = await narrate(self.llm, self.state, self.content, "", [arrival], self.config.tone, on_text,
                                     opening=True)
-        room.description = text
+        room.description = self.content.archetypes[room.archetype].blurb  # (what the narrator said goes stale)
         self.state.journal.append(f"You arrived in {the(room.name)}, {where.replace('at the', 'the')}.")
         self.state.log.append(self.floor_entry())
         self.state.log.append(LogEntry(kind="narration", text=text))
@@ -297,7 +297,8 @@ class Game:
                 errors.append(error)
         for event in pending.events:
             if event.kind in ("enter", "descend") and event.data.get("first"):
-                state.rooms[event.data["room"]].description = text
+                there = state.rooms[event.data["room"]]
+                there.description = self.content.archetypes[there.archetype].blurb
         state.journal += [e.data.get("journal", e.text) for e in pending.events  # moves: a line, not the whole room
                           if e.kind not in JOURNAL_SKIP and not e.kind.startswith("story")
                           and e.data.get("journal", e.text)]

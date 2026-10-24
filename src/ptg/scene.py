@@ -163,8 +163,9 @@ class RoomView:
         from .rules import bombable_walls  # (rules builds on this module's neighbours: imported when it's needed)
 
         for direction in bombable_walls(state):
-            refs.append(Ref(f"wall:{direction}", "wall", f"{direction} wall", direction, tags=("stone",),
-                            state={"draft": room.draft == direction}))
+            cracked = room.draft == direction  # (a draft through it stays told: the crack is part of the wall now)
+            name = f"cracked {direction} wall" if cracked else f"{direction} wall"
+            refs.append(Ref(f"wall:{direction}", "wall", name, direction, tags=("stone",), state={"draft": cracked}))
         self.refs = refs
         self._by_id = {ref.id: ref for ref in refs}
 

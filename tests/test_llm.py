@@ -279,7 +279,8 @@ async def test_two_phase_turn_and_narration(content, fake_llm, profile):
     game = Game(generate(1), Config(), fake_llm(reply=QUESTION, text="You are fine, mostly."), profile=profile)
     chunks = []
     await game.opening(chunks.append)
-    assert game.state.room.description == "You are fine, mostly."
+    room = game.state.room  # (what the room is, not what was said on the way in: that goes stale)
+    assert room.description == game.content.archetypes[room.archetype].blurb
     pending = await game.begin("how am I doing?")
     assert pending.intent.kind == "question" and pending.primary is None
     result = await game.finish(chunks.append)
@@ -379,17 +380,17 @@ def test_the_narrator_knows_where_the_player_was_and_is(content):
     _, user = narrator_messages(state, content, "go", events, "grim")
     new = the(state.room.name)
     assert f"THIS TURN: the player has just left {the(start.name)} and is now in {new}, a room they have never" in user
-    assert f"({the(start.name)}, where you came from)" in user
     assert "How you described it" not in user
+    for shown in ("Exits:", "In the room:", "On the floor:"):  # (the screen shows the room's things and ways out)
+        assert shown not in user
 
     start.description = "Old words about the first room."
     events = perform(state, content, f"go:{OPPOSITE[direction]}")
     _, user = narrator_messages(state, content, "go back", events, "grim")
-    assert "a room they have been in before" in user and "Old words about the first room." in user
+    assert "a room they have been in before" in user and "Old words" not in user  # (never replayed)
 
     _, user = narrator_messages(state, content, "look around", [], "grim")
-    assert f"THIS TURN: the player is in {the(start.name)}." in user and "Exits: " in user
-    assert "Old words" not in user  # the old description only comes back on re-entry
+    assert f"THIS TURN: the player is in {the(start.name)}." in user and "Exits:" not in user
 
 
 def test_exits_say_what_lies_beyond(content):

@@ -24,11 +24,23 @@ def test_terms_cover_monsters_items_features_and_rules(content):
             "A Goblin King is nowhere near. Fate smiles.")
     hits = found(lexicon, text)
     assert hits["giant rat"] == "monster:giant_rat" and hits["rats"] == "monster:giant_rat"
+    assert "goblin king" not in hits  # (not here, not on the floor, never seen: only a name)
     assert hits[head.lower()].startswith("feature:")
     assert hits["healing potion"] == "item:healing_potion"
     assert hits["flask of lamp oil"] == "item:oil_flask"
-    assert hits["goblin king"] == "monster:goblin_king"
+    assert found(Lexicon(build(state, content, {"goblin_king": {}})), text)["goblin king"] == "monster:goblin_king"
     assert hits["fate"] == "rule:fate"
+
+
+def test_a_monster_is_not_found_inside_a_place_name(content):
+    """'Goblin' in 'The Goblin Warren' was coloured as a monster, and clicking it opened the goblin's card."""
+    state = generate(1)
+    state.floor = 2
+    put_monster(state, content, key="goblin")
+    lexicon = Lexicon(build(state, content))
+    text = "You go down the stairs to floor 2, The Goblin Warren. A goblin watches."
+    spans = [(text[s:e], s) for s, e, _ in lexicon.find(text)]
+    assert spans == [("goblin", text.rindex("goblin"))]  # the one watching, not the place
 
 
 def test_short_names_only_for_things_nearby(content):

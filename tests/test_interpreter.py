@@ -451,7 +451,7 @@ async def test_what_you_carry_says_your_bombs_and_keys(content, profile):
     state.player.bombs, state.player.keys = 2, 1
     game = Game(state, Config(backend="offline"), None, profile=profile)
     result = await game.act("what am I carrying?", lambda _: None)
-    assert "Bombs: 2. Small keys: 1." in result.narration
+    assert "2 bombs" in result.narration and "1 small key" in result.narration
 
 
 def test_a_calm_creature_is_never_said_to_be_about_to_attack(content):

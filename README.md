@@ -25,15 +25,18 @@ You hurl the vial with theatrical precision and it shatters against the ghoul's 
 | **World generator** (code) | Builds a three-floor descent from a seed. Each floor is a different dungeon: rooms on a grid with floor plans, stairs guarded by a warden, shrines, trapped chests, fountains, elites, one secret per floor, and the boss behind a locked door on the last floor. Same seed, same run. |
 | **Rules** (code) | List the legal actions each turn (the numbered choices) and resolve everything with d20 rolls: combat, telegraphed heavy blows, dodging, fleeing, searching, fixtures, leveling. |
 | **Interpreter** (model) | Turns free text into JSON: one of the listed actions, a use of one thing on another (what's done, with what, to what: "throw the cheese at the ghoul", by the ids of what's in the room and what you carry), or a *creative* attempt with a stat, a difficulty, the props it uses, and effects from a fixed menu (stun, small damage, pacify, evade, reveal a secret...). The rules check the props exist, clamp the effects, roll the dice and apply them. "Summon a dragon" fails; "throw sand in its eyes" might stun it. Plain commands skip the model (a keyword matcher reads them the same way); handing something over, or anything said to a character, is the model's to read too. |
-| **Narrator** (model) | Gets the list of facts that actually happened and streams a few sentences of prose. It can't change the game state, so it can't make up loot or kill monsters. |
+| **Narrator** (model) | Gets the list of facts that actually happened and streams a few sentences of prose. It tells what happened, not what the screen already shows: the room's things, who's here and the ways out are on the stage and in Here, so it names one only when something happens to it. It can't change the game state, so it can't make up loot or kill monsters. |
 
-Each turn sends the model a small snapshot, not an ever-growing chat log, so local models stay fast: about 1-2 seconds a turn with Qwen3.6-35B-A3B in LM Studio. The snapshot reads oldest first: the floor, a few one-line notes on what happened before this turn, where the player was and is now (and whether they've been here before), the room as it stands with what lies beyond each exit, and what happened there before (rooms remember the
-monster you killed, the chest you opened, the statue you toppled), and the facts of this turn.
+Each turn sends the model a small snapshot, not an ever-growing chat log, so local models stay fast: about 1-2 seconds a turn with Qwen3.6-35B-A3B in LM Studio. The snapshot reads oldest first: the floor, a few one-line notes on what happened before this turn, where the player was and is now (and whether they've been here before), the room's mood and what happened there before (rooms remember the
+monster you killed, the chest you opened, the statue you toppled), and the facts of this turn, with the numbers the screen shows (damage, HP,
+XP, counts, dice) left out.
 
 Smaller local models slip, so the narration is checked against the facts a sentence at a time as it streams
 (`src/ptg/llm/guard.py`). A sentence is left out if it echoes the prompt, talks about "the player" or being an AI,
-puts choices to the player, calls a room it has never seen familiar, invents an exit, item or monster, or runs past
-the length asked for; if nothing survives, the facts are narrated instead. To see how a model copes:
+puts choices to the player, calls a room it has never seen familiar, invents an exit, item or monster, lists the
+ways out, says you took what still lies on the floor (or put on what's still in your pack), or runs past the length asked
+for (the sentence that says how a fight ended is never cut for a name); if nothing survives, the facts are narrated
+instead, with the numbers left off. To see how a model copes:
 
 ```bash
 uv run python -m ptg.llm.check                                          # the model in your Settings

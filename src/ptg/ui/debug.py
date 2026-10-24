@@ -47,7 +47,7 @@ from ..llm.openai_compat import OpenAICompatLLM
 from ..models import GameState, Player
 from ..sprites import DEATH_FRAMES, DEFAULT_WIDTH, SMALL, frame_count, has_small, side_by_side, sprite_text
 from ..story import StoryError, StoryEvent, load_library, reload_library
-from ..text import mid_sentence
+from ..text import tell
 from .panels import Panel
 
 POSES = ("idle", "windup", "dizzy", "calm", "lunge", "shake", "death")
@@ -387,7 +387,7 @@ class MonstersTab(TableTab):
                  pairs([("HP", m.hp), ("Defense", m.defense), ("Attack", m.attack), ("Damage", m.damage),
                         ("XP", m.xp), ("Tags", listed(m.tags, "-")), ("Weak to", listed(m.weak, "-")),
                         ("Thinks", "yes: it can be talked to" if m.intelligent else "no"),
-                        ("Heavy blow", f"it {mid_sentence(m.tell)}"),
+                        ("Heavy blow", tell(m.name, m.tell)),
                         ("Lives in", listed(lives(m.key, m.tags, m.ghost, themes), "-")),
                         ("Drawn by", credit_line(self.credits.get(m.key)))])]
         if m.desc:

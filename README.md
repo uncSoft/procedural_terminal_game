@@ -63,7 +63,8 @@ It scores ten typed commands and five narrated moments, shows what the guard wou
 - **Pick one of three perks** at each level-up (Ruthless, Acrobatics, Vampiric, Glass Cannon...).
 - **Traits earned by how you play**: talk monsters down and you become *Silver Tongue*; win with props and you become a *Showboat*; dodge enough and you become a *Duelist*.
 - See what's through a door before you go: the map and choices show stairs `>`, shrines `†`, chests `■` and fountains `◊` ahead.
-- **Things that do things.** Beyond their numbers, some items have powers, on their cards and tiles: Weighted Dice add 1 to every roll you make, a Torch 1 to searching, the Ten-Foot Pole 2 to picking locks and disarming traps; the Mysterious Floppy Disk maps the whole floor when you pick it up; flasks, holy water and the odd grenade can be thrown in a fight (and are gone); a Laser Pointer or a Rubber Duck costs a monster its next attack, once a fight; a Glow Stick lights up anything hidden in a room. Some are a mixed blessing.
+- **Things that do things.** Beyond their numbers, some items have powers, on their cards and tiles: Weighted Dice add 1 to every roll you make, a Torch 1 to searching, the Ten-Foot Pole 2 to picking locks and disarming traps; the Mysterious Floppy Disk maps the whole floor when you pick it up; flasks, holy water and the odd grenade can be thrown in a fight (and are gone); a Laser Pointer or a Rubber Duck costs a monster its next attack, once a fight; a Glow Stick lights up anything hidden in a room. Some are a mixed blessing. Some change your stats while you carry them (Lenny's Bad Tooth: +1 might, -1 wits; the Unusual Butter: +1 to everything and 5 more max HP), Swoogy's Diaper keeps monsters' hits 2 lighter but costs max HP every floor, and eating a Jar o' Light in a fight makes the monster flee.
+- **Characters, not just monsters** (most made by the kids in the maker). **Lucky Lenny** turns up calm in some runs: a goblin knocked his bad tooth out with a pan, and it's hidden on his floor or the one before. Ask him and he points you to it; give it back and he yanks out his good one for you (+1 to every roll). **Swoogy the Gooey** waits in some secret rooms with a die: guess his number and his diaper is yours; guess wrong and he charges up his flaps, so calm him down with something you carry (gold, a potion, anything), fight him (he's strong), or get away and come back. **King Mouse** guards the stairs on floor 2 now and then, and leaves his vest. Some monsters have tricks: **Baby Joey** grabs your food (or gold) and runs off with it unless you stop him, and **Swamp Bottoms**' vines stop you running away.
 - **Rare things.** Some items never lie about on a floor or drop from an everyday monster: they're kept in chests, hidden stashes, each floor's secret room, shops, and by the warden at the stairs (always) or an elite (sometimes), and each turns up at most once a run. The floor caps how good a warden's is, so the best come deeper, and from secret rooms. A warden with nothing rare left to give carries a small key.
 - **Bombs and small keys** (● and ⚷ by your hearts). You start with a bomb; monsters drop bombs and keys now and then, elites more often. A chest opens three ways: a small key (safe), picking its lock (agility: fail and a needle gets you) or smashing it (might: fail and what's inside breaks). A bomb thrown in a fight always goes off.
 - **A secret room on every floor**, sealed until you bomb a wall into it. It's only ever built in a gap in the map that touches two rooms or more, so you can work out where it might be, and only those walls offer a bomb. Search a room next to it and you may feel a draft. There's one a floor: once it's open, no wall is worth a bomb. Finding it is a moment: a bang, a fanfare, a banner across the story, and the room in gold on the map, `{✧}`, from then on.
@@ -233,11 +234,17 @@ first, then an item of it (so adding five tier-3 potions doesn't make tier 3 fiv
 up from floor 1, tier 2 deeper, and the best of each kind in hidden stashes and floor-3 chests; the debug screen's
 Items tab (F12) says where each item can turn up.
 
-An item tagged `rare`, or given a `found` list in `items.toml` (`chest`, `stash`, `secret`, `warden`, `shop`, or a
-monster's key for one that drops it), only turns up there, at most once a run. Shops also sell what chests keep. A
-monster tagged `npc` (the shopkeepers) never turns up as one of the dungeon's monsters; it's only where it's put. An item's `powers` are what it does beyond its
-numbers (`powers = ["luck"]`); `src/ptg/powers.py` lists them. The maker doesn't set either yet; importing a changed
-item keeps what the game already gave it.
+An item tagged `rare`, or given a `found` list in `items.toml` (`chest`, `stash`, `secret`, `warden`, `shop`, `quest`
+for one a character gives you, or a monster's key for one that drops it), only turns up there, at most once a run.
+Shops also sell what chests keep. An item's `powers` are what it does beyond its numbers (`powers = ["luck"]`), and
+`stats` what carrying it does to yours (`stats = {might = 1, wits = -1}`, `max_hp` too); `src/ptg/powers.py` lists
+the powers. A monster's `tricks` are what it does in a fight beyond hitting you (`tricks = ["steal"]`, or `tangle`).
+The maker doesn't set these yet; importing a changed item or monster keeps what the game already gave it.
+
+A monster tagged `npc` (the maker's NPC box) is a character, not one of the dungeon's monsters: it never attacks on
+sight, and turns up calm on some floors to be talked to and asked (Lucky Lenny and Swoogy have their own places and
+stories, in `src/ptg/npcs.py`, which also says how often everyone turns up). One tagged `guardian` only ever guards
+the stairs (King Mouse).
 
 **An inbox instead of (or as well as) GitHub**: set `inbox.url` in `docs/maker/config.json` and the page gets a
 "Send to inbox" button that posts each creation there: a Discord webhook gets a message with the link, anything

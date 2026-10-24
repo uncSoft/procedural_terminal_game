@@ -428,3 +428,80 @@ intelligent = true
 weak = ["shiny", "water"]
 tell = "cups a claw around her candle and screeches, \"NO TAKE CANDLE!\""
 desc = "Granny Gristle's cousin from the deep tunnels. She'll sell you anything except the candle. No take candle!"
+
+# drawn by BelleDaBest (2026-10-23)
+[monster.lucky_lenny]
+name = "Lucky Lenny"
+hp = 8
+defense = 12
+attack = 3
+damage = "1d6"
+xp = 10
+tier = 1
+tags = ["undead", "unemployed", "poor", "npc"]
+intelligent = true
+weak = ["sharp", "sticky", "loud", "elevators", "fish"]
+tell = "WOAH WOAH WOAH WOAH"
+desc = "Lennys cousin is a leprechaun but ironically unlucky.  He got his tooth knocked out by a goblin pan, now he has a gold crown in it's place."
+
+# drawn by BelleDaBest (2026-10-23)
+[monster.baby_joey]
+name = "Baby Joey"
+hp = 7
+defense = 12
+attack = 3
+damage = "1d6"
+xp = 26
+tier = 1
+tags = ["undead", "hungry", "named"]
+intelligent = true
+weak = ["loud", "heavy", "sharp", "fire"]
+tricks = ["steal"]
+tell = "Gimme dat!!"
+desc = "I don't think Joey is a baby but if you get close enough you might get robbed..."
+
+# drawn by BelleDaBest (2026-10-23)
+[monster.king_mouse]
+name = "King Mouse"
+hp = 100
+defense = 15
+attack = 11
+damage = "1d12+4"
+xp = 42
+tier = 1
+tags = ["beast", "giant", "bossy", "guardian", "named"]
+intelligent = true
+weak = ["paper", "slippery", "sticky"]
+tell = "squeeeeeeeEEAKKK!!!"
+desc = "VEERY BIG MOUSE!!! BEWARE THE CLAWS! (boss)"
+
+# drawn by ItsmeCermm (2026-10-24)
+[monster.swoogy_the_gooey]
+name = "Swoogy The Gooey"
+hp = 100
+defense = 18
+attack = 15
+damage = "2d6+3"
+xp = 120
+tier = 4
+tags = ["giant", "npc"]
+intelligent = true
+weak = ["shiny", "fire", "heavy", "loud", "showers", "hygeine"]
+tell = "Swoogy charges up his flaps..."
+desc = "A strong whiff hits your nose... A manchild's scent\n\nHe hides in secret rooms and loves a guessing game: get the number on his die right and his prized underwear is yours. Get it wrong and he gets VERY cranky."
+
+# drawn by BelleDaBest (2026-10-24)
+[monster.swamp_bottoms]
+name = "Swamp Bottoms"
+hp = 8
+defense = 12
+attack = 3
+damage = "1d6"
+xp = 10
+tier = 1
+tags = ["aquatic"]
+intelligent = true
+weak = ["heavy", "sharp", "sticky", "fire", "food", "pants", "socks"]
+tricks = ["tangle"]
+tell = "Somethings Comin'!!!!"
+desc = "Shorts found in the jungle and swamps.  If you get to close to his swamp you might get tangled in his jungle vines..."

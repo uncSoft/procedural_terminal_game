@@ -298,6 +298,7 @@ footer { color: var(--dim); font-size: 13px; text-align: center; padding: 16px; 
           <label class="field half"><span>More weaknesses</span>
             <input class="input" data-f="weak_extra" placeholder="salt, music" autocomplete="off"></label>
           <label class="field toggle"><input type="checkbox" data-f="intelligent"> Can be reasoned with: talked down, bribed or bluffed</label>
+          <label class="field toggle"><input type="checkbox" data-f="npc"> An NPC: someone to talk to, not a monster to fight (turns up calm now and then)</label>
           <label class="field"><span>Heavy-attack tell <small>(the warning before a heavy blow: "The Bog Cantor …")</small></span>
             <input class="input" data-f="tell" maxlength="100" placeholder="draws a deep, gurgling breath" autocomplete="off"></label>
           <label class="field"><span>Description <small>(what it looks like and how it behaves; the narrator reads this)</small></span>
@@ -865,7 +866,7 @@ function applyItemDefaults() {
 $("tier-defaults").addEventListener("click", () => { applyMonsterDefaults(); showDetails(); refreshPreview(); saveSoon(); });
 $("item-defaults").addEventListener("click", () => { applyItemDefaults(); showDetails(); refreshPreview(); saveSoon(); });
 
-function knownTags(field) { return field === "weak" ? WEAKNESSES : current.type === "monster" ? Object.keys(KINDS) : ITEM_TAGS; }
+function knownTags(field) { return field === "weak" ? WEAKNESSES : current.type === "monster" ? [...Object.keys(KINDS), "npc"] : ITEM_TAGS; }
 function bindInputs() {
   document.querySelectorAll("[data-f]").forEach(input => {
     input.addEventListener("input", () => {
@@ -873,6 +874,8 @@ function bindInputs() {
       if (key === "tags_extra" || key === "weak_extra") {
         const field = key === "tags_extra" ? "tags" : "weak", known = knownTags(field);
         f[field] = [...(f[field] || []).filter(t => known.includes(t)), ...tagList(input.value).filter(t => !known.includes(t))];
+      } else if (key === "npc") {  // a tag, not a field of its own
+        f.tags = [...(f.tags || []).filter(t => t !== "npc"), ...(input.checked ? ["npc"] : [])];
       } else if (input.type === "checkbox") {
         f[key] = input.checked;
         if (key === "escape") { if (input.checked) delete f.heal; else applyItemDefaults(); showDetails(); }
@@ -900,6 +903,7 @@ function showDetails() {
     const key = input.dataset.f;
     if (key === "tags_extra") input.value = (f.tags || []).filter(t => !knownTags("tags").includes(t)).join(", ");
     else if (key === "weak_extra") input.value = (f.weak || []).filter(t => !WEAKNESSES.includes(t)).join(", ");
+    else if (key === "npc") input.checked = (f.tags || []).includes("npc");
     else if (input.type === "checkbox") input.checked = !!f[key];
     else input.value = f[key] === undefined || f[key] === null ? "" : f[key];
     if (key === "damage") input.classList.toggle("bad", !!input.value && !DICE.test(input.value));
@@ -926,6 +930,7 @@ function describe(type, f) {
     const parts = [`Tier ${f.tier}`, `${f.hp ?? "?"} HP`, `defense ${f.defense ?? "?"}`, `attack +${f.attack ?? "?"}`, `${f.damage || "?"}`];
     if (f.weak && f.weak.length) parts.push(`weak to ${f.weak.join(", ")}`);
     if (f.intelligent) parts.push("intelligent");
+    if ((f.tags || []).includes("npc")) parts.push("an NPC");
     return parts.join(" · ");
   }
   const power = f.kind === "weapon" ? `damage ${f.damage || "?"}` : f.kind === "armor" ? `+${f.defense ?? "?"} defense`

@@ -14,6 +14,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Callable
 
+from . import npcs, powers
 from .config import Config, save_game
 from .content import Content, load_content
 from .events import Action, Event
@@ -168,7 +169,8 @@ class Game:
                 intent, shown, error = Intent(kind="action", action_id=chosen.id, difficulty="trivial"), chosen.label, None
             else:
                 intent, error = await interpret(self.llm, self.state, self.content, raw,
-                                                self.actions + things_here(self.state, self.content))
+                                                self.actions + things_here(self.state, self.content)
+                                                + npcs.unlisted(self.state, self.content))
                 shown = raw
         if error:
             errors.append(error)
@@ -231,6 +233,7 @@ class Game:
         else:
             story_turn = False
         if story_turn:
+            powers.settle_stats(state, self.content)  # (a story can give or take things)
             pending.intent, pending.events = intent, events
             return
         if intent.kind == "action":
@@ -242,6 +245,7 @@ class Game:
         else:
             events = []
         events += self.story.after_turn(state, events)
+        powers.settle_stats(state, self.content)
         pending.intent = intent
         pending.events = events
 

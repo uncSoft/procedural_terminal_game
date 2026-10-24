@@ -8,7 +8,7 @@ from . import dice, loot, powers
 from .content import Content
 from .events import Event
 from .models import GameState, MonsterState
-from .text import a, cap, mid_sentence, the
+from .text import a, cap, mid_sentence, tell, the
 
 INTENT_WEIGHTS = {
     "boss": {"strike": 45, "heavy": 40, "guard": 15},
@@ -30,8 +30,8 @@ def choose_intent(rng: random.Random, monster: MonsterState, content: Content) -
 def telegraph(state: GameState, content: Content) -> list[Event]:
     monster = state.room.monster
     if monster and monster.hostile and monster.intent == "heavy":
-        tell = mid_sentence(content.monster(monster.key).tell)  # makers sometimes write it as a sentence
-        return [Event("telegraph", f"{cap(the(monster.name))} {tell}. A heavy blow is coming!")]
+        wind_up = tell(monster.name, content.monster(monster.key).tell).rstrip(" .")  # (the kids shout theirs)
+        return [Event("telegraph", f"{wind_up}{'' if wind_up.endswith(('!', '?', '\"')) else '.'} A heavy blow is coming!")]
     return []
 
 
@@ -185,6 +185,9 @@ def monster_turn(state: GameState, content: Content, rng: random.Random) -> list
     monster_def = content.monster(monster.key)
     monster.guarding = False
     dodging, player.dodging = player.dodging, False
+    player.tangled = False  # (a tangle lasts until the monster's next go)
+    if monster.stolen_item or monster.stolen_gold:
+        return _getaway(state, content, monster)
     if monster.stunned > 0:
         monster.stunned -= 1
         monster.intent = "strike"
@@ -223,14 +226,54 @@ def monster_turn(state: GameState, content: Content, rng: random.Random) -> list
     rolls = 2 if intent == "heavy" else (2 if roll.crit else 1)  # heavy blows and crits don't stack
     damage = sum(dice.roll(monster_def.damage, rng) for _ in range(rolls))
     damage += monster.damage_mod
+    reek = powers.holders(state, content, "reeks")
+    if reek:  # it doesn't want to get close
+        damage = max(1, damage - 2)
     player.hp = max(0, player.hp - damage)
     how = "lands a crushing heavy blow on you" if intent == "heavy" else (
         "lands a vicious critical hit on you" if roll.crit else "hits you")
+    held_off = f" ({cap(the(reek[0].name))} keeps it at arm's length.)" if reek else ""
     events = [Event("monster_hit", f"{cap(the(monster.name))} {how} for {damage} damage "
-                                   f"({player.hp}/{player.max_hp} HP left).", dice=roll, data={"damage": damage})]
+                                   f"({player.hp}/{player.max_hp} HP left).{held_off}", dice=roll,
+                    data={"damage": damage})]
     if player.hp == 0:
         events += _death_or_reprieve(state, monster)
+    if not state.over:
+        events += _tricks(state, content, rng, monster, monster_def)
     return events + ([] if state.over else telegraph(state, content))
+
+
+def _tricks(state: GameState, content: Content, rng: random.Random, monster: MonsterState, monster_def) -> list[Event]:
+    """What a monster with tricks does when it hits you (see content.TRICKS): grab something, or tangle you up."""
+    player, events = state.player, []
+    if "steal" in monster_def.tricks and not (monster.stolen_item or monster.stolen_gold):
+        food = [k for k in player.inventory if "food" in content.item(k).tags]
+        if food:
+            monster.stolen_item = rng.choice(food)
+            player.inventory.remove(monster.stolen_item)
+            what = the(content.item(monster.stolen_item).name)
+        elif player.gold:
+            monster.stolen_gold = min(player.gold, rng.randint(5, 10) * state.floor)
+            player.gold -= monster.stolen_gold
+            what = f"{monster.stolen_gold} of your gold"
+        else:
+            what = ""
+        if what:
+            events.append(Event("steal", f"{cap(the(monster.name))} grabs {what} and gets ready to run! Stop it "
+                                         "now, or it's gone.", data={"item": monster.stolen_item}))
+    if "tangle" in monster_def.tricks:
+        player.tangled = True
+        events.append(Event("tangle", f"{cap(the(monster.name))}'s vines wrap round your legs: no running away "
+                                      "until it's had its next go."))
+    return events
+
+
+def _getaway(state: GameState, content: Content, monster: MonsterState) -> list[Event]:
+    """A thief with something of yours runs off with it, on its next go if you didn't stop it."""
+    what = the(content.item(monster.stolen_item).name) if monster.stolen_item else f"your {monster.stolen_gold} gold"
+    state.room.monster = None
+    state.room.remember(f"{the(monster.name)} ran off with {what}")
+    return [Event("getaway", f"{cap(the(monster.name))} scampers off into the dark with {what}!")]
 
 
 def _death_or_reprieve(state: GameState, monster: MonsterState) -> list[Event]:
@@ -335,6 +378,13 @@ def defeat(state: GameState, content: Content, rng: random.Random, how: str = "s
         healed = min(3, player.max_hp - player.hp)
         player.hp += healed
         events.append(Event("heal", f"Vampiric: you drink in {healed} HP."))
+    if monster.stolen_gold:  # what a thief grabbed, back where it belongs
+        player.gold += monster.stolen_gold
+        events.append(Event("loot", f"You get your {monster.stolen_gold} gold back."))
+    if monster.stolen_item:
+        room.items.append(monster.stolen_item)
+        events.append(Event("drop", f"{cap(the(monster.name))} drops your {content.item(monster.stolen_item).name}.",
+                            data={"item": monster.stolen_item}))
     if how == "slain":
         gold = rng.randint(1, 6) * monster_def.tier * (2 if monster.elite else 1)
         player.gold += gold

@@ -10,11 +10,15 @@ from functools import lru_cache
 from importlib import resources
 from typing import Callable, Literal
 
+from . import text
 from .powers import POWERS
 
 # Where an item with `found` may turn up (see loot.py): a chest, a hidden stash, a floor's secret room, or the warden
 # by the stairs (or any elite). An item can also name the monster that drops it.
-FOUND_IN = ("chest", "stash", "secret", "warden", "shop")
+FOUND_IN = ("chest", "stash", "secret", "warden", "shop", "quest")
+TRICKS = {"steal": "grabs your food (or gold) and runs off with it next turn, unless you stop it",
+          "tangle": "its hits tangle you up: no running away until its next go"}
+STATS = ("might", "agility", "wits", "max_hp")  # what a carried item's `stats` can change
 
 
 @dataclass(frozen=True)
@@ -53,6 +57,7 @@ class ItemDef:
     desc: str = ""
     powers: list[str] = field(default_factory=list)  # what it does beyond its numbers (see powers.py)
     found: list[str] = field(default_factory=list)  # the only places it turns up, if it's that rare (see loot.py)
+    stats: dict[str, int] = field(default_factory=dict)  # what carrying it does to your stats: {might = 1, wits = -1}
 
 
 @dataclass(frozen=True)
@@ -72,17 +77,24 @@ class MonsterDef:
     weak: list[str] = field(default_factory=list)
     tell: str = "winds up a powerful attack"
     desc: str = ""  # what it looks like and how it behaves, in its creator's words (the narrator gets it too)
+    tricks: list[str] = field(default_factory=list)  # what it does in a fight beyond hitting you (TRICKS)
     art: str = ""
 
     @property
     def npc(self) -> bool:
-        """Tagged `npc` (a shopkeeper, say): never one of the dungeon's monsters, only where it's put."""
+        """Tagged `npc` (a shopkeeper, Lucky Lenny): never one of the dungeon's monsters, only where it's put."""
         return "npc" in self.tags
 
     @property
+    def named(self) -> bool:
+        """A character with a name of its own, which takes no article: "Lucky Lenny", "Granny Gristle"."""
+        return self.npc or "named" in self.tags
+
+    @property
     def roams(self) -> bool:
-        """One of the dungeon's ordinary monsters: not a boss, a ghost or someone who isn't a monster at all."""
-        return not (self.boss or self.ghost or self.npc)
+        """One of the dungeon's ordinary monsters: not a boss, a ghost, someone who isn't a monster at all, or a
+        `guardian` that only ever guards the stairs (King Mouse: see npcs.py)."""
+        return not (self.boss or self.ghost or self.npc or "guardian" in self.tags)
 
 
 @dataclass(frozen=True)
@@ -157,12 +169,12 @@ SCHEMAS: dict[str, dict[str, tuple[str, bool]]] = {
     "item": {"name": ("text", True), "kind": ("item_kind", True), "damage": ("dice", False),
              "defense": ("count", False), "heal": ("count", False), "escape": ("bool", False),
              "tier": ("count", False), "tags": ("names", False), "desc": ("text", False),
-             "powers": ("powers", False), "found": ("names", False)},
+             "powers": ("powers", False), "found": ("names", False), "stats": ("stats", False)},
     "monster": {"name": ("text", True), "hp": ("positive", True), "defense": ("count", True),
                 "attack": ("int", True), "damage": ("dice", True), "xp": ("count", True), "tier": ("tier", True),
                 "tags": ("names", False), "intelligent": ("bool", False), "boss": ("bool", False),
                 "ghost": ("bool", False), "weak": ("names", False), "tell": ("text", False),
-                "desc": ("text", False)},
+                "desc": ("text", False), "tricks": ("tricks", False)},
     "perk": {"name": ("text", True), "desc": ("text", True), "color": ("color", False)},
     "unlock": {"name": ("text", True), "icon": ("text", True), "cost": ("count", True), "desc": ("text", True),
                "item": ("name", False), "requires": ("name", False)},
@@ -193,6 +205,11 @@ def _value_error(kind: str, value: object) -> str:
         "color": (value in COLORS, f"must be one of {', '.join(COLORS)}"),
         "powers": (isinstance(value, list) and all(v in POWERS for v in value),
                    f"must be a list of powers the game knows: {', '.join(POWERS)}"),
+        "stats": (isinstance(value, dict) and all(k in STATS and isinstance(v, int) and not isinstance(v, bool)
+                                                  for k, v in value.items()),
+                  f"must be stats and whole numbers, like {{might = 1, wits = -1}} (stats: {', '.join(STATS)})"),
+        "tricks": (isinstance(value, list) and all(v in TRICKS for v in value),
+                   f"must be a list of tricks the game knows: {', '.join(TRICKS)}"),
     }
     ok, message = checks[kind]
     return "" if ok else message
@@ -295,6 +312,7 @@ def build_content(read: Callable[[str], str] = _read) -> Content:
         splash = ""
 
     content = Content(themes, archetypes, items, monsters, perks, unlocks, keyword_tags, splash)
+    text.NAMED.update(m.name for m in monsters.values() if m.named)
     if not problems:  # cross-checks only make sense once every entry is well-formed
         problems += _cross_check(content)
     if problems:

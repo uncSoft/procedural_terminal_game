@@ -39,6 +39,10 @@ class MonsterState(BaseModel):
     ghost_of: str = ""
     distracted: bool = False  # something has drawn its eye once this fight (a distract power)
     asked: bool = False  # you've asked it what it knows about this floor (once: see rules._ask)
+    mood: str = ""  # where an NPC's story has got to (see npcs.py): Lenny's "tooth", Swoogy's "challenge"...
+    secret: int = 0  # the number on Swoogy's die, while you guess
+    stolen_item: str = ""  # what a thief grabbed and means to run off with (a steal trick: see combat.monster_turn)
+    stolen_gold: int = 0
 
 
 class Feature(BaseModel):
@@ -135,6 +139,8 @@ class Player(BaseModel):
     evaded_rooms: list[str] = Field(default_factory=list)
     second_wind_floor: int = 0
     last_breath_used: bool = False
+    item_stats: dict[str, int] = Field(default_factory=dict)  # what carried things add to your stats now (powers.py)
+    tangled: bool = False  # caught in a monster's vines: no running until it's had its next go (a tangle trick)
 
     @property
     def attack_bonus(self) -> int:

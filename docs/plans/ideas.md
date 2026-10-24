@@ -22,7 +22,24 @@ is and where its fight happens (a fourth floor? a hidden door on the last one?),
 ## Combat polish
 
 Special moves for enemies, and polish around fights generally. A session card was proposed for it ("Combat polish:
-special moves for enemies"). It starts with a design for you to agree before any code.
+special moves for enemies"). It starts with a design for you to agree before any code. A start: monsters can have
+`tricks` now (Baby Joey's `steal`, Swamp Bottoms' `tangle`: see `content.TRICKS` and `combat._tricks`).
+
+## Floors 4 to 6
+
+The next set of floors, after the first three. King Mouse belongs there: the kids made him with 100 HP and 1d12+4,
+three times a final boss, so for now he only guards the stairs on floor 2 now and then, cut down to size
+(`npcs.KING_MOUSE_SIZE`: on floor 1 he ended too many runs, and on floor 2 anything bigger than the usual guard
+cost the bot about 3 points of its win rate). His own numbers stay in `monsters.toml` for when the deeper floors exist.
+
+## The kids' characters, next
+
+- **How often:** Lucky Lenny, Swoogy and King Mouse turn up often while the kids try them out. Turn them down in
+  `npcs.ODDS` once they've met them (Lenny about 1 run in 3, Swoogy about 1 secret room in 4 felt right).
+- **The maker can't set `stats`, `powers`, `found` or `tricks`,** so the kids' rules in descriptions ("-1 wit, +1
+  might") still need wiring by hand when they're imported.
+- **Swoogy talked down** with a hard wits roll leaves his diaper, as any monster talked down leaves what it keeps.
+  Paying him off doesn't.
 
 ## Your ghost's secret
 

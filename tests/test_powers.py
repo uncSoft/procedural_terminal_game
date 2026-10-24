@@ -116,5 +116,5 @@ def test_a_glow_stick_shows_everything_hidden(content):
 
 def test_every_power_is_described(content):
     for item in content.items.values():
-        assert len(powers.describe(item)) == len(item.powers)
+        assert len(powers.describe(item)) == len(item.powers) + bool(item.stats)  # (and a line for stats)
     assert set(powers.SHORT) == set(powers.POWERS)

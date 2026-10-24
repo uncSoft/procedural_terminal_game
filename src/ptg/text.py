@@ -3,21 +3,40 @@
 from __future__ import annotations
 
 
+# Names that take no article: characters, not things ("Lucky Lenny", not "the Lucky Lenny"). content.load_content
+# fills it from the monsters tagged npc or named.
+NAMED: set[str] = set()
+
+
 def the(name: str) -> str:
     lower = name.lower()
     for article in ("the ", "a ", "an "):
         if lower.startswith(article):
             return "the " + name[len(article):]
-    return name if _owned(name) else "the " + name
+    return name if _owned(name) or name in NAMED else "the " + name
 
 
 def a(name: str) -> str:
     lower = name.lower()
     if lower.startswith(("the ", "a ", "an ")):
         return name[:1].lower() + name[1:]  # "A Ring, Probably Important" mid-sentence
-    if _owned(name):
+    if _owned(name) or name in NAMED:
         return name
     return ("an " if lower[:1] in "aeiou" else "a ") + name
+
+
+def tell(name: str, words: str) -> str:
+    """A monster winding up, as its maker wrote it: after its name ("The Troll rips a slab out of the wall"), as a
+    sentence of its own when it names itself ("Swoogy charges up his flaps..."), or yelled when it's a shout ("Baby
+    Joey yells, "Gimme dat!!"")."""
+    words = words.strip()
+    first = words.split()[0].strip(".,!?'\"").lower() if words else ""
+    if first and first in {w.lower() for w in name.split() if w.lower() not in ("the", "a", "an")}:
+        return words
+    letters = [c for c in words if c.isalpha()]
+    if words.endswith("!") or (letters and all(c.isupper() for c in letters)):
+        return f'{cap(the(name))} yells, "{words}"'
+    return f"{cap(the(name))} {mid_sentence(words)}"
 
 
 def _owned(name: str) -> bool:

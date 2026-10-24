@@ -59,7 +59,7 @@ def test_slots_read_tiers_and_keep_some_items_by_name(content):
 def test_a_slot_with_one_item_gives_it_without_a_roll(content):
     rng = random.Random(5)
     before = rng.getstate()
-    assert loot.pick(rng, content, "weapon 1") == "hand_axe"
+    assert loot.pick(rng, content, "weapon 2") == "war_pick"
     assert rng.getstate() == before  # so a seed's dungeon only changes where there's something new to choose
 
 

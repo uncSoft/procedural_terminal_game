@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import random
 
-from . import dice, layout, loot, powers
+from . import dice, layout, loot, npcs, powers
 from .combat import (bomb_monster, discover, distract, dodge, flee, flee_direction, fortune, monster_turn,
                      player_attack, telegraph, throw, what_is_left)
 from .content import Content, ItemDef
@@ -78,9 +78,10 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
         actions.append(Action("attack", f"Attack {the(monster.name)}", "it's guarding" if monster.guarding else ""))
         actions.append(Action("dodge", "Dodge", "counter the heavy blow!" if monster.intent == "heavy" else ""))
         for item in consumables:
-            if item.escape or player.hp < player.max_hp:
+            if item.escape or player.hp < player.max_hp or "dazzle" in item.powers:
                 verb = "Throw" if item.escape else heal_verb(item)
-                actions.append(Action(f"use:{item.key}", f"{verb} {the(item.name)}", how_many(player, item.key)))
+                hints = [how_many(player, item.key), "it glows!" if "dazzle" in item.powers else ""]
+                actions.append(Action(f"use:{item.key}", f"{verb} {the(item.name)}", " · ".join(filter(None, hints))))
         for item in (content.item(k) for k in _distinct(player.inventory)):
             if "throw" in item.powers:
                 actions.append(Action(f"throw:{item.key}", f"Throw {the(item.name)} at {the(monster.name)}",
@@ -90,7 +91,8 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
                                       "once a fight"))
         if player.bombs:
             actions.append(Action("bomb", f"Throw a bomb at {the(monster.name)}", f"{player.bombs} left"))
-        if flee_direction(state):
+        actions += npcs.actions(state, content)  # an angry Swoogy can still be calmed down
+        if flee_direction(state) and not player.tangled:
             actions.append(Action("flee", "Try to flee"))
         return actions
 
@@ -104,9 +106,11 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
     actions += _fixture_actions(state, content)
     if room.monster:
         monster = room.monster
+        actions += npcs.actions(state, content)  # Lucky Lenny's tooth, Swoogy's game
         if not monster.asked:
             talks = content.monster(monster.key).intelligent
-            actions.append(Action("ask", f"Ask {the(monster.name)} what it knows" if talks
+            knows = "they know" if content.monster(monster.key).named else "it knows"
+            actions.append(Action("ask", f"Ask {the(monster.name)} what {knows}" if talks
                                   else f"Watch {the(monster.name)} for a while", "wits"))
         actions.append(Action("attack", f"Attack {the(monster.name)}", "it's calm"))
     theme = content.themes[state.theme]
@@ -229,7 +233,8 @@ def perform(state: GameState, content: Content, action_id: str) -> list[Event]:
     """Resolve one engine action. Unknown or impossible actions return an info event and cost nothing."""
     if state.over:
         return []
-    if action_id not in {a.id for a in available_actions(state, content)} and not off_the_list(state, action_id):
+    if action_id not in {a.id for a in available_actions(state, content)} and \
+            not off_the_list(state, content, action_id):
         return [Event("info", "You can't do that right now.")]
     rng = _rng(state)
     was_in_combat, room_before = state.in_combat, state.room_id
@@ -280,6 +285,8 @@ def perform(state: GameState, content: Content, action_id: str) -> list[Event]:
         events = _fixture(state, content, rng, verb)
     elif verb == "descend":
         events = _descend(state, content)
+    elif verb in ("lenny", "swoogy", "guess", "appease"):
+        events = npcs.perform(state, content, rng, verb, arg)
     else:
         return [Event("info", "You can't do that right now.")]
     return finish_turn(state, content, rng, events, took_turn, was_in_combat, room_before)
@@ -312,6 +319,7 @@ def finish_turn(state, content, rng, events, took_turn, was_in_combat, room_befo
         # what a monster dropped and you pocket at once is told with its drop, not after a level-up (run 44)
         after_drops = max((i + 1 for i, e in enumerate(events) if e.kind == "drop"), default=len(events))
         events[after_drops:after_drops] = collect(state, content)
+    powers.settle_stats(state, content)  # what you carry now, in your stats
     return events
 
 
@@ -503,8 +511,15 @@ def room_facts(state: GameState, content: Content) -> str:
             elite = " It looks unusually dangerous." if monster.elite else ""
             lines.append(f"{cap(the(monster.name))} is here ({layout.where(room.monster_pos)}) and hostile. "
                          f"A fight begins.{elite}")
+        elif content.monster(monster.key).npc:
+            lines.append(f"{cap(the(monster.name))} is here ({layout.where(room.monster_pos)}).")
         else:
             lines.append(f"{cap(the(monster.name))} is here, but no longer wants to fight.")
+        told = npcs.facts(state, content)
+        if told:
+            lines.append(told)
+        if state.player.tangled:
+            lines.append(f"Your legs are tangled in {the(monster.name)}'s vines: you can't run this turn.")
     if room.history:
         lines.append("Earlier here: " + "; ".join(room.history) + ".")
     return " ".join(lines)
@@ -652,7 +667,8 @@ def _ask(state: GameState, content: Content, rng: random.Random) -> list[Event]:
     monster, player = state.room.monster, state.player
     monster.asked = True
     talks = content.monster(monster.key).intelligent
-    hidden = _hidden_things(state)
+    tooth = npcs.tooth_spot(state) if monster.key == npcs.LENNY and monster.mood == "tooth" else None
+    hidden = [tooth] if tooth else _hidden_things(state)  # Lenny knows where his tooth went
     weak = _weak_spots(state, content) if talks else []
     if not (hidden or weak):  # nothing it could tell you, so nothing to roll for
         return [Event("ask", f"{cap(the(monster.name))} doesn't know anything about this floor that you don't." if talks
@@ -807,12 +823,15 @@ def shop_facts(shop, content: Content) -> str:
             f"unless crossed. About her: {keeper.desc} On her counter: {wares}.")
 
 
-def off_the_list(state: GameState, action_id: str) -> bool:
+def off_the_list(state: GameState, content: Content, action_id: str) -> bool:
     """What may be done now that isn't one of the numbered choices: picking up any one thing lying here (by its card
-    in the story, or by saying so), and buying or haggling at a shop's counter (its own screen does those)."""
+    in the story, or by saying so), buying or haggling at a shop's counter (its own screen does those), and handing an
+    angry Swoogy anything you carry."""
     verb, _, arg = action_id.partition(":")
     if verb == "take":
         return arg in state.room.items and not state.in_combat
+    if verb == "appease":  # anything of yours, to calm Swoogy down
+        return action_id in {a.id for a in npcs.unlisted(state, content)}
     shop = state.room.shop
     return verb in ("buy", "barter") and shop is not None and not state.in_combat and arg.isdigit() \
         and int(arg) < len(shop.wares)
@@ -864,15 +883,30 @@ def _use(state: GameState, content: Content, rng: random.Random, key: str) -> tu
         return [Event("use", f"You hurl {the(item.name)} at your feet. Thick smoke fills the room."
                              f"{what_is_left(player, key)}")] + flee(
             state, content, rng, guaranteed=True), True
-    if player.hp >= player.max_hp:
+    glows = "dazzle" in item.powers and state.in_combat
+    if player.hp >= player.max_hp and not glows:
         return [Event("info", f"You're not hurt, so you keep {the(item.name)}.")], False
     heal = round(item.heal * (1.5 if "alchemist" in player.perks else 1))
     healed = min(heal, player.max_hp - player.hp)
     player.hp += healed
     player.inventory.remove(key)
     verb = heal_verb(item).lower()
-    return [Event("heal", f"You {verb} {the(item.name)} and recover {healed} HP ({player.hp}/{player.max_hp})."
-                          f"{what_is_left(player, key)}")], True
+    events = [Event("heal", f"You {verb} {the(item.name)} and recover {healed} HP ({player.hp}/{player.max_hp})."
+                            f"{what_is_left(player, key)}")]
+    return events + (_dazzle(state, content) if glows else []), True
+
+
+def _dazzle(state: GameState, content: Content) -> list[Event]:
+    """Glowing like a lantern (a dazzle power): the monster flees the room, no reward for it. A boss, or a guardian at
+    the stairs, stands its ground."""
+    monster = state.room.monster
+    monster_def = content.monster(monster.key)
+    if monster_def.boss or "guardian" in monster_def.tags or state.room.fixture == "stairs" or monster.ghost_of:
+        return [Event("dazzle", f"You glow like a lantern, but {the(monster.name)} only squints at you and stands its "
+                                "ground.")]
+    state.room.monster = None
+    state.room.remember(f"your glow sent {the(monster.name)} running")
+    return [Event("dazzle", f"You glow like a lantern! {cap(the(monster.name))} shrieks and flees the room in terror.")]
 
 
 def _open_chest(state: GameState, content: Content, rng: random.Random, how: str) -> list[Event]:

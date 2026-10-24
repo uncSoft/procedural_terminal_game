@@ -406,3 +406,100 @@ tags = ["heavy", "wit", "storytelling", "blackthorn"]
 powers = ["eloquent"]
 found = ["shop"]
 desc = "A knurled blackthorn stick, polished smooth where a hand gripped it through a thousand tellings. Whoever carries it tells a better story: +1 wit in conversation. Nobody down here knows who Mama was, but every one of them has heard of her."
+
+# drawn by BelleDaBest (2026-10-23)
+[item.davy_j_skull]
+name = "Davy J. Skull"
+kind = "weapon"
+damage = "1d8"
+tier = 1
+tags = ["throwable", "sharp", "scary"]
+desc = "R.I.P Davy Jones.  Too scary for all the \"kids\" in here."
+
+# drawn by BelleDaBest (2026-10-23)
+[item.lenny_s_good_tooth]
+name = "Lenny's Good Tooth"
+kind = "trinket"
+tier = 1
+tags = ["shiny", "smelly", "lucky", "sharp"]
+desc = "Lenny's good tooth...... \"*POP*, don't need this anymore\" - Lucky Lenny (+1 luck)"
+powers = ["luck"]
+found = ["quest"]
+
+# drawn by BelleDaBest (2026-10-23)
+[item.lenny_s_bad_tooth]
+name = "Lenny's Bad Tooth"
+kind = "trinket"
+tier = 1
+tags = ["smelly", "sharp", "sticky", "broken"]
+desc = "Lenny's Bad Tooth..\"OOOH This stinks\" -The Last Adventurer..... (-1 wit, +1 might)"
+stats = {might = 1, wits = -1}
+found = ["quest"]
+
+# drawn by ItsmeCermm (2026-10-23)
+[item.unusual_butter]
+name = "Unusual Butter"
+kind = "trinket"
+tier = 3
+tags = ["buttery", "food", "shiny", "lucky", "throwable"]
+desc = "This is no ordinary butter, you could even say its \"exotic\". +1 to all stats and +5 hp"
+stats = {might = 1, agility = 1, wits = 1, max_hp = 5}
+found = ["chest", "secret"]
+
+# drawn by BelleDaBest (2026-10-23)
+[item.jar_o_light]
+name = "Jar o' Light"
+kind = "consumable"
+heal = 5
+tier = 1
+tags = ["light", "lucky", "shiny", "bright", "food"]
+desc = "A glass jar packed with rare, glowing cave insects.  Eating it makes you glow, causing all nearby enemies to flee in terror."
+powers = ["dazzle"]
+
+# drawn by BelleDaBest (2026-10-23)
+[item.hard_hat]
+name = "Hard Hat"
+kind = "armor"
+defense = 1
+tier = 1
+tags = ["shiny", "bright", "hard", "plastic"]
+desc = "Some ol' coal miners hat...."
+powers = ["seeker"]
+
+# drawn by ItsmeCermm (2026-10-24)
+[item.pickle]
+name = "Pickle"
+kind = "consumable"
+heal = 8
+tier = 1
+tags = ["food", "throwable", "smelly"]
+desc = "If it looks like a pickle and tickles like a pickle, it's probably a cucumber"
+
+# drawn by BelleDaBest (2026-10-24)
+[item.pizza_rat]
+name = "Pizza Rat"
+kind = "consumable"
+heal = 6
+tier = 1
+tags = ["food", "smelly", "throwable", "light", "flappy", "hot"]
+desc = "PIZZA!!!... wait I have to eat both?  Long way down the evolution line of King Mouses servants...(+8 for pizza -2 for rat)"
+
+# drawn by BelleDaBest (2026-10-24)
+[item.king_mouses_vest]
+name = "King Mouses Vest"
+kind = "armor"
+defense = 2
+tier = 1
+tags = ["cloth", "rare"]
+desc = "Deafeted King Mouse clothing.  YOU ARE INEVITABLE!!!"
+found = ["king_mouse"]
+
+# drawn by ItsmeCermm (2026-10-24)
+[item.swoogy_s_diaper]
+name = "Swoogy's Diaper"
+kind = "trinket"
+tier = 3
+tags = ["sticky", "smelly", "lucky", "heavy", "throwable"]
+desc = "Fully loaded.\n\n-2 Health Per Floor when held\n-2 damage per from enemy hits - this thing reeks and they don't want to be that close to you."
+powers = ["cursed", "reeks"]
+found = ["swoogy_the_gooey"]

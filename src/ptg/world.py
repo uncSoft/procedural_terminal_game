@@ -6,7 +6,7 @@ from __future__ import annotations
 import random
 from collections import deque
 
-from . import dice, layout, loot
+from . import dice, layout, loot, npcs
 from .content import Content, load_content
 from .models import (DELTA, DIRECTIONS, FLOORS, OPPOSITE, Exit, Feature, GameState, MonsterState, Player, Room, Shop,
                      Ware)
@@ -75,6 +75,7 @@ def build_floor(state: GameState, content: Content) -> None:
     shop = _shop(state, content, rooms, end_id)
     if shop:
         rooms.append(shop)
+    npcs.place(state, content, rooms, end_id)  # Lucky Lenny, Swoogy, King Mouse at the stairs...
 
     for room in rooms:
         layout.build(dice.stream(state.seed, "layout", state.floor, room.id), room,

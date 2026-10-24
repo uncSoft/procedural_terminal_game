@@ -183,6 +183,7 @@ KEYS = (("F2 i", "inventory"), ("F3 c", "character"), ("F4 l", "look at the room
         ("Esc Esc", "the title (saved)"), ("Ctrl+Q", "quit"))
 MORE_KEYS = (("F1-F7", "in any panel too: that panel instead"),
              ("F12", "debug: the library, art, sounds, story, the game's state, and a model check"),
+             ("PgUp PgDn", "read back through the story"),
              ("Ctrl+L", "redraw the screen (if letters or art ever come out garbled)"),
              ("n s e w", "go north, south, east or west"))
 MOUSE = ("Click a choice, a coloured word, a picture (for its card), or the dice (once to roll, again to carry on).",

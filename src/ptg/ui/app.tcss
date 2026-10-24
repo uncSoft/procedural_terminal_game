@@ -332,6 +332,17 @@ Clickable:hover {
     height: auto;
 }
 
+.turn-marker {
+    height: 0;
+    margin: 0;
+    padding: 0;
+}
+
+.pickup-line {
+    color: $success;
+    text-style: bold;
+}
+
 .system-line {
     color: $warning;
     text-style: italic;

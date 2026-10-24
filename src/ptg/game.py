@@ -25,6 +25,7 @@ from .llm.interpreter import guessed, interpret, scene_choice
 from .llm.narrator import narrate
 from .meta import record_end
 from .models import GameState, LogEntry
+from .outcome import verdict
 from .profile import Profile
 from .rules import (arrival_facts, available_actions, locked_doors, perform, perform_creative, perform_flavor,
                     unlisted)
@@ -273,8 +274,9 @@ class Game:
         self.pending, self._snapshot = None, None
         state.log.append(LogEntry(kind="player", text=pending.shown))
         for event in pending.events:
-            if event.roll:
-                state.log.append(LogEntry(kind="mechanic", text=event.roll))
+            if event.roll:  # (with the badge's word, as shown: "- fail" read as one on a search that cost nothing)
+                said = f"{event.dice.describe(verdict=False)}  {verdict(event)}"
+                state.log.append(LogEntry(kind="mechanic", text=said))
         if any(e.kind == "descend" for e in pending.events):
             state.log.append(self.floor_entry())
         for event in pending.events:

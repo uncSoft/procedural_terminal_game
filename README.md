@@ -348,7 +348,7 @@ The first launch opens Settings: pick LM Studio, Ollama, another OpenAI-compatib
 | F12 | | the debug screen |
 | Ctrl+L | | redraw the screen |
 
-Esc closes a panel, and F1-F7 in one switch to that panel instead (its own key closes it); in the story, press Esc twice for the title screen (your game is saved). A level-up's cards can wait: close them and the perks stay among the choices. Panels keep their size while they're open, whatever you pick in them, and they, the dice and the campfire fit a terminal as small as 80x24.
+Esc closes a panel, and F1-F7 in one switch to that panel instead (its own key closes it); PgUp and PgDn read back through the story, which follows each turn from its start (a taller turn stays put at its command, with the picture under it); in the story, press Esc twice for the title screen (your game is saved). A level-up's cards can wait: close them and the perks stay among the choices. Panels keep their size while they're open, whatever you pick in them, and they, the dice and the campfire fit a terminal as small as 80x24.
 
 Everything works with a mouse too: click a choice, an arrow on the pad, a highlighted word, a picture (for its card), loot in the story (to take it) or the dice (once to roll, again to carry on), and close a panel with its ✕ or a click outside it. Type `n`, `s`, `e` or `w` to go that way.
 

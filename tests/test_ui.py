@@ -181,7 +181,7 @@ def told_since(story, start: int) -> list[str]:
     """What the story has shown since its `start`th piece, by kind."""
     kinds = ("player-line", "floor-header", "secret-banner", "room-row", "story-sprite", "loot-row", "narration")
     return [next((k for k in kinds if k in widget.classes), type(widget).__name__)
-            for widget in list(story.children)[start:]]
+            for widget in list(story.children)[start:] if not widget.has_class("turn-marker")]
 
 
 async def take_choice(app, pilot, screen, action_id: str) -> None:
@@ -600,7 +600,8 @@ async def test_a_new_floor_waits_for_you():
         assert isinstance(app.screen, GameScreen) and game.state.floor == 2
         assert len(screen.query(".floor-header")) == 1  # a new page: floor 1's story is in the save, not on screen
         assert [e.kind for e in game.state.log].count("floor") == 2
-        assert str(screen.query_one("#story").children[0].render()) == "> descend"  # this turn, at the top
+        first = next(w for w in screen.query_one("#story").children if not w.has_class("turn-marker"))
+        assert str(first.render()) == "> descend"  # this turn, at the top
         lines = list(screen.query_one("#story").children)
         header, card = screen.query(".floor-header").last(), screen.query(".room-card").last()
         assert str(card.border_title) == f"✦ {game.state.room.name}"  # the new floor's first room, under its banner

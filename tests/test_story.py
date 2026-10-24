@@ -10,7 +10,7 @@ from ptg.story import ProfileView, StoryEngine, StoryError, load_files, load_lib
 from ptg.ui.app import PTGApp
 from ptg.ui.game_screen import GameScreen
 from ptg.ui.hub import HubScreen
-from ptg.ui.widgets import AnimatedSprite
+from ptg.ui.widgets import Picture, PictureClock
 from ptg.world import generate
 
 def library(content, *texts):
@@ -116,6 +116,26 @@ def test_spawn_starts_a_fight_and_ends_the_scene(content):
     assert state.scene is not None
     engine.choose(state, 0)
     assert state.scene is None and state.in_combat and state.room.monster.key == "goblin"
+
+
+def test_give_and_take_go_through_the_pack_and_your_gear(content):
+    """[give] made no card and tossed your old sword on the floor; [take] missed your gear and counters (F74)."""
+    lib = library(content, story("id: gift\nwhen: turn", "A gift. [give war_pick] [give leather_jerkin]"),
+                  story("id: thief\nwhen: turn", "A thief! [take leather_jerkin] [take bomb] [take oil_flask]"))
+    engine = StoryEngine(lib, content)
+    state = generate(1)
+    state.room.monster = None
+    events = engine.force(state, "gift")
+    assert state.player.weapon == "rusty_sword" and "war_pick" in state.player.inventory and not state.room.items
+    assert state.player.armor == "leather_jerkin"  # (nothing on: on it goes)
+    cards = [e for e in events if e.data.get("item")]
+    assert [(e.data["item"], e.data["how"]) for e in cards] == [("war_pick", "story"), ("leather_jerkin", "story")]
+    assert not any(narratable(e) for e in cards)  # its card and the event's own words tell it
+    bombs = state.player.bombs
+    events = engine.force(state, "thief")
+    assert state.player.armor is None and state.player.bombs == bombs - 1
+    effect = next(e for e in events if e.kind == "story_effect").text
+    assert "lost the Leather Jerkin" in effect and "you had no Flask of Lamp Oil to lose" in effect
 
 
 # --- through the Game: magic words, scenes, persistence ----------------------------------
@@ -247,11 +267,11 @@ async def test_scene_in_the_ui_and_the_book_of_secrets():
         while screen.busy:
             await pilot.pause(0.1)
         card = screen.query_one(".story-card")
-        assert [sprite.key for sprite in card.query(AnimatedSprite)] == ["mirror"]
+        assert [picture.key for picture in card.query(Picture)] == ["mirror"]
         assert screen.query_one("#choices").border_title == "✧ The Mirror Trial"
         await pilot.press("2", "enter")  # lower your weapon
         await pilot.pause(0.5)
-        assert card.query_one(AnimatedSprite)._timer is None  # the old card's mirror stands still now
+        assert card.query_one(Picture) in PictureClock.of(app).pictures  # the old card's mirror moves on (in sight)
         await pilot.press("2", "enter")  # leave it be
         await pilot.pause(0.5)
         assert screen.game.state.scene is None and "mirror_trial" in app.profile.secrets()
@@ -362,3 +382,95 @@ def test_placeholder_mistakes_are_caught(content, text, message):
     with pytest.raises(StoryError) as error:
         library(content, text)
     assert message in str(error.value)
+
+
+# --- the characters' stories (W8) ---------------------------------------------------------------------------------
+
+def test_a_story_reads_and_moves_a_characters_story(content):
+    """A story card could hand Lenny his tooth, but nothing told npcs.py: he stayed 'tooth', and the narrator kept
+    sending you looking for it (F34). Now 'npc' reads a character's stage and [npc] moves it, and him with it."""
+    from ptg import npcs, testrooms
+    from ptg.rules import available_actions, room_facts
+
+    lib = library(content, story("id: tooth_back\nwhen: turn\nif: npc lucky_lenny met; has lenny_s_bad_tooth",
+                                 "He grins. [take lenny_s_bad_tooth] [give lenny_s_good_tooth] [npc lucky_lenny done]"),
+                  story("id: never_met\nwhen: turn\nif: not npc lucky_lenny", "Who's Lenny?"))
+    engine = StoryEngine(lib, content)
+    state = testrooms.build(content, "lenny", "new", seed=4)
+    assert engine._eligible(state, lib.get("never_met"), {}) is False  # (found his tooth: the story knows of him)
+    state.quests.clear()
+    assert engine._eligible(state, lib.get("never_met"), {})
+    state.room_id = testrooms.target(state).id
+    lenny = state.room.monster
+    assert not engine._eligible(state, lib.get("tooth_back"), {})
+    state.quests[npcs.LENNY] = "met"  # (as walking in on him does)
+    assert [e.text for e in engine.after_turn(state, []) if e.kind == "story"] == ["He grins."]
+    assert state.quests[npcs.LENNY] == "done" and lenny.mood == "happy" and npcs.GOOD_TOOTH in state.player.inventory
+    assert "has his bad tooth back" in room_facts(state, content)
+    assert "lenny" not in [a.id for a in available_actions(state, content)]
+
+
+def test_npc_angry_and_calmed_set_how_they_stand(content):
+    from ptg import npcs
+
+    lib = library(content, story("id: cross\nwhen: turn", "Swoogy sees red. [npc swoogy_the_gooey angry]"),
+                  story("id: soothe\nwhen: turn", "He calms. [npc swoogy_the_gooey calmed]"))
+    engine = StoryEngine(lib, content)
+    state = generate(3)
+    state.room.monster = npcs.sized(content, npcs.SWOOGY, 1, npcs.SWOOGY_SIZE, hostile=False, mood="challenge")
+    engine.force(state, "cross")
+    assert state.in_combat and state.room.monster.mood == "angry" and state.room.monster.intent == "heavy"
+    engine.force(state, "soothe")
+    assert not state.in_combat and state.room.monster.mood == "calmed" and npcs.stage(state, npcs.SWOOGY) == "calmed"
+
+
+def test_meet_and_gain_triggers(content):
+    """There was no trigger for meeting a character, nor for finding a thing (F34)."""
+    from ptg import testrooms
+    from ptg.models import DELTA
+    from ptg.rules import perform
+
+    lib = library(content, story("id: hello_lenny\nwhen: meet lucky_lenny", "A sad little man waves."),
+                  story("id: anyone\nwhen: meet", "Someone's here."),
+                  story("id: mouse\nwhen: meet king_mouse", "Squeak."),
+                  story("id: toothy\nwhen: gain lenny_s_bad_tooth", "Ew."))
+    engine = StoryEngine(lib, content)
+    state = testrooms.build(content, "lenny_quest", "new", seed=4)
+    here, there = state.room, testrooms.target(state)
+    way = next(d for d, (dx, dy) in DELTA.items() if (here.x + dx, here.y + dy) == (there.x, there.y))
+    fired = engine.after_turn(state, perform(state, content, f"go:{way}"))
+    assert [e.text for e in fired if e.kind == "story"] == ["A sad little man waves.", "Someone's here."]
+    state.room.items.append("lenny_s_bad_tooth")
+    state.room.features = [f for f in state.room.features if "lenny_s_bad_tooth" not in f.loot]
+    fired = engine.after_turn(state, perform(state, content, "take:lenny_s_bad_tooth"))
+    assert [e.text for e in fired if e.kind == "story"] == ["Ew."]
+
+
+@pytest.mark.parametrize("text,message", [
+    (story("id: x\nwhen: turn\nif: npc lenny done"), "'lenny' isn't a monster key"),
+    (story("id: x\nwhen: turn\nif: npc lucky_lenny happy"), "lucky_lenny's stages are unknown, found_item, met"),
+    (story("id: x\nwhen: turn", "Hi. [npc swoogy_the_gooey]"), "[npc] takes 2 argument(s)"),
+    (story("id: x\nwhen: turn", "Hi. [npc swoogy_the_gooey sulking]"), "swoogy_the_gooey's stages are"),
+    (story("id: x\nwhen: meet lucky_lennie"), "unknown monster 'lucky_lennie' for 'when: meet'"),
+    (story("id: x\nwhen: gain a_golden_toaster"), "unknown item 'a_golden_toaster' for 'when: gain'"),
+    (story("id: x\nwhen: meet lucky_lenny swoogy_the_gooey"), "'meet' takes one monster's key at most"),
+])
+def test_character_story_mistakes_are_caught(content, text, message):
+    with pytest.raises(StoryError) as error:
+        library(content, text)
+    assert message in str(error.value)
+
+
+async def test_the_documented_whose_tooth_card_fires(content, profile):
+    """docs/writing-events.md's example: found before you've met him, his tooth has its card."""
+    from ptg import npcs
+
+    lib = library(content, story("id: whose_tooth\ntitle: Whose Tooth?\nwhen: gain lenny_s_bad_tooth\n"
+                                 "if: npc lucky_lenny found_item", "Scratched into the tooth: PROPERTY OF LENNY."))
+    g = game(profile, lib, seed=3)
+    g.state.room.monster = None
+    g.state.room.items.append(npcs.BAD_TOOTH)
+    await g.begin("take the bad tooth")
+    result = await g.finish(lambda _: None)
+    assert [e.text for e in result.events if e.kind == "story"] == ["Scratched into the tooth: PROPERTY OF LENNY."]
+    assert result.narration == "You take Lenny's Bad Tooth."  # (quiet: no narrator, the cards say the rest)

@@ -10,7 +10,9 @@ from textual import on, work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
+from textual.geometry import Size
 from textual.screen import Screen
+from textual.widget import Widget
 from textual.widgets import Button, Footer, Static, TabbedContent, TabPane
 
 from .. import sound
@@ -18,9 +20,9 @@ from ..content import Content, Unlock, load_content
 from ..meta import SUNGLASSES, daily_seed, share_card, souls_earned
 from ..models import GameState
 from ..profile import Profile
-from ..sprites import sprite_text
+from ..sprites import DEFAULT_WIDTH, SMALL, engrave, frames, sprite_text
 from ..story import load_library
-from .widgets import Clickable
+from .widgets import TALL, Clickable, Picture
 
 CAMPFIRE = r"""
        )   (
@@ -47,6 +49,25 @@ CROWN = r"""
     \  *  *  /
      \______/
 """.strip("\n")
+CROWN_GLINT = [0, 1, 2, 3] + [4] * 8  # the pixel crown's frames: a glint sweeps across it, then it rests a while
+END_WIDTH = 76  # the end screen's box (#end-box in app.tcss), border and padding included
+
+
+def tombstone(name: str, floor: int, width: int = DEFAULT_WIDTH) -> Text | None:
+    """The pixel tombstone with the name and floor carved into it (a half-size one has room for just R.I.P.), or None
+    without sprites (then it's TOMBSTONE)."""
+    found = frames("tombstone", width)
+    if not found:
+        return None
+    return engrave(found[0], {2: "R.I.P.", 4: name[:14], 5: f"floor {floor}"} if width == DEFAULT_WIDTH else
+                   {2: "R.I.P."})
+
+
+def rows(widget: Widget, width: int) -> int:
+    """How many rows a widget takes `width` columns wide, its own border and padding included."""
+    gutter = widget.styles.gutter
+    size = Size(width, 0)
+    return widget.get_content_height(size, size, width - gutter.width) + gutter.height
 
 
 class UnlockCard(Button):
@@ -58,7 +79,11 @@ class UnlockCard(Button):
 
 
 class HubScreen(Screen):
-    """The campfire. Spend souls, pick a gift, read the Hall of Legends, and go back down."""
+    """The campfire. Spend souls, pick a gift, read the Hall of Legends, and go back down.
+
+    Everything keeps its place: the cards scroll in their tabs, what the one you pick does shows in a pane of its own
+    height under them, and the buttons to go back down stay at the bottom. On a short screen the fire burns smaller,
+    so the Hall of Legends keeps a few lines."""
 
     BINDINGS = [Binding("d", "descend", "Descend"), Binding("y", "daily", "Daily"), Binding("escape", "back", "Title")]
 
@@ -73,15 +98,16 @@ class HubScreen(Screen):
             with Vertical(id="hub-left"):
                 with TabbedContent(id="hub-tabs"):
                     with TabPane("Blessings", id="tab-blessings"):
-                        yield Grid(id="grid-blessing", classes="unlock-grid")
+                        yield VerticalScroll(Grid(id="grid-blessing", classes="unlock-grid"))
                     with TabPane("Gifts", id="tab-gifts"):
-                        yield Grid(id="grid-gift", classes="unlock-grid")
+                        yield VerticalScroll(Grid(id="grid-gift", classes="unlock-grid"))
                     with TabPane("Secrets", id="tab-secrets"):
                         yield VerticalScroll(Static("", id="secrets-list"))
-                yield Static("", id="unlock-detail")
-                yield Button("", id="unlock-action", variant="primary")
+                with Vertical(id="unlock-pane"):
+                    yield Static("", id="unlock-detail")
+                    yield Button("", id="unlock-action", variant="primary")
             with Vertical(id="hub-right"):
-                yield Static(Text(CAMPFIRE, style="bold #ff7b2e"), id="campfire")
+                yield Picture("campfire", flicker=True, ascii=Text(CAMPFIRE, style="bold #ff7b2e"), id="campfire")
                 yield Static(Text("The Void stirs...", style="italic #9a9cc0"), id="void-line")
                 yield Static("", id="hub-souls")
                 yield VerticalScroll(Static("", id="legends"), id="legends-box")
@@ -95,14 +121,10 @@ class HubScreen(Screen):
         self.query_one("#legends-box").border_title = "Hall of Legends"
         self.refresh_all()
         self.speak()
-        self.fire_frame = 0
-        self._flicker()
-        self.set_interval(0.2, self._flicker)
 
-    def _flicker(self) -> None:
-        self.fire_frame += 1
-        art = sprite_text("campfire", self.fire_frame) if self.app.config.art == "sprites" else None
-        self.query_one("#campfire", Static).update(art or Text(CAMPFIRE, style="bold #ff7b2e"))
+    def on_resize(self) -> None:
+        """The fire at full size on a tall screen, half size on a short one."""
+        self.query_one("#campfire", Picture).fit(DEFAULT_WIDTH, None if self.size.height >= TALL else SMALL // 2)
 
     def on_screen_resume(self) -> None:
         self.refresh_all()
@@ -194,17 +216,21 @@ class HubScreen(Screen):
         self.show_detail(self.selected)
 
     def show_detail(self, unlock: Unlock | None) -> None:
+        """What the card you've picked does (it's marked as picked), and what you can do about it, in the pane under
+        the tabs."""
+        for card in self.query(UnlockCard):
+            card.set_class(unlock is not None and card.unlock.key == unlock.key, "-picked")
         detail = self.query_one("#unlock-detail", Static)
         action = self.query_one("#unlock-action", Button)
         if unlock is None:
             detail.update(Text("Pick a blessing or a gift to see what it does.", style="#6c6f99"))
-            action.display = False
+            action.visible, action.disabled = False, True  # (its place is kept for it)
             return
         unlocked = unlock.key in self.profile.unlocked()
         text = Text(f"{unlock.icon} {unlock.name.upper()}\n", style="bold #ffb000")
         text.append(unlock.desc, style="#c8c8e0")
         detail.update(text)
-        action.display = True
+        action.visible = True
         if not unlocked:
             action.label = f"Unlock for ☽ {unlock.cost}"
             action.disabled = self.profile.souls < unlock.cost
@@ -245,24 +271,31 @@ class HubScreen(Screen):
 
 
 class EndScreen(Screen):
-    """Death or glory: the tombstone (or crown), the epitaph, and the souls you bank."""
+    """Death or glory: the tombstone (or crown), the epitaph, and the souls you bank. It all fits on the screen: on a
+    short one the blank lines between the parts go, then the pixel picture shrinks to half size (see fit)."""
 
     BINDINGS = [Binding("enter,space", "campfire", "To the campfire"), Binding("c", "copy", "Copy result")]
 
     def __init__(self, state: GameState) -> None:
         super().__init__()
         self.state = state
+        self.picture = ""  # the pixel picture's sprite ("crown" or "tombstone"); "" for the ASCII art
+        self.picture_width = DEFAULT_WIDTH
 
     def compose(self) -> ComposeResult:
         state = self.state
         player = state.player
+        key = "crown" if state.status == "won" else "tombstone"
+        self.picture = key if self.app.config.art == "sprites" and frames(key) else ""
         with Vertical(id="end-box"):
             if state.status == "won":
-                yield Static(Text(CROWN, style="bold #ffd166"), classes="end-art")
+                yield Picture("crown", flicker=True, loop=CROWN_GLINT, ascii=Text(CROWN, style="bold #ffd166"),
+                              classes="end-art")
                 yield Static(Text("V I C T O R Y", style="bold reverse #ffd166"), classes="end-title")
             else:
-                stone = TOMBSTONE.format(name=player.name[:14], line=f"floor {state.floor}")
-                yield Static(Text(stone, style="#9aa0c8"), classes="end-art")
+                stone = tombstone(player.name, state.floor) if self.picture else None
+                ascii_stone = TOMBSTONE.format(name=player.name[:14], line=f"floor {state.floor}")
+                yield Static(stone or Text(ascii_stone, style="#9aa0c8"), classes="end-art")
                 yield Static(Text("Y O U   D I E D", style="bold reverse #ff4b4b"), classes="end-title")
             yield Static(Text(f"“{state.epitaph}”", style="italic #e8e8f4"), classes="end-epitaph")
             stats = Text(f"Level {player.level} · {player.kills} slain · {player.style.get('pacify', 0)} talked down · "
@@ -282,6 +315,35 @@ class EndScreen(Screen):
     def on_mount(self) -> None:
         sound.play("victory" if self.state.status == "won" else "death")
         self.tally()
+
+    def on_resize(self) -> None:
+        self.fit()
+
+    def fit(self) -> None:
+        """Fit the whole box on the screen, down to the hint at the bottom: with a blank line between the parts if
+        there's room, else without; with the pixel picture full size if it fits, else half size; and on a tiny
+        screen with no picture at all (past that, the screen scrolls)."""
+        box = self.query_one("#end-box")
+        art = box.query_one(".end-art", Static)
+        # The width inside the box's border and its padding at the sides, as if the screen had a scrollbar (it has
+        # one while the box is too tall, and that narrows the box, which wraps more lines, which keeps it too tall).
+        width = min(END_WIDTH, self.size.width - self.styles.scrollbar_size_vertical) - 6
+        rest = sum(rows(part, width) for part in box.children if part is not art)
+        room = self.size.height - 3  # less the footer and the box's border
+        gaps = sum(isinstance(part, Static) for part in box.children) + 2  # a line under each, and the box's padding
+        if self.picture:
+            tall = {size: sprite_text(self.picture, 0, size).plain.count("\n") + 1 for size in (DEFAULT_WIDTH, SMALL)}
+        else:
+            tall = {0: art.content.plain.count("\n") + 1}  # the ASCII art
+        size = next((size for size, height in tall.items() if rest + height <= room), None)
+        art.display = size is not None
+        box.set_class(rest + tall.get(size, 0) + gaps > room, "-tight")
+        if size and size != self.picture_width:
+            self.picture_width = size
+            if isinstance(art, Picture):  # the crown, glinting
+                art.fit(size)
+            else:
+                art.update(tombstone(self.state.player.name, self.state.floor, size))
 
     @work(exclusive=True)
     async def tally(self) -> None:

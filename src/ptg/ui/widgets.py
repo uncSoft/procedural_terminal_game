@@ -1,4 +1,5 @@
-"""Reusable pieces of the game screen: the HUD, room view, monster card, choice list and inline dice."""
+"""Reusable pieces of the game screen: the HUD, room view, monster card, choice list, inline dice, and Picture, the one
+way anything with a sprite is drawn."""
 
 from __future__ import annotations
 
@@ -6,13 +7,20 @@ import asyncio
 import random
 import textwrap
 from functools import lru_cache
+from typing import NamedTuple
+from weakref import WeakKeyDictionary
 
+from rich.cells import cell_len
 from rich.style import Style
 from rich.text import Text
-from textual.app import ComposeResult
+from textual.app import App, ComposeResult, ScreenStackError
 from textual.containers import Horizontal, Vertical
+from textual.dom import NoScreen
 from textual.events import Click, Leave, MouseMove
 from textual.message import Message
+from textual.screen import Screen
+from textual.timer import Timer
+from textual.types import NoActiveAppError
 from textual.widgets import Static
 
 from .. import layout, loot, powers, sound
@@ -21,7 +29,7 @@ from ..events import Action, Event
 from ..glossary import Lexicon
 from ..models import LEVEL_XP, GameState
 from ..outcome import tone, verdict
-from ..sprites import DEFAULT_WIDTH, GREYS, SMALL, Image, frame_count, image_text, sprite_text
+from ..sprites import DEFAULT_WIDTH, GREYS, SMALL, Image, frames, idle_frames, image_text, sprite_text
 from ..world import render_map
 from . import effects
 from .theme import CELL_STYLES, MAP_STYLES
@@ -31,6 +39,13 @@ TERM_STYLES = {
     "monster": "bold #ff4b4b", "item": "bold #4cff8a", "feature": "bold #ffb000",
     "fixture": "bold #ff4f9a", "room": "#8fa8ff", "rule": "bold #5fe3ff",
 }
+
+# How big the screen is. Every screen, a pop-up's too, gets a class for its width and one for its height (PTGApp's
+# breakpoints) to style itself by in app.tcss: -narrow or -wide, and -tiny, -short or -tall. Code that sizes things
+# goes by the same lines.
+WIDE = 88  # columns from which a screen is -wide: room for two columns side by side
+TALL = 34  # rows from which a screen is -tall: room for a blank line between things (below it, boxes drop them)
+TINY = 28  # rows below which a screen is -tiny (from there to TALL, -short): the smaller pictures, nothing to spare
 
 
 def highlight(text: str, lexicon: Lexicon | None, style: str = "") -> Text:
@@ -95,69 +110,109 @@ def roll_text(event: Event) -> Text:
 
 
 class Hud(Static):
-    """The top status bar: hearts, defense, Fate, gold, souls, bombs and small keys, the boss key, XP and floor."""
+    """The top status bar: hearts, defense, Fate, gold, souls, bombs and small keys, the boss key, XP and floor. On a
+    screen too narrow for all of it, the least of it goes first (see HUD_DROPS), never cut off mid-word."""
+
+    shown: tuple[GameState, Content] | None = None
 
     def show(self, state: GameState, content: Content) -> None:
+        self.shown = (state, content)
         player = state.player
-        text = hearts(player.hp, player.max_hp)
-        text.append(f" {player.hp}/{player.max_hp}", style="bold")
-        text.append("   ⛨ ", style="#6c8cff")
-        text.append(str(player.defense(content)))
-        text.append("   ")
-        for i in range(player.max_fate()):
-            text.append("✦" if i < player.fate else "✧", style="bold #ffd166" if i < player.fate else "#5a5030")
-        text.append("   ¤ ", style="#ffb000")
-        text.append(str(player.gold))
-        text.append("   ☽ ", style="#5fe3ff")
-        text.append(str(state.souls))
-        text.append("   ● ", style="#ff7b39")
-        text.append(str(player.bombs))
-        text.append("   ⚷ ", style="#c0cbdc")
-        text.append(str(player.keys))
+        parts: dict[str, Text] = {}
+        parts["hp"] = hearts(player.hp, player.max_hp)
+        parts["hp"].append(f" {player.hp}/{player.max_hp}", style="bold")
+        parts["defense"] = Text.assemble(("⛨ ", "#6c8cff"), str(player.defense(content)))
+        parts["fate"] = Text.assemble(*[("✦", "bold #ffd166") if i < player.fate else ("✧", "#5a5030")
+                                        for i in range(player.max_fate())])
+        parts["gold"] = Text.assemble(("¤ ", "#ffb000"), str(player.gold))
+        parts["souls"] = Text.assemble(("☽ ", "#5fe3ff"), str(state.souls))
+        parts["bombs"] = Text.assemble(("● ", "#ff7b39"), str(player.bombs))
+        parts["keys"] = Text.assemble(("⚷ ", "#c0cbdc"), str(player.keys))
         if content.themes[state.theme].key_item in player.inventory:
-            text.append("   ♀ key", style="bold #ffb000")
+            parts["boss_key"] = Text("♀ key", style="bold #ffb000")
+        parts["level"] = Text(f"Lv {player.level}", style="bold #ff4f9a")
         next_xp = player.next_level_xp()
-        text.append(f"   Lv {player.level} ", style="bold #ff4f9a")
         if next_xp:
             prev = LEVEL_XP[player.level - 1]
-            text.append(bar(player.xp - prev, next_xp - prev, 8), style="#ff4f9a")
-        theme = content.themes[state.theme]
-        text.append(f"   Floor {state.floor}/{state.floors_total} · {theme.name}", style="bold #6c8cff")
-        text.append(f"   turn {state.turn}", style="#6c6f99")
+            parts["xp"] = Text(bar(player.xp - prev, next_xp - prev, 8), style="#ff4f9a")
+        parts["floor"] = Text(f"Floor {state.floor}/{state.floors_total}", style="bold #6c8cff")
+        parts["theme"] = Text(f"· {content.themes[state.theme].name}", style="bold #6c8cff")
+        parts["turn"] = Text(f"turn {state.turn}", style="#6c6f99")
         if state.daily:
-            text.append(f"   DAILY {state.daily}", style="bold #ff4f9a")
+            parts["daily"] = Text(f"DAILY {state.daily}", style="bold #ff4f9a")
+        room = self.content_region.width or self.app.size.width - 2  # (before it's laid out, about that)
+        for name in HUD_DROPS:
+            if self._width(parts) <= room:
+                break
+            parts.pop(name, None)
+        text = Text()
+        for name, part in parts.items():
+            if text:
+                text.append(" " if name in ("xp", "theme") else "   ")
+            text.append_text(part)
         self.update(text)
 
+    @staticmethod
+    def _width(parts: dict[str, Text]) -> int:
+        return sum(part.cell_len for part in parts.values()) + sum(
+            1 if name in ("xp", "theme") else 3 for name in list(parts)[1:])
 
-def room_text(state: GameState, content: Content, legend: bool = True) -> Text:
+    def on_resize(self) -> None:
+        if self.shown is not None:
+            self.show(*self.shown)
+
+
+HUD_DROPS = ("turn", "theme", "daily", "souls", "xp", "keys", "bombs", "defense")  # the HUD's least, first to go
+
+
+def legend(entries: list[tuple[str, str, str]], width: int | None = None, words: str = "#9a9cc0") -> Text:
+    """A legend of (glyph, its style, what it is): an entry to a line; or, given a `width`, as many to a line as fit,
+    two spaces apart. Either way a glyph is never parted from what it is (a narrow sidebar once split them)."""
+    text = Text()
+    used = 0
+    for glyph, style, label in entries:
+        size = cell_len(f"{glyph} {label}")
+        if text:
+            fits = width is not None and used + 2 + size <= width
+            text.append("  " if fits else "\n")
+            used = used + 2 if fits else 0
+        text.append(glyph, style=style)
+        text.append(f" {label}", style=words)
+        used += size
+    return text
+
+
+def room_text(state: GameState, content: Content, legend_width: int | None = None) -> Text:
+    """The room's floor plan, and under it the legend of what's in it (see legend: `legend_width` packs it)."""
     rows, items = layout.render(state, content)
     text = Text()
     for row in rows:
         for glyph, style in row:
             text.append(glyph, style=CELL_STYLES.get(style, ""))
         text.append("\n")
-    if legend:
-        for glyph, style, label in items:
-            text.append(f"{glyph}", style=CELL_STYLES.get(style, ""))
-            text.append(f" {label}  ", style="#9a9cc0")
+    text.append_text(legend([(glyph, CELL_STYLES.get(style, ""), label) for glyph, style, label in items],
+                            legend_width))
     return text
 
 
-def map_text(state: GameState) -> Text:
+# The floor map's legend, in this order: a mark is listed while it's on the map (see world.map_glyph); "#" and "B"
+# are rooms you've been in and the boss's.
+MAP_LEGEND = (("@", "you"), ("!", "foe"), ("B", "boss"), ("#", "visited"), ("?", "unknown"), (">", "stairs"),
+              ("†", "shrine"), ("■", "chest"), ("◊", "fountain"), ("¤", "shop"), ("$", "a tip"),
+              ("{✧}", "secret room"), ("=", "locked"))
+
+
+def map_text(state: GameState, legend_width: int | None = None) -> Text:
+    """The floor's map, and under it a legend of the marks on it (see legend: `legend_width` packs it)."""
     text = Text()
     lines = render_map(state)
     for line in lines:
         for ch in line:
             text.append(ch, style=MAP_STYLES.get(ch, "#6c6f99"))
         text.append("\n")
-    text.append("@ you ! foe ? unknown\n> stairs † shrine ■ chest ◊ fountain = locked", style="#6c6f99")
-    found = [(glyph, label, style) for mark, glyph, label, style in
-             (("{", "{✧}", "secret room", "$"), ("$", "$", "a tip", "$"), ("¤", "¤", "shop", "¤"))
-             if any(mark in line for line in lines)]
-    for i, (glyph, label, style) in enumerate(found):
-        text.append("\n" if i == 0 else "  ")
-        text.append(glyph, style=MAP_STYLES[style])
-        text.append(f" {label}", style="#6c6f99")
+    marks = [(glyph, MAP_STYLES.get(glyph[0], "#6c6f99"), label) for glyph, label in MAP_LEGEND
+             if any(glyph[0] in line for line in lines)]
+    text.append_text(legend(marks, legend_width, words="#6c6f99"))
     return text
 
 
@@ -171,9 +226,10 @@ def portrait(key: str, content: Content, sprites: bool = True, frame: int = 0, f
 
 
 def monster_pose(monster) -> str:
-    """How a monster stands right now: the sprite shows its state at a glance."""
+    """How a monster stands right now: the sprite shows its state at a glance. Calm, it's just itself, in its own
+    colours (a character always is: the words under it say it's calm)."""
     if not monster.hostile:
-        return "calm"
+        return "idle"
     if monster.stunned:
         return "dizzy"
     if monster.intent == "heavy":
@@ -181,26 +237,43 @@ def monster_pose(monster) -> str:
     return "idle"
 
 
-def monster_text(state: GameState, content: Content, sprites: bool = True, frame: int = 0,
-                 flash: bool = False) -> Text:
+def status_rows(state: GameState, short: bool = False) -> int:
+    """How many lines monster_status always takes: its HP and how it is (not when it's `short`), and what it's weak to
+    with the Lorekeeper's blessing (otherwise that's in the bestiary, F6)."""
+    return (1 if short else 2) + ("lorekeeper" in state.player.blessings)
+
+
+def monster_how(state: GameState, key: str) -> Text:
+    """How a monster is, in a line (empty for a plain fight, or once it's gone): calm, stunned, winding up a heavy
+    blow, guarding."""
     monster = state.room.monster
-    text = portrait(monster.key, content, sprites, frame, flash, "#ff4b4b" if monster.hostile else "#ffd166",
-                    pose=monster_pose(monster))
-    text.append("\n")
-    text.append(bar(monster.hp, monster.max_hp, 18), style="#ff4b4b")
-    text.append(f" {max(0, monster.hp)}/{monster.max_hp}\n")
+    if monster is None or monster.key != key:
+        return Text()
     if not monster.hostile:
-        text.append("calm\n", style="bold #4cff8a")
-    elif monster.stunned:
-        text.append("★ STUNNED\n", style="bold #ffd166")
-    elif monster.intent == "heavy":
-        text.append("⚠ HEAVY ATTACK NEXT · dodge!\n", style="bold #ffb000 reverse")
-    elif monster.guarding:
-        text.append("⛨ guarding (+4 defense)\n", style="bold #6c8cff")
-    known = state.known_weak.get(monster.key, [])
-    if known and "lorekeeper" in state.player.blessings:  # otherwise look it up in the bestiary (F6)
-        text.append("weak to: " + ", ".join(known), style="#5fe3ff")
-    return text
+        return Text("calm", style="bold #4cff8a")
+    if monster.stunned:
+        return Text("★ STUNNED", style="bold #ffd166")
+    if monster.intent == "heavy":  # (the sidebar's 27 columns, to the letter)
+        return Text("⚠ HEAVY ATTACK NEXT · dodge", style="bold #ffb000 reverse")
+    if monster.guarding:
+        return Text("⛨ guarding (+4 defense)", style="bold #6c8cff")
+    return Text()
+
+
+def monster_status(state: GameState, content: Content, key: str, short: bool = False) -> Text:
+    """What's under a monster's portrait in the sidebar: its HP, how it is (see monster_how; left out when it's `short`,
+    for a sidebar with no row to spare, which shows that on its frame) and maybe what it's weak to, a line each and
+    always status_rows of them, whatever it's doing or once it's gone: a fight's flashes and its death go by with the
+    panel holding still. Pass the key of the monster pictured: one no longer here is 0 HP."""
+    monster = state.room.monster
+    hp, max_hp = (monster.hp, monster.max_hp) if monster and monster.key == key else (0, content.monster(key).hp)
+    lines = [Text.assemble((bar(hp, max_hp, 18), "#ff4b4b"), f" {max(0, hp)}/{max_hp}")]
+    if not short:
+        lines.append(monster_how(state, key))
+    if "lorekeeper" in state.player.blessings:
+        known = state.known_weak.get(key, [])
+        lines.append(Text("weak to: " + ", ".join(known), style="#5fe3ff") if known else Text())
+    return Text("\n", no_wrap=True, overflow="ellipsis").join(lines)
 
 
 class ChoiceItem(Static):
@@ -234,8 +307,10 @@ class ChoiceItem(Static):
 
 
 ARROWS = {"north": "▲", "south": "▼", "east": "▶", "west": "◀"}
-# A way out on the pad, by its choice's hint: open, a fixture ahead, danger, locked, or a door you have the key to.
-WAY_STYLES = {"": "bold #5fe3ff", "danger": "bold #ff4b4b", "locked": "#7a3b4c", "boss": "bold #ff4f9a"}
+# A way out on the pad, by its choice's hint: open, a fixture ahead, danger, locked (no key for it: see
+# rules.locked_doors), or a door you have the key to.
+WAY_STYLES = {"": "bold #5fe3ff", "danger": "bold #ff4b4b", "locked": "#7a3b4c", "a locked shop": "#7a3b4c",
+              "boss": "bold #ff4f9a"}
 NO_WAY = "#2e3149"
 
 
@@ -252,8 +327,9 @@ class DPad(Vertical):
                     else:
                         yield Static(Text(cell, style="bold #ffffff"), classes="dpad-gap")
 
-    def show(self, actions: list[Action]) -> None:
-        ways = {a.id[3:]: a for a in actions if a.id.startswith("go:")}
+    def show(self, actions: list[Action], locked: list[Action] | None = None) -> None:
+        """Light the arrows for the choices' ways out, and dimly for the `locked` doors (as the map shows them)."""
+        ways = {a.id[3:]: a for a in [*(locked or []), *actions] if a.id.startswith("go:")}
         for direction, arrow in ARROWS.items():
             key = self.query_one(f"#dpad-{direction}", Clickable)
             way = ways.get(direction)
@@ -276,76 +352,22 @@ class ClickableBox(Vertical):
         await self.run_action(self.action)
 
 
-class AnimatedSprite(Static):
-    """A sprite that animates where it stands: in the story, or on a story card. `loop` picks which frames its
-    idle animation cycles through (all of them by default); `action`, if given, runs when it's clicked (such as
-    "screen.lookup('fixture:chest')", for its card)."""
-
-    def __init__(self, key: str, interval: float = 0.25, loop: list[int] | None = None, width: int = DEFAULT_WIDTH,
-                 action: str | None = None, **kwargs) -> None:
-        self.key = key
-        self.interval = interval
-        self.width = width
-        self.loop = loop or list(range(max(1, frame_count(key))))
-        self.index = 0
-        self._timer = None
-        self.action = action
-        super().__init__(sprite_text(key, self.loop[0], width) or Text(""), **kwargs)
-
-    def on_mount(self) -> None:
-        self.resume()
-
-    async def on_click(self, event: Click) -> None:
-        if self.action:
-            event.stop()
-            await self.run_action(self.action)
-
-    def resume(self) -> None:
-        """Animate again (after a play())."""
-        if self._timer is None and len(self.loop) > 1:
-            self._timer = self.set_interval(self.interval, self._tick)
-
-    def become(self, key: str) -> None:
-        """Show another sprite instead (a panel's picture as you page through), animating all its frames."""
-        self.freeze()
-        self.key, self.index = key, 0
-        self.loop = list(range(max(1, frame_count(key))))
-        self.update(sprite_text(key, self.loop[0], self.width) or Text(""))
-        if self.is_mounted:
-            self.resume()
-
-    def _tick(self) -> None:
-        self.index = (self.index + 1) % len(self.loop)
-        self.update(sprite_text(self.key, self.loop[self.index], self.width) or Text(""))
-
-    def freeze(self, frame: int | None = None) -> None:
-        """Stop animating (older story sprites stand still so the newest one draws the eye)."""
-        if self._timer is not None:
-            self._timer.stop()
-            self._timer = None
-        if frame is not None:
-            self.update(sprite_text(self.key, frame, self.width) or Text(""))
-
-    async def play(self, steps: list[tuple[int, str, bool]], delay: float = 0.09) -> None:
-        """Play a one-off sequence of (frame, pose, flash) steps, then stop on the last one."""
-        self.freeze()
-        for frame, pose, flash in steps:
-            self.update(sprite_text(self.key, frame, self.width, flash=flash, pose=pose) or Text(""))
-            await asyncio.sleep(delay)
-
-
 ITEM_COLORS = {"weapon": "#c8c8e0", "armor": "#8fa8ff", "consumable": "#ff4b4b", "trinket": "#ffb000", "key": "#ffd166"}
 
 
 def item_note(content: Content, key: str) -> str:
-    """What an item does, in a few words: "1d8 damage", "+2 defense", "heals 8", "+1 every roll"."""
+    """What an item does, in a few words: "1d8 damage", "+2 defense", "heals 8", "+1 every roll". A curse comes
+    first: "cursed! · +2 dodge & flee"."""
     item = content.item(key)
     if key in powers.PICKED_UP:
         return powers.PICKED_UP[key]
-    if item.kind == "trinket" and item.powers:
-        return powers.SHORT[item.powers[0]] + (f" ({item.damage})" if item.powers[0] == "throw" else "")
-    return {"weapon": f"{item.damage} damage", "armor": f"+{item.defense} defense", "key": "a key",
-            "consumable": "escape a fight" if item.escape else f"heals {item.heal}", "trinket": "trinket"}[item.kind]
+    curse = "cursed! · " if "cursed" in item.powers else ""
+    shown = [p for p in item.powers if p != "cursed"]
+    if item.kind == "trinket" and shown:
+        return curse + powers.SHORT[shown[0]] + (f" ({item.damage})" if shown[0] == "throw" else "")
+    return curse + {"weapon": f"{item.damage} damage", "armor": f"+{item.defense} defense", "key": "a key",
+                    "consumable": "escape a fight" if item.escape else f"heals {item.heal}",
+                    "trinket": "trinket"}[item.kind]
 
 
 def power_lines(content: Content, key: str) -> Text:
@@ -475,28 +497,320 @@ def blank_art(role: str, width: int = SMALL) -> Text | None:
     return image_text(img)
 
 
-def item_picture(content: Content, key: str, sprites: bool, width: int = SMALL) -> Text:
-    """An item's art (its hand-made small version, at the small size); with no art, a grey stand-in for its kind;
-    in ASCII mode, its glyph, as tall as the art would be."""
-    item = content.item(key)
-    art = (sprite_text(f"item_{key}", width=width) or blank_art(loot.role(item), width)) if sprites else None
-    if art is not None:
-        return art.copy()
-    rows = width // 2  # two pixels to a row, and item art is square
-    glyph = layout.ITEM_GLYPHS.get(item.kind, "*")
-    return Text("\n" * (rows // 2) + glyph + "\n" * (rows - rows // 2 - 1), style=f"bold {ITEM_COLORS[item.kind]}")
-
-
-def item_tile(content: Content, key: str, note: str, sprites: bool, room: int = 16) -> Text:
-    """An item at a glance: its picture, its name (on up to two lines) and a short note (centre it with CSS)."""
+def item_words(content: Content, key: str, note: str, room: int = 16) -> Text:
+    """What goes under an item's picture on its tile: its name, on up to two lines, and a short note (centre it with
+    CSS)."""
     name = textwrap.wrap(content.item(key).name, room)
     if len(name) > 2:
         name = [name[0], textwrap.shorten(" ".join(name[1:]), room, placeholder="…")]
     out = Text()
-    out.append_text(item_picture(content, key, sprites))  # its colour stays its own, not the name's
-    out.append("\n" + "\n".join(name + [""] * (2 - len(name))), style="bold")
+    out.append("\n".join(name + [""] * (2 - len(name))), style="bold")
     out.append("\n" + (note if len(note) <= room else note[:room - 1] + "…"), style="#9a9cc0")
     return out
+
+
+# --- pictures ------------------------------------------------------------------------------------------------------
+
+IDLE = 0.6  # seconds a frame of an idle animation lasts, wherever it's shown: a monster breathing, an item bobbing, a
+# shrine's candles flickering (see PictureClock)
+FLICKER = 0.15  # seconds a frame lasts for the few things that move fast, the campfire's flames and the crown's glint,
+# and the beat of the one clock every picture animates by
+IDLE_BEATS = round(IDLE / FLICKER)
+
+
+class Art(NamedTuple):
+    """What a Picture draws (see art_for): a sprite, or else a still stand-in, and how big it is in cells."""
+
+    sprite: str  # the sprite's key, or "" for a stand-in
+    pixels: int  # how wide the sprite (or the grey stand-in) is drawn: DEFAULT_WIDTH, or SMALL when that won't fit
+    still: Text | None  # with no sprite to draw: an item's grey stand-in, or the ASCII art
+    columns: int
+    rows: int
+    blank: bool = False  # the grey stand-in for an item nobody has drawn yet
+
+
+def art_for(key: str, kind: str = "", content: Content | None = None, max_w: int = DEFAULT_WIDTH,
+            max_h: int | None = None, sprites: bool = True, ascii: Text | str | None = None,
+            style: str = "#ff4b4b") -> Art:
+    """What to draw for `key` in a space `max_w` columns wide and `max_h` rows tall (None: as tall as it likes).
+    `kind` says what the key is: "item" (an item's key, whose sprite is item_<key>), "monster", or anything else
+    ("fixture") for a sprite's own key: a fixture, the campfire, a story's sprite (given as "", one that's an item's or
+    a monster's falls back as theirs do).
+
+    Its sprite at full size (24 pixels wide) whenever that fits, else small (12): the hand-made small version, or the
+    big one halved block by block. An item nobody has drawn gets the grey stand-in for its kind, at the same sizes.
+    With sprites off (or no sprite and no stand-in), the ASCII art: `ascii` if it's given (a plain one in `style`),
+    else a monster's own (in `style`), or an item's glyph in the middle of a space as tall as its picture would be."""
+    if not key:  # nothing to show (yet)
+        return Art("", DEFAULT_WIDTH, Text(), 0, 1)
+    if not kind and content is not None:
+        if key.startswith("item_") and key[5:] in content.items:
+            kind, key = "item", key[5:]
+        elif key in content.monsters:
+            kind = "monster"
+    name = f"item_{key}" if kind == "item" else key
+    item = content.items.get(key) if kind == "item" and content is not None else None
+    monster = content.monsters.get(key) if kind == "monster" and content is not None else None
+    found = frames(name) if sprites else None
+    if found:
+        pixels = _fitting(found[0].height, max_w, max_h)
+        img = found[0] if pixels == DEFAULT_WIDTH else frames(name, SMALL)[0]
+        return Art(name, pixels, None, img.width, (img.height + 1) // 2)
+    pixels = _fitting(DEFAULT_WIDTH, max_w, max_h)  # (item art is square)
+    blank = blank_art(loot.role(item) if item else "trinket", pixels) if sprites and kind == "item" else None
+    if blank is not None:
+        return Art("", pixels, blank.copy(), pixels, pixels // 2, blank=True)
+    if ascii is not None:
+        still = ascii.copy() if isinstance(ascii, Text) else Text(ascii, style=style)
+    elif monster is not None:
+        still = Text(monster.art, style=style)
+    elif kind == "item":
+        rows = pixels // 2
+        colour = ITEM_COLORS.get(item.kind, "") if item else ""
+        glyph = layout.ITEM_GLYPHS.get(item.kind, "*") if item else "*"
+        still = Text("\n" * (rows // 2) + glyph + "\n" * (rows - rows // 2 - 1), style=f"bold {colour}".strip())
+    else:
+        still = Text()
+    lines = still.plain.split("\n")
+    return Art("", pixels, still, max(map(cell_len, lines)), len(lines))
+
+
+def _fitting(height: int, max_w: int, max_h: int | None) -> int:
+    """How wide to draw a sprite `height` pixels tall at full size: full size if it fits the space, else small."""
+    fits = max_w >= DEFAULT_WIDTH and (max_h is None or (height + 1) // 2 <= max_h)
+    return DEFAULT_WIDTH if fits else SMALL
+
+
+class PictureClock:
+    """The one clock every Picture animates by, one to an app. While any picture has frames to show it beats, counting
+    FLICKER seconds a beat, and each picture takes its next frame on its own beats (an idle one every IDLE seconds),
+    only while it's in sight: on the screen in front, not scrolled away or hidden. So every idle animation keeps the
+    same time, and the screen changes once a beat, not once a picture. It ticks only as often as it needs to: every
+    IDLE seconds, unless a flame or a glint wants FLICKER."""
+
+    clocks: WeakKeyDictionary[App, PictureClock] = WeakKeyDictionary()
+
+    def __init__(self, app: App) -> None:
+        self.app = app
+        self.beat = 0
+        self.pictures: set[Picture] = set()  # the ones animating
+        self.timer: Timer | None = None
+        self.interval = IDLE  # how often it ticks (a tick is IDLE_BEATS beats when nothing flickers)
+
+    @classmethod
+    def of(cls, app: App) -> PictureClock:
+        if app not in cls.clocks:
+            cls.clocks[app] = cls(app)
+        return cls.clocks[app]
+
+    def join(self, picture: Picture) -> None:
+        self.pictures.add(picture)
+        self._pace()
+
+    def leave(self, picture: Picture) -> None:
+        self.pictures.discard(picture)
+        self._pace()
+
+    def _pace(self) -> None:
+        """Tick as often as the quickest picture needs, and not at all with nothing to move."""
+        interval = FLICKER if any(picture.flicker for picture in self.pictures) else IDLE
+        if self.timer is not None and (interval != self.interval or not self.pictures):
+            self.timer.stop()
+            self.timer = None
+        if self.timer is None and self.pictures:
+            self.interval = interval
+            self.timer = self.app.set_interval(interval, self.tick, name="pictures")
+
+    def tick(self) -> None:
+        self.beat = self.beat + 1 if self.interval == FLICKER else (self.beat // IDLE_BEATS + 1) * IDLE_BEATS
+        try:
+            front = self.app.screen
+        except ScreenStackError:
+            return
+        for picture in list(self.pictures):
+            picture.step(self.beat, front)
+
+
+class Picture(Static):
+    """An item, a character or a fixture, drawn the same way wherever it's shown (see art_for for what it draws, and
+    at what size). It's a picture on its own, never part of a run of text that wraps: a column too narrow for it
+    crops it rather than shredding it. It keeps the height it was given, whatever it shows (a pose, a flash, a frame
+    of a fight or a dissolve), so nothing around it moves; `cells` says how big it is.
+
+    It animates on the app's one clock (PictureClock), only while it's in sight: `loop` is the frames its idle
+    animation shows in turn (by default sprites.idle_frames), IDLE seconds each, or FLICKER for a flame or a glint.
+    `pose` is how it stands (see sprites.posed); `play` runs a one-off sequence of frames at its own pace (a blow, a
+    chest opening); `freeze` and `resume` stop and start the idle animation; `become` shows something else in its
+    place and `fit` gives it another space to fit. `action`, if given, runs when it's clicked, such as
+    "screen.lookup('item:healing_potion')" for its card. `sprites` is whether to draw sprites at all (by default, the
+    player's choice in Settings)."""
+
+    DEFAULT_CSS = """
+    Picture {
+        width: auto;
+        max-width: 100%;
+        text-wrap: nowrap;
+        text-overflow: clip;
+    }
+    """
+
+    def __init__(self, key: str, kind: str = "", max_w: int = DEFAULT_WIDTH, max_h: int | None = None,
+                 pose: str = "idle", animate: bool = True, action: str | None = None, *,
+                 content: Content | None = None, loop: list[int] | None = None, flicker: bool = False,
+                 ascii: Text | str | None = None, style: str = "#ff4b4b", sprites: bool | None = None,
+                 **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.key, self.kind = key, kind
+        self.data = content  # the game's Content: what an item or monster with no sprite falls back to
+        self.max_w, self.max_h = max_w, max_h
+        self.pose, self.action, self.flicker = pose, action, flicker
+        self.animate = animate  # whether it's to animate at all
+        self.animating = animate  # whether it is now (on the clock while there's more than one frame to show)
+        self.chosen_loop, self.ascii, self.style = loop, ascii, style
+        self.sprites = self._sprites_on() if sprites is None else sprites
+        self.text = Text()
+        self.placed = False  # mounted (is_mounted only comes true once on_mount is done)
+        self._resolve()
+
+    def _sprites_on(self) -> bool:
+        """Sprites, unless the player has chosen ASCII art in Settings (or there's no game to ask: a test)."""
+        try:
+            config = getattr(self.app, "config", None)
+        except NoActiveAppError:
+            return True
+        return getattr(config, "art", "sprites") == "sprites"
+
+    def _resolve(self) -> None:
+        """Work out what to draw, at what size (see art_for), from its first frame."""
+        self.art = art_for(self.key, self.kind, self.data, self.max_w, self.max_h, self.sprites, self.ascii,
+                           self.style)
+        self.loop = list(self.chosen_loop or (idle_frames(self.art.sprite) if self.art.sprite else [0]))
+        self.index = 0
+        self.styles.height = self.art.rows
+        self.update(self.frame_text(self.frame, self.pose))
+
+    @property
+    def frame(self) -> int:
+        """The frame of its idle animation it's showing."""
+        return self.loop[self.index % len(self.loop)]
+
+    @property
+    def cells(self) -> tuple[int, int]:
+        """How big it is: (columns, rows)."""
+        return self.art.columns, self.art.rows
+
+    @property
+    def blank(self) -> bool:
+        """Whether it's the grey stand-in for an item nobody has drawn yet."""
+        return self.art.blank
+
+    def frame_text(self, frame: int, pose: str = "idle", flash: bool = False) -> Text:
+        """One frame of it, in a pose (white all over for a flash), as text."""
+        art = self.art
+        if art.sprite:
+            return sprite_text(art.sprite, frame, art.pixels, flash=flash, pose=pose) or Text()
+        if flash and not art.blank:  # ASCII art can still flash when it's hit
+            return Text(art.still.plain, style="bold #ffffff")
+        return art.still.copy()
+
+    # --- shown as a Static would show it, but drawn when it's rendered: it can be made before the app runs ---
+
+    def render(self) -> Text:
+        return self.text
+
+    @property
+    def content(self) -> Text:
+        """The frame it's showing."""
+        return self.text
+
+    def update(self, content: Text | str = "", *, layout: bool = True) -> None:
+        self.text = content if isinstance(content, Text) else Text(content)
+        self.refresh(layout=layout)
+
+    # --- animation ---
+
+    def on_mount(self) -> None:
+        self.placed = True
+        self._clock()
+
+    def on_unmount(self) -> None:
+        self.placed = False
+        PictureClock.of(self.app).leave(self)
+
+    async def on_click(self, event: Click) -> None:
+        if self.action:
+            event.stop()
+            await self.run_action(self.action)
+
+    def _clock(self) -> None:
+        """On the clock while it's animating and has more than one frame to show; off it otherwise."""
+        if not self.placed:
+            return  # (on_mount sees to it)
+        clock = PictureClock.of(self.app)
+        if self.animating and self.art.sprite and len(self.loop) > 1:
+            clock.join(self)
+        else:
+            clock.leave(self)
+
+    def step(self, beat: int, front: Screen) -> None:
+        """A beat of the clock: its next idle frame, if this is one of its beats and it's in sight on `front`, the
+        screen in front."""
+        if beat % (1 if self.flicker else IDLE_BEATS):
+            return
+        try:
+            in_sight = self.screen is front and front.can_view_partial(self)
+        except NoScreen:
+            in_sight = False
+        if in_sight:
+            self.index = (self.index + 1) % len(self.loop)
+            self.update(self.frame_text(self.frame, self.pose), layout=False)
+
+    def freeze(self, frame: int | None = None) -> None:
+        """Stop animating: on the frame it's showing, or on `frame` (a chest emptied, a card taken)."""
+        self.animating = False
+        self._clock()
+        if frame is not None:
+            self.update(self.frame_text(frame, self.pose), layout=False)
+
+    def resume(self) -> None:
+        """Animate again (after play or freeze)."""
+        self.animating = True
+        self._clock()
+
+    def set_pose(self, pose: str) -> None:
+        """Stand another way from now on (a monster winding up a heavy blow, or stunned)."""
+        if pose != self.pose:
+            self.pose = pose
+            self.update(self.frame_text(self.frame, pose), layout=False)
+
+    async def play(self, steps: list[tuple[int, str, bool]], delay: float = 0.09) -> None:
+        """Play a one-off sequence of (frame, pose, flash) steps at its own pace, `delay` seconds each, then stay on the
+        last (resume() to go back to the idle animation)."""
+        self.freeze()
+        for frame, pose, flash in steps:
+            self.update(self.frame_text(frame, pose, flash), layout=False)
+            await asyncio.sleep(delay)
+
+    def become(self, key: str, kind: str | None = None, pose: str = "idle", loop: list[int] | None = None,
+               style: str | None = None, ascii: Text | str | None = None) -> None:
+        """Show something else in its place (a panel's picture as you page through, the next monster in the sidebar),
+        from its first frame, animating if it animates at all; `kind` and `style` stay as they were unless given. Its
+        height is the new picture's."""
+        self.key, self.pose, self.chosen_loop, self.ascii = key, pose, loop, ascii
+        self.kind = self.kind if kind is None else kind
+        self.style = self.style if style is None else style
+        self.animating = self.animate
+        self._resolve()
+        self._clock()
+
+    def fit(self, max_w: int, max_h: int | None = None) -> None:
+        """Fit another space (the screen's been resized): full size or small, whichever fits it now."""
+        if (max_w, max_h) == (self.max_w, self.max_h):
+            return
+        self.max_w, self.max_h = max_w, max_h
+        size = art_for(self.key, self.kind, self.data, max_w, max_h, self.sprites, self.ascii, self.style).pixels
+        if size != self.art.pixels:
+            self._resolve()
 
 
 class Clickable(Static):

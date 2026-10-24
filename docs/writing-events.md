@@ -106,6 +106,8 @@ without leaving the scene.
 | `pacify` | A monster is talked down or distracted. |
 | `run_start` | A new descent begins. |
 | `turn` | Every turn. Pair it with conditions to watch for a situation (`hp <= 3`, `turn >= 100`). |
+| `meet lucky_lenny` | The player sees that character for the first time this run (and it has had its say). `meet` alone: anyone. |
+| `gain lenny_s_bad_tooth` | That item comes the player's way: picked up, bought, given or won. `gain` alone: anything. |
 
 ## Conditions (`if:`)
 
@@ -122,6 +124,7 @@ Separate with `;`. Put `not ` in front of any of them to flip it.
 | `fixture shrine` | The room has this fixture (`shrine`, `chest`, `fountain`, `stairs`). |
 | `monster troll` | That monster is here (or was just defeated/pacified). |
 | `has oil_flask` | The player carries or wears this item. |
+| `npc lucky_lenny done` | Where that character's story has got to this run (see The characters' stories). `npc lucky_lenny` alone: met at all. |
 | `flag name` | A flag set earlier this run with `[flag name]`. |
 | `mark name` | A mark set on any earlier run with `[mark name]`. Marks survive death. |
 | `seen` / `seen other_id` | This event (or another one) has ever fired. |
@@ -137,14 +140,41 @@ line under the card instead (`◆ -6 HP · +1 Fate`).
 | `[hp -6]`, `[hp +5]` | Change HP. Story damage never kills: it stops at 1. |
 | `[heal]` | Restore all HP. |
 | `[gold +10]`, `[souls 15]`, `[fate +1]`, `[xp 20]` | Change gold, souls, Fate or XP (XP can level you up). |
-| `[give healing_potion]`, `[take oil_flask]` | Give or take an item (keys from `items.toml`). |
+| `[give healing_potion]`, `[take oil_flask]` | Give or take an item (keys from `items.toml`). A gift goes in the pack, with its card (gear for an empty slot goes straight on); `[take]` takes it from the pack, the player's back, a counter (`bomb`, `small_key`) or their hand, if they've another weapon to take up, and says so if they had none. |
 | `[perk iron_skin]` | Grant a perk (keys from `perks.toml`). |
 | `[spawn goblin]` | A monster appears and a fight starts (keys from `monsters.toml`). Ends the scene. |
 | `[calm]` | The monster here stops fighting, no roll, as if talked down (with the XP and souls for it). Your ghost lays itself to rest, and its belongings are yours to take. |
+| `[npc lucky_lenny done]` | Move a character's story on: its stage this run, and the character itself (Lenny grins with his tooth back; `angry` has one fight you, `calmed` stops it). It isn't moved, hurt or handed anything: use `[give]` and `[take]` for that. |
 | `[flag name]`, `[unflag name]` | Set or clear a flag for this run. |
 | `[mark name]` | Set a mark that lasts across runs, for stories that continue after death. |
 | `[secret]`, `[secret other_id]` | Record this event (or another) in the Book of Secrets. |
 | `[goto part]`, `[end]` | Jump to another part of the scene, or end it. |
+
+## The characters' stories
+
+The dungeon's characters (Lucky Lenny, Swoogy, King Mouse, the shopkeepers, anyone the maker tags NPC) have their own
+say: their lines are in `src/ptg/data/dialogue.toml`, shown on a card with their picture when you meet them, talk to
+them, hand them something or cross them. Where each one's story has got to this run is a stage a story file can read
+(`if: npc lucky_lenny met`) and move (`[npc lucky_lenny done]`):
+
+| Character | Stages |
+| --- | --- |
+| `lucky_lenny` | `unknown` (not met, his tooth not found), `found_item` (his tooth found first), `met`, `angry` (you hit him), `done` (his tooth back), `beaten` |
+| `swoogy_the_gooey` | `unknown`, `challenge` (his game on offer), `guessing`, `won` (his diaper's yours), `angry`, `paid`, `calmed`, `beaten` |
+| anyone else | `unknown`, `met`, `angry`, `calmed`, `beaten` |
+
+The game moves a story on before story files look at it, so a card for finding Lenny's tooth before meeting him reads
+`found_item`:
+
+```
+---
+id: whose_tooth
+title: Whose Tooth?
+when: gain lenny_s_bad_tooth
+if: npc lucky_lenny found_item
+---
+Scratched into the tooth, in tiny wobbly letters: PROPERTY OF LENNY.
+```
 
 ## Your ghost
 

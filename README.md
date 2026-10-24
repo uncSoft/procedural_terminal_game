@@ -24,7 +24,7 @@ You hurl the vial with theatrical precision and it shatters against the ghoul's 
 | --- | --- |
 | **World generator** (code) | Builds a three-floor descent from a seed. Each floor is a different dungeon: rooms on a grid with floor plans, stairs guarded by a warden, shrines, trapped chests, fountains, elites, one secret per floor, and the boss behind a locked door on the last floor. Same seed, same run. |
 | **Rules** (code) | List the legal actions each turn (the numbered choices) and resolve everything with d20 rolls: combat, telegraphed heavy blows, dodging, fleeing, searching, fixtures, leveling. |
-| **Interpreter** (model) | Turns free text into JSON: one of the listed actions, or a *creative* attempt with a stat, a difficulty, the props it uses, and effects from a fixed menu (stun, small damage, pacify, evade, reveal a secret...). The rules check the props exist, clamp the effects, roll the dice and apply them. "Summon a dragon" fails; "throw sand in its eyes" might stun it. |
+| **Interpreter** (model) | Turns free text into JSON: one of the listed actions, a use of one thing on another (what's done, with what, to what: "throw the cheese at the ghoul", by the ids of what's in the room and what you carry), or a *creative* attempt with a stat, a difficulty, the props it uses, and effects from a fixed menu (stun, small damage, pacify, evade, reveal a secret...). The rules check the props exist, clamp the effects, roll the dice and apply them. "Summon a dragon" fails; "throw sand in its eyes" might stun it. Plain commands skip the model (a keyword matcher reads them the same way); handing something over, or anything said to a character, is the model's to read too. |
 | **Narrator** (model) | Gets the list of facts that actually happened and streams a few sentences of prose. It can't change the game state, so it can't make up loot or kill monsters. |
 
 Each turn sends the model a small snapshot, not an ever-growing chat log, so local models stay fast: about 1-2 seconds a turn with Qwen3.6-35B-A3B in LM Studio. The snapshot reads oldest first: the floor, a few one-line notes on what happened before this turn, where the player was and is now (and whether they've been here before), the room as it stands with what lies beyond each exit, and what happened there before (rooms remember the
@@ -47,15 +47,18 @@ It scores ten typed commands and five narrated moments, shows what the guard wou
 **Every turn**
 - **Dice you roll yourself.** Skill checks open a big pixel-art d20: press Space (or click), it tumbles and bounces, bonuses add up one by one, and the result is stamped. Natural 20s glow gold, natural 1s glow red and shake the screen; with advantage you roll two and the one you don't keep greys out. Attacks get small inline dice.
 - **You can see how it went.** Every roll ends in a coloured verdict (✔ HIT, ✘ HIT YOU, • NOTHING, ★ CRITICAL!) and flashes its colour. The story's border lights up green when the turn goes your way, red when it doesn't and silver when it's mixed (or blinks gold or crimson for a 20 or a 1). Damage numbers rise off the monster, your HP changes show by your hearts, and a new floor gets a title card and a banner in the story.
-- **Props and flair.** Using a real thing in the room or your pack ("topple the statue onto it") adds a ✦ flair bonus to the roll and earns a **Fate** token on success. What you throw, pour, feed or hand over is gone afterwards, whether or not the model lists it (bribe an orc with stale bread and the orc has the bread); your weapon, armor and keys only go if you say so.
+- **Props and flair.** Using a real thing in the room or your pack ("topple the statue onto it") adds a ✦ flair bonus to the roll and earns a **Fate** token, if it changes something. A stunt wastes nothing: what it throws, pours, feeds or hands over is gone only if it worked (bribe an orc with stale bread and the orc has the bread; if it won't take it, you keep it), and a trick that can't change anything here (a lullaby for a rat) says why and costs nothing, not even a turn. Only what you do it with goes ("throw sand at the rat's eyes" spends no Pizza Rat), as much gold as you say ("offer 30 gold"), never your weapon or armor, and never a key (nor Lenny's bad tooth while he's waiting for it): a run could hang on it.
+- **Things on things.** Say what you do with what, and it happens the one way: give Lenny his tooth or Swoogy a pickle (a character takes what it wants and hands back the rest), throw a pickle at the rat (anything throwable: a calm creature fights back), feed a beast what it's weak to or bribe a goblin with gold (a wits roll: it's handed over if it works), a small key or a bomb on a chest, the boss's key or a bomb on a door, a weapon to pry a chest open or a feature to search it, holy water or lamp oil on your blade (its next 3 hits count as holy, or fire). What can't work says why, and costs nothing.
 - **Fate rerolls.** Spend Fate to rewind a failed check and roll again. Earn it with flair, perfect dodges, natural 20s and shrines.
 - **Telegraphs.** Monsters wind up heavy blows a turn early (`⚠ HEAVY ATTACK NEXT`). Dodge or improvise an evasion to make them whiff, and get advantage and a Fate token.
 - **Weaknesses.** Everything is weak to something: fire, holy, shiny, food, heavy, slippery... Turn the right prop on a monster to roll with advantage and hit harder. Once you discover a weakness, the bestiary remembers it forever.
-- **A suggested trick.** The last choice (✦, in pink) is a creative idea built from what's actually in the room, so new players learn they can improvise.
+- **A suggested trick.** The last choice (✦, in pink) is something you could really do here that the list doesn't spell out (a thing thrown that isn't made for throwing, a bribe, a feature worth a rummage), so new players learn they can improvise. Picking it does just that, and it never spends a potion or food you'll want for yourself; with nothing worth trying, there's none.
 - **Loot you can see.** What you find or see a monster drop appears in the story with its full art, and the inventory (F2) shows everything you carry as tiles: arrows pick one, Enter uses it. Carry more than one of a thing and its choices say how many (×2), and using one says how many are left.
-- **Picking up is free.** Click a card in the story to take it (▶ click to take), or take everything here with one choice; either way it costs no turn, so leave what you don't want. Bombs and small keys you don't even pick up: they're yours as soon as a monster drops them or you walk in on them.
+- **Picking up is free.** What you find searching, what's in a chest and what a monster drops lies where it turns up: click a card in the story to take it (▶ click to take), or take everything here with one choice; either way it costs no turn, so leave what you don't want. Bombs and small keys you don't even pick up: they're yours as soon as there's no fight. Put anything down again for free ("drop the bread", "leave the axe here"): it stays where you leave it, and no choice keeps offering it back.
+- **Gear goes in your pack, never on the floor.** A weapon or armor you pick up, buy or are given goes on by itself only into an empty slot (armor, when you wear none). When something in your pack beats what you have on, a free choice says by how much and what it replaces: "Equip the War Pick (1d6 → 1d10) [replaces Rusty Sword · no turn]", and the old piece goes in your pack. Anything else goes on when you say so ("wield the hand axe", "take off the chain shirt"); say it of something you haven't got and you're told so. A weapon's or armor's powers count only while it's on; trinkets work from your pack.
+- **Curses stick.** A cursed thing says so, and the first time you go to take it you're warned (so you can leave it); picking up everything here leaves it be. Once it's yours it won't leave you, can't be dropped, sold or given away, nor taken off once worn, until you pray at a shrine to lift the curse.
 - **Rooms you can see.** The first time you walk into a room, the story shows it as you see it from the doorway, a pixel-art picture drawn from the room itself: its exits, decor, features, any monster and whatever's lying on the floor. Look (F4) shows it bigger.
-- **Click a picture for its card.** A room's picture looks around it; a loot card, a chest or shrine in the story, or the monster in the sidebar opens its full card, with the matching action.
+- **Click a picture for its card.** A room's picture looks around it; a loot card, a character, a chest or shrine in the story, or whoever's in the sidebar opens its full card, with the matching action (for a friendly character, what they're there for: never a blow).
 - **Easy to get around.** The ways out carry their arrows (▲ ▼ ◀ ▶) in the choices, and a pad of arrows beside them lights the doors there are: click one to go. Or type `n`, `s`, `e` or `w`. The choices box keeps its size, so nothing moves under your mouse while a suggestion arrives.
 
 **Every run (about 25-40 minutes)**
@@ -64,27 +67,27 @@ It scores ten typed commands and five narrated moments, shows what the guard wou
 - **Traits earned by how you play**: talk monsters down and you become *Silver Tongue*; win with props and you become a *Showboat*; dodge enough and you become a *Duelist*.
 - See what's through a door before you go: the map and choices show stairs `>`, shrines `†`, chests `■` and fountains `◊` ahead.
 - **Things that do things.** Beyond their numbers, some items have powers, on their cards and tiles: Weighted Dice add 1 to every roll you make, a Torch 1 to searching, the Ten-Foot Pole 2 to picking locks and disarming traps; the Mysterious Floppy Disk maps the whole floor when you pick it up; flasks, holy water and the odd grenade can be thrown in a fight (and are gone); a Laser Pointer or a Rubber Duck costs a monster its next attack, once a fight; a Glow Stick lights up anything hidden in a room. Some are a mixed blessing. Some change your stats while you carry them (Lenny's Bad Tooth: +1 might, -1 wits; the Unusual Butter: +1 to everything and 5 more max HP), Swoogy's Diaper keeps monsters' hits 2 lighter but costs max HP every floor, and eating a Jar o' Light in a fight makes the monster flee.
-- **Characters, not just monsters** (most made by the kids in the maker). **Lucky Lenny** turns up calm in some runs: a goblin knocked his bad tooth out with a pan, and it's hidden on his floor or the one before. Ask him and he points you to it; give it back and he yanks out his good one for you (+1 to every roll). **Swoogy the Gooey** waits in some secret rooms with a die: guess his number and his diaper is yours; guess wrong and he charges up his flaps, so calm him down with something you carry (gold, a potion, anything), fight him (he's strong), or get away and come back. **King Mouse** guards the stairs on floor 2 now and then, and leaves his vest. Some monsters have tricks: **Baby Joey** grabs your food (or gold) and runs off with it unless you stop him, and **Swamp Bottoms**' vines stop you running away.
+- **Characters, not just monsters** (most made by the kids in the maker), who say what they say in their own words: a card with their picture, written in `src/ptg/data/dialogue.toml`, when you walk in on them, talk to them (free: no roll, no turn), hand them something, play their game or cross them. **Lucky Lenny** turns up calm in some runs: a goblin knocked his bad tooth out with a pan, and it's hidden somewhere on his floor. Talk to him and he points you to it, as often as you like; give it back and he yanks out his good one for you (+1 to every roll). Hit him and he fights back, but his tooth still calms him down. **Swoogy the Gooey** waits in some secret rooms with a die: guess his number and his diaper is yours (it lands at your feet: it's cursed, so you may rather leave it); guess wrong and he charges up his flaps, so calm him down with something you carry (gold, a potion, anything: he keeps it, and his diaper), fight him (he's strong), or get away and come back. **King Mouse** guards the stairs on floor 2 now and then (squeak), and leaves his vest. The shopkeepers greet you, thank you and chat, and anyone the maker tags NPC gets a few friendly lines until they have their own. Where each one's story has got to is kept for the run (the map marks Lenny with ☺ while he waits on his tooth), and story events can read and move it. Some monsters have tricks: **Baby Joey** grabs your food (or gold) and runs off with it unless you stop him, and **Swamp Bottoms**' vines stop you running away.
 - **Rare things.** Some items never lie about on a floor or drop from an everyday monster: they're kept in chests, hidden stashes, each floor's secret room, shops, and by the warden at the stairs (always) or an elite (sometimes), and each turns up at most once a run. The floor caps how good a warden's is, so the best come deeper, and from secret rooms. A warden with nothing rare left to give carries a small key.
-- **Bombs and small keys** (● and ⚷ by your hearts). You start with a bomb; monsters drop bombs and keys now and then, elites more often. A chest opens three ways: a small key (safe), picking its lock (agility: fail and a needle gets you) or smashing it (might: fail and what's inside breaks). A bomb thrown in a fight always goes off.
+- **Bombs and small keys** (● and ⚷ by your hearts). You start with a bomb; monsters drop bombs and keys now and then, elites more often. A chest opens three ways: a small key (safe), picking its lock (agility: fail and a needle gets you) or smashing it (might: fail and what's inside breaks); or blow it open with a bomb (it always opens, and what's inside always breaks). A bomb thrown in a fight always goes off.
 - **A secret room on every floor**, sealed until you bomb a wall into it. It's only ever built in a gap in the map that touches two rooms or more, so you can work out where it might be, and only those walls offer a bomb. Search a room next to it and you may feel a draft. There's one a floor: once it's open, no wall is worth a bomb. Finding it is a moment: a bang, a fanfare, a banner across the story, and the room in gold on the map, `{✧}`, from then on.
-- **Shops, now and then** (about one floor in four): a nook off the map, `[¤]`, behind a door a small key opens or two bombs break. Granny Gristle keeps most of them: a potion, gear for the floor, a bomb or a small key, and a trinket or, sometimes, something rare. Once in a while it's Granny Kamultruk's instead, the rare one, with the best and dearest stock. Shopping has a screen of its own: her wares as pictures with their prices; pick one for its card, Enter to buy, B to haggle (wits: a third off, or a quarter dearer if it goes wrong, once a ware). Mama's Shillelagh, sold nowhere else, helps you talk. Walking into one gets a jingle and a banner, gold and starrier for Granny Kamultruk.
-- **Creatures that have stopped fighting know things.** Ask one what it knows (or, if it can't talk, watch where it goes): a wits roll, once each. It may put the floor's secret room or its hidden stash on your map (the stash as a gold `$`, and there when you search it), or, if it talks, tell you what one of the floor's monsters can't stand, the warden's or the boss's first.
+- **Shops, now and then** (about one floor in four): a nook off the map, `[¤]`, behind a door a small key opens or two bombs break. Granny Gristle keeps most of them: a potion, gear for the floor, a bomb or a small key, and a trinket or, sometimes, something rare. Once in a while it's Granny Kamultruk's instead, the rare one, with the best and dearest stock. Shopping has a screen of its own: her wares as pictures with their prices; pick one for its card, Enter to buy, B to haggle (wits: a third off, or a quarter dearer if it goes wrong, once a ware). She buys too, at half her price ("sell the hand axe"): anything but a key, a quest's things, a curse or the weapon in your hand. Mama's Shillelagh, sold nowhere else, helps you talk. Walking into one gets a jingle and a banner, gold and starrier for Granny Kamultruk.
+- **Creatures that have stopped fighting know things.** Ask one what it knows (or, if it can't talk, watch where it goes), or a shopkeeper: a wits roll, once each. It may put the floor's secret room or its hidden stash on your map (the stash as a gold `$`, and there when you search it), or, if it talks, tell you what one of the floor's monsters can't stand, the warden's or the boss's first.
 
 **Across runs**
 - **Souls** carry over when you die. Spend them at **the campfire** on **blessings** (permanent upgrades) and **gifts** (a starting item for your next descent).
 - **The Hall of Legends** lists every run with an epitaph the narrator writes for your tombstone.
-- **Your ghost haunts later runs.** Die, and your adventurer may come back as a ghost on that floor, guarding what they carried. Lay them to rest to get it back.
+- **Your ghost haunts later runs.** Die, and your adventurer may come back as a ghost on that floor, guarding what they carried (but not their keys, the characters' own things like Lenny's teeth or Swoogy's diaper, or a rare thing this run has had already). Lay them to rest to get it back.
 - **The Void**, the voice by the campfire, remembers how your last run went.
 - **Daily descent.** Everyone gets the same dungeon each day; you get a spoiler-free result card to share.
 
 ## Story events
 
 Scripted moments live in `src/ptg/data/story/` as small Markdown files: a header saying when they fire
-(entering a room, typing a magic word, a natural 20, defeating a monster...), then text written in your own
-words, optional choices that also accept free text, and effects like `[hp -6]`, `[give oil_flask]`,
-`[mark mirror_unbroken]` or `[secret]`. Marks and the **Book of Secrets** survive death. They work with no
-AI at all. See [docs/writing-events.md](docs/writing-events.md).
+(entering a room, meeting a character, finding a thing, typing a magic word, a natural 20, defeating a monster...),
+then text written in your own words, optional choices that also accept free text, and effects like `[hp -6]`,
+`[give oil_flask]`, `[mark mirror_unbroken]`, `[secret]` or `[npc lucky_lenny done]` (a character's story moved on).
+Marks and the **Book of Secrets** survive death. They work with no AI at all. See [docs/writing-events.md](docs/writing-events.md).
 
 ```bash
 uv run python -m ptg.story                    # check every story file
@@ -96,9 +99,9 @@ problems, and can fire any event at the start of your next descent.
 
 ## Data files
 
-All game content (themes, rooms, items, monsters, perks, unlocks, tags, art, story events) is plain data in
-`src/ptg/data/`, checked on startup: a mistake is explained by file, entry and field ("monsters.toml
-[monster.goblin]: unknown field 'hpp' (did you mean 'hp'?)") instead of crashing. The shipped files are
+All game content (themes, rooms, items, monsters, perks, unlocks, tags, art, story events, what the characters
+say) is plain data in `src/ptg/data/`, checked on startup: a mistake is explained by file, entry and field
+("monsters.toml [monster.goblin]: unknown field 'hpp' (did you mean 'hp'?)") instead of crashing. The shipped files are
 also fingerprinted, so the game notices when they've been edited. Editing is allowed. It's just noticed.
 After real changes:
 
@@ -118,12 +121,20 @@ without a sprite.
 Everything moves. Monsters bob while idle, glow when winding up a heavy blow, see stars when stunned, lunge
 when they attack, flash white when hit and dissolve when they die. Shrines, chests, fountains and stairs come
 alive when you first walk in and play out when you use them (the chest rattles open, the stairs fade into
-the dark). Story events can put a sprite on their card (`sprite:` in the header, see
-[docs/writing-events.md](docs/writing-events.md)). The poses are made from each sprite's own frames, so new
-art gets them for free.
+the dark), and a used one looks it from then on (an emptied chest, a shrine with its candles out, a dry fountain).
+A run ends on a pixel tombstone with your name carved in it, or a glinting crown. Story events can put a sprite
+on their card (`sprite:` in the header, see [docs/writing-events.md](docs/writing-events.md)). The poses are made
+from each sprite's own frames, so new art gets them for free. Characters are always in their own colours: a calm
+one (Lucky Lenny, or something you've talked down) says so in words, never by greying out.
 
-Sprites live in `src/ptg/data/sprites/` as PNG strips: frames side by side, transparent background, any size
-(they're scaled to fit). Frames are square unless the PNG stores a `frames` count. The shipped ones are drawn
+An item, a character or a fixture is drawn the same way wherever it is, in the story, on a card, in the inventory, the
+shop, the bestiary or the sidebar (`Picture` in `ui/widgets.py`): full size and moving, all in step on one clock
+(only what's on the screen moves), and small only where there isn't room for full size, picked by the space it's
+given, across and down.
+
+Sprites live in `src/ptg/data/sprites/` as PNG strips: frames side by side, each 24 pixels wide (12 for a small
+version) and any height, on a transparent background (they're scaled to fit). The PNG also stores its `frames`
+count; an editor that drops it is fine as long as the frames are 24 pixels wide. The shipped ones are drawn
 as colour maps in `tools/build_sprites.py`, which adds outlines, shading and animation frames; the d20 is drawn
 in code (`dice_art.py`) so it can show any number:
 
@@ -135,23 +146,31 @@ uv run python -m ptg.sprites goblin troll                # preview sprites in yo
 To use your own art (Aseprite, Piskel, an image model), drop a PNG named after the monster's key
 (`goblin.png`, `drowned_abbot.png`...) into that folder.
 
-**Small versions.** Items are also drawn small, 12 pixels wide, on the inventory's tiles, and pixel art
+**Small versions.** Where there isn't room for full size (the inventory's and the shop's tiles on a smaller screen,
+a short sidebar, the things lying in a room's picture) a sprite is drawn small, 12 pixels wide, and pixel art
 doesn't shrink well. So each item can have a hand-made small version: a 12×12 PNG strip with the same frames, in
 `src/ptg/data/sprites/small/` under the same name (`item_healing_potion.png`), best drawn in the big sprite's own
 colours with the bottom row left empty for the bob. The Monster & Item Maker draws them too (below), and its import
 puts them there. Without one, the big sprite is halved block by block, which keeps its lines whole but looks rough.
-The debug screen (F12) shows every small version beside the big one, and lists the items still being halved.
-An item with no art at all shows a plain grey stand-in for its kind (a blade, a jerkin, a loaf, a key...), and its
-inventory card says it has no picture yet.
+The debug screen (F12) shows every small version beside the big one, and lists the items still being halved; its
+Art tab also flags art that takes up less than half its frame (it looks tiny on cards and in rooms) and colours from
+outside the maker's palette.
+An item with no art at all shows a plain grey stand-in for its kind (a blade, a jerkin, a loaf, a key...), at either
+size, and its inventory card says it has no picture yet.
 
 **Room pictures.** The picture of a room (in the story when you first walk in, and in Look) is drawn in code
 (`room_picture.py`), not from art files, so every room the game makes has one. It's the view from the door you came
 in by, in one-point perspective and in the dungeon's own look: the Crypt's bricks and candles, the Warren's earth,
-timber and torches, the Ruins' marble. Exits are doorways in their walls (dark if unexplored, planked if locked); the
-room map's decor stands where the map has it (water, pillars, tables, cages, plants, fungus...); each feature is a
-small prop of its kind, from its name ("a half-sunken pew", "the throne of chairs"); the fixture, monster and items
-are their own sprites; and candles, torches and glowing things light what's near them. Add `sky` to a room's `decor`
-in `rooms.toml` and its walls stand broken under the stars. Every colour is one the sprites already use, so the
+timber and torches, the Ruins' marble. Exits are doorways in their walls (dark if unexplored, planked and barred in
+brass if locked); the room map's decor stands where the map has it (water, pillars, tables, cages, plants,
+fungus...); each feature is a small prop of its kind, from its name ("a half-sunken pew", "the throne of chairs");
+the fixture and items are their own sprites (items at their 12-pixel small size, never smaller in a picture as tall
+as the story card's; halved in a shorter one wherever the monster would be, so a potion is never as big as it); and
+candles, torches and glowing things light what's near them. Whoever is in the room stands where the room map has
+them, steps aside rather than stand in front of the fixture or hide most of a feature or an item, and is drawn last,
+so nothing hides them; items step aside from them and from the fixture (and a feature from them, rather than be half
+hidden), and nothing you can do something with is cut off at the picture's edges. Add `sky` to a room's `decor` in
+`rooms.toml` and its walls stand broken under the stars. Every colour is one the sprites already use, so the
 pictures don't strain a GPU terminal's glyph cache. A new dungeon borrows the Crypt's look until it's given one
 (`LOOKS` in `room_picture.py`).
 
@@ -167,7 +186,8 @@ Pages so friends can contribute. It works on a laptop, a tablet or a phone, with
 - **Draw** on a 24x24 grid in the game's own 32 colours plus any colour you pick (kept as "your colours"), with
   pencil, eraser, fill, colour picker, mirror mode, undo and redo (B, E, G, I, M and Ctrl/Cmd+Z), and a second frame
   for the idle animation. The preview shows it moving, the way it'll look in the dungeon.
-- **A small version** (items): a 12x12 board under the drawing for how the inventory and loot cards show the item.
+- **A small version** (items): a 12x12 board under the drawing for how the game shows the item where it's short of
+  room (the inventory's tiles on a smaller screen, the room's picture).
   It starts as the drawing halved exactly the way the game would; draw on it to fix it up by hand, with the same
   tools, frames and undo. Once it's hand-made it stops following the drawing, says so if the drawing changes after,
   and "Start again from the drawing" goes back. Only a hand-made one is sent, and imported.
@@ -212,7 +232,8 @@ uv run ptg import --saves               # what's been saved in the maker but isn
 uv run ptg import --saves 3 7           # bring #3 and #7 into the game (--dry-run to only look)
 uv run ptg import "<link>"              # a link someone sent (or a saved one's Link button), a .json file,
                                         # or a URL serving creations
-uv run ptg export                       # refresh the page's library by hand
+uv run ptg export                       # refresh the page's library by hand (after changing a sprite or
+                                        # an entry yourself, so the page doesn't send the old one back)
 ```
 
 `--saves` reads the shared library from `docs/maker/config.json` (or `--url`). A save counts as in the game once the
@@ -224,8 +245,14 @@ logged in, and comments on and closes each issue it imports).
 Each import writes the sprite (`src/ptg/data/sprites`), the entry in `monsters.toml` or `items.toml` with a
 `# drawn by` credit (the GitHub username if the maker left their name blank), ASCII art for a new monster's ASCII
 mode, checks the whole game still loads before writing anything, re-signs the data, and refreshes
-`docs/maker/library.json`. A submission that doesn't load is reported and skipped; the rest still go in. Commit and
-push, and the page's library shows them too.
+`docs/maker/library.json`. A submission that doesn't load is reported and skipped; the rest still go in. It also
+says when a drawing uses colours from outside the maker's 32: they show, but each is one more colour for the game
+(and a GPU terminal) to keep, so swapping them for the nearest palette colour keeps the art in step. Commit and push,
+and the page's library shows them too. A re-import of an older save puts back that save's picture: to change art
+that's been touched up in the game since (an outline, tidied colours, a new small version), start from it in the
+maker's library, which `uv run ptg export` keeps up to date, not from the old save. The change keeps what only the
+game gives it (powers, stats, tricks, where it's found), and is credited to the name in its "Created by": put the
+artist's there to keep their credit.
 
 **Where new things turn up**: no code changes needed. Monsters appear in every dungeon that calls for their tags,
 at their tier. Items drop by kind and tier (`src/ptg/loot.py`): each place that hands one out asks for something
@@ -310,7 +337,7 @@ The first launch opens Settings: pick LM Studio, Ollama, another OpenAI-compatib
 | F1 | `help` | how to play |
 | F2 | `i` | inventory: what you carry, with its art (arrows pick, Enter uses) |
 | F3 | `c` | character: perks, traits and progress toward the next one |
-| F4 | `l` | the room: its picture, description, exits and floor plan |
+| F4 | `l` | the room as it is now: its picture, who and what's in it, its exits and floor plan |
 | F5 | `m` | the floor map and the whole descent |
 | F6 | `b` | bestiary: art, kills, discovered weaknesses, lore |
 | F7 | `j` | journal |
@@ -318,7 +345,7 @@ The first launch opens Settings: pick LM Studio, Ollama, another OpenAI-compatib
 | F12 | | the debug screen |
 | Ctrl+L | | redraw the screen |
 
-Esc closes a panel; in the story, press it twice for the title screen (your game is saved).
+Esc closes a panel, and F1-F7 in one switch to that panel instead (its own key closes it); in the story, press Esc twice for the title screen (your game is saved). A level-up's cards can wait: close them and the perks stay among the choices. Panels keep their size while they're open, whatever you pick in them, and they, the dice and the campfire fit a terminal as small as 80x24.
 
 Everything works with a mouse too: click a choice, an arrow on the pad, a highlighted word, a picture (for its card), loot in the story (to take it) or the dice (once to roll, again to carry on), and close a panel with its ✕ or a click outside it. Type `n`, `s`, `e` or `w` to go that way.
 
@@ -355,9 +382,15 @@ a terminal app (Terminal, iTerm2, Ghostty, WezTerm, kitty).
 `ptg serve` puts the game on a web page for a few people to share: one link, a page that asks who's playing, and
 each name its own saves (profile, souls, settings and autosave). Typing the same name later picks up where that
 player left off. A second tab with the same name ends the first, so a run is never played in two places. It's built
-on Textual's `textual-serve`, which runs one game for each browser tab. Laptops and tablets play it fully; phones
-need the narrow layout planned in `docs/plans/cross-platform-and-mobile.md`. Sound is off, since it would play on
-the server.
+on Textual's `textual-serve`, which runs one game for each browser tab. Laptops and tablets play it fully. Sound is
+off, since it would play on the server.
+
+The game's page is made for phones too (`src/ptg/web/app_index.html`). It picks a font size that fits at least 40
+columns, keeps the game above the phone's keyboard, and scrolls with a swipe. Taps play the game, so the keyboard
+stays down until the keyboard button (bottom right) is tapped; a keyboard plugged in types either way. A browser
+played with a finger tells its game so (`PTG_TOUCH=1`), whatever the screen's size. Add `?fontsize=12` to a game's
+address to pick the size yourself. The narrow layout for phone screens is planned in
+`docs/plans/cross-platform-and-mobile.md`.
 
 Try it on your own machine (saves go in `./players`):
 
@@ -417,7 +450,8 @@ choice for your next descent.
 ## Test rooms
 
 To try someone out without playing down to them: a test room starts you next door to whoever you pick, so walking
-in plays out as it would in a run. Lucky Lenny (his bad tooth is in your pack), Swoogy (behind a wall to bomb, with
+in plays out as it would in a run. Lucky Lenny (his bad tooth is in your pack, as if you'd found it first; or, in
+`lenny_quest`, still hidden on his floor, for him to tell you where), Swoogy (behind a wall to bomb, with
 a bomb), King Mouse (at the floor-2 stairs), either shop (at its door, with a small key, two bombs and 100 gold to
 spend), each boss (at its locked door, with its key), or any monster.
 
@@ -443,18 +477,22 @@ leave a test room they're back at their own title screen, their run where they l
 
 ```
 src/ptg/
-  data/            themes, rooms, items, monsters, perks, unlocks, prop tags (TOML), art and story/ events
+  data/            themes, rooms, items, monsters, perks, unlocks, prop tags, the characters' lines (TOML), art
+                   and story/ events
   content.py       loads and validates the data (broken data fails loudly)
   world.py         seeded floors: layout, stairs, fixtures, elites, loot, ghosts, the secret room, the map
   loot.py          what turns up where: loot by kind and tier, read from the items, and where rare things are kept
   powers.py        what items do beyond their numbers: roll bonuses, maps, throwing, distracting, curses
-  npcs.py          characters who aren't just monsters: Lucky Lenny, Swoogy, King Mouse, anyone tagged npc
+  npcs.py          characters who aren't just monsters: Lucky Lenny, Swoogy, King Mouse, anyone tagged npc; what
+                   they say (data/dialogue.toml), Talk, and where their stories have got to
   layout.py        room floor plans and where things stand
   models.py        game state (pydantic; a save file is just this as JSON)
   dice.py          d20 checks with advantage, as data the UI can animate
   rules.py         available actions, movement, items, fixtures, chests, bombs, perks, traits
   combat.py        attacks, telegraphed intents, dodging, fleeing, defeat
-  creative.py      free-text attempts: props, flair, weaknesses, clamped effects
+  scene.py         what's here to act on, as typed refs (the room's view): monster, fixture, exits, pack, gold...
+  interactions.py  the interaction grid: what (verb, thing, target) comes to, each thing's verbs, pickers
+  creative.py      free-text stunts the grid has no row for: props, flair, weaknesses, clamped effects
   game.py          one turn: interpret -> resolve -> (reroll) -> narrate -> save -> profile
   profile.py       SQLite: souls, unlocks, Hall of Legends, bestiary, ghosts, turn log
   meta.py          building the adventurer from unlocks, starting runs, scoring the end
@@ -471,6 +509,7 @@ src/ptg/
   ui/              Textual app: title, settings, campfire, game screen, dice, panels, endings, debug screen
   cli.py           `ptg` entry point and plain-text mode
   serve.py         `ptg serve`: the game in web browsers, a name and saves for each player
+  web/             the game's web page under `ptg serve`, made for phones too
 tests/             world, rules, profile, interpreter and UI tests, plus a bot that plays whole runs
 docs/maker/        the Monster & Item Maker page and its library.json (GitHub Pages serves docs/)
 tools/             build_sprites.py: the hand-drawn sprite maps; build_sounds.py: the synthesized sounds;

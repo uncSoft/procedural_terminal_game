@@ -4,8 +4,10 @@ no Hall of Legends, no ghost, no bestiary). From `ptg --test-room`, the debug sc
 game's test-rooms page (PTG_TEST_ROOMS=1).
 
 You start next door, so walking in plays out as it would in a run: Swoogy's wall to bomb (a bomb's in your pack), a
-shop's door (a small key, two bombs and 100 gold to spend), a boss's locked door (its key), Lucky Lenny (his bad tooth
-in your pack).
+shop's door (a small key, two bombs and 100 gold to spend), a boss's locked door (its key), Lucky Lenny with his bad
+tooth in your pack (as if you'd found it first: lenny), or still missing it, hidden somewhere on his floor, for him to
+tell you where (lenny_quest). His tooth is only ever on his own floor (there's no going back up), so there's no room
+for it on the floor above him.
 
 Kits (`loadout`): "new" (a new adventurer), "random" (gear, level and perks about where a run is by that floor),
 "strong" (the best of everything), or your own: "weapon=war_pick,armor=chain_shirt,items=holy_water+pickle,level=3,
@@ -23,10 +25,12 @@ from .world import build_floor, generate
 
 # Who you can test besides the bosses and the monsters, and the floor each is tried on unless you say.
 SPECIAL = {"lenny": ("Lucky Lenny, with his bad tooth in your pack", 1),
+           "lenny_quest": ("Lucky Lenny, still missing his bad tooth: it's hidden on his floor", 1),
            "swoogy": ("Swoogy, behind a wall for you to bomb", 1),
            "king_mouse": ("King Mouse, guarding the floor-2 stairs", 2),
            "shop": ("Granny Gristle's shop, at its door, with gold to spend", 1),
            "shiny_shop": ("Granny Kamultruk's shop, at its door, with gold to spend", 1)}
+LENNYS = {"lenny": npcs.LENNY, "lenny_quest": npcs.LENNY}  # the rooms with Lucky Lenny next door
 SHOP_GOLD = 100
 LOADOUTS = {"new": "a new adventurer", "random": "random gear, as a run would have it on that floor",
             "strong": "the best of everything"}
@@ -83,18 +87,27 @@ def build(content: Content, who: str, loadout: str = "random", floor: int = 0, n
     elif who == "king_mouse":
         state, start = _king_mouse(content, seed)
     else:
-        state, start = _next_door(content, seed, floor, npcs.LENNY if who == "lenny" else who)
+        state, start = _next_door(content, seed, floor, LENNYS.get(who, who))
     state.test_room, state.run_id, state.daily, state.ghost = who, None, "", None
     state.player = kit(content, state, loadout, floor, rng, name)
     player = state.player
     if who == "lenny":
         player.inventory.append(npcs.BAD_TOOTH)
+        _only_yours(state, npcs.BAD_TOOTH)
+        state.quests[npcs.LENNY] = "found_item"  # (as if you'd found it before you met him)
+    elif who == "lenny_quest":
+        player.inventory = [k for k in player.inventory if k != npcs.BAD_TOOTH]
+        _only_yours(state, npcs.BAD_TOOTH)
+        lenny = target(state)
+        npcs.hide_tooth(state, [r for r in state.rooms if r.id not in (start, lenny.id) and not (r.secret or r.shop)]
+                        or [lenny])
     elif who == "swoogy":
         player.bombs = max(player.bombs, 1)
     elif who in ("shop", "shiny_shop"):
         player.keys, player.bombs, player.gold = max(player.keys, 1), max(player.bombs, 2), max(player.gold, SHOP_GOLD)
     elif boss_of:
         player.inventory.append(content.themes[boss_of].key_item)
+        _only_yours(state, content.themes[boss_of].key_item)
     powers.settle_stats(state, content)
     room = state.rooms[start]
     state.room_id, room.visited = start, True
@@ -158,7 +171,7 @@ def custom(spec: str) -> dict:
 
 def target(state: GameState) -> Room:
     """The room whoever you're testing is in (a shop, for a shop)."""
-    who = {"lenny": npcs.LENNY, "swoogy": npcs.SWOOGY}.get(state.test_room, state.test_room)
+    who = {**LENNYS, "swoogy": npcs.SWOOGY}.get(state.test_room, state.test_room)
     keeper = {"shop": loot.SHOPKEEPER, "shiny_shop": loot.SHINY}.get(who)
     here = state.room
     return min((r for r in state.rooms if (r.shop.keeper == keeper if keeper and r.shop else
@@ -183,6 +196,18 @@ def describe(content: Content, state: GameState) -> list[tuple[str, str]]:
             ("Pack", ", ".join(f"{n} ×{c}" if c > 1 else n for n, c in pack.items()) or "nothing"),
             ("Also", f"{player.gold} gold · {player.bombs} bomb{'s' * (player.bombs != 1)} · {player.keys} small "
                      f"key{'s' * (player.keys != 1)}")]
+
+
+def _only_yours(state: GameState, key: str) -> None:
+    """The one in your pack is the floor's only one, as in a run: not another hidden somewhere (a tooth's own hiding
+    place goes with it)."""
+    for room in state.rooms:
+        held = [f for f in room.features if key in f.loot]
+        for feature in held:
+            feature.loot = [k for k in feature.loot if k != key]
+        gone = {id(f) for f in held if f.hidden and not (f.loot or f.gold)}
+        room.features = [f for f in room.features if id(f) not in gone]
+        room.items = [k for k in room.items if k != key]
 
 
 # --- where you start --------------------------------------------------------------------------------------------------
@@ -222,7 +247,7 @@ def _next_door(content: Content, seed: int, floor: int, key: str):
 
 def _swoogy(content: Content, seed: int, floor: int):
     state, secret = _first(content, seed, floor, lambda s: next((r for r in s.rooms if r.secret), None))
-    secret.monster = npcs.sized(content, npcs.SWOOGY, npcs.SWOOGY_SIZE[floor], hostile=False, mood="challenge")
+    secret.monster = npcs.sized(content, npcs.SWOOGY, floor, npcs.SWOOGY_SIZE, hostile=False, mood="challenge")
     beside = next(r for r in state.rooms
                   if not r.secret and not r.shop and abs(r.x - secret.x) + abs(r.y - secret.y) == 1)
     return state, beside.id
@@ -237,7 +262,7 @@ def _shop(content: Content, seed: int, floor: int, keeper: str):
 def _king_mouse(content: Content, seed: int):
     state = _at_floor(content, seed, 2)
     stairs = next(r for r in state.rooms if r.fixture == "stairs")
-    stairs.monster = npcs.sized(content, npcs.KING_MOUSE, npcs.KING_MOUSE_SIZE[2])
+    stairs.monster = npcs.sized(content, npcs.KING_MOUSE, 2, npcs.KING_MOUSE_SIZE, warden=True)
     return state, next(e.to for e in stairs.exits.values() if not e.locked)
 
 

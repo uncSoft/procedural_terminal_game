@@ -1,3 +1,5 @@
+import asyncio
+
 from textual import events
 from textual.geometry import Offset, Region
 from textual.widgets import Static
@@ -7,17 +9,17 @@ from ptg.config import Config, load_game, save_game, save_path
 from ptg.content import load_content
 from ptg.dice import Roll
 from ptg.events import Event
-from ptg.sprites import DEATH_FRAMES, DEFAULT_WIDTH
+from ptg.sprites import DEATH_FRAMES, DEFAULT_WIDTH, SMALL, frame_count, sprite_text
 from ptg.ui.app import PTGApp
 from ptg.ui.dice import DiceScreen
-from ptg.ui.game_screen import GameScreen
-from ptg.ui.hub import EndScreen, HubScreen
+from ptg.ui.game_screen import GameScreen, shown
+from ptg.ui.hub import CROWN_GLINT, EndScreen, HubScreen
 from ptg.ui.effects import Popup
 from ptg.ui.panels import (BestiaryScreen, CharacterScreen, FloorScreen, HelpScreen, InfoScreen, InventoryScreen,
                            JournalScreen, LevelUpScreen, LookScreen, MapScreen, ShopScreen)
 from ptg.meta import start_run
 from ptg.ui.screens import AbandonScreen, IntroScreen, SetupScreen, TitleScreen
-from ptg.ui.widgets import AnimatedSprite, ChoiceItem, roll_text
+from ptg.ui.widgets import ChoiceItem, Picture, PictureClock, roll_text
 
 
 async def settle(app, pilot, limit: float = 10.0) -> None:
@@ -385,30 +387,44 @@ async def test_fixtures_come_alive():
         story = screen.query_one("#story")
 
         # Walking in: the chest waits, shut (it only glints).
+        game.state.room.monster = None
         game.state.room.fixture, game.state.room.fixture_used = "chest", False
         screen._arrival_sprite([Event("enter", "", data={"first": True})])
         await pilot.pause()
-        chest = screen.live_sprites[-1]
-        assert chest.key == "chest" and chest._timer is not None and set(chest.loop) == {0, 1}
+        chest = screen.fixture_sprites[here]
+        clock = PictureClock.of(app)
+        assert chest.key == "chest" and chest in clock.pictures and set(chest.loop) == {0, 1}
         await pilot.press(*"sing a sea shanty", "enter")
         await settle(app, pilot)
-        assert chest._timer is None and not screen.live_sprites  # the next turn stills it
+        assert chest in clock.pictures  # it goes on glinting while it's there to see
 
         # Opening it: the same chest moves down to the moment and plays it, so there's only ever one.
         narration = screen.add_line("…", "narration")
         await screen._fixture_moment([Event("chest", "")], narration, here)
-        assert [s for s in screen.query(AnimatedSprite) if s.key == "chest"] == [chest]
+        assert [s for s in story.query(".story-sprite") if s.key == "chest"] == [chest]
         assert story.children.index(chest) == story.children.index(narration) - 1
-        assert chest._timer is None  # played once, then rests open
+        assert chest not in clock.pictures  # played once, then rests open and emptied, as the room's picture shows it
+        assert chest.content == sprite_text("chest", frame_count("chest") - 1)
 
         # The stairs dissolve and go; a moment with no sprite waiting gets a fresh one.
         await screen._fixture_moment([Event("descend", "")], narration, (9, 9))
         await pilot.pause()
-        assert [s.key for s in screen.query(AnimatedSprite)] == ["chest"]
+        assert [s.key for s in story.query(".story-sprite")] == ["chest"]
 
         game.config.art = "ascii"
         await screen._fixture_moment([Event("shrine", "")], narration, (9, 9))
-        assert len(screen.query(AnimatedSprite)) == 1  # no new sprite in ASCII mode
+        assert len(story.query(".story-sprite")) == 1  # no new sprite in ASCII mode
+
+        # A shrine waiting to be used flickers, its snuffed-out frame left for after the offering.
+        game.config.art = "sprites"
+        game.state.room.fixture, game.state.room.fixture_used = "shrine", False
+        screen._arrival_sprite([Event("enter", "", data={"first": True})])
+        await pilot.pause()
+        shrine = screen.fixture_sprites[here]
+        assert shrine.key == "shrine" and shrine.loop == [0, 1, 2] and frame_count("shrine") == 4
+        await screen._fixture_moment([Event("shrine", "")], screen.add_line("…", "narration"),
+                                     (game.state.floor, game.state.room_id))
+        assert shrine.content == sprite_text("shrine", 3)
 
 
 def close_on_border(screen) -> bool:
@@ -436,9 +452,10 @@ async def test_panels_close_with_the_mouse():
             assert isinstance(app.screen, GameScreen), f"{key}: a click outside closes it"
         await pilot.press("f2")
         await pilot.pause(0.3)
-        await pilot.press("down", "down", "down")  # each item's notes resize the box; the ✕ follows
+        box = app.screen.query_one(".panel-box").region
+        await pilot.press("down", "down", "down")  # each item's notes once resized the box, and the ✕ followed it
         await pilot.pause(0.3)
-        assert close_on_border(app.screen)
+        assert close_on_border(app.screen) and app.screen.query_one(".panel-box").region == box
         panel = app.screen
         panel.action_close()
         panel.action_close()  # a double click
@@ -467,10 +484,79 @@ async def test_dice_roll_and_reroll_with_the_mouse():
         await pilot.pause(0.2)
         await pilot.click(offset=(1, 1))  # anywhere rolls...
         await pilot.pause(3.2)
-        assert app.screen.query_one("#dice-box").has_class("tone-good") and not app.screen.query_one("#dice-fate").display
+        fate = app.screen.query_one("#dice-fate")
+        assert app.screen.query_one("#dice-box").has_class("tone-good") and not fate.has_class("-shown")
+        assert fate.styles.visibility == "hidden"
         await pilot.click(offset=(1, 1))  # ...and carries on
         await pilot.pause(0.2)
         assert results == ["reroll", "accept"]
+
+
+async def test_the_dice_box_fits_the_screen_and_keeps_its_size():
+    """At 100x30 the box grew from 30 rows to 32 when the Fate button showed, its bottom off the screen (at 80x24 it
+    was cut from the start). Now its row is kept for the button from the first, a short screen drops the blank lines
+    and a tiny one has a smaller die: the whole box shows, the same size from the roll to the verdict."""
+    from ptg.dice_art import SIZE, SMALL_SIZE
+
+    for size, die, height in (((130, 44), SIZE, "-tall"), ((100, 30), SIZE, "-short"), ((80, 24), SMALL_SIZE, "-tiny")):
+        app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+        async with app.run_test(size=size) as pilot:
+            await pilot.pause()
+            failed = Roll("might", "player", [4], 4, [("Might", 1)], dc=14, success=False)
+            app.push_screen(DiceScreen(failed, "Lift the portcullis with all your might", 1, True))
+            await pilot.pause(0.3)
+            box = app.screen.query_one("#dice-box")
+            before = box.region
+            assert app.screen.die == die and app.screen.has_class(height), size  # (the app's size classes reach it)
+            await pilot.press("space")
+            await pilot.pause(3.2)
+            assert app.screen.stage == "done" and app.screen.query_one("#dice-fate").has_class("-shown")
+            assert box.region == before and box.region.y >= 0 and box.region.bottom <= size[1], size
+            prompt = app.screen.query_one("#dice-prompt").region
+            assert before.y < prompt.y < before.bottom - 1, size  # the prompt, inside the frame
+
+
+async def test_each_reroll_line_counts_the_fate_left_from_before_the_roll(monkeypatch):
+    """Run 44: the second reroll's perfect dodge won a token back, and the story said '(3 left)' twice. Each line
+    counts from before the roll, as the dice screen does."""
+    from ptg import combat
+
+    def lucky(state, roll):  # every reroll wins a token back, as a perfect dodge would
+        if state.reroll:
+            state.player.fate += 1
+            return []
+        return combat.fortune(state, roll)
+
+    monkeypatch.setattr("ptg.rules.fortune", lucky)
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        state = screen.game.state
+        state.player.wits, state.player.fate = -30, 3  # a search that fails (but for a natural 20), and Fate 3/3
+        state.room.features[0].hidden = True
+        story = screen.query_one("#story")
+        start = len(story.children)
+        screen.run_turn("search the room for secrets")
+        rerolls, fate_shown, seen = 0, [], set()
+        for _ in range(300):
+            await pilot.pause(0.1)
+            dice = app.screen
+            if isinstance(dice, DiceScreen) and id(dice) not in seen:
+                seen.add(id(dice))
+                fate_shown.append(dice.fate)
+                await pilot.press("space")
+                while dice.stage != "done":
+                    await pilot.pause(0.1)
+                if dice.can_reroll and not dice.roll.success and rerolls < 2:
+                    rerolls += 1
+                    await pilot.press("f")
+                else:
+                    await pilot.press("enter")
+            elif isinstance(dice, GameScreen) and not dice.busy and seen:
+                break
+        assert rerolls == 2 and fate_shown == [3, 2, 1]
+        lines = [shown(w).strip() for w in list(story.children)[start:] if "Fate spent" in shown(w)]
+        assert lines == ["✦ Fate spent. Rerolling... (2 left)", "✦ Fate spent. Rerolling... (1 left)"]
 
 
 async def test_rolls_light_up_the_story():
@@ -542,6 +628,71 @@ async def test_the_mouse_can_begin_and_end_a_run():
         assert isinstance(app.screen, HubScreen)
 
 
+async def test_the_end_of_a_run_is_drawn_in_pixels():
+    """A pixel tombstone with your name carved in it, or a glinting crown; the ASCII ones for ASCII art."""
+    from ptg.world import generate
+
+    for art in ("sprites", "ascii"):
+        app = PTGApp(Config(backend="offline", player_name="T", art=art), seed=1)
+        async with app.run_test(size=(110, 44)) as pilot:
+            await pilot.pause()
+            state = generate(1, "Pip the Brave", load_content())
+            state.status, state.floor, state.test_room = "dead", 2, "x"
+            app.push_screen(EndScreen(state))
+            await pilot.pause(0.3)
+            stone = app.screen.query_one(".end-art", Static)
+            lines = stone.content.plain.split("\n")
+            assert "Pip the Brave" in stone.content.plain and "floor 2" in stone.content.plain
+            assert ("▀" in stone.content.plain) == (art == "sprites") and "R.I.P." in lines[2]
+            app.pop_screen()
+            state.status = "won"
+            app.push_screen(EndScreen(state))
+            await pilot.pause(0.3)
+            crown = app.screen.query_one(".end-art", Picture)
+            if art == "sprites":
+                assert crown.art.sprite == "crown" and crown in PictureClock.of(app).pictures  # it glints
+                assert crown.flicker and crown.loop == CROWN_GLINT
+            else:
+                assert "_/\\_/\\_/\\_" in crown.content.plain and not crown.art.sprite
+
+
+LONG_EPITAPH = ("Here lies Sir Reginald Pumpernickel the Brief, who tried to pet a gelatinous cube and was very, very "
+                "surprised by how sticky it turned out to be.")
+
+
+async def test_the_end_of_a_run_fits_the_screen():
+    """On an 80x24 terminal the whole box shows, down to its hint: the blank lines between the parts go first, then
+    the pixel picture shrinks to half size (ASCII art, which has one size, goes); on a big screen it all comes back."""
+    from ptg.world import generate
+
+    # (art, outcome, a long epitaph and traits) -> the picture's rows at 80x24 (0: none), then on a big screen
+    expected = {("sprites", "dead", False): (10, 10), ("sprites", "dead", True): (5, 10),
+                ("sprites", "won", False): (8, 8), ("sprites", "won", True): (4, 8),
+                ("ascii", "dead", False): (8, 8), ("ascii", "dead", True): (0, 8),
+                ("ascii", "won", False): (3, 3), ("ascii", "won", True): (3, 3)}
+    for (art, status, long), (small, big) in expected.items():
+        app = PTGApp(Config(backend="offline", player_name="T", art=art), seed=1)
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause()
+            state = generate(1, "Sir Reginald Pumpernickel", load_content())
+            state.status, state.floor, state.test_room = status, 2, "x"
+            state.epitaph = LONG_EPITAPH if long else "Short and sweet."
+            state.player.traits = ["iron_gut", "lucky"] if long else []
+            app.push_screen(EndScreen(state))
+            for size, rows, tight in (((80, 24), small, True), ((110, 44), big, False)):
+                await pilot.resize_terminal(*size)
+                await pilot.pause(0.3)
+                screen = app.screen
+                box, picture, hint = (screen.query_one(q) for q in ("#end-box", ".end-art", ".end-hint"))
+                case = (art, status, long, size)
+                assert hint.region.height == 1 and box.region.bottom < size[1], case  # all of it, above the footer
+                assert hint.region.bottom < box.region.bottom, case
+                assert box.has_class("-tight") == tight, case
+                assert (picture.content.plain.count("\n") + 1 if picture.display else 0) == rows, case
+                if art == "sprites" and status == "dead":  # the name's carved on the stone while it's full size
+                    assert ("Sir Reginald P" in picture.content.plain) == (rows == 10), case
+
+
 async def test_the_moments_make_sounds(monkeypatch):
     app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
@@ -564,31 +715,36 @@ async def test_the_moments_make_sounds(monkeypatch):
         assert speakers.moments[-2:] == ["open", "close"]
 
 
-async def test_items_drawn_in_the_maker_show_their_art(monkeypatch):
-    from rich.text import Text
+async def test_items_drawn_in_the_maker_show_their_art():
+    """The same picture wherever it's shown, and animated: its card, the inventory's tile and its detail."""
+    from ptg.ui.panels import ItemTile
 
-    from ptg.ui import panels
-
-    monkeypatch.setattr(panels, "sprite_text", lambda key, width=24: Text("<ART>") if key.startswith("item_") else None)
     app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         key = screen.game.state.player.inventory[0]
         screen.action_lookup(f"item:{key}")
         await pilot.pause(0.3)
-        assert "<ART>" in str(app.screen.query_one(".panel-box Static").render())
+        card = app.screen.query_one(Picture)
+        assert card.art.sprite == f"item_{key}" and card in PictureClock.of(app).pictures
         await pilot.press("escape")
         await pilot.press("f2")
         await pilot.pause(0.3)
-        assert "<ART>" in str(app.screen.query_one("#inv-detail").render())
+        inventory = app.screen
+        tile = next(t for t in inventory.query(ItemTile) if inventory.items[t.index][0] == key)
+        tile.focus()
+        await pilot.pause(0.2)
+        detail = inventory.query_one("#inv-art", Picture)
+        assert detail.art.sprite == tile.query_one(Picture).art.sprite == f"item_{key}"
+        assert all(p in PictureClock.of(app).pictures for p in inventory.query(Picture))  # they all move
 
 
 async def test_the_inventory_is_tiles_and_enter_uses_the_one_picked(monkeypatch):
-    from ptg.ui import panels
+    from ptg.ui import widgets
     from ptg.ui.panels import ItemTile
 
-    drawn = panels.sprite_text  # pretend nobody has drawn the oil yet
-    monkeypatch.setattr(panels, "sprite_text", lambda key, **kw: None if key == "item_oil_flask" else drawn(key, **kw))
+    drawn = widgets.frames  # pretend nobody has drawn the oil yet
+    monkeypatch.setattr(widgets, "frames", lambda key, *args: None if key == "item_oil_flask" else drawn(key, *args))
     app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
@@ -626,14 +782,21 @@ async def test_found_loot_shows_with_its_art():
         await pilot.press(*str(number), "enter")
         await settle(app, pilot)
         [card] = screen.query(".loot-card")
-        assert str(card.border_title) == "✦ found"
-        art = card.query_one(AnimatedSprite)
-        assert art.key == "item_superior_healing_potion" and art.width == DEFAULT_WIDTH  # the full picture
+        assert str(card.border_title) == "✦ found" and card.has_class("lying")  # there for the taking, or leaving
+        art = card.query_one(Picture)
+        assert art.art.sprite == "item_superior_healing_potion" and art.art.pixels == DEFAULT_WIDTH  # the full picture
         assert "Superior Healing Potion" in str(card.query_one(".loot-text", Static).render())
+        assert "superior_healing_potion" in state.room.items and "click to take" in str(
+            card.query_one(".loot-text", Static).render())
+        await pilot.click(".loot-card")
+        await settle(app, pilot)
+        await pilot.pause(0.3)
+        assert "superior_healing_potion" in state.player.inventory and card.has_class("taken")
         await pilot.click(".loot-card")
         await pilot.pause(0.3)
         assert isinstance(app.screen, InfoScreen)  # its card, with the full art and what it does
-        assert "Superior Healing Potion" in str(app.screen.query_one(".panel-box Static").render())
+        assert app.screen.query_one(Picture).art.sprite == "item_superior_healing_potion"
+        assert "Superior Healing Potion" in str(app.screen.query_one("#info-text").render())
 
 
 async def test_a_room_you_walk_into_is_pictured_once():
@@ -685,6 +848,23 @@ async def test_the_pad_lights_the_ways_out_and_takes_you_there():
         await settle(app, pilot)
         assert state.room_id == here
 
+        # A shop door and no key: no choice of its own, but still a (dim) door on the pad, as on the map; clicking it
+        # says it's locked and costs no turn.
+        way = next(a.id[3:] for a in screen.game.choices() if a.id.startswith("go:"))
+        state.room.exits[way].locked, state.room.exits[way].key = True, "small_key"
+        state.player.keys = state.player.bombs = 0
+        screen.refresh_choices()
+        await pilot.pause(0.2)
+        assert f"go:{way}" not in {a.id for a in screen.game.choices()}
+        arrow = screen.query_one(f"#dpad-{way}")
+        assert not arrow.has_class("off") and "locked" in arrow.tooltip
+        story, turn = screen.query_one("#story"), state.turn
+        start = len(story.children)
+        await pilot.click(f"#dpad-{way}")
+        await settle(app, pilot)
+        assert state.room_id == here and state.turn == turn
+        assert any("is locked" in shown(w) for w in list(story.children)[start:])
+
 
 async def test_the_choices_box_keeps_its_height():
     """Nothing moves under the mouse: the box doesn't grow or shrink, and more choices start a second column."""
@@ -724,7 +904,9 @@ async def test_pictures_in_the_story_open_their_cards():
         assert screen._card_of("item_rusty_sword") == "screen.lookup('item:rusty_sword')"
         screen.action_lookup("fixture:shrine")
         await pilot.pause(0.3)
-        assert "▀" in str(app.screen.query_one(".panel-box Static").render())  # a fixture's card has its picture
+        shrine = app.screen.query_one(Picture)  # a fixture's card has its picture, and it flickers
+        assert shrine.art.sprite == "shrine" and "▀" in str(shrine.render()) and len(shrine.loop) > 1
+        assert str(app.screen.query_one(".panel-box").border_title) == "Shrine"
 
 
 async def test_look_shows_the_room_as_a_picture():
@@ -817,27 +999,31 @@ async def test_monsters_move_in_the_sidebar_the_bestiary_and_on_their_cards():
         game = screen.game
         put_monster(game.state, game.content, key="goblin", hp=200)
         screen.refresh_panels()
-        before = screen.frame
-        await pilot.pause(1.5)
-        assert screen.frame >= before + 2
+        portrait = screen.query_one("#scene-art", Picture)
+        shown = set()
+        for _ in range(6):
+            await pilot.pause(0.25)
+            shown.add(portrait.index)
+        assert portrait.key == "goblin" and shown == {0, 1}
 
         game.profile.bump_beast("goblin", "seen")
         await pilot.press("f6")
         await pilot.pause(0.3)
-        art = app.screen.query_one("#beast-art", AnimatedSprite)
+        art = app.screen.query_one("#beast-art", Picture)
         assert art.key == "goblin" and art.display and len(art.loop) == 2
+        frozen = portrait.index  # (the sidebar's behind the bestiary now: it waits)
         shown = set()
         for _ in range(6):
             await pilot.pause(0.25)
             shown.add(art.index)
-        assert shown == {0, 1}
+        assert shown == {0, 1} and portrait.index == frozen
         await pilot.press("escape")
         await pilot.pause(0.2)
 
         screen.action_lookup("monster:goblin")
         await pilot.pause(0.3)
         assert isinstance(app.screen, InfoScreen)
-        assert app.screen.query_one(AnimatedSprite).key == "goblin"
+        assert app.screen.query_one(Picture).key == "goblin"
 
 
 async def test_a_shop_from_its_door_to_its_counter(monkeypatch):
@@ -880,6 +1066,8 @@ async def test_a_shop_from_its_door_to_its_counter(monkeypatch):
         await pilot.pause(0.6)
         assert state.player.gold == 500 - first.price and first not in shop.shop.wares
         assert isinstance(app.screen, ShopScreen)  # back at her counter
+        cards = [str(c.border_title) for c in screen.query(".loot-card")]
+        assert cards[-1] == "✦ bought"  # not "picked up" (F68)
 
 
 async def test_click_what_a_monster_dropped_to_take_it(monkeypatch):
@@ -908,3 +1096,432 @@ async def test_click_what_a_monster_dropped_to_take_it(monkeypatch):
         await pilot.pause(0.4)
         assert state.room.items == ["oil_flask"] and state.turn == turn
         assert lying[0].has_class("taken") and lying[0].border_title == "✓ taken"
+
+
+async def test_a_shop_fits_a_small_screen():
+    """At 100x30 the ware you'd picked was drawn into wrapping text 20 columns wide: striped noise, twice as tall,
+    with its price and Buy below the bottom of the box. Now the shop shares the screen out (her small, or not at all),
+    and the ware's picture is a picture of its own, small if that's what fits. The box keeps its size from ware to
+    ware (it grew and shrank with each one's words, and its counter could be cut off by it): the counter and the words
+    scroll, and Buy, Haggle and the keys stay put inside it."""
+    from ptg.ui.panels import ItemTile
+    from ptg.world import generate
+
+    seed = next(s for s in range(300) if any(r.shop for r in generate(s).rooms))
+    for size, keeper in (((100, 30), SMALL), ((80, 24), 0), ((130, 44), DEFAULT_WIDTH)):
+        app = PTGApp(Config(backend="offline", player_name="T"), seed=seed)
+        async with app.run_test(size=size) as pilot:
+            screen = await into_a_run(app, pilot)
+            state = screen.game.state
+            for room in state.rooms:
+                room.monster = None
+            shop = next(r for r in state.rooms if r.shop)
+            state.room_id, state.player.gold = shop.id, 500
+            screen.open_shop()
+            await pilot.pause(0.3)
+            panel = app.screen
+            assert isinstance(panel, ShopScreen)
+            her = panel.query_one("#shop-keeper")
+            assert her.display == bool(keeper) and (not keeper or her.query_one(Picture).art.pixels == keeper)
+            box = panel.query_one(".shop-box").region
+            shelf = panel.query_one("#shop-shelf").region
+            assert box.bottom <= size[1] and shelf.bottom < box.bottom  # the counter, inside the box
+            for tile in panel.query(ItemTile):
+                tile.focus()
+                await pilot.pause(0.1)
+                art, side = panel.query_one("#shop-art", Picture), panel.query_one("#shop-side").region
+                assert art.size.height == art.art.rows and art.region.right <= side.right, (size, tile.index)
+                assert art.art.pixels == (DEFAULT_WIDTH if size == (130, 44) else SMALL), size
+                for line in ("#shop-buy", "#shop-barter", "#shop-hint"):
+                    region = panel.query_one(line).region
+                    assert region.height and region.bottom < box.bottom, (size, tile.index)  # inside its frame
+                assert panel.query_one(".shop-box").region == box, (size, tile.index)  # it never moves
+                assert shelf.y <= tile.region.y and tile.region.bottom <= shelf.bottom, (size, tile.index)  # in sight
+
+
+async def test_the_inventory_draws_things_full_size_when_there_is_room():
+    """Small pictures were fixed for its tiles, whatever the screen: now they're full size (the very picture its
+    detail shows) when three of them fit across, two rows down, beside one in full; small when they don't."""
+    from ptg.ui.panels import ItemTile
+
+    for size, pixels in (((130, 44), DEFAULT_WIDTH), ((100, 30), SMALL)):
+        app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+        async with app.run_test(size=size) as pilot:
+            screen = await into_a_run(app, pilot)
+            screen.game.state.player.inventory += ["holy_water", "stale_bread", "rubber_duck"]
+            await pilot.press("f2")
+            await pilot.pause(0.3)
+            inventory = app.screen
+            tiles = list(inventory.query(ItemTile))
+            assert {tile.query_one(Picture).art.pixels for tile in tiles} == {pixels}, size
+            assert all(tile.has_class("full") == (pixels == DEFAULT_WIDTH) for tile in tiles)
+            detail = inventory.query_one("#inv-art", Picture)
+            assert detail.art.pixels == pixels and detail.key == inventory.items[0][0], size
+            assert inventory.query_one(".inventory-box").region.right <= size[0]
+    app = PTGApp(Config(backend="offline", player_name="T", art="ascii"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:  # ASCII art: a glyph each, on small tiles
+        await into_a_run(app, pilot)
+        await pilot.press("f2")
+        await pilot.pause(0.3)
+        glyphs = [tile.query_one(Picture).art for tile in app.screen.query(ItemTile)]
+        assert glyphs and all(not art.sprite and art.pixels == SMALL and art.still.plain.strip() for art in glyphs)
+        assert not app.screen.query_one("#inv-art").display  # (a glyph in the detail would only be a lot of space)
+
+
+async def test_a_friendly_character_is_met_in_colour():
+    """Walking in on Lucky Lenny showed the room's floor plan in the sidebar and no picture of him at all, bar a grey
+    statue in the room's picture: now he's there in the story as you arrive, alive and in his own colours, and in the
+    sidebar while you're with him. Click him for his card, which offers what he's there for (not a blow)."""
+    from ptg import testrooms
+
+    app = PTGApp(Config(backend="offline", player_name="T"), test_room=("lenny", "strong", 0))
+    async with app.run_test(size=(130, 44)) as pilot:
+        await pilot.pause(0.5)
+        await settle(app, pilot)
+        screen = app.screen
+        state = screen.game.state
+        room = testrooms.target(state)
+        story = screen.query_one("#story")
+        start = len(story.children)
+        await take_choice(app, pilot, screen, next(f"go:{d}" for d, e in state.room.exits.items() if e.to == room.id))
+        assert told_since(story, start)[:3] == ["player-line", "room-row", "story-sprite"]
+        [him] = [w for w in story.children[start:] if w.has_class("story-sprite")]
+        assert isinstance(him, Picture) and him.key == "lucky_lenny" and him.pose == "idle"
+        assert him.content == sprite_text("lucky_lenny", him.frame) and him in PictureClock.of(app).pictures
+        portrait = screen.query_one("#scene-art", Picture)
+        assert portrait.display and portrait.key == "lucky_lenny" and not screen.query_one("#scene-plan").display
+        assert "calm" in str(screen.query_one("#scene-status").render())
+        assert not screen.query_one("#scene").has_class("combat")
+        story.scroll_to_widget(him, animate=False)  # (on some seeds what lies in his room pushes him out of sight)
+        await pilot.pause(0.1)
+        await pilot.click(him)
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, InfoScreen) and app.screen.action_id == "lenny"  # give him his tooth
+
+
+async def test_a_fight_in_the_sidebar_never_moves_it_or_runs_off_the_screen():
+    """The idle card ended with a status line and a fight's frames didn't, so the panel jumped a row (or three) at
+    every blow and moved the map under it; and at 100x30 the 16-row card ran off the bottom of a 15-row sidebar (at
+    80x24, with no room even for a small one and its lines, the warning goes on its frame)."""
+    from conftest import put_monster
+
+    for size, pixels in (((130, 44), DEFAULT_WIDTH), ((100, 30), SMALL), ((80, 24), SMALL)):
+        app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+        async with app.run_test(size=size) as pilot:
+            screen = await into_a_run(app, pilot)
+            game = screen.game
+            monster = put_monster(game.state, game.content, key="goblin", hp=200, intent="heavy")
+            screen.refresh_panels()
+            await pilot.pause(0.2)
+            scene, sidebar = screen.query_one("#scene"), screen.query_one("#sidebar")
+            assert screen.query_one("#scene-art", Picture).art.pixels == pixels, size
+            assert scene.region.bottom <= sidebar.region.bottom, size
+            warning = "HEAVY ATTACK NEXT"
+            assert (warning in str(scene.border_subtitle)) == (size == (80, 24)), size  # where it fits
+            assert (warning in str(screen.query_one("#scene-status").render())) == (size != (80, 24)), size
+            heights, watching = set(), True
+
+            async def watch() -> None:
+                while watching:
+                    heights.add(scene.outer_size.height)
+                    await asyncio.sleep(0.01)
+
+            watcher = asyncio.create_task(watch())
+            here = game.state.room_id
+            await screen._fight_animations([Event("hit", ""), Event("monster_hit", "")], ("goblin", "Goblin"), here)
+            monster.intent = "strike"  # (no warning now)
+            screen.refresh_panels()
+            await pilot.pause(0.2)
+            game.state.room.monster = None  # and the next blow kills it: it dissolves where it stood
+            await screen._fight_animations([Event("hit", "")], ("goblin", "Goblin"), here)
+            watching = False
+            await watcher
+            assert len(heights) == 1, (size, heights)
+
+
+async def test_a_card_is_titled_with_what_it_is_and_says_where_it_is():
+    """An item's card was titled "Item", said its powers twice and never where the thing was; fixtures, rooms and
+    features were "Fixture", "Room" and "In the room". Their pictures stood still, though a monster's moved."""
+    from ptg import powers
+
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        state, content = screen.game.state, screen.game.content
+        state.player.inventory += ["mama_s_shillelagh", "mama_s_shillelagh"]
+        state.room.items = ["war_pick"]
+
+        async def card(term: str) -> tuple[str, str]:
+            screen.action_lookup(term)
+            await pilot.pause(0.3)
+            title, body = str(app.screen.query_one(".panel-box").border_title), app.screen.query_one("#info-text")
+            await pilot.press("escape")
+            await pilot.pause(0.2)
+            return title, str(body.render())
+
+        title, body = await card("item:mama_s_shillelagh")
+        power = powers.describe(content.item("mama_s_shillelagh"))[0]
+        assert title == "Mama's Shillelagh" and body.count(power) == 1 and "in your pack ×2" in body
+        title, body = await card("item:war_pick")
+        sword = content.item(state.player.weapon)
+        assert title == "War Pick" and "lying here" in body and f"your {sword.name}: {sword.damage} → 1d10" in body
+        screen.action_lookup("fixture:chest")
+        await pilot.pause(0.3)
+        assert str(app.screen.query_one(".panel-box").border_title) == "Chest"
+        assert app.screen.query_one(Picture) in PictureClock.of(app).pictures  # (it glints)
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+        assert (await card(f"room:{state.room_id}"))[0] == state.room.name
+        assert (await card("rule:fate"))[0] == "Fate"
+        if state.room.features:
+            assert (await card("feature:0"))[0].lower() == state.room.features[0].name.lower()
+
+
+# --- panels that keep their size, and fit a small screen ---------------------------------------------------------
+
+LONG_AND_SHORT = ["healing_potion", "mama_s_shillelagh", "hard_hat", "x_64gb_ddr5_ram_kit", "swoogy_s_diaper",
+                  "oil_flask", "stale_bread", "holy_water", "rubber_duck", "war_pick", "chain_shirt"]
+
+
+async def test_panels_keep_their_size_whatever_you_pick():
+    """The inventory's box grew and shrank with each item's words and jumped up and down the screen (a click on the
+    Shillelagh moved every tile six rows, so the next click hit empty box), its shelf ran past the bottom of the box
+    so the last tiles could never be seen, and on a short screen what Enter does was cut off. Now a panel is sized
+    once as it opens: moving and clicking change what's in it, never the box; the shelf and the words scroll inside
+    it; what Enter does and the keys stay in sight; and the tile you're on is always in view."""
+    from ptg.ui.panels import ItemTile
+
+    for size in ((130, 44), (100, 30), (80, 24)):
+        app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+        async with app.run_test(size=size) as pilot:
+            screen = await into_a_run(app, pilot)
+            screen.game.state.player.inventory += LONG_AND_SHORT
+            await pilot.press("f2")
+            await pilot.pause(0.3)
+            panel = app.screen
+            box, close = panel.query_one(".panel-box").region, panel.query_one("#close").region
+            assert box.y >= 1 and box.bottom <= size[1] - 1, size  # (a row around it, to click it closed)
+            shelf = panel.query_one("#inv-shelf").region
+            tiles = list(panel.query(ItemTile))
+            for i, tile in enumerate(tiles[1:] + [tiles[2]]):  # each tile by the keys, then a click on the Shillelagh
+                if i == len(tiles) - 1:
+                    panel.query_one("#inv-shelf").scroll_to_widget(tile, animate=False)  # (scrolled back up to it)
+                    await pilot.pause(0.1)
+                    await pilot.click(tile)
+                else:
+                    await pilot.press("right")
+                await pilot.pause(0.05)
+                assert panel.query_one(".panel-box").region == box and panel.query_one("#close").region == close
+                focused = panel.focused.region
+                assert shelf.y <= focused.y and focused.bottom <= shelf.bottom, (size, panel.current)  # in sight
+                for line in ("#inv-use", "#inv-hint"):
+                    region = panel.query_one(line).region
+                    assert region.height and region.bottom < box.bottom, (size, line, panel.current)
+            assert panel.items[panel.current][0] == "mama_s_shillelagh"
+            words = panel.query_one("#inv-words")
+            assert words.region.bottom <= panel.query_one("#inv-use").region.y  # the words scroll above it
+            await pilot.press("f6")  # the bestiary: the same height, and it doesn't move either
+            await pilot.pause(0.3)
+            assert isinstance(app.screen, BestiaryScreen)
+            beasts = app.screen.query_one(".panel-box").region
+            assert (beasts.y, beasts.height) == (box.y, box.height)
+
+
+async def test_f1_to_f7_work_inside_every_panel():
+    """The dimmed footer behind a panel offered F1-F7, and they did nothing until you closed it. Now they switch to
+    that panel (its own key closes it), from a card too; a level-up stays put under the one you look at."""
+    from ptg.rules import check_level
+
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(100, 30), notifications=True) as pilot:
+        screen = await into_a_run(app, pilot)
+        depth = len(app.screen_stack)
+        for key, panel in [("f2", InventoryScreen), ("f3", CharacterScreen), ("f5", MapScreen), ("f1", HelpScreen),
+                           ("f7", JournalScreen), ("f4", LookScreen), ("f6", BestiaryScreen)]:
+            await pilot.press(key)
+            await pilot.pause(0.2)
+            assert isinstance(app.screen, panel) and len(app.screen_stack) == depth + 1, key  # in place of the last
+        await pilot.press("f6")  # its own key closes it
+        await pilot.pause(0.2)
+        assert app.screen is screen
+        screen.action_lookup("rule:fate")
+        await pilot.pause(0.3)
+        await pilot.press("f2")
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, InventoryScreen) and len(app.screen_stack) == depth + 1
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+
+        game = screen.game  # a level-up mid-turn: a look at your things, and back to it
+        game.state.player.xp = game.state.player.next_level_xp()
+        check_level(game.state, game.content)
+        await pilot.press(*"hum a tune", "enter")
+        for _ in range(50):
+            await pilot.pause(0.1)
+            if isinstance(app.screen, LevelUpScreen):
+                break
+        level_up = app.screen
+        assert isinstance(level_up, LevelUpScreen) and level_up.query_one("#close")  # a panel's frame, and its ✕
+        await pilot.press("f2")
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, InventoryScreen) and app.screen_stack[-2] is level_up
+        await pilot.press("enter")  # nothing's used while a perk waits
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, InventoryScreen)
+        await pilot.press("f3")
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, CharacterScreen) and app.screen_stack[-2] is level_up
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+        assert app.screen is level_up
+        await pilot.press("1")
+        await settle(app, pilot)
+        assert app.screen is screen and len(game.state.player.perks) == 1
+
+
+async def test_a_level_up_can_wait():
+    """The level-up was the one pop-up you couldn't close (no ✕, Esc ignored). Now it closes like any panel, and that
+    puts the choice off: the perks wait as the choices, and picking one there is a turn like any other."""
+    from ptg.rules import check_level
+
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(80, 24)) as pilot:
+        screen = await into_a_run(app, pilot)
+        game = screen.game
+        game.state.player.xp = game.state.player.next_level_xp()
+        check_level(game.state, game.content)
+        perks = list(game.state.pending_perks)
+        await pilot.press(*"hum a tune", "enter")
+        for _ in range(50):
+            await pilot.pause(0.1)
+            if isinstance(app.screen, LevelUpScreen):
+                break
+        box = app.screen.query_one(".panel-box").region
+        assert box.y >= 0 and box.bottom <= 24 and all(card.region.bottom < box.bottom
+                                                      for card in app.screen.query(".perk-card"))
+        await pilot.press("escape")
+        await settle(app, pilot)
+        assert app.screen is screen and [a.id for a in game.choices()] == [f"perk:{key}" for key in perks]
+        await pilot.press("2", "enter")
+        for _ in range(50):
+            await pilot.pause(0.1)
+            if not screen.busy:
+                break
+        assert app.screen is screen and game.state.player.perks == [perks[1]] and not game.state.pending_perks
+
+
+def test_help_wraps_under_its_words():
+    """The help was wrapped by hand for a wider panel than it had, so its long lines broke back to the left edge and
+    the hand-made indents landed mid-paragraph. Now it's tables: each rule's words wrap under its words."""
+    from rich.console import Console
+
+    from ptg.ui.panels import RULES, help_text
+
+    assert not any("\n" in words for _, _, words in RULES)
+    console = Console(width=60, record=True, color_system=None)
+    console.print(help_text())
+    lines = console.export_text().splitlines()
+    start = next(i for i, line in enumerate(lines) if "BOMBS" in line)
+    column = lines[start].index("Every floor")
+    rest = lines[start + 1:start + 4]
+    assert all(line[:column].strip() == "" and line[column] != " " for line in rest), rest
+    keys = next(line for line in lines if "Ctrl+Q" in line)
+    assert "quit" in keys  # the key and what it does, on one line
+
+
+def test_legends_keep_each_entry_whole_and_the_map_names_visited_and_the_boss(content):
+    from ptg.ui.widgets import legend, map_text
+    from ptg.world import generate
+
+    entries = [("@", "", "you"), ("ö", "", "a bird's nest"), ("o", "", "a knot hole"), ("!", "", "the Goblin")]
+    packed = legend(entries, width=27).plain.split("\n")
+    assert packed == ["@ you  ö a bird's nest", "o a knot hole  ! the Goblin"]
+    assert legend(entries).plain.split("\n") == ["@ you", "ö a bird's nest", "o a knot hole", "! the Goblin"]
+
+    state = generate(1, "T", content)
+    first = state.room
+    first.visited = True
+    state.room_id = next(e.to for e in first.exits.values())
+    state.room.visited = True
+    boss = next(r for r in state.rooms if not (r.visited or r.fixture or r.monster or r.secret or r.shop))
+    boss.is_boss, boss.told = True, True  # (on the map once you know of it)
+    plain = map_text(state).plain
+    assert "# visited" in plain and "B boss" in plain and "@ you" in plain
+    assert "■ chest" not in plain or "■" in plain.split("\n@")[0]  # only marks that are on the map
+
+
+async def test_the_campfire_fits_a_short_screen():
+    """At 100x30 the Hall of Legends was squeezed to its totals line under a big fire, and a card whose name wrapped
+    (Last Breath) lost its price; at 80x24 the buttons back down weren't there at all. Picking a card pushed its
+    button in under it. Now the fire's smaller on a short screen, the legends keep some lines, a card is as tall as its
+    name and price, and what a card does shows in a pane that keeps its size."""
+    for size in ((100, 30), (80, 24)):
+        app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+        async with app.run_test(size=size) as pilot:
+            await pilot.pause()
+            for i in range(5):
+                run = app.profile.start_run(i, f"Hero {i}", ["ruins"])
+                app.profile.finish_run(run, status="dead", floor=2, level=3, kills=4, gold=20, souls=30, turns=50,
+                                       cause="a goblin", epitaph="Tried to pet a gelatinous cube.", epithet="the Brave",
+                                       traits=[], perks=[])
+            app.show_campfire()
+            await pilot.pause(0.5)
+            hub = app.screen
+            assert hub.query_one("#campfire", Picture).art.pixels == SMALL, size
+            assert hub.query_one("#legends-box").region.height >= 6, size
+            descend = hub.query_one("#descend").region
+            assert descend.height and descend.bottom <= size[1] - 1, size  # above the footer
+            breath = next(c for c in hub.query(".unlock-card") if c.unlock.key == "last_breath")
+            assert "150" in "\n".join(str(breath.render_line(y).text) for y in range(breath.size.height)), size
+            pane = [hub.query_one(q).region for q in ("#unlock-pane", "#hub-tabs", "#unlock-detail")]
+            await pilot.click(hub.query(".unlock-card").first())
+            await pilot.pause(0.3)
+            assert hub.query(".unlock-card").first().has_class("-picked")
+            assert [hub.query_one(q).region for q in ("#unlock-pane", "#hub-tabs", "#unlock-detail")] == pane
+            assert hub.query_one("#unlock-action").visible
+
+
+async def test_look_says_how_the_room_is_now():
+    """The Look panel showed the room as narrated when you walked in, forever: a fight long over, a door since
+    opened, and its own Exits line after the narration's. Now what's said comes from the game as it is."""
+    from conftest import put_monster
+
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        state = screen.game.state
+        state.room.description = "The Hobgoblin is here (east) and hostile. A fight begins. Exits: west (locked)."
+
+        async def look() -> str:
+            await pilot.press("f4")
+            await pilot.pause(0.3)
+            body = str(app.screen.query_one(".panel-box Static").render())
+            await pilot.press("escape")
+            await pilot.pause(0.2)
+            return body
+
+        put_monster(state, screen.game.content, key="goblin", hp=5)
+        body = await look()
+        assert "Goblin is here (hostile, 5/" in body and "A fight begins" not in body and body.count("Exits:") == 1
+        state.room.monster = None
+        state.room.items = ["war_pick"]
+        body = await look()
+        assert "is here" not in body and "Lying here: War Pick." in body and body.count("Exits:") == 1
+        screen.action_lookup(f"room:{state.room_id}")
+        await pilot.pause(0.3)
+        card = str(app.screen.query_one("#info-text").render())
+        assert "A fight begins" not in card and card.count("Exits:") == 1 and "Lying here: War Pick." in card
+
+
+async def test_toasts_and_the_hud_keep_out_of_the_way():
+    """Toasts stacked over the right of the choices and the arrow pad; now they sit at the top right. And on a
+    100-column screen the status bar lost its end mid-word: now the least of it goes first."""
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(100, 30), notifications=True) as pilot:
+        screen = await into_a_run(app, pilot)
+        app.notify("Something happened.", title="A toast", timeout=10)
+        await pilot.pause(0.3)
+        toast = screen.query_one("Toast").region
+        assert toast.y <= 2 and toast.right >= 98 and not toast.overlaps(screen.query_one("#choices").region)
+        hud = str(screen.query_one("#hud").render())
+        assert "Floor 1/3 · " in hud and "turn" not in hud and len(hud) <= 98

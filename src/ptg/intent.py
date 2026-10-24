@@ -35,6 +35,13 @@ DC: dict[str, int] = {"trivial": 0, "easy": 10, "medium": 13, "hard": 16, "absur
 
 
 class Intent(BaseModel):
+    """What the player meant. An "action" names an engine action (`action_id`, which may be a whole use of the
+    interaction grid: "give:pickle@monster:lucky_lenny"). A "creative" attempt may name its use too, by `verb` (one
+    of interactions.GRID_VERBS, or equip, unequip, drop, sell), `subject` (an item's key, "bomb", "small_key" or
+    "gold"), `target` (a scene.RoomView ref: "monster:goblin", "fixture:chest") and `amount` (gold): then that's what
+    happens, whatever its effects say (rules.perform_creative). Without them its `summary` is read for one, and failing
+    that it's a stunt: a roll, and its clamped effects."""
+
     kind: Literal["action", "creative", "flavor", "question"]
     action_id: str = ""
     stat: Stat = "none"
@@ -44,10 +51,15 @@ class Intent(BaseModel):
     uses: list[str] = Field(default_factory=list)
     consumes: list[str] = Field(default_factory=list)
     summary: str = ""
+    verb: str = ""
+    subject: str = ""
+    target: str = ""
+    amount: int = 0
 
 
 def intent_schema() -> dict:
-    """JSON schema for structured output. Every field required and no extras, so strict modes accept it."""
+    """JSON schema for structured output. Every field required and no extras, so strict modes accept it. The use a
+    model says (verb, subject, target, amount) is in SCENE ids: the interpreter puts it in the grid's terms."""
     effect = {"type": "string", "enum": list(EFFECT_HELP)}
     return {
         "type": "object",
@@ -61,8 +73,12 @@ def intent_schema() -> dict:
             "uses": {"type": "array", "items": {"type": "string"}},
             "consumes": {"type": "array", "items": {"type": "string"}},
             "summary": {"type": "string"},
+            "verb": {"type": "string"},
+            "subject": {"type": "string"},
+            "target": {"type": "string"},
+            "amount": {"type": "integer"},
         },
         "required": ["kind", "action_id", "stat", "difficulty", "success_effects", "failure_effects",
-                     "uses", "consumes", "summary"],
+                     "uses", "consumes", "summary", "verb", "subject", "target", "amount"],
         "additionalProperties": False,
     }

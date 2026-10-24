@@ -3,8 +3,9 @@ Granny Gristle or now and then Granny Kamultruk, with wares to buy or haggle ove
 
 from collections import Counter
 
-from ptg import loot
-from ptg.models import OPPOSITE
+from ptg import inventory, loot
+from ptg.llm.interpreter import offline_interpret
+from ptg.models import OPPOSITE, Ware
 from ptg.rules import available_actions, exit_notes, perform, room_facts
 from ptg.world import build_floor, generate, render_map
 
@@ -113,7 +114,8 @@ def test_buying(content):
     state.player.gold = ware.price + 10
     events = perform(state, content, "buy:0")
     assert events[0].kind == "buy" and events[0].data["quiet"] and state.player.gold == 10
-    assert ware not in shop.wares and any(e.data.get("item") == ware.item for e in events[1:])
+    assert ware not in shop.wares and events[0].data["item"] == ware.item and events[0].data["how"] == "buy"
+    assert events[0].text.count("You ") == 1  # one line for it: not "You buy it... You take it."
     assert perform(state, content, "buy:9")[0].text == "You can't do that right now."
 
 
@@ -148,3 +150,82 @@ def test_shopkeepers_keep_out_of_fights(content):
     keepers = {loot.SHOPKEEPER, loot.SHINY}
     for state in floors(content, range(100)):
         assert not any(r.monster and r.monster.key in keepers for r in state.rooms)
+
+
+def test_bought_gear_goes_in_your_pack_not_on_her_floor(content):
+    """Buying a better weapon threw your old one on the shop's floor; a same-tier one was dead weight (F27)."""
+    state, shop = in_the_shop(content)
+    shop.wares = [Ware(item="war_pick", price=25), Ware(item="leather_jerkin", price=25)]
+    state.player.gold, state.player.armor = 100, None
+    events = perform(state, content, "buy:0")
+    assert state.player.weapon == "rusty_sword" and "war_pick" in state.player.inventory and not state.room.items
+    assert events[0].text == "You buy the War Pick for 25 gold (75 left) and put it in your pack."
+    assert "equip:war_pick" in {a.id for a in available_actions(state, content)}  # yours to put on
+    perform(state, content, "buy:0")
+    assert state.player.armor == "leather_jerkin"  # nothing on, so on it goes
+
+
+def test_sell_what_you_carry_for_half_her_price(content):
+    state, shop = in_the_shop(content)
+    state.player.gold = 0
+    state.player.inventory += ["hand_axe", "stale_bread"]
+    actions = available_actions(state, content) + inventory.moves(state, content)
+    assert offline_interpret("sell the hand axe", actions)[0].action_id == "sell:hand_axe"
+    price = loot.price(content.item("hand_axe"), state.floor) // 2
+    turn = state.turn
+    events = perform(state, content, "sell:hand_axe")
+    assert state.player.gold == price and "hand_axe" not in state.player.inventory and state.turn == turn
+    assert events[0].kind == "sell" and events[0].data["quiet"] and f"{price} gold" in events[0].text
+    state.player.armor = "chain_shirt"  # the armor off your back too
+    perform(state, content, "sell:chain_shirt")
+    assert state.player.armor is None and state.player.gold > price
+
+
+def test_granny_kamultruk_pays_more(content):
+    state, _ = in_the_shop(content, loot.SHINY)
+    state.player.inventory.append("hand_axe")
+    assert inventory.sale_price(state, content, "hand_axe") == loot.price(content.item("hand_axe"), state.floor,
+                                                                        shiny=True) // 2
+
+
+def test_she_wont_buy_a_key_a_quests_things_or_a_curse(content):
+    state, _ = in_the_shop(content)
+    state.player.inventory += ["reliquary_key", "lenny_s_good_tooth", "a_ring_probably_importan"]
+    for key in ("reliquary_key", "lenny_s_good_tooth", "a_ring_probably_importan"):
+        gold = state.player.gold
+        events = perform(state, content, f"sell:{key}")
+        assert events[0].kind == "info" and key in state.player.inventory and state.player.gold == gold
+
+
+def test_selling_is_only_at_a_shop(content):
+    state, shop, door = at_the_door(content)
+    state.player.inventory.append("hand_axe")
+    assert perform(state, content, "sell:hand_axe")[0].text == "You can't do that right now."
+
+
+def test_selling_by_saying_so(content):
+    """'sell my sword to granny' sold a Healing Potion at once (her name, in every sale's label, matched first), and
+    'sell the hand axe' in your hand or 'sell my armor' were narrated as done while nothing changed (review)."""
+    state, _ = in_the_shop(content)
+    state.player.weapon, state.player.armor = "hand_axe", "leather_jerkin"
+    state.player.inventory = ["healing_potion", "healing_potion", "war_pick"]
+    gold = state.player.gold
+
+    def said(words):
+        actions = available_actions(state, content) + inventory.moves(state, content)
+        intent, confident = offline_interpret(words, actions)
+        return intent.action_id, confident
+
+    for words in ("sell the hand axe", "sell my weapon"):  # the one in your hand: she says why not
+        assert said(words) == ("sell:hand_axe", True)
+        events = perform(state, content, "sell:hand_axe")
+        assert events[0].kind == "info" and "Take up another weapon first" in events[0].text
+    for words in ("sell my sword to granny", "sell something to granny", "sell junk to granny gristle"):
+        assert said(words) == ("sell:", False)  # nothing by that name: she says what she'd buy
+        events = perform(state, content, "sell:")
+        assert events[0].kind == "info" and "Healing Potion" in events[0].text and "War Pick" in events[0].text
+    assert state.player.gold == gold and state.player.weapon == "hand_axe"
+    assert state.player.inventory == ["healing_potion", "healing_potion", "war_pick"]
+    assert said("sell my armor") == ("sell:leather_jerkin", True)
+    perform(state, content, "sell:leather_jerkin")
+    assert state.player.armor is None and state.player.gold > gold

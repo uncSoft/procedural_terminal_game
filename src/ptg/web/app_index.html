@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+{#- The game's page under `ptg serve`, in place of textual-serve's own (serve.py hands this folder to textual-serve
+    as its templates): the same terminal and dialogs, made for phones too. On a phone it fits at least 40 columns,
+    the terminal is only what's visible above the keyboard, a swipe scrolls, the keyboard stays down until the
+    keyboard button asks for it (taps play the game), and the game is told it's played by touch (its websocket ends
+    in /touch, and serve.py gives it PTG_TOUCH=1). -#}
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content" />
+    <title>{{ application.name or 'Textual Application' }}</title>
+    <link rel="stylesheet" href="{{ config.static.url }}css/xterm.css" />
+    <!-- The font is textual-serve's own copy, by its path on this very server (not Google's, as textual-serve's
+         page has it): a browser takes a font from another address only if that address says it may. -->
+    <link rel="preload" href="/static/fonts/RobotoMono-VariableFont_wght.ttf" as="font" type="font/ttf" crossorigin />
+    <script src="{{ config.static.url }}js/textual.js"></script>
+    <style>
+      @font-face {
+        font-family: "Roboto Mono";
+        font-weight: 100 700;
+        font-display: block;
+        src: url("/static/fonts/RobotoMono-VariableFont_wght.ttf") format("truetype");
+      }
+      @font-face {
+        font-family: "Roboto Mono";
+        font-style: italic;
+        font-weight: 100 700;
+        font-display: block;
+        src: url("/static/fonts/RobotoMono-Italic-VariableFont_wght.ttf") format("truetype");
+      }
+
+      :root {
+        color-scheme: dark;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        overscroll-behavior: none;
+        background: #0b0b14;
+      }
+
+      /* The terminal: sized below from what's visible, with no double-tap zoom, grey flash or long-press menu */
+      #terminal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
+        -webkit-touch-callout: none;
+      }
+      /* (any smaller and iOS zooms the page in when it's typed in) */
+      .xterm .xterm-helper-textarea {
+        font-size: 16px;
+      }
+
+      .dialog-container {
+        position: absolute;
+        width: 100vw;
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+      }
+      .shade {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        background: #0b0b14;
+      }
+      .intro {
+        box-sizing: border-box;
+        width: min(640px, calc(100vw - 32px));
+        min-height: 160px;
+        padding: 24px;
+        z-index: 20;
+        font: 16px/1.5 "Roboto Mono", Menlo, monospace;
+        text-align: center;
+        color: #e8e8f4;
+        background-color: #12121f;
+        border: 3px double #7b8cff;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      }
+
+      body.-first-byte .intro-dialog,
+      body.-first-byte .intro-dialog .shade {
+        opacity: 0;
+        transition: opacity 0.3s ease-out;
+        display: none;
+      }
+
+      body .textual-terminal {
+        opacity: 0;
+        transition: opacity 0.3s ease-out;
+      }
+
+      body.-first-byte .textual-terminal {
+        opacity: 1;
+        transition: opacity 0.3s ease-out;
+      }
+
+      body button {
+        padding: 12px 32px;
+        background-color: #7b8cff;
+        color: #0b0b14;
+        border: none;
+        font: bold 16px "Roboto Mono", Menlo, monospace;
+        margin: 16px;
+        display: block;
+        cursor: pointer;
+      }
+
+      .closed-dialog {
+        opacity: 0;
+        display: none;
+      }
+
+      body.-closed .closed-dialog {
+        opacity: 1;
+        display: flex;
+      }
+
+      #start {
+        display: none;
+      }
+
+      #start.-delay {
+        display: flex;
+      }
+
+      /* The keyboard button, by touch only: bottom right, over the end of the command line */
+      body #keyboard {
+        display: none;
+        position: absolute;
+        right: 4px;
+        bottom: 4px;
+        z-index: 30;
+        width: 44px;
+        height: 40px;
+        margin: 0;
+        padding: 0;
+        border: 1px solid #7b8cff;
+        border-radius: 6px;
+        background: rgba(18, 18, 31, 0.85);
+        color: #7b8cff;
+        touch-action: manipulation;
+      }
+      body.touch.-first-byte #keyboard {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      body.-closed #keyboard {
+        display: none;
+      }
+      body #keyboard.on {
+        background: #7b8cff;
+        color: #0b0b14;
+      }
+    </style>
+    <script>
+      function getStartUrl() {
+        const url = new URL(window.location.href);
+        const params = new URLSearchParams(url.search);
+        params.delete("delay");
+        return url.pathname + "?" + params.toString();
+      }
+      async function refresh() {
+        const ping_url = document.body.dataset.pingurl;
+        if (ping_url) {
+          await fetch(ping_url, {
+            method: "GET",
+            mode: "no-cors",
+          });
+        }
+        window.location.href = getStartUrl();
+      }
+    </script>
+  </head>
+  <body data-pingurl="{{ ping_url }}">
+    <div class="dialog-container intro-dialog">
+      <div class="shade"></div>
+      <div class="intro">
+        <div>{{ application.name or 'Textual Application' }}</div>
+        <button type="button" onClick="refresh()" id="start">Start</button>
+      </div>
+    </div>
+
+    <div class="dialog-container closed-dialog">
+      <div class="shade"></div>
+      <div class="intro">
+        <div class="message">Session ended.</div>
+        <button type="button" onClick="refresh()">Restart</button>
+      </div>
+    </div>
+
+    <div
+      id="terminal"
+      class="textual-terminal"
+      data-session-websocket-url="{{ app_websocket_url }}"
+      data-touch-websocket-url="{{ touch_websocket_url }}"
+      data-font-size="{{ font_size }}"
+    >
+      <button type="button" id="keyboard" tabindex="-1" aria-label="Keyboard" aria-pressed="false">
+        <svg width="26" height="18" viewBox="0 0 26 18" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="24" height="16" rx="2" stroke="currentColor" stroke-width="2" />
+          <path d="M5 6h2M9 6h2M13 6h2M17 6h2M21 6h0M5 10h2M9 10h2M13 10h2M17 10h4M8 13.5h10"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        </svg>
+      </button>
+    </div>
+
+    <script>
+      // textual.js (above) makes the terminal when the page has loaded, from #terminal's data: this shapes it first.
+      (() => {
+        const terminal = document.getElementById("terminal");
+        const button = document.getElementById("keyboard");
+        const view = window.visualViewport;
+        const touch = matchMedia("(pointer: coarse)").matches;
+        const zoomed = () => view && view.scale > 1.01; // pinched in: the page is the browser's to pan till it's back
+
+        // A phone gets at least 40 columns (Roboto Mono is 0.6 of its size wide), whichever way it's turned: by touch
+        // it's picked for the screen's short side too, as it's never picked again (a phone loaded sideways would
+        // otherwise keep a size too big for it upright). A ?fontsize= in the address wins.
+        if (!terminal.dataset.fontSize) {
+          const across = touch ? Math.min(innerWidth, screen.width, screen.height) : innerWidth;
+          terminal.dataset.fontSize = Math.max(11, Math.min(16, Math.floor(across / 40 / 0.6)));
+        }
+        const size = Number(terminal.dataset.fontSize);
+        if (touch) {
+          terminal.dataset.sessionWebsocketUrl = terminal.dataset.touchWebsocketUrl;
+          document.body.classList.add("touch");
+        }
+
+        // The terminal is what's visible: on a phone only what's above the keyboard (iOS pans the page for the
+        // keyboard instead of shrinking it), re-fitted once the keyboard or a turn of the phone has settled, so the
+        // game is resized once, not at every step of it.
+        let settle = 0;
+        let wide = 0;
+        let tallest = 0; // the most rows of pixels seen at this width: the keyboard is up when it's well short of it
+        function place() {
+          if (zoomed()) return;
+          const width = Math.floor(view ? view.width : innerWidth);
+          const height = Math.floor(view ? view.height : innerHeight);
+          if (width !== wide) [wide, tallest] = [width, 0];
+          tallest = Math.max(tallest, height);
+          terminal.style.top = `${view ? view.offsetTop : 0}px`;
+          terminal.style.width = `${width}px`;
+          terminal.style.height = `${height}px`;
+        }
+        function refit() {
+          clearTimeout(settle);
+          settle = setTimeout(() => {
+            place();
+            if (window.onresize) window.onresize(); // (textual.js's: it fits the terminal and tells the game)
+          }, 120);
+        }
+        place();
+        if (view) {
+          view.addEventListener("resize", refit);
+          view.addEventListener("scroll", place);
+        } else {
+          addEventListener("orientationchange", refit);
+        }
+
+        // Swipes scroll. xterm.js leaves touches alone while the game reports the mouse, as Textual always does,
+        // so a finger's travel becomes mouse-wheel turns where it went down: one for every two rows it moves, as
+        // Textual scrolls two lines a turn.
+        let row = size * 1.3; // a row's height in pixels, measured once the font is in
+        let finger = null;
+        terminal.addEventListener("touchstart", (event) => {
+          const at = event.touches[0];
+          const one = event.touches.length === 1 && !zoomed(); // (two fingers pinch)
+          finger = one ? { x: at.clientX, y: at.clientY, last: at.clientY, travel: 0 } : null;
+        }, { passive: true });
+        terminal.addEventListener("touchmove", (event) => {
+          if (!finger || event.touches.length !== 1) return;
+          if (event.cancelable) event.preventDefault(); // (and the page doesn't bounce)
+          const y = event.touches[0].clientY;
+          finger.travel += finger.last - y;
+          finger.last = y;
+          const screen = terminal.querySelector(".xterm-screen");
+          while (screen && Math.abs(finger.travel) >= 2 * row) {
+            const down = finger.travel > 0;
+            finger.travel -= down ? 2 * row : -2 * row;
+            screen.dispatchEvent(new WheelEvent("wheel", {
+              deltaY: down ? 1 : -1, deltaMode: WheelEvent.DOM_DELTA_LINE, clientX: finger.x, clientY: finger.y,
+              bubbles: true, cancelable: true,
+            }));
+          }
+        }, { passive: false });
+        function measure() {
+          const probe = document.createElement("span");
+          probe.textContent = "W";
+          probe.style.cssText = `position: absolute; visibility: hidden; font: ${size}px "Roboto Mono"`;
+          document.body.appendChild(probe);
+          const height = probe.getBoundingClientRect().height;
+          probe.remove();
+          return height || row;
+        }
+
+        // By touch, the phone's keyboard stays down (taps play the game) until the keyboard button asks for it;
+        // tapped again, or the keyboard's Done, and it goes. A keyboard plugged in types either way.
+        let on = false;
+        let wasUp = false;
+        let switching = false;
+        const field = () => terminal.querySelector(".xterm-helper-textarea");
+        const up = () => on && (!view || view.height < tallest * 0.8);
+        function keyboard(want) {
+          const area = field();
+          if (!area) return;
+          on = want;
+          button.classList.toggle("on", want);
+          button.setAttribute("aria-pressed", String(want));
+          switching = true; // (a blur and a focus, so the phone takes the new inputmode)
+          area.setAttribute("inputmode", want ? "text" : "none");
+          area.blur();
+          area.focus();
+          switching = false;
+        }
+        function keyboardButton() {
+          const area = field();
+          if (!area) return;
+          area.setAttribute("inputmode", "none");
+          area.addEventListener("blur", () => {
+            if (switching || !on) return;
+            on = false;
+            button.classList.remove("on");
+            button.setAttribute("aria-pressed", "false");
+            area.setAttribute("inputmode", "none");
+          });
+          button.addEventListener("pointerdown", (event) => {
+            event.preventDefault(); // (the terminal keeps its focus)
+            wasUp = up();
+          });
+          button.addEventListener("mousedown", (event) => event.preventDefault());
+          button.addEventListener("click", () => keyboard(!wasUp)); // (and if the phone put it away, back it comes)
+        }
+
+        // textual.js starts on the page's load event: it waits for the font too here, or the terminal would measure
+        // and draw its letters in a stand-in.
+        const start = window.onload;
+        window.onload = null;
+        addEventListener("load", () => {
+          const faces = [`${size}px "Roboto Mono"`, `italic ${size}px "Roboto Mono"`];
+          const fonts = document.fonts ? Promise.all(faces.map((face) => document.fonts.load(face)))
+            : Promise.resolve();
+          Promise.race([fonts, new Promise((go) => setTimeout(go, 3000))]).catch(() => {}).then(() => {
+            row = measure();
+            place();
+            if (start) start();
+            if (touch) keyboardButton();
+          });
+        });
+      })();
+    </script>
+  </body>
+</html>

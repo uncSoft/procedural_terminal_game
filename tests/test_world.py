@@ -4,6 +4,7 @@ import pytest
 
 from ptg import layout
 from ptg.models import OPPOSITE
+from ptg.ui.theme import CELL_STYLES
 from ptg.world import build_floor, generate, render_map
 
 SEEDS = range(80)
@@ -117,3 +118,40 @@ def test_room_render_has_you_and_legend(content):
     lines = layout.plain_lines(state, content)
     assert sum(line.count("@") for line in lines[:-1]) == 1
     assert "@ you" in lines[-1]
+
+
+def test_cages_are_not_walls(content):
+    """Kennel cages were painted "#", the wall's glyph, so they looked like stray bits of wall on the room map."""
+    state = floor(1, 3, content)
+    room = next(r for r in state.rooms if content.archetypes[r.archetype].decor == "cages")
+    inside = [row[1:-1] for row in room.grid[1:-1]]
+    assert "#" not in "".join(inside) and layout.CAGE in "".join(inside)
+    state.room_id = room.id
+    rows, _ = layout.render(state, content)
+    cages = [style for row in rows for glyph, style in row if glyph == layout.CAGE]
+    assert "cage" in cages and set(cages) <= {"cage", "feature"}  # (the open cage you can search is a feature)
+    assert CELL_STYLES["cage"] != CELL_STYLES["wall"]
+    assert layout.feature_glyph("an open cage") == layout.CAGE
+    room.grid = [row[:3] + "#" + row[4:] if 1 <= y <= layout.HEIGHT else row for y, row in enumerate(room.grid)]
+    rows, _ = layout.render(state, content)  # a game saved with "#" cages still shows cages
+    assert all(rows[y][3] == (layout.CAGE, "cage") for y in range(1, layout.HEIGHT + 1))
+
+
+def test_a_room_finds_a_spot_for_every_item(content):
+    """Rooms are built with six spots for items; a room that comes to hold more (gear left behind, a monster's drops)
+    used to leave the rest off the map."""
+    state = generate(5)
+    room = state.room
+    room.items = ["healing_potion"] * 6
+    six = layout.item_spots(room)
+    assert six == room.item_spots
+    room.items = ["healing_potion"] * 9
+    spots = layout.item_spots(room)
+    assert len(spots) == 9 and spots[:6] == six and len(set(spots)) == 9 and spots == layout.item_spots(room)
+    for x, y in spots[6:]:
+        assert room.grid[y][x] == "." and (x, y) not in layout.KEEP_CLEAR
+    rows, legend = layout.render(state, content)
+    assert sum(style == "item" for _, style, _ in legend) == 9
+    assert sum(style == "item" for row in rows for _, style in row) == 9
+    room.items = ["healing_potion"] * 300  # more than the floor holds: they pile up
+    assert len(layout.item_spots(room)) == 300

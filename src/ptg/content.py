@@ -1,4 +1,5 @@
-"""Loads the static game data (themes, rooms, items, monsters, perks, unlocks, art) shipped in ptg/data."""
+"""Loads the static game data (themes, rooms, items, monsters, perks, unlocks, art, the characters' lines) shipped in
+ptg/data."""
 
 from __future__ import annotations
 
@@ -19,6 +20,36 @@ FOUND_IN = ("chest", "stash", "secret", "warden", "shop", "quest")
 TRICKS = {"steal": "grabs your food (or gold) and runs off with it next turn, unless you stop it",
           "tangle": "its hits tangle you up: no running away until its next go"}
 STATS = ("might", "agility", "wits", "max_hp")  # what a carried item's `stats` can change
+# When a character says each of its lines (dialogue.toml; npcs.say), and the blanks a line can have filled in.
+MOMENTS = {
+    "meet": "the first time you walk in on them",
+    "again": "seeing them again: walking back into a shop, or meeting them on a later floor",
+    "talk": "talking to them, while nothing much is going on",
+    "angry": "you've hit them, or they've got cranky",
+    "calmed": "calmed down again",
+    "beaten": "their last words",
+    "refuse_gift": "handed something they don't want",
+    "has_item": "you're carrying what they want",
+    "point": "telling you where what they want is: {feature} {place}",
+    "lying": "what they want is lying where you can pick it up: {place}",
+    "done": "you've given them what they wanted",
+    "after": "talking to them once that's done",
+    "keep_it": "handed something once that's done",
+    "missing": "what they want is gone for good",
+    "guessing": "their game's on, and they're waiting for your guess",
+    "won": "you won their game",
+    "lost": "you lost their game",
+    "paid": "calmed down with something you gave them",
+    "sulk": "talking to them after their game, when they've kept their prize",
+    "bare": "talking to them after you've won their prize",
+    "steal": "grabbing something of yours",
+    "greet": "a shopkeeper, as you walk in",
+    "thanks": "a shopkeeper, when you buy something",
+    "buys": "a shopkeeper, when you sell her something",
+    "haggle_won": "a shopkeeper, talked down",
+    "haggle_lost": "a shopkeeper, when your haggling goes wrong",
+}
+BLANKS = ("name", "feature", "place")  # {name}: who's talking; {feature}, {place}: where a thing is ("in the Den")
 
 
 @dataclass(frozen=True)
@@ -127,6 +158,7 @@ class Content:
     unlocks: dict[str, Unlock]
     keyword_tags: dict[str, list[str]]
     splash: str
+    dialogue: dict[str, dict[str, list[str]]] = field(default_factory=dict)  # {character: {moment: lines}}
 
     def item(self, key: str) -> ItemDef:
         return self.items[key]
@@ -310,14 +342,50 @@ def build_content(read: Callable[[str], str] = _read) -> Content:
     except FileNotFoundError:
         problems.append("splash.txt: the file is missing")
         splash = ""
+    try:
+        dialogue = _dialogue(tomllib.loads(read("dialogue.toml")), problems)
+    except FileNotFoundError:
+        problems.append("dialogue.toml: the file is missing")
+        dialogue = {}
+    except tomllib.TOMLDecodeError as e:
+        problems.append(f"dialogue.toml: {e}")
+        dialogue = {}
 
-    content = Content(themes, archetypes, items, monsters, perks, unlocks, keyword_tags, splash)
+    content = Content(themes, archetypes, items, monsters, perks, unlocks, keyword_tags, splash, dialogue)
     text.NAMED.update(m.name for m in monsters.values() if m.named)
     if not problems:  # cross-checks only make sense once every entry is well-formed
         problems += _cross_check(content)
     if problems:
         raise ContentError("Problems in the game data files:\n  " + "\n  ".join(problems))
     return content
+
+
+def _dialogue(doc: dict, problems: list[str]) -> dict[str, dict[str, list[str]]]:
+    """The characters' lines (dialogue.toml): for each character's key, its line for each moment (MOMENTS), one in
+    quotes or a list of them, and only the blanks the game fills in (BLANKS)."""
+    out: dict[str, dict[str, list[str]]] = {}
+    for who, moments in doc.items():
+        where = f"dialogue.toml [{who}]"
+        if not isinstance(moments, dict):
+            problems.append(f"{where}: expected lines, like meet = \"Hello!\"")
+            continue
+        lines: dict[str, list[str]] = {}
+        for moment, said in moments.items():
+            if moment not in MOMENTS:
+                close = difflib.get_close_matches(moment, list(MOMENTS), n=1)
+                hint = f" (did you mean {close[0]!r}?)" if close else ""
+                problems.append(f"{where}: unknown moment {moment!r}{hint}")
+                continue
+            said = [said] if isinstance(said, str) else said
+            if not (isinstance(said, list) and said and all(isinstance(s, str) and s.strip() for s in said)):
+                problems.append(f'{where}: {moment} must be a line in quotes, or a list of them, like ["a", "b"]')
+                continue
+            for blank in sorted({b for line in said for b in re.findall(r"\{([^{}]*)\}", line)} - set(BLANKS)):
+                problems.append(f"{where}: {moment} has a blank the game can't fill, {{{blank}}} (it fills "
+                                f"{', '.join('{' + b + '}' for b in BLANKS)})")
+            lines[moment] = [" ".join(line.split()) for line in said]
+        out[who] = lines
+    return out
 
 
 @lru_cache(maxsize=1)
@@ -356,6 +424,12 @@ def _cross_check(content: Content) -> list[str]:
     for monster in content.monsters.values():
         if not monster.art:
             problems.append(f"art.txt: monster {monster.key} has no art (add an '=== {monster.key} ===' block)")
+    for who in content.dialogue:
+        if who != "npc" and who not in content.monsters:
+            close = difflib.get_close_matches(who, list(content.monsters), n=1)
+            hint = f" (did you mean {close[0]!r}?)" if close else ""
+            problems.append(f"dialogue.toml [{who}]: there's no monster {who!r} in monsters.toml to say it{hint} "
+                            "([npc] is for anyone tagged npc with no lines of their own)")
     for unlock in content.unlocks.values():
         if unlock.item and unlock.item not in content.items:
             problems.append(f"unlocks.toml {unlock.key}: unknown item {unlock.item!r}")

@@ -40,6 +40,13 @@ cost the bot about 3 points of its win rate). His own numbers stay in `monsters.
   might") still need wiring by hand when they're imported.
 - **Swoogy talked down** with a hard wits roll leaves his diaper, as any monster talked down leaves what it keeps.
   Paying him off doesn't.
+- **A "lines" field in the maker,** so the kids write what their characters say themselves. The game reads lines from
+  `src/ptg/data/dialogue.toml` today, one section per character, a line (or a list of lines that take turns) for each
+  moment: `meet`, `talk`, `angry`, `calmed`, `beaten`, `refuse_gift`... (the file lists them all, and `content.MOMENTS`
+  has them for code). Anyone tagged NPC with no lines of their own gets the `[npc]` ones. The field would be the same
+  shape on a monster in the maker (a box per moment, `meet` and `talk` first, a few words of help on each, `{name}`
+  for their own name), saved as `lines = {meet = "...", talk = ["...", "..."]}` in `monsters.toml`; npcs.lines would
+  read a monster's own `lines` before dialogue.toml's, and the import would keep them like `tricks`. Not built yet.
 
 ## Your ghost's secret
 

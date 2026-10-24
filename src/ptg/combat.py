@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import random
 
-from . import dice, loot, powers
-from .content import Content
+from . import dice, inventory, loot, powers
+from .content import Content, ItemDef
 from .events import Event
 from .models import GameState, MonsterState
 from .text import a, cap, mid_sentence, tell, the
@@ -19,6 +19,12 @@ INTENT_WEIGHTS = {
 
 def monster_defense(monster: MonsterState, content: Content) -> int:
     return content.monster(monster.key).defense + monster.defense_mod + (4 if monster.guarding else 0)
+
+
+def tier_of(monster: MonsterState, content: Content) -> int:
+    """How tough it counts as, for dodging, fleeing and what it pays: its maker's tier, or the floor's for a character
+    cut down to size there (npcs.sized)."""
+    return monster.tier or content.monster(monster.key).tier
 
 
 def choose_intent(rng: random.Random, monster: MonsterState, content: Content) -> str:
@@ -57,7 +63,7 @@ def player_attack(state: GameState, content: Content, rng: random.Random) -> lis
     events: list[Event] = []
     if not monster.hostile:
         monster.hostile = True
-        events.append(Event("provoke", f"{cap(the(monster.name))} had stopped fighting. It hasn't now."))
+        events.append(provoked(monster, content))
     advantage = 1 if (monster.stunned or player.advantage_next) else 0
     player.advantage_next = False
     bonuses = [("might", player.might), ("level", player.level)] + powers.roll_bonuses(state, content, "attack")
@@ -79,10 +85,16 @@ def player_attack(state: GameState, content: Content, rng: random.Random) -> lis
         extras.append("Bully")
     if "sharp_start" in player.blessings and player.weapon == "rusty_sword":
         damage += 1
-    weak = [t for t in weapon.tags if t in monster_def.weak]
+    coating = [player.coating] if player.coated else []  # holy water or lamp oil on the blade (interactions.RECIPES)
+    weak = list(dict.fromkeys(t for t in weapon.tags + coating if t in monster_def.weak))
     if weak:
         damage += 2
         extras.append(f"{weak[0]}!")
+    worn = ""
+    if coating:
+        player.coated -= 1
+        if not player.coated:
+            worn, player.coating = f" The {coating[0]} coating on your {weapon.name} is spent.", ""
     if "goblin_bane" in weapon.powers and powers.GOBLINS & set(monster_def.tags):
         damage += 2
         extras.append("goblin-bane")
@@ -96,7 +108,7 @@ def player_attack(state: GameState, content: Content, rng: random.Random) -> lis
     how = "land a critical hit on" if roll.crit else "hit"
     tail = f" [{', '.join(extras)}]" if extras else ""
     events.append(Event("hit", f"You {how} {the(monster.name)} with your {weapon.name} for {damage} damage "
-                               f"({max(monster.hp, 0)}/{monster.max_hp} HP left).{tail}", dice=roll,
+                               f"({max(monster.hp, 0)}/{monster.max_hp} HP left).{tail}{worn}", dice=roll,
                         data={"damage": damage}))
     for tag in weak:
         events += discover(state, monster, tag)
@@ -106,18 +118,42 @@ def player_attack(state: GameState, content: Content, rng: random.Random) -> lis
     return events
 
 
+def provoked(monster: MonsterState, content: Content) -> Event:
+    """Attacking something that wasn't fighting you: a character who never was (Lucky Lenny) yelps (what he yells is
+    his, on his card: npcs.react), and a monster you'd talked down is back at it."""
+    name = cap(the(monster.name))
+    if content.monster(monster.key).npc:
+        return Event("provoke", f"{name} yelps and puts up a fight.", data={"monster": monster.key})
+    return Event("provoke", f"{name} had stopped fighting. Not any more.", data={"monster": monster.key})
+
+
 def what_is_left(player, key: str) -> str:
     """After using one up: how many more you carry (" (1 more in your pack.)"), or nothing if that was the last."""
     count = player.inventory.count(key)
     return f" ({count} more in your pack.)" if count else ""
 
 
+def thrown_damage(item: ItemDef) -> str:
+    """What a thing does thrown: its own dice, or, one that isn't made to be thrown, what it's made of does."""
+    if item.damage:
+        return item.damage
+    tags = set(item.tags)
+    return "1d6" if "heavy" in tags else "1d4" if tags & {"glass", "sharp", "metal", "hard"} else "1d2"
+
+
 def throw(state: GameState, content: Content, rng: random.Random, key: str) -> list[Event]:
-    """Throw something you carry at the monster (a throw power): an agility roll against its defense, with advantage
-    and 2 more damage if it's weak to the thing. Hit or miss, it's gone."""
+    """Throw something you carry at the monster: an agility roll against its defense, with advantage and 2 more damage
+    if it's weak to the thing. It hits for its own dice if it's made to be thrown (a throw power), otherwise for what
+    it's made of (thrown_damage). Hit or miss it's gone, unless it's a spare weapon: that lands at the monster's feet,
+    to pick up once the fight's over."""
     player, monster, item = state.player, state.room.monster, content.item(key)
     weak = [t for t in item.tags if t in content.monster(monster.key).weak]
-    player.inventory.remove(key)
+    if item.kind == "weapon":
+        player.inventory.remove(key)
+        state.room.items.append(key)
+        thrown, gone = inventory.moved(key, "throw", "pack", "room"), "It lands at its feet."
+    else:
+        thrown, gone = inventory.consume(state, key, "throw"), "It's gone."
     monster.hostile = True
     bonuses = [("agility", player.agility)] + powers.roll_bonuses(state, content, "throw")
     roll = dice.check(rng, f"throw {the(item.name)}", bonuses, monster_defense(monster, content),
@@ -125,25 +161,27 @@ def throw(state: GameState, content: Content, rng: random.Random, key: str) -> l
     events = fortune(state, roll)
     more = what_is_left(player, key)
     if not roll.success:
-        return [Event("miss", f"You throw {the(item.name)} at {the(monster.name)} and miss. It's gone.{more}",
-                      dice=roll, data={"rerollable": True})] + events
-    damage = dice.roll(item.damage, rng) + (2 if weak else 0)
+        return [Event("miss", f"You throw {the(item.name)} at {the(monster.name)} and miss. {gone}{more}",
+                      dice=roll, data={"rerollable": True, **thrown})] + events
+    damage = dice.roll(thrown_damage(item), rng) + (2 if weak else 0)
     monster.hp -= damage
-    tail = f" [{weak[0]}!]" if weak else ""
+    tail = (f" [{weak[0]}!]" if weak else "") + (f" {gone}" if item.kind == "weapon" else "")
     events.insert(0, Event("hit", f"{cap(the(item.name))} hits {the(monster.name)} for {damage} damage "
                                   f"({max(monster.hp, 0)}/{monster.max_hp} HP left).{tail}{more}", dice=roll,
-                           data={"damage": damage, "rerollable": True}))
+                           data={"damage": damage, "rerollable": True, **thrown}))
     for tag in weak:
         events += discover(state, monster, tag)
     return events + (defeat(state, content, rng) if monster.hp <= 0 else [])
 
 
 def distract(state: GameState, content: Content, key: str) -> list[Event]:
-    """Draw the monster's eye with something (a distract power), once a fight: it loses its next attack."""
-    monster, item = state.room.monster, content.item(key)
+    """Draw the monster's eye with something (a distract power, or a shiny thing it's weak to: your gold, even),
+    once a fight: it loses its next attack."""
+    monster = state.room.monster
+    shown = "your gold" if key == "gold" else the(content.item(key).name)
     monster.distracted = True
     monster.stunned = max(monster.stunned, 1)
-    return [Event("distract", f"You get out {the(item.name)}. {cap(the(monster.name))} can't take its eyes off it and "
+    return [Event("distract", f"You get out {shown}. {cap(the(monster.name))} can't take its eyes off it and "
                               "forgets its next attack.")]
 
 
@@ -186,12 +224,12 @@ def monster_turn(state: GameState, content: Content, rng: random.Random) -> list
     monster.guarding = False
     dodging, player.dodging = player.dodging, False
     player.tangled = False  # (a tangle lasts until the monster's next go)
-    if monster.stolen_item or monster.stolen_gold:
-        return _getaway(state, content, monster)
-    if monster.stunned > 0:
+    if monster.stunned > 0:  # (a thief that's reeling, or can't take its eyes off something, isn't running yet)
         monster.stunned -= 1
         monster.intent = "strike"
         return [Event("stunned", f"{cap(the(monster.name))} is still reeling and can't attack.")]
+    if monster.stolen_item or monster.stolen_gold:
+        return _getaway(state, content, monster)
 
     intent = monster.intent
     monster.intent = choose_intent(rng, monster, content)
@@ -224,8 +262,7 @@ def monster_turn(state: GameState, content: Content, rng: random.Random) -> list
         return [Event("evade", f"Acrobatics! You tumble clear of {the(monster.name)}'s blow.", dice=roll)] + telegraph(state, content)
 
     rolls = 2 if intent == "heavy" else (2 if roll.crit else 1)  # heavy blows and crits don't stack
-    damage = sum(dice.roll(monster_def.damage, rng) for _ in range(rolls))
-    damage += monster.damage_mod
+    damage = max(1, sum(dice.roll(monster_def.damage, rng) for _ in range(rolls)) + monster.damage_mod)  # a hit hurts
     reek = powers.holders(state, content, "reeks")
     if reek:  # it doesn't want to get close
         damage = max(1, damage - 2)
@@ -247,10 +284,11 @@ def _tricks(state: GameState, content: Content, rng: random.Random, monster: Mon
     """What a monster with tricks does when it hits you (see content.TRICKS): grab something, or tangle you up."""
     player, events = state.player, []
     if "steal" in monster_def.tricks and not (monster.stolen_item or monster.stolen_gold):
-        food = [k for k in player.inventory if "food" in content.item(k).tags]
+        food = [k for k in player.inventory
+                if "food" in content.item(k).tags and not inventory.sticky(state, content, k)]  # (a curse holds on)
         if food:
             monster.stolen_item = rng.choice(food)
-            player.inventory.remove(monster.stolen_item)
+            inventory.give(state, monster.stolen_item, monster.key, "steal")
             what = the(content.item(monster.stolen_item).name)
         elif player.gold:
             monster.stolen_gold = min(player.gold, rng.randint(5, 10) * state.floor)
@@ -294,7 +332,7 @@ def _death_or_reprieve(state: GameState, monster: MonsterState) -> list[Event]:
 def dodge(state: GameState, content: Content, rng: random.Random) -> list[Event]:
     monster = state.room.monster
     player = state.player
-    tier = content.monster(monster.key).tier
+    tier = tier_of(monster, content)
     advantage = 1 if "duelist" in player.traits else 0
     bonuses = [("agility", player.agility)] + powers.roll_bonuses(state, content, "dodge")
     roll = dice.check(rng, "agility (dodge)", bonuses, 9 + tier, advantage=advantage)
@@ -325,7 +363,7 @@ def flee(state: GameState, content: Content, rng: random.Random, guaranteed: boo
         return [Event("info", "There is nowhere to run.")]
     events: list[Event] = []
     if not guaranteed:
-        dc = 10 + content.monster(monster.key).tier
+        dc = 10 + tier_of(monster, content)
         advantage = 1 if "escape_artist" in state.player.traits else 0
         bonuses = [("agility", state.player.agility)] + powers.roll_bonuses(state, content, "flee")
         roll = dice.check(rng, "agility (flee)", bonuses, dc, advantage=advantage)
@@ -343,19 +381,35 @@ def flee(state: GameState, content: Content, rng: random.Random, guaranteed: boo
 
 
 def defeat(state: GameState, content: Content, rng: random.Random, how: str = "slain") -> list[Event]:
-    """The monster in this room is gone: slain or talked down. Rewards, drops, and maybe the win."""
+    """The monster in this room is gone: slain or talked down. Rewards, drops, and maybe the win. One you'd talked
+    down already has had its reward: killing it after (or calming it again) pays nothing more. A character talked
+    down isn't a monster beaten: it's npcs.calm's to say how it takes it (no reward, and it keeps what it has)."""
     from .rules import check_level
 
     room, player = state.room, state.player
     monster = room.monster
     monster_def = content.monster(monster.key)
+    if how != "slain" and monster_def.npc:
+        from . import npcs
+
+        return npcs.calm(state, content, monster)
     room.monster = None if how == "slain" else monster
     room.remember(f"you killed {the(monster.name)}" if how == "slain" else f"you talked {the(monster.name)} down")
+    data = {"monster": monster.key, "how": how, "ghost_id": monster.ghost_id}
+    if monster.rewarded and not monster_def.boss:
+        if how == "slain":
+            player.kills += 1
+            player.bump("kills")
+            done = Event("defeat", f"{cap(the(monster.name))} is defeated. No reward this time: you'd already talked "
+                                   f"{the(monster.name)} down.", data=data)
+        else:
+            done = Event("pacify", f"{cap(the(monster.name))} stops fighting you again.", data=data)
+        return [done] + _give_back(state, content, monster)  # (what it grabbed since is still yours)
+    monster.rewarded = how != "slain"
     xp = round(monster_def.xp * (0.6 if how == "pacified" else 1.0) * (1.5 if monster.elite else 1.0))
-    souls = round((40 if monster_def.boss else 3 * monster_def.tier) * monster.reward_mult)
+    souls = round((40 if monster_def.boss else 3 * tier_of(monster, content)) * monster.reward_mult)
     player.xp += xp
     state.souls += souls
-    data = {"monster": monster.key, "how": how, "ghost_id": monster.ghost_id}
     if how == "slain":
         player.kills += 1
         player.bump("kills")
@@ -378,27 +432,32 @@ def defeat(state: GameState, content: Content, rng: random.Random, how: str = "s
         healed = min(3, player.max_hp - player.hp)
         player.hp += healed
         events.append(Event("heal", f"Vampiric: you drink in {healed} HP."))
-    if monster.stolen_gold:  # what a thief grabbed, back where it belongs
-        player.gold += monster.stolen_gold
-        events.append(Event("loot", f"You get your {monster.stolen_gold} gold back."))
-    if monster.stolen_item:
-        room.items.append(monster.stolen_item)
-        events.append(Event("drop", f"{cap(the(monster.name))} drops your {content.item(monster.stolen_item).name}.",
-                            data={"item": monster.stolen_item}))
+    events += _give_back(state, content, monster)
     if how == "slain":
-        gold = rng.randint(1, 6) * monster_def.tier * (2 if monster.elite else 1)
+        gold = rng.randint(1, 6) * tier_of(monster, content) * (2 if monster.elite else 1)
         player.gold += gold
         events.append(Event("loot", f"You find {gold} gold on the body."))
         for dropped in _drops(state, content, rng, monster):
-            room.items.append(dropped)
             events.append(Event("drop", f"{cap(the(monster.name))} dropped {a(content.item(dropped).name)}.",
-                                data={"item": dropped}))
+                                data=inventory.lay(state, dropped, "drop", monster.key)))
     elif not monster.ghost_of:  # talked down, it still parts with what it was keeping (a warden always has something)
         for kept in _kept(state, content, rng, monster):
-            room.items.append(kept)
             events.append(Event("drop", f"{cap(the(monster.name))} leaves {a(content.item(kept).name)} at your feet.",
-                                data={"item": kept}))
+                                data=inventory.lay(state, kept, "drop", monster.key)))
     return events + check_level(state, content)
+
+
+def _give_back(state: GameState, content: Content, monster: MonsterState) -> list[Event]:
+    """What a thief grabbed, back where it belongs: and no longer its to run off with."""
+    events = []
+    if monster.stolen_gold:
+        state.player.gold += monster.stolen_gold
+        events.append(Event("loot", f"You get your {monster.stolen_gold} gold back."))
+    if monster.stolen_item:
+        events.append(Event("drop", f"{cap(the(monster.name))} drops your {content.item(monster.stolen_item).name}.",
+                            data=inventory.lay(state, monster.stolen_item, "drop", monster.key)))
+    monster.stolen_gold, monster.stolen_item = 0, ""
+    return events
 
 
 def _drops(state: GameState, content: Content, rng: random.Random, monster: MonsterState) -> list[str]:
@@ -416,7 +475,7 @@ def _kept(state: GameState, content: Content, rng: random.Random, monster: Monst
     """What a monster was keeping, which it leaves slain or talked down: the rare thing that names it as the one that
     drops it, or else (sometimes, from an elite; always, from the warden by the stairs) something rare."""
     own = [i.key for i in content.items.values() if monster.key in i.found and i.key not in state.rares]
-    warden = state.room.fixture == "stairs"
+    warden = monster.warden  # (not whatever crept up on you while you rested by the stairs)
     if own:
         state.rares.append(own[0])
         return own[:1]

@@ -14,19 +14,20 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Callable
 
-from . import npcs, powers
+from . import powers
 from .config import Config, save_game
 from .content import Content, load_content
 from .events import Action, Event
 from .intent import Intent
 from .llm import LLM
 from .llm import extras
-from .llm.interpreter import interpret, scene_choice
+from .llm.interpreter import guessed, interpret, scene_choice
 from .llm.narrator import narrate
 from .meta import record_end
 from .models import GameState, LogEntry
 from .profile import Profile
-from .rules import available_actions, perform, perform_creative, perform_flavor, room_facts, things_here
+from .rules import (available_actions, locked_doors, perform, perform_creative, perform_flavor, room_facts,
+                    unlisted)
 from .story import STORY_KINDS, Library, ProfileView, StoryEngine, load_library
 from .text import the
 
@@ -104,14 +105,25 @@ class Game:
             actions = actions + [Action("suggest", f"✦ {self.state.suggestion}", "improvise")]
         return actions
 
+    def locked_doors(self) -> list[Action]:
+        """The doors here you can't open yet, for the arrow pad: not choices, but trying one says it's locked (and
+        costs nothing). None in a scene, which has its own choices."""
+        return [] if self.state.scene else locked_doors(self.state, self.content)
+
     def suggestion_pending(self) -> bool:
         """Whether a suggested trick for this scene is still to be thought of (see refresh_suggestion)."""
         state = self.state
         return not (state.scene or state.over or state.pending_perks) and self.scene_key() != self._suggested_for
 
     def scene_key(self) -> tuple:
-        room = self.state.room
-        return (self.state.floor, room.id, self.state.in_combat, room.monster.key if room.monster else "")
+        """What the suggested trick was thought of for: where you are, who's here and how it stands with them, what you
+        carry (a trick with something that's used up goes with it) and what's still to search."""
+        state, room = self.state, self.state.room
+        monster = room.monster
+        return (state.floor, room.id, state.in_combat, monster.key if monster else "",
+                bool(monster and monster.hostile), bool(monster and monster.distracted),
+                tuple(state.known_weak.get(monster.key, []) if monster else ()), tuple(sorted(state.player.inventory)),
+                state.player.gold, tuple(f.searched for f in room.features), room.room_searched)
 
     def fate_left(self) -> int:
         """Fate available for a reroll of the pending turn."""
@@ -163,15 +175,19 @@ class Game:
             intent, shown, error = Intent(kind="action", action_id="story:say", difficulty="trivial"), raw, None
         else:
             choices = self.choices()
-            chosen = choices[int(raw) - 1] if raw.isdigit() and 1 <= int(raw) <= len(choices) else None
+            guess = guessed(raw, choices) if raw.isdigit() else None  # while Swoogy waits, "3" is a guess of 3
+            chosen = next(a for a in choices if a.id == guess) if guess else \
+                choices[int(raw) - 1] if raw.isdigit() and 1 <= int(raw) <= len(choices) else None
             if chosen and chosen.id == "suggest":
-                raw, chosen = self.state.suggestion, None
+                if self.state.suggestion_id:  # just the use it was thought of as: not its words, read again
+                    chosen = Action(self.state.suggestion_id, self.state.suggestion)
+                else:
+                    raw, chosen = self.state.suggestion, None
             if chosen:
                 intent, shown, error = Intent(kind="action", action_id=chosen.id, difficulty="trivial"), chosen.label, None
             else:
                 intent, error = await interpret(self.llm, self.state, self.content, raw,
-                                                self.actions + things_here(self.state, self.content)
-                                                + npcs.unlisted(self.state, self.content))
+                                                self.actions + unlisted(self.state, self.content))
                 shown = raw
         if error:
             errors.append(error)
@@ -191,8 +207,10 @@ class Game:
         restored.reroll = self._rerolls  # a different random stream for the same turn
         self.state = restored
         self._resolve()
-        self.pending.events.insert(0, Event("fate_spent", f"You spend a Fate token to reroll "
-                                                          f"({self.state.player.fate} left)."))
+        # One line for each token spent, counted from before the roll (a token the new roll wins is its own line).
+        snapshot_fate = self._snapshot.player.fate
+        self.pending.events[:0] = [Event("fate_spent", f"You spend a Fate token to reroll ({snapshot_fate - n} left).")
+                                   for n in range(1, self._rerolls + 1)]
         return self.pending
 
     async def _read_scene_input(self, raw: str) -> tuple[Intent, str, str | None]:
@@ -242,7 +260,7 @@ class Game:
         elif intent.kind == "creative":
             intent, events = perform_creative(state, self.content, intent)
         elif intent.kind == "flavor":
-            events = perform_flavor(state, self.content)
+            events = perform_flavor(state, self.content, intent.summary or pending.raw)
         else:
             events = []
         events += self.story.after_turn(state, events)
@@ -266,11 +284,11 @@ class Game:
 
         errors = list(pending.errors)
         told = [e for e in pending.events if narratable(e)]
-        if pending.events and all(e.kind in QUIET_KINDS or e.data.get("quiet") for e in pending.events):
-            text = " ".join(e.text for e in pending.events)
+        if told and all(e.kind in QUIET_KINDS or e.data.get("quiet") for e in told):  # (cards beside it say theirs)
+            text = " ".join(e.text for e in told)
             on_text(text)
         elif pending.events and not told:
-            text = ""  # an authored moment: its cards say it all
+            text = ""  # an authored moment (or a character's own words): its cards say it all
         else:
             words = pending.shown if pending.intent.kind != "action" else f"(chose) {pending.shown}"
             text, error = await narrate(self.llm, state, self.content, words, told, self.config.tone,
@@ -281,14 +299,15 @@ class Game:
             if event.kind in ("enter", "descend") and event.data.get("first"):
                 state.rooms[event.data["room"]].description = text
         state.journal += [e.data.get("journal", e.text) for e in pending.events  # moves: a line, not the whole room
-                          if e.kind not in JOURNAL_SKIP and not e.kind.startswith("story")]
+                          if e.kind not in JOURNAL_SKIP and not e.kind.startswith("story")
+                          and e.data.get("journal", e.text)]
         if text:
             state.log.append(LogEntry(kind="narration", text=text))
         self._record_story(pending.events)
         for error in errors:
             state.log.append(LogEntry(kind="system", text=error))
         if self.scene_key() != self._suggested_for:
-            state.suggestion = ""
+            state.suggestion, state.suggestion_id = "", ""
         self._update_profile(pending.events)
         if state.over:
             state.epitaph = await extras.epitaph(self.llm, state)
@@ -308,12 +327,14 @@ class Game:
     # --- extras ---
 
     async def refresh_suggestion(self) -> str:
-        """Ask for a fresh suggested trick when the scene changes. Cheap to call every turn."""
+        """Ask for a fresh suggested trick when the scene changes (scene_key). Cheap to call every turn. It's one of
+        the interaction grid's uses that would do something here (extras.ideas), or none."""
         key = self.scene_key()
         if self.state.over or key == self._suggested_for:
             return self.state.suggestion
         self._suggested_for = key
-        self.state.suggestion = await extras.suggestion(self.llm, self.state, self.content)
+        idea = await extras.suggestion(self.llm, self.state, self.content)
+        self.state.suggestion, self.state.suggestion_id = (idea.label, idea.id) if idea else ("", "")
         return self.state.suggestion
 
     async def recap(self, stand_in: bool = True) -> str:
@@ -324,9 +345,9 @@ class Game:
         state, profile = self.state, self.profile
         test = bool(state.test_room)
         for event in events:
-            if event.kind == "story" and event.data.get("voice") == "exact":
+            if event.kind == "story" and event.data.get("voice") == "exact":  # (a character's words: npcs.say)
                 state.log.append(LogEntry(kind="card", text=event.text, title=event.data.get("title", ""),
-                                          art=event.data.get("sprite", "")))
+                                          art=event.data.get("sprite", ""), speaker=event.data.get("speaker", "")))
             elif event.kind == "story_effect" and event.text:
                 state.log.append(LogEntry(kind="mechanic", text=f"◆ {event.text}"))
             elif event.kind == "story_secret":
@@ -338,8 +359,9 @@ class Game:
                 profile.mark_seen(event.data["event"])
             elif event.kind == "story_mark" and not test:
                 profile.set_mark(event.data["mark"])
-            if event.kind in ("story", "story_effect") and event.text:
-                state.journal.append(event.text)
+            if event.kind in ("story", "story_effect") and event.text:  # (a character's words, with who said them)
+                said = f"{event.data['title']}: {event.text}" if event.data.get("speaker") else event.text
+                state.journal.append(said)
         state.journal = state.journal[-200:]
         state.marks_pending.clear()
         self.story.view = ProfileView.from_profile(profile)

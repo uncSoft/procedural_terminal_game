@@ -7,7 +7,11 @@ and makes an idle "bob" frame, then writes <key>.png as a horizontal strip of fr
     uv run python tools/build_sprites.py --sheet x  # also write an 8x contact sheet to x.png
 
 Any PNG in data/sprites/ can be replaced with your own art (Aseprite, Piskel, an image model...):
-frames side by side, square, transparent background. The game scales it to fit.
+frames side by side, each 24 pixels wide (12 in data/sprites/small/) and as tall as you like, on a transparent
+background. The game scales it to fit. The PNG also stores its frame count (a "frames" text chunk, which this
+build writes); many editors drop that when they save, and then the game counts 24-pixel frames. A sprite built here
+is rebuilt from its map below, so change the map, not the PNG. The Maker page keeps its own copy of each monster
+and item picture (docs/maker/library.json): after changing one, run `uv run ptg export`.
 """
 
 from __future__ import annotations
@@ -551,6 +555,7 @@ SHRINE_FLAMES = [
     ["....%.......", "...%y.......", "...oyo......"],
     ["............", ".....%......", "...oyy......"],
 ]
+SHRINE_OUT = ["...~........", "....~.......", "............"]  # the used shrine: its candles snuffed, a curl of smoke
 FOUNTAIN_BASE = [
     "..gggggggggg",
     ".gbbbbbbbbbb",
@@ -583,26 +588,29 @@ CHEST_OPEN = (["............", "....ngnnnnnn", "...nngnnnnnn", "...NNgNNNNNN", "
                "...M%YyMyYyy", "...yYyyYyyYy"] + CHEST_BODY + ["." * 12] * 2)
 CHEST_SPARKLE = (["......*.....", "....ngnnnnnn", "...nngnnn*nn", "...NNgNNNNNN", "...MMMMMMMMM",
                   "...MyY%MyY%y", "...yYyyYyyYy"] + CHEST_BODY + ["." * 12] * 2)
+CHEST_EMPTY = (["............", "....ngnnnnnn", "...nngnnnnnn", "...NNgNNNNNN", "...MMMMMMMMM",
+                "...MMMMMMMMM", "...MMMMMMMMM"] + CHEST_BODY + ["." * 12] * 2)  # looted: open, and dark inside
+# Stairs going down, away from you: the near steps wide and lit at the bottom, narrowing into the dark at the top.
 STAIRS = [
     "............",
-    "..gggggggggg",
-    "..GGGGGGGGGG",
-    "...ggggggggg",
-    "...HHHHHHHHH",
-    "....GGGGGGGG",
-    "....HHHHHHHH",
-    ".....HHHHHHH",
+    "........qqqq",
+    "........qqqq",
+    ".......qqqqq",
+    ".......qqqqq",
+    "......qqqqqq",
+    "......qqqqqq",
     ".....qqqqqqq",
-    "......qqqqqq",
-    "......qqqqqq",
-    ".......qqqqq",
-    ".......qqqqq",
-    "........qqqq",
-    "........qqqq",
+    ".....HHHHHHH",
+    "....HHHHHHHH",
+    "....GGGGGGGG",
+    "...HHHHHHHHH",
+    "...ggggggggg",
+    "..GGGGGGGGGG",
+    "..gggggggggg",
     "............",
 ]
-STAIRS_MIST = [[(10, 9), (10, 10), (10, 11), (13, 11)], [(11, 10), (11, 11), (14, 10), (14, 11)],
-               [(12, 9), (12, 10), (12, 11), (9, 11)]]  # wisps that cross the middle, so they don't mirror into eyes
+STAIRS_MIST = [[(5, 9), (5, 10), (5, 11), (2, 11)], [(4, 10), (4, 11), (1, 10), (1, 11)],
+               [(3, 9), (3, 10), (3, 11), (6, 11)]]  # wisps that cross the middle, so they don't mirror into eyes
 MIRROR = [
     "..........yy",
     ".........yyy",
@@ -640,6 +648,48 @@ SUNGLASSES = [
     "..HPPPPPPH..",
     "...HHHHHH...",
     "............",
+    "............",
+    "............",
+]
+# The end of a run, drawn whole (not mirrored), so the crack and the moss are its own. Its face is left plain: the
+# end screen carves the name into it (sprites.engrave).
+TOMBSTONE = [
+    "........................",
+    "........WWWWWWWW........",
+    "......WWgggggggggg......",
+    ".....Wggggggggggggg.....",
+    "....Wggggggggggggggg....",
+    "...Wggggggggggggggggg...",
+    "...Wggggggggggggggggg...",
+    "...Wggggggggggggggggg...",
+    "...Wggggggggggggggggg...",
+    "...Wggggggggggggggggg...",
+    "...Wggggggggggggggggg...",
+    "...Wggggggggggggggggg...",
+    "...WggggggggggggGgggg...",
+    "...WggggggggggggGGggg...",
+    "...EgggggggggggggGggg...",
+    "...EEgggggggggggggGgg...",
+    ".eeEEEggggggggggggggEee.",
+    "eeeeEeeeeEeeeeeEeeeEeeee",
+    ".nnnnnNnnnnnnNnnnnNnnnn.",
+    "........................",
+]
+CROWN = [
+    "............",
+    "............",
+    "...........r",
+    "...r.......y",
+    "...y...r..yy",
+    "...y...y..yy",
+    "..yyy.yyy.yy",
+    "..yyy.yyyyyy",
+    "..yyyyyyyyyy",
+    "..yyyyyyyyyy",
+    "..YYYYYYYYYY",
+    "..YbYYYeYYYr",
+    "..YYYYYYYYYY",
+    "..yyyyyyyyyy",
     "............",
     "............",
 ]
@@ -722,7 +772,8 @@ def campfire() -> list[Image.Image]:
 
 
 def shrine() -> list[Image.Image]:
-    return [paint(mirrored(flame + SHRINE_BASE, 16)) for flame in SHRINE_FLAMES]
+    """Frames: 0-2 the candles flicker, 3 snuffed out (a shrine that's been used)."""
+    return [paint(mirrored(flame + SHRINE_BASE, 16)) for flame in [*SHRINE_FLAMES, SHRINE_OUT]]
 
 
 def fountain() -> list[Image.Image]:
@@ -734,8 +785,8 @@ def fountain() -> list[Image.Image]:
 
 
 def chest() -> list[Image.Image]:
-    """Frames: 0 closed, 1 closed with a glint, 2 open, 3 open with sparkles."""
-    return [paint(mirrored(rows, 16)) for rows in (CHEST_CLOSED, CHEST_GLINT, CHEST_OPEN, CHEST_SPARKLE)]
+    """Frames: 0 closed, 1 closed with a glint, 2 open, 3 open with sparkles, 4 open and empty (looted)."""
+    return [paint(mirrored(rows, 16)) for rows in (CHEST_CLOSED, CHEST_GLINT, CHEST_OPEN, CHEST_SPARKLE, CHEST_EMPTY)]
 
 
 def stairs() -> list[Image.Image]:
@@ -762,6 +813,21 @@ def sunglasses() -> list[Image.Image]:
     return frames
 
 
+def tombstone() -> list[Image.Image]:
+    assert all(len(row) == SIZE for row in TOMBSTONE)
+    return [paint(TOMBSTONE)]
+
+
+def crown() -> list[Image.Image]:
+    """A gold crown with a glint sliding across it, then a beat with none."""
+    full = mirrored(CROWN, 16)
+    frames = []
+    for x in (5, 10, 15, 20):
+        frames.append(paint(overlay(full, [(7, x), (8, x - 1), (9, x - 2), (10, x - 3)], "*", over="yY")))
+    frames.append(paint(full))
+    return frames
+
+
 def save(path: Path, frames: list[Image.Image]) -> None:
     """A horizontal strip of frames; the frame count is stored in the PNG so frames needn't be square."""
     info = PngInfo()
@@ -776,7 +842,7 @@ def build(sheet_path: Path | None = None) -> list[str]:
         base = paint(expand(sprite))
         animations[key] = [base, bob(base)]
     animations.update(campfire=campfire(), shrine=shrine(), fountain=fountain(), chest=chest(), stairs=stairs(),
-                      mirror=mirror(), sunglasses=sunglasses())
+                      mirror=mirror(), sunglasses=sunglasses(), tombstone=tombstone(), crown=crown())
     for key, frames in animations.items():
         save(OUT / f"{key}.png", frames)
     if sheet_path:

@@ -42,17 +42,20 @@ from .. import __version__, integrity, loot, powers, sound, testrooms
 from ..config import DEFAULT_CLAUDE_MODEL, DEFAULT_URLS, Config, home, load_game, save_config
 from ..content import Content, load_content
 from ..game import Game
-from ..library import credits, lives, maker_folder
+from ..library import credits, lives, maker_folder, off_palette
 from ..llm import LLMError, check, make_llm
 from ..llm.base import Exchange, read_log
 from ..llm.openai_compat import OpenAICompatLLM
 from ..models import GameState, Player
-from ..sprites import DEATH_FRAMES, DEFAULT_WIDTH, SMALL, frame_count, has_small, side_by_side, sprite_text
+from ..sprites import (DEATH_FRAMES, DEFAULT_WIDTH, SMALL, count_frames, fill, frame_count, frames, has_small,
+                       side_by_side, sprite_text)
 from ..story import StoryError, StoryEvent, load_library, reload_library
 from ..text import tell
 from .panels import Panel
+from .widgets import Picture
 
-POSES = ("idle", "windup", "dizzy", "calm", "lunge", "shake", "death")
+POSES = ("idle", "windup", "dizzy", "lunge", "shake", "death")  # (calm is idle: characters keep their colours)
+HALF = 0.5  # art in less of its frame than this is flagged in the Art tab (see sprites.fill)
 FIXTURES = ("chest", "fountain", "shrine", "stairs")
 DIM, HEAD, GOOD, WARN, BAD = "#9a9cc0", "bold #ffb000", "#4cff8a", "#ffd166", "#ff4b4b"
 ROLE = "bold #5fe3ff"
@@ -142,33 +145,19 @@ def reveal(path: Path) -> None:
 
 # --- widgets ------------------------------------------------------------------------------------------------------
 
-class PoseSprite(Static):
-    """A sprite animating in one pose (see ptg.sprites), or a stand-in text when there's no sprite."""
+class PoseSprite(Picture):
+    """A sprite animating in one pose (see ptg.sprites), quickly, on the pictures' clock, or a stand-in text when
+    there's no sprite."""
 
     def __init__(self, **kwargs) -> None:
-        super().__init__("", **kwargs)
-        self.key, self.pose, self.fallback, self.ticks = "", "idle", "", 0
-
-    def on_mount(self) -> None:
-        self.set_interval(0.2, self._tick)
+        super().__init__("", flicker=True, sprites=True, **kwargs)
 
     def show(self, key: str, pose: str = "idle", fallback: str = "") -> None:
-        self.key, self.pose, self.fallback, self.ticks = key, pose, fallback, 0
-        self._draw()
-
-    def _tick(self) -> None:
-        self.ticks += 1
-        if self.region.area and frame_count(self.key):  # only while it's on screen
-            self._draw()
-
-    def _draw(self) -> None:
-        if self.pose == "death":  # dissolve, rest a moment on nothing, then again
-            frame = min(self.ticks % (DEATH_FRAMES + 5), DEATH_FRAMES - 1)
-        else:
-            frame = self.ticks % 24
-        art = sprite_text(self.key, frame, pose=self.pose) if self.key else None
-        self.update(art if art is not None else Text(self.fallback, style=DIM))
-        self.display = art is not None or bool(self.fallback)
+        # Dying, it dissolves, rests a moment on nothing, then goes again; any other pose has frames enough for a glow
+        # to pulse and stars to circle.
+        loop = [*range(DEATH_FRAMES), *[DEATH_FRAMES - 1] * 5] if pose == "death" else list(range(24))
+        self.become(key, pose=pose, loop=loop, ascii=Text(fallback, style=DIM))
+        self.display = bool(self.art.sprite or fallback)
 
 
 class ClickTable(DataTable):
@@ -453,7 +442,7 @@ def turns_up(content: Content, key: str) -> list[str]:
 # --- Art ----------------------------------------------------------------------------------------------------------
 
 class ArtTab(TableTab):
-    columns = ("Sprite", "Frames", "Size", "Small", "Used for")
+    columns = ("Sprite", "Frames", "Size", "Small", "Fills", "Used for")
     chosen_pose = "idle"
 
     def toolbar(self) -> ComposeResult:
@@ -473,28 +462,33 @@ class ArtTab(TableTab):
                 uses.setdefault(event.sprite, []).append(f"story: {event.id}")
         for fixture in FIXTURES:
             uses.setdefault(fixture, []).append("in a room")
+        for key, screen in (("tombstone", "when you die"), ("crown", "when you win")):
+            uses.setdefault(key, []).append(f"the end of a run: {screen}")
         self.uses = uses
         self.paths = {p.stem: p for p in sorted((integrity.data_folder() / "sprites").glob("*.png"))}
         for key, path in self.paths.items():
             count, width, height = sheet(path)
             small = (Text("hand-made", style=GOOD) if has_small(key) else
                      Text("halved", style=WARN) if key.startswith("item_") else "")
-            yield key, [Text(key, style="bold"), count, f"{width}×{height}", small, listed(uses.get(key, []), "")]
+            share = fill(key)
+            yield key, [Text(key, style="bold"), count, f"{width}×{height}", small,
+                        Text(f"{share:.0%}", style=WARN if share < HALF else ""), listed(uses.get(key, []), "")]
         self.set_pose(self.chosen_pose)
 
     def detail(self, key: str):
         path = self.paths[key]
         count, width, height = sheet(path)
         room = self.room()
-        frames = tiles([(f"frame {n + 1}", sprite_text(key, n, DEFAULT_WIDTH)) for n in range(count)],
-                       DEFAULT_WIDTH, room)
+        pictures = tiles([(f"frame {n + 1}", sprite_text(key, n, DEFAULT_WIDTH)) for n in range(count)],
+                         DEFAULT_WIDTH, room)
         small = tiles([(f"frame {n + 1}", sprite_text(key, n, SMALL)) for n in range(count)], SMALL, room)
         how = ("hand-made" if has_small(key) else
                f"halved automatically: draw one by hand as sprites/small/{key}.png (12×12, same frames)")
         info = pairs([("File", short(path)), ("Frames", f"{count}, {width}×{height} pixels each"),
+                      ("Fills", fills_line(key)), ("Colours", colours_line(key)),
                       ("Used for", listed(self.uses.get(key, []), "nothing yet")),
                       ("Drawn by", credit_line(self.credits.get(key)))])
-        return key, "", Group(info, heading("Frames"), frames, heading(f"Small ({SMALL} px): {how}"), small,
+        return key, "", Group(info, heading("Frames"), pictures, heading(f"Small ({SMALL} px): {how}"), small,
                               heading("Poses"), poses(key, room))
 
     def pose(self) -> str:
@@ -508,13 +502,32 @@ class ArtTab(TableTab):
             self.query_one(PoseSprite).show(self.current, pose)
 
 
+def fills_line(key: str) -> Text:
+    """How much of its frame the art takes up, with a nudge when it's under half."""
+    share = fill(key)
+    if share < HALF:
+        return Text(f"{share:.0%} of its frame, under half: draw it bigger if it looks small on cards and in rooms",
+                    style=WARN)
+    return Text(f"{share:.0%} of its frame")
+
+
+def colours_line(key: str) -> Text:
+    """How many colours the art uses, and any from outside the maker's palette (see library.ENDESGA)."""
+    found = list(frames(key) or ())
+    used = {pixel[:3] for frame in found for pixel in frame.get_flattened_data() if pixel[3] >= 128}
+    custom = off_palette(found)
+    if not custom:
+        return Text(f"{len(used)}, all from the maker's palette")
+    return Text(f"{len(used)}, {len(custom)} from outside the maker's palette: {listed(custom)}", style=WARN)
+
+
 def sheet(path: Path) -> tuple[int, int, int]:
     """(frames, frame width, height) of a sprite strip."""
     try:
         from PIL import Image
 
         with Image.open(path) as image:
-            count = int(image.info.get("frames") or 0) or max(1, image.width // image.height)
+            count = count_frames(image, path.parent.name == "small", path.name)
             return count, image.width // count, image.height
     except (ImportError, OSError, ValueError):
         return frame_count(path.stem), 0, 0
@@ -1069,12 +1082,12 @@ def exchange_text(entry: Exchange) -> Text:
 
 # --- Test rooms ---------------------------------------------------------------------------------------------------
 
-TEST_INTRO = """\
-You start next door, so walking in plays out as in a run: Swoogy's wall to bomb (with a bomb), a shop's door (a small
-key, two bombs and gold to spend), a boss's locked door (its key), Lucky Lenny (his bad tooth in your pack). The kit
-you see is the kit you get: ↻ for another draw. Nothing in a test room counts: it never saves over your run, banks no
-souls, and leaves your Hall of Legends, ghosts and bestiary as they were. Esc twice to leave it. (Also: ptg --test-room
-list)"""
+TEST_INTRO = (  # one paragraph, no line breaks of its own: it wraps to the tab's width
+    "You start next door, so walking in plays out as in a run: Swoogy's wall to bomb (with a bomb), a shop's door (a "
+    "small key, two bombs and gold to spend), a boss's locked door (its key), Lucky Lenny (his bad tooth in your "
+    "pack). The kit you see is the kit you get: ↻ for another draw. Nothing in a test room counts: it never saves "
+    "over your run, banks no souls, and leaves your Hall of Legends, ghosts and bestiary as they were. Esc twice to "
+    "leave it. (Also: ptg --test-room list)")
 
 
 class TestRoomsTab(DebugTab):
@@ -1156,6 +1169,7 @@ TABS = {"overview": ("Overview", OverviewTab), "monsters": ("Monsters", Monsters
 class DebugScreen(Panel):
     BINDINGS = [Binding("escape,f12", "close", "Close"), Binding("r", "reload", "Refresh", show=False),
                 *[Binding(n, f"tab('{key}')", show=False) for n, key in zip("1234567890", TABS)]]
+    size_class = "full"
 
     def __init__(self, tab: str = "overview") -> None:
         super().__init__()

@@ -29,6 +29,7 @@ CELL_STYLES = {
     "bones": "#c8c8d8",
     "rubble": "#7d7d99",
     "furniture": "#b0844f",
+    "cage": "#a6aaba",
     "junk": "#a8946a",
     "plant": "#4cbf6a",
     "fire": "#ff7b2e",

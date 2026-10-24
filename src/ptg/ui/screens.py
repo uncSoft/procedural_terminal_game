@@ -103,6 +103,8 @@ class TitleScreen(Screen):
 class AbandonScreen(Panel):
     """A new run with one still in progress: continue it, or abandon it, and it ends as a death."""
 
+    size_class = "small"
+
     def __init__(self, state: GameState) -> None:
         super().__init__()
         self.state = state

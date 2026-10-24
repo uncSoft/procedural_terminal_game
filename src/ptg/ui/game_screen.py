@@ -22,33 +22,40 @@ from ..game import Game
 from ..models import LogEntry
 from ..outcome import AWFUL, BAD, GOOD, GREAT, overall, tone, verdict
 from ..room_picture import look_of, picture_text
-from ..sprites import DEATH_FRAMES, DEFAULT_WIDTH, frame_count
+from ..sprites import DEATH_FRAMES, SMALL
 from ..text import cap, mid_sentence, the
 from . import effects
 from .dice import DiceScreen
 from .panels import (BestiaryScreen, CharacterScreen, FloorScreen, HelpScreen, InfoScreen, InventoryScreen,
-                     JournalScreen, LevelUpScreen, LookScreen, MapScreen, ShopScreen)
-from .widgets import (AnimatedSprite, ChoiceItem, Clickable, ClickableBox, DiceLine, DPad, Hud, StoryLine, bar,
-                      hearts, highlight, item_note, item_picture, map_text, monster_text, portrait, roll_text,
-                      room_text)
+                     JournalScreen, LevelUpScreen, LookScreen, MapScreen, Panel, ShopScreen)
+from .widgets import (ChoiceItem, ClickableBox, DiceLine, DPad, Hud, Picture, StoryLine, hearts, highlight, item_note,
+                      map_text, monster_how, monster_pose, monster_status, roll_text, room_text, status_rows)
 
-# (sprite, steps of (frame, pose, flash)) for the moment you use a fixture
+# (sprite, steps of (frame, pose, flash)) for the moment you use a fixture. A chest and a shrine end on their used-up
+# last frame (emptied; candles out), as the room's picture shows them from then on.
 FIXTURE_MOMENTS = {
     "chest": ("chest", [(0, "shake", False), (1, "shake", False)] * 3
-              + [(2, "idle", False), (3, "idle", False), (2, "idle", False), (3, "idle", False), (2, "idle", False)]),
+              + [(2, "idle", False), (3, "idle", False), (2, "idle", False), (3, "idle", False), (2, "idle", False),
+                 (4, "idle", False)]),
     "fountain": ("fountain", [(i % 3, "idle", False) for i in range(9)]),
     "shrine": ("shrine", [(0, "idle", False), (1, "idle", True), (2, "idle", False), (1, "idle", True),
-                          (0, "idle", False)]),
+                          (0, "idle", False), (3, "idle", False)]),
     "descend": ("stairs", [(i % 3, "idle", False) for i in range(6)] + [(i, "death", False) for i in range(6)]),
 }
 
 # Idle frames for a fixture waiting to be used (a chest stays shut, with the odd glint).
 ARRIVAL_LOOPS = {"chest": [0, 0, 0, 1]}
 ROOM_CARD = (72, 30)  # the picture of a room you walk into, in pixels: the most the story is given
+# (columns, rows) a picture in the story leaves for what's around it, so it's never taller than the story can show: on
+# its own, a line to spare; on a story card, the card's frame and padding and two lines of words; on a loot card (a
+# picture the card's width, less its frame), the frame and its three lines.
+STORY_SPARE = {"sprite": (0, 1), "card": (4, 4), "loot": (0, 5)}
 CHOICE_ROWS = 8  # the choices box never changes height; more choices than this start a second column
-# how an item came your way this turn; when an item comes more than one way, the first of these is shown
-LOOT_LABELS = {"equip": "equipped", "find": "found", "key": "found", "take": "picked up", "drop": "dropped",
-               "buy": "bought", "left": "left here", "floor": "on the floor"}
+SIDE_WORDS = 27  # the columns inside a sidebar panel (#sidebar in app.tcss, less a panel's frame and padding)
+# how an item came your way this turn (its event's "how", see inventory.py); when an item comes more than one way,
+# the first of these is shown
+LOOT_LABELS = {"buy": "bought", "give": "given", "story": "given", "win": "won", "equip": "equipped", "find": "found",
+               "key": "found", "take": "picked up", "drop": "dropped", "floor": "on the floor"}
 
 COMMANDS = {
     "i": "inventory", "inv": "inventory", "inventory": "inventory",
@@ -93,7 +100,7 @@ def shown(widget: Widget) -> str:
     (a row of them is named for it as it's made: its cards may not be in it yet)."""
     if widget.name:
         return widget.name
-    if isinstance(widget, AnimatedSprite):
+    if isinstance(widget, Picture):
         return f"sprite: {widget.key}"
     if widget.has_class("story-card"):
         return "story card: " + str(widget.border_title).removeprefix("✧").strip()
@@ -117,10 +124,8 @@ class GameScreen(Screen):
         self.game = game
         self.fresh = fresh
         self.busy = False
-        self.frame = 0  # idle animation frame for the monster sprite
-        self.animating = False  # a one-off scene animation is playing; the idle loop waits
-        self.live_sprites: list[AnimatedSprite] = []
-        self.fixture_sprites: dict[tuple[int, int], AnimatedSprite] = {}  # (floor, room) -> its fixture's sprite
+        self.animating = False  # a fight's flashes, lunges or death are playing in the sidebar
+        self.fixture_sprites: dict[tuple[int, int], Picture] = {}  # (floor, room) -> its fixture's picture
         self.floor_cards: list[tuple[int, int, str, ClickableBox]] = []  # things lying somewhere, as cards to take
         self.leave_asked = 0.0  # when Esc last asked "again for the title?" (time.monotonic)
         self.since_redraw = 0  # turns since the whole screen was last drawn afresh (see PTGApp.action_redraw)
@@ -131,7 +136,11 @@ class GameScreen(Screen):
         with Horizontal(id="main"):
             yield VerticalScroll(id="story")
             with Vertical(id="sidebar"):
-                yield Clickable(Text(""), "screen.scene_card", id="scene", classes="panel")
+                with ClickableBox(action="screen.scene_card", id="scene", classes="panel"):
+                    yield Picture("", "monster", content=self.game.content, sprites=self._sprites_on(),
+                                  id="scene-art")  # whoever's in the room: a foe, or a character to talk to
+                    yield Static(id="scene-status")  # how they are (see monster_status)
+                    yield Static(id="scene-plan")  # otherwise the room's floor plan
                 yield Static(id="map", classes="panel")
         with Horizontal(id="choices"):
             yield Vertical(id="choice-list")
@@ -159,10 +168,10 @@ class GameScreen(Screen):
             self.refresh_panels()
             self.pick_up_again()
         self.query_one("#command", Input).focus()
-        self.set_interval(0.6, self._idle_frame)
 
     def on_resize(self) -> None:
         self.query_one("#map").display = self.size.height >= 38
+        self.call_after_refresh(self.refresh_scene)  # (its portrait's size, once the sidebar has its new height)
 
     # --- story helpers ---
 
@@ -183,14 +192,25 @@ class GameScreen(Screen):
         if not (sprite and self._sprites_on()):
             card = self.add_line(highlight(text, lexicon), "story-card")
         else:
-            art = AnimatedSprite(sprite, interval=0.3, action=self._card_of(sprite), classes="card-sprite")
+            art = self._story_picture(sprite, "", "card", action=self._card_of(sprite), classes="card-sprite")
             card = Vertical(art, StoryLine(highlight(text, lexicon)), classes="story-card")
             story = self.query_one("#story", VerticalScroll)
             story.mount(card)
             story.scroll_end(animate=False)
-            self.live_sprites.append(art)
         card.border_title = f"✧ {title}" if title else "✧"
         return card
+
+    def _story_picture(self, key: str, kind: str, place: str, **kwargs) -> Picture:
+        """A picture for the story (see Picture): full size if the story has the room for it, with what goes around it
+        in that `place` (see STORY_SPARE), else small."""
+        region = self.query_one("#story", VerticalScroll).scrollable_content_region
+        width = region.width or self.app.size.width - 36  # (about that, before the story's been laid out)
+        rows = region.height or self.app.size.height - 17
+        if place == "loot":
+            width = min(width, LOOT_CARD - 4)
+        spare_w, spare_h = STORY_SPARE[place]
+        return Picture(key, kind, width - spare_w, rows - spare_h, content=self.game.content,
+                       sprites=self._sprites_on(), **kwargs)
 
     def _show_story(self, events: list[Event]) -> None:
         """Story cards, their effects and any secret found, after the narration."""
@@ -243,7 +263,8 @@ class GameScreen(Screen):
             await self._show_loot([], [(key, "floor") for key in state.room.items])
         self.add_line(self._whereabouts(), "system-line")
         while state.pending_perks:  # (left mid level-up)
-            await self._level_up()
+            if not await self._level_up():
+                break  # (put off: the perks wait as the choices)
         text = await self.game.recap(stand_in=False)
         if text:
             line = StoryLine(highlight("Previously… " + text, self.lexicon(), "italic #ff4f9a"), classes="recap")
@@ -334,9 +355,6 @@ class GameScreen(Screen):
             self.add_line(f"> {shown}", "player-line")
         sound.play("select")
         hp_before, gold_before = game.state.player.hp, game.state.player.gold
-        for sprite in self.live_sprites:  # older story sprites stand still
-            sprite.freeze()
-        self.live_sprites.clear()
         monster = game.state.room.monster
         before = (monster.key, monster.name) if monster else None
         room_before = game.state.room_id
@@ -353,7 +371,8 @@ class GameScreen(Screen):
                 sound.play("fate")
                 pending = game.reroll()
                 primary = pending.primary
-                self.add_line(Text(f"  ✦ Fate spent. Rerolling... ({game.state.player.fate} left)",
+                # (counted from before the roll: game.state already holds any token the new roll won, run 44)
+                self.add_line(Text(f"  ✦ Fate spent. Rerolling... ({game.fate_left()} left)",
                                    style="bold #ffd166"), "mechanic")
                 continue
             break
@@ -386,8 +405,7 @@ class GameScreen(Screen):
         if any(e.kind in ("enter", "descend") and e.data.get("first") for e in pending.events):
             self._room_card(before=narration)
         self._arrival_sprite(pending.events, before=narration)
-        picked = pending.intent.kind == "action" and pending.intent.action_id.startswith(("take:", "take_all"))
-        await self._loot_moment(pending.events, narration, from_the_floor=picked)
+        await self._loot_moment(pending.events, narration)
         if any(e.kind == "tip" for e in pending.events):  # look: it's on your map
             effects.pulse(self.query_one("#map"), GREAT, blinks=2)
         self.refresh_panels()
@@ -409,7 +427,8 @@ class GameScreen(Screen):
         self.refresh_panels()
 
         while game.state.pending_perks:
-            await self._level_up()
+            if not await self._level_up():
+                break  # (put off: the perks wait as the choices)
         if game.state.over:
             self.add_line(Text(f"Epitaph: {game.state.epitaph}", style="italic #ff4f9a"), "system-line")
             self._record_shown(start)
@@ -435,16 +454,21 @@ class GameScreen(Screen):
 
         self.app.push_screen(ShopScreen(self.game, selected), done)
 
-    async def _level_up(self) -> None:
+    async def _level_up(self) -> bool:
+        """The perk cards, until you pick one. Whether you did: closing them puts it off, and the perks wait as the
+        choices (picked from there, it's an ordinary turn), with the cards back after your next move."""
         game = self.game
         choices = list(game.state.pending_perks)
         sound.play("level_up")
         perk = await self.app.push_screen_wait(LevelUpScreen(game.content, choices, game.state.player.level))
+        if perk is None:
+            return False
         index = next(i for i, a in enumerate(game.choices(), 1) if a.id == f"perk:{perk}")
         await game.begin(str(index))
         result = await game.finish(lambda _: None)
         self.add_line(Text("★ " + result.narration, style="bold #ffd166"), "system-line")
         self.refresh_panels()
+        return True
 
     def _narration_sink(self):
         narration = self.add_line(Text("…", style="#6c6f99"), "narration")
@@ -552,7 +576,8 @@ class GameScreen(Screen):
         gone = game.state.room.monster is None
         steps: list[tuple[str, int, bool]] = []
         if "hit" in kinds:
-            steps += [("idle", self.frame, flash) for flash in (True, False, True, False)]
+            frame = self.query_one("#scene-art", Picture).frame
+            steps += [("idle", frame, flash) for flash in (True, False, True, False)]
         if not gone and kinds & {"monster_hit", "monster_miss", "evade", "dodge"}:
             steps += [("lunge", 0, False), ("lunge", 1, False), ("idle", 0, False)]
         if gone:
@@ -564,26 +589,18 @@ class GameScreen(Screen):
             await self._play_scene(*before, steps)
 
     async def _play_scene(self, key: str, name: str, steps: list[tuple[str, int, bool]]) -> None:
-        scene = self.query_one("#scene", Static)
+        """A fight's moment in the sidebar, steps of (pose, frame, flash): the monster's portrait plays them, over the
+        same lines as ever (see monster_status), so the panel holds still."""
+        scene = self.query_one("#scene")
         scene.border_title = name
         scene.add_class("combat")
+        self._show_scene(key, hostile=True)
         self.animating = True
         try:
-            for pose, frame, flash in steps:
-                scene.update(self._scene_frame(key, pose, frame, flash))
-                await asyncio.sleep(0.07)
+            await self.query_one("#scene-art", Picture).play([(frame, pose, flash) for pose, frame, flash in steps],
+                                                             delay=0.07)
         finally:
             self.animating = False
-
-    def _scene_frame(self, key: str, pose: str, frame: int, flash: bool) -> Text:
-        """The monster card during an animation, keeping its HP bar so the panel doesn't jump."""
-        content, monster = self.game.content, self.game.state.room.monster
-        art = portrait(key, content, self._sprites_on(), frame, flash, pose=pose)
-        hp, max_hp = (monster.hp, monster.max_hp) if monster and monster.key == key else (0, content.monster(key).hp)
-        art.append("\n")
-        art.append(bar(hp, max_hp, 18), style="#ff4b4b")
-        art.append(f" {max(0, hp)}/{max_hp}")
-        return art
 
     async def _fixture_moment(self, events: list[Event], narration: Static, where: tuple[int, int]) -> None:
         """Opening a chest, drinking from a fountain, an offering, going down the stairs: play it out. The sprite
@@ -598,34 +615,38 @@ class GameScreen(Screen):
         if sprite is not None and sprite.is_attached and sprite.key == key:
             story.move_child(sprite, before=narration)
         else:
-            sprite = AnimatedSprite(key, action=self._card_of(key), classes="story-sprite")
+            sprite = self._story_picture(key, "", "sprite", action=self._card_of(key), classes="story-sprite")
             await story.mount(sprite, before=narration)
         story.scroll_end(animate=False)
         await sprite.play(steps)
         if kind == "descend":
             await sprite.remove()  # it dissolved into the dark
 
-    async def _loot_moment(self, events: list[Event], narration: Static, from_the_floor: bool = False) -> None:
-        """What turned up this turn, with its art: what you found, bought or picked up (bombs and keys go straight
-        in your pack), and, there for the taking, what a monster dropped, what you left as you took something better,
-        and everything lying in a room you walk into. Click one of those to pick it up, no turn spent. Something
-        taken `from_the_floor` this turn gets no second card: its card says it's taken."""
+    async def _loot_moment(self, events: list[Event], narration: Static) -> None:
+        """What turned up this turn, with its art: what you bought, were given or picked up (bombs and keys go straight
+        in your pack), and, there for the taking, what you found, what a monster dropped or you put down, and
+        everything lying in a room you walk into. Click one of those to pick it up, no turn spent. Something
+        picked up from the floor this turn gets no second card: its card says it's taken. (Moving what you carry
+        about, equipping it say, shows none.)"""
         state = self.game.state
         here = (state.floor, state.room_id)
-        taken = {e.data["item"] for e in events if from_the_floor and e.kind in ("take", "equip", "key")
-                 and e.data.get("item") and self._mark_taken(here, e.data["item"])}
+        moves = [e for e in events if e.data.get("item") and e.data.get("to")]  # (inventory.moved)
+        taken = {e.data["item"] for e in moves if e.data["from"] == "room" and self._mark_taken(here, e.data["item"])}
         found: dict[str, str] = {}
         order = list(LOOT_LABELS)
-        for event in events:
-            key = event.data.get("item")
-            if key and key not in taken and event.kind in LOOT_LABELS and event.kind != "drop" and \
-                    (key not in found or order.index(event.kind) < order.index(found[key])):
-                found[key] = event.kind
+        for event in moves:
+            key, how, source, to = (event.data[k] for k in ("item", "how", "from", "to"))
+            how = event.kind if how == "take" and event.kind in ("equip", "key") else how
+            came = source not in ("pack", "weapon", "armor") and (
+                to in ("pack", "weapon", "armor", "counter") or to == "room" and key not in state.room.items)
+            if came and key not in taken and how in LOOT_LABELS and \
+                    (key not in found or order.index(how) < order.index(found[key])):
+                found[key] = how  # (a find lying here is a card to take, below; one picked up since, a bomb, is here)
         if any(e.kind in ("enter", "descend") for e in events):
             lying = [(key, "floor") for key in state.room.items]
         else:
-            lying = [(e.data["item"], "drop") for e in events if e.kind == "drop" and e.data["item"] in state.room.items]
-            lying += [(e.data["left"], "left") for e in events if e.data.get("left") in state.room.items]
+            lying = [(e.data["item"], e.data["how"] if e.data["how"] in LOOT_LABELS else "drop") for e in moves
+                     if e.data["to"] == "room" and e.data["item"] in state.room.items]
         if found or lying:
             await self._show_loot(list(found.items()), lying, before=narration)
 
@@ -635,7 +656,7 @@ class GameScreen(Screen):
         (item, LOOT_LABELS kind)."""
         state = self.game.state
         here = (state.floor, state.room_id)
-        shine: list[AnimatedSprite] = []
+        shine: list[Picture] = []
         cards = [self._loot_card(key, kind, None, shine) for key, kind in found]
         for key, kind in lying:
             card = self._loot_card(key, kind, here, shine)
@@ -648,24 +669,22 @@ class GameScreen(Screen):
             await story.mount(Horizontal(*cards[row:row + across], classes="loot-row",
                                          name="cards: " + "; ".join(names[row:row + across])), before=before)
         story.scroll_end(animate=False)
-        self.live_sprites += shine
         await asyncio.gather(*(self._sparkle(picture) for picture in shine))
 
     def _loot_card(self, key: str, kind: str, lying_at: tuple[int, int] | None, shine: list) -> ClickableBox:
-        """An item's card in the story: its full picture, its name and what it does. One `lying_at` a place is
-        there for the taking: click it to pick it up."""
+        """An item's card in the story: its picture (full size if the story's tall enough), its name and what it does.
+        One `lying_at` a place is there for the taking: click it to pick it up."""
         content = self.game.content
-        if self._sprites_on() and frame_count(f"item_{key}"):  # the full picture: a small version is for the pack
-            picture = AnimatedSprite(f"item_{key}", interval=0.35, classes="loot-art")
+        picture = self._story_picture(key, "item", "loot", classes="loot-art")
+        if picture.art.sprite:  # (a stand-in doesn't sparkle)
             shine.append(picture)
-        else:
-            picture = Static(item_picture(content, key, self._sprites_on(), width=DEFAULT_WIDTH), classes="loot-art")
         words = Text.assemble((content.item(key).name, "bold #4cff8a"), "\n", (item_note(content, key), "#9a9cc0"))
         if lying_at:
             words.append("\n▶ click to take", style="bold #ffb000")
         action = (f"screen.pick_up('{key}', {lying_at[0]}, {lying_at[1]})" if lying_at
                   else f"screen.lookup('item:{key}')")
-        card = ClickableBox(picture, Static(words, classes="loot-text"), action=action, classes=f"loot-card {kind}")
+        card = ClickableBox(picture, Static(words, classes="loot-text"), action=action,
+                            classes=f"loot-card {kind}" + (" lying" if lying_at else ""))
         card.border_title = f"✦ {LOOT_LABELS[kind]}"
         card.tooltip = "Click to pick it up (no turn)" if lying_at else "Click for its card"
         return card
@@ -681,8 +700,8 @@ class GameScreen(Screen):
                 card.query_one(".loot-text", Static).update(Text.assemble(
                     (content.item(key).name, "bold #6c6f99"), "\n", (item_note(content, key), "#6c6f99"), "\n",
                     ("✓ in your pack", "#6c6f99")))
-                for sprite in card.query(AnimatedSprite):
-                    sprite.freeze()
+                for picture in card.query(Picture):  # it's not here any more: it holds still
+                    picture.freeze()
                 return True
         return False
 
@@ -748,9 +767,9 @@ class GameScreen(Screen):
         banner.update(secret_banner(0, words, colour))
 
     @staticmethod
-    async def _sparkle(sprite: AnimatedSprite) -> None:
-        await sprite.play([(0, "idle", True), (0, "idle", False), (1, "idle", True), (0, "idle", False)], delay=0.08)
-        sprite.resume()
+    async def _sparkle(picture: Picture) -> None:
+        await picture.play([(0, "idle", True), (0, "idle", False), (1, "idle", True), (0, "idle", False)], delay=0.08)
+        picture.resume()
 
     def _room_card(self, before: Widget | None = None) -> None:
         """The room you've just walked into for the first time, as a picture above what the narrator makes of it
@@ -777,27 +796,27 @@ class GameScreen(Screen):
         story.scroll_end(animate=False)
 
     def _arrival_sprite(self, events: list[Event], before: Widget | None = None) -> None:
-        """Arriving somewhere with a shrine, chest, fountain or stairs: show it, alive."""
+        """Arriving somewhere for the first time with someone to meet, a shopkeeper, or a shrine, chest, fountain or
+        stairs: show them, alive and in their own colours (someone to talk to before a fixture: they're who you'll
+        want to see). Click one for its card; the shopkeeper, for her shop."""
         room = self.game.state.room
         arrived = any(e.kind in ("enter", "descend") and e.data.get("first") for e in events)
-        if arrived and room.shop and self._sprites_on():  # the shopkeeper herself: click her to shop
-            sprite = AnimatedSprite(room.shop.keeper, interval=0.6, action="screen.shop_counter", classes="story-sprite")
-            self.query_one("#story", VerticalScroll).mount(sprite, before=before)
-            self.live_sprites.append(sprite)
-        elif arrived and room.fixture and not room.fixture_used and self._sprites_on():
-            sprite = AnimatedSprite(room.fixture, interval=0.3, loop=ARRIVAL_LOOPS.get(room.fixture),
-                                    action=self._card_of(room.fixture), classes="story-sprite")
-            self.query_one("#story", VerticalScroll).mount(sprite, before=before)
-            self.live_sprites.append(sprite)
-            self.fixture_sprites[(self.game.state.floor, room.id)] = sprite
-
-    def _idle_frame(self) -> None:
-        """The monster in the sidebar breathes: its frames take turns while nothing else is playing there. (Not
-        called _animate: Textual keeps an animator under that name on every widget, and it hid this.)"""
-        monster = self.game.state.room.monster
-        if self._sprites_on() and monster and monster.hostile and not self.animating:
-            self.frame += 1
-            self.refresh_scene()
+        if not (arrived and self._sprites_on()):
+            return
+        someone = room.monster
+        if someone and not someone.hostile:  # Lucky Lenny, Swoogy and his die, a kid's character...
+            picture = self._story_picture(someone.key, "monster", "sprite", action=self._card_of(someone.key),
+                                          classes="story-sprite")
+        elif room.shop:  # the shopkeeper herself: click her to shop
+            picture = self._story_picture(room.shop.keeper, "monster", "sprite", action="screen.shop_counter",
+                                          classes="story-sprite")
+        elif room.fixture and not room.fixture_used:
+            picture = self._story_picture(room.fixture, "", "sprite", loop=ARRIVAL_LOOPS.get(room.fixture),
+                                          action=self._card_of(room.fixture), classes="story-sprite")
+            self.fixture_sprites[(self.game.state.floor, room.id)] = picture
+        else:
+            return
+        self.query_one("#story", VerticalScroll).mount(picture, before=before)
 
     async def update_suggestion(self) -> None:
         if not self.game.state.scene:
@@ -811,23 +830,70 @@ class GameScreen(Screen):
         state, content = game.state, game.content
         self.query_one("#hud", Hud).show(state, content)
         self.refresh_scene()
-        self.query_one("#map", Static).update(map_text(state))
+        self.query_one("#map", Static).update(map_text(state, self._side_words()))
         self.query_one("#map").border_title = f"Floor {state.floor}/{state.floors_total}"
         self.refresh_choices()
 
     def refresh_scene(self) -> None:
-        """The sidebar's top panel: the monster's portrait during a fight, otherwise the room's floor plan."""
+        """The sidebar's top panel: whoever's in the room, if it's a fight or a character to talk to (in their own
+        colours, saying they're calm), with their HP and how they are; otherwise the room's floor plan."""
         game = self.game
         state, content = game.state, game.content
-        scene = self.query_one("#scene", Static)
-        if state.room.monster and (state.in_combat or state.room.monster.hostile):
-            scene.update(monster_text(state, content, game.config.art == "sprites", self.frame))
-            scene.border_title = state.room.monster.name
-            scene.add_class("combat")
+        scene = self.query_one("#scene")
+        monster = state.room.monster
+        if monster and (state.in_combat or monster.hostile or content.monster(monster.key).npc):
+            self._show_scene(monster.key, monster.hostile or state.in_combat)
+            scene.border_title = monster.name
         else:
-            scene.update(room_text(state, content))
-            scene.border_title = state.room.name
+            self.query_one("#scene-art").display = self.query_one("#scene-status").display = False
+            plan = self.query_one("#scene-plan", Static)
+            plan.display = True
+            plan.update(room_text(state, content, self._side_words()))
+            scene.border_title, scene.border_subtitle = state.room.name, None
             scene.remove_class("combat")
+
+    def _side_words(self) -> int:
+        """How many columns the sidebar's panels have for words: their legends are packed to that, an entry never
+        split across two lines."""
+        return self.query_one("#scene").content_region.width or SIDE_WORDS
+
+    def _show_scene(self, key: str, hostile: bool) -> None:
+        """The sidebar's panel showing `key`: its portrait, as big as the sidebar has room for, standing as it is now,
+        over the lines saying how it is (see monster_status)."""
+        state, content = self.game.state, self.game.content
+        art = self.query_one("#scene-art", Picture)
+        monster = state.room.monster
+        here = monster is not None and monster.key == key
+        pose = monster_pose(monster) if here else "idle"
+        style = "#ff4b4b" if hostile else "#ffd166"  # (for ASCII art)
+        if (art.key, art.sprites, art.style) != (key, self._sprites_on(), style):
+            art.sprites = self._sprites_on()
+            art.become(key, "monster", pose=pose, style=style)
+        elif not self.animating:
+            art.set_pose(pose)
+            art.resume()  # (after a fight's moment)
+        art.display = True
+        short = self._fit_scene()
+        status = self.query_one("#scene-status", Static)
+        status.display = True
+        status.update(monster_status(state, content, key, short))
+        scene = self.query_one("#scene")
+        scene.border_subtitle = monster_how(state, key) if short else None
+        self.query_one("#scene-plan").display = False
+        scene.set_class(hostile, "combat")
+
+    def _fit_scene(self) -> bool:
+        """The sidebar's portrait at full size if the sidebar is tall enough for it and the lines under it, else small
+        (the panel used to run off the bottom of a 100x30 screen). Whether the sidebar's too short even for a small one
+        and all those lines (an 80x24 screen), so how the monster is goes on the panel's frame."""
+        art = self.query_one("#scene-art", Picture)
+        sidebar = self.query_one("#sidebar")
+        gutter = self.query_one("#scene").styles.gutter
+        rows = (sidebar.size.height or self.size.height - 15) - gutter.height  # (about that, before it's laid out)
+        short = rows < SMALL // 2 + status_rows(self.game.state)
+        art.fit(sidebar.size.width - gutter.width if sidebar.size.width else 27,
+                rows - status_rows(self.game.state, short))
+        return short
 
     def refresh_choices(self) -> None:
         """The numbered choices, top to bottom in a box that keeps its height (so nothing moves under the mouse
@@ -836,7 +902,8 @@ class GameScreen(Screen):
         game = self.game
         scene = game.story.scene_title(game.state)
         choices = [] if game.state.over else game.choices()
-        shown = (scene, game.state.over, game.suggestion_pending(), [(a.id, a.label, a.hint) for a in choices])
+        locked = game.locked_doors()
+        shown = (scene, game.state.over, game.suggestion_pending(), [(a.id, a.label, a.hint) for a in choices + locked])
         if shown == self.choices_shown:
             return
         self.choices_shown = shown
@@ -846,7 +913,7 @@ class GameScreen(Screen):
         more.remove_children()
         box.border_title = f"✧ {scene}" if scene else "Choices"
         box.set_class(bool(scene), "scene")
-        self.query_one(DPad).show(choices)
+        self.query_one(DPad).show(choices, locked)
         if self.game.state.over:
             first.mount(Static(Text("Press Enter to see your fate.", style="#ffb000")))
             more.display = False
@@ -858,12 +925,20 @@ class GameScreen(Screen):
         more.mount(*rows[CHOICE_ROWS:])
         more.display = len(rows) > CHOICE_ROWS
 
-    def action_panel(self, name: str) -> None:
-        if self.busy and name != "help":
-            return
+    def panel(self, name: str) -> Panel:
+        """One of the panels F1-F7 open (see panels.PANEL_KEYS), for this game."""
         screens = {"help": HelpScreen, "inventory": InventoryScreen, "character": CharacterScreen,
                    "look": LookScreen, "map": MapScreen, "bestiary": BestiaryScreen, "journal": JournalScreen}
-        screen = screens[name]() if name == "help" else screens[name](self.game)
+        return screens[name]() if name == "help" else screens[name](self.game)
+
+    def can_open_panel(self, name: str) -> bool:
+        """Whether a panel can open now: not mid-turn, bar the help."""
+        return not self.busy or name == "help"
+
+    def action_panel(self, name: str) -> None:
+        """Open a panel (see can_open_panel): what's picked in it comes back as that choice's turn."""
+        if not self.can_open_panel(name):
+            return
 
         def done(action_id: str | None) -> None:
             if action_id:
@@ -871,7 +946,9 @@ class GameScreen(Screen):
                 if index:
                     self.run_turn(str(index))
 
-        self.app.push_screen(screen, done)
+        self.app.push_screen(self.panel(name), done)
+
+    open_panel = action_panel  # (what a panel's F1-F7 open the next one with: see Panel.action_switch)
 
     def action_lookup(self, term_id: str) -> None:
         """Clicked a highlighted word: show what it is (and offer the matching action, if there is one)."""
@@ -887,10 +964,16 @@ class GameScreen(Screen):
         self.app.push_screen(InfoScreen(self.game, term_id), done)
 
     def action_go(self, direction: str) -> None:
-        """Clicked an arrow on the pad: go that way, as if you'd picked its choice."""
+        """Clicked an arrow on the pad: go that way, as if you'd picked its choice. A locked door (no choice of its own)
+        says it's locked and what would open it, costing nothing."""
+        if self.busy or self.game.state.over:
+            return
         index = next((i for i, a in enumerate(self.game.choices(), 1) if a.id == f"go:{direction}"), None)
-        if index and not self.busy and not self.game.state.over:
+        locked = next((a for a in self.game.locked_doors() if a.id == f"go:{direction}"), None)
+        if index:
             self.run_turn(str(index))
+        elif locked:
+            self.run_turn(locked.label, locked)
 
     def action_room_card(self, floor: int, room_id: int) -> None:
         """Clicked a room's picture in the story: look around, if you're still there; otherwise that room's card,
@@ -904,9 +987,9 @@ class GameScreen(Screen):
             self.action_lookup(f"room:{room_id}")
 
     def action_scene_card(self) -> None:
-        """Clicked the sidebar's top panel: the monster's card in a fight, otherwise a look around the room."""
+        """Clicked the sidebar's top panel: the card of whoever's pictured there, otherwise a look around the room."""
         monster = self.game.state.room.monster
-        if monster and self.query_one("#scene").has_class("combat"):
+        if monster and self.query_one("#scene-art").display:
             self.action_lookup(f"monster:{monster.key}")
         else:
             self.action_panel("look")

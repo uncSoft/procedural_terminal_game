@@ -68,7 +68,7 @@ def build_floor(state: GameState, content: Content) -> None:
     _place_monsters(rng, content, state, theme, rooms, max_distance, end_id, final)
     _place_loot(rng, content, state, theme, rooms, end_id, max_distance, final)
     if ghost and ghost.get("floor", 1) == state.floor:
-        _place_ghost(rng, content, rooms, end_id, ghost)
+        _place_ghost(rng, content, state, rooms, end_id, ghost)
     secret = _secret_room(rng, content, state, theme, rooms)
     if secret:
         rooms.append(secret)
@@ -193,6 +193,12 @@ def tier_for(distance: int, max_distance: int, floor: int = 1) -> int:
     return max(1, min(3, floor + (1 if depth > 0.6 else 0)))
 
 
+def warden_tier(floor: int) -> int:
+    """The tier of a floor's toughest: the warden by its stairs, whatever's in its secret room, and a character cut
+    down to size for it (npcs.sized)."""
+    return min(3, floor + 1)
+
+
 def _place_monsters(rng, content, state, theme, rooms: list[Room], max_distance: int, end_id: int, final: bool) -> None:
     if final:
         boss = content.monster(theme.boss)
@@ -200,7 +206,8 @@ def _place_monsters(rng, content, state, theme, rooms: list[Room], max_distance:
     else:
         # Every staircase has a warden; from floor 2 on, it's an elite.
         elite = rng.choice(sorted(ELITES)) if state.floor > 1 else ""
-        rooms[end_id].monster = monster_for(rng, content, theme.key, min(3, state.floor + 1), elite=elite)
+        rooms[end_id].monster = monster_for(rng, content, theme.key, warden_tier(state.floor), elite=elite)
+        rooms[end_id].monster.warden = True
 
     candidates = [r for r in rooms if r.id not in (0, end_id) and r.fixture != "shrine"]
     rng.shuffle(candidates)
@@ -291,7 +298,7 @@ def _secret_room(rng: random.Random, content: Content, state: GameState, theme, 
     if prize:
         room.items.append(prize)
     if rng.random() < 0.3:  # something got here first, and won't share
-        room.monster = monster_for(rng, content, theme.key, min(3, state.floor + 1), elite=rng.choice(sorted(ELITES)))
+        room.monster = monster_for(rng, content, theme.key, warden_tier(state.floor), elite=rng.choice(sorted(ELITES)))
     return room
 
 
@@ -322,9 +329,11 @@ def _shop(state: GameState, content: Content, rooms: list[Room], end_id: int) ->
     return room
 
 
-def _place_ghost(rng, content: Content, rooms: list[Room], end_id: int, ghost: dict) -> None:
+def _place_ghost(rng, content: Content, state: GameState, rooms: list[Room], end_id: int, ghost: dict) -> None:
     """A previous adventurer died on this floor. Their ghost guards what they carried (somewhere with nothing else to
-    find, if there's such a room, so it isn't one big heap)."""
+    find, if there's such a room, so it isn't one big heap): not a key, nor what a character gave them or a quest
+    was about (Lenny's teeth, Swoogy's diaper: those are this run's to earn), nor a rare thing this run has had
+    already. A rare thing in the remains is this run's one of it."""
     spots = [r for r in rooms if r.id not in (0, end_id) and not r.fixture] or [r for r in rooms if r.id != 0]
     room = rng.choice([r for r in spots if not r.items and not any(f.loot for f in r.features)] or spots)
     base = content.monster("ghost")
@@ -333,15 +342,22 @@ def _place_ghost(rng, content: Content, rooms: list[Room], end_id: int, ghost: d
     room.monster = MonsterState(key="ghost", name=f"Ghost of {ghost['name']}", hp=hp, max_hp=hp,
                                 attack_mod=level // 2, ghost_id=ghost.get("id"), ghost_of=ghost["name"],
                                 reward_mult=2.0)
-    items = [k for k in ghost.get("items", []) if k in content.items and content.item(k).kind != "key"][:3]
+    items = []
+    for key in (k for k in ghost.get("items", []) if k in content.items):
+        item = content.item(key)
+        quest = "quest" in item.found or any(p in content.monsters and content.monster(p).npc for p in item.found)
+        if len(items) < 3 and not (item.kind == "key" or quest or key in state.rares):
+            items.append(key)
+            if loot.rare(item):
+                state.rares.append(key)
     room.features.append(Feature(name=f"{ghost['name']}'s remains", loot=items, gold=int(ghost.get("gold", 0)) // 2))
 
 
 def render_map(state: GameState) -> list[str]:
     """ASCII map of this floor. @ you, ! danger, ? unexplored, > stairs, † shrine, ■ chest, ◊ fountain, $ something
-    hidden that you were told about; the secret room in braces, {✧}. Once you've been handed the floor's map, every
-    room and door is on it (except a secret room no bomb has opened). A room you were told about is on it too, before
-    you've found the way there."""
+    hidden that you were told about, ☺ someone who wants something of you (Lucky Lenny, his tooth); the secret room
+    in braces, {✧}. Once you've been handed the floor's map, every room and door is on it (except a secret room no
+    bomb has opened). A room you were told about is on it too, before you've found the way there."""
     mapped = state.mapped_floor == state.floor
     known = {r.id for r in state.rooms if r.visited or (mapped and (not r.secret or r.exits))}
     for room_id in list(known):
@@ -380,6 +396,8 @@ def map_glyph(state: GameState, room: Room) -> str:
         return "$"
     if room.secret:
         return "✧"
+    if room.monster and room.visited and npcs.waiting(state, room.monster):
+        return "☺"  # (a character you've met, waiting on you: Lenny for his tooth)
     if room.fixture and not room.fixture_used:
         return layout.FIXTURE_GLYPHS[room.fixture]  # you can see what's through the door, like Tiny Rogues
     if room.is_boss:

@@ -36,7 +36,7 @@ from PIL.PngImagePlugin import PngInfo
 
 from . import integrity
 from .content import ContentError, build_content, load_content
-from .sprites import SMALL
+from .sprites import SMALL, count_frames
 
 ALPHABET = string.ascii_lowercase + string.ascii_uppercase + string.digits
 MONSTER_FIELDS = {"name": str, "hp": int, "defense": int, "attack": int, "damage": str, "xp": int, "tier": int,
@@ -45,6 +45,12 @@ MONSTER_FIELDS = {"name": str, "hp": int, "defense": int, "attack": int, "damage
 ITEM_FIELDS = {"name": str, "kind": str, "damage": str, "defense": int, "heal": int, "escape": bool, "tier": int,
                "tags": list, "desc": str}
 CREDIT = re.compile(r"^# drawn by (.+?)(?: \((\d{4}-\d\d-\d\d)\))?$")
+# Endesga 32, the maker's palette (PALETTE in docs/maker/index.html). The game's art keeps to it: every colour off it
+# is one more for the effects to snap to and a terminal to cache (see sprites.palette).
+ENDESGA = ("#be4a2f", "#d77643", "#ead4aa", "#e4a672", "#b86f50", "#733e39", "#3e2731", "#a22633",
+           "#e43b44", "#f77622", "#feae34", "#fee761", "#63c74d", "#3e8948", "#265c42", "#193c3e",
+           "#124e89", "#0099db", "#2ce8f5", "#ffffff", "#c0cbdc", "#8b9bb4", "#5a6988", "#3a4466",
+           "#262b44", "#181425", "#ff0044", "#68386c", "#b55088", "#f6757a", "#e8b796", "#c28569")
 
 
 def data_folder() -> Path:
@@ -71,7 +77,7 @@ def small_file(key: str, folder: Path) -> Path:
 def read_frames(path: Path) -> list[Image.Image]:
     """A sprite strip's frames at their real size."""
     with Image.open(path) as sheet:
-        count = int(sheet.info.get("frames") or 0) or max(1, sheet.width // sheet.height)
+        count = count_frames(sheet, path.parent.name == "small", path.name)
         sheet = sheet.convert("RGBA")
     width = sheet.width // count
     return [sheet.crop((i * width, 0, (i + 1) * width, sheet.height)) for i in range(count)]
@@ -103,6 +109,12 @@ def encode_art(frames: list[Image.Image]) -> dict:
     return {"w": frames[0].width, "h": frames[0].height, "palette": palette, "frames": rows_per_frame}
 
 
+def off_palette(frames: list[Image.Image]) -> list[str]:
+    """The colours a picture uses that aren't in the maker's palette (custom colours picked in the maker)."""
+    used = {f"#{r:02x}{g:02x}{b:02x}" for frame in frames for r, g, b, a in frame.get_flattened_data() if a >= 128}
+    return sorted(used - set(ENDESGA))
+
+
 def decode_art(art: dict) -> list[Image.Image]:
     width, height, palette = int(art["w"]), int(art["h"]), list(art["palette"])
     if not (8 <= width <= 64 and 8 <= height <= 64):
@@ -123,10 +135,19 @@ def decode_art(art: dict) -> list[Image.Image]:
     if not frames or not any(frame.getbbox() for frame in frames):
         raise ValueError("the drawing is empty")
     if len(frames) == 1 or not frames[1].getbbox():  # one picture: let it bob, like the game's own sprites
-        bob = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-        bob.alpha_composite(frames[0], (0, 1))
-        frames = [frames[0], bob]
+        frames = [frames[0], bob(frames[0])]
     return frames
+
+
+def bob(frame: Image.Image) -> Image.Image:
+    """An idle frame for a single picture, the way the game's own sprites bob (tools/build_sprites.py, and the maker
+    page's "Make it bob"): the feet, its bottom rows, stay planted and everything above sinks one pixel, so nothing
+    falls off the bottom."""
+    feet = frame.height - max(1, frame.height * 5 // 24)
+    out = Image.new("RGBA", frame.size, (0, 0, 0, 0))
+    out.alpha_composite(frame.crop((0, 0, frame.width, feet)), (0, 1))
+    out.alpha_composite(frame.crop((0, feet, frame.width, frame.height)), (0, feet))
+    return out
 
 
 def _same_picture(path: Path, frames: list[Image.Image]) -> bool:
@@ -337,7 +358,13 @@ def _toml_value(value) -> str:
         return str(value)
     if isinstance(value, list):
         return "[" + ", ".join(json.dumps(v, ensure_ascii=False) for v in value) + "]"
+    if isinstance(value, dict):  # an inline table, such as an item's stats
+        return "{" + ", ".join(f"{_toml_key(k)} = {_toml_value(v)}" for k, v in value.items()) + "}"
     return json.dumps(value, ensure_ascii=False)
+
+
+def _toml_key(key: str) -> str:
+    return key if re.fullmatch(r"[A-Za-z0-9_-]+", key) else json.dumps(key, ensure_ascii=False)
 
 
 def _section(kind: str, key: str, fields: dict, by: str, made: str) -> list[str]:
@@ -362,6 +389,15 @@ def replace_section(text: str, kind: str, key: str, new: list[str]) -> str:
     return "\n".join(lines[:start] + new + lines[end:]) + "\n"
 
 
+def _palette_note(name: str, custom: set[str]) -> str:
+    """A note for whoever imports it (never the thank-you to its maker): colours from outside the maker's palette
+    show, but each is one more for the game."""
+    shown = sorted(custom)
+    listed = ", ".join(shown[:6]) + (f" and {len(shown) - 6} more" if len(shown) > 6 else "")
+    return (f"Colours: {name}'s picture uses {len(shown)} colour{'s' * (len(shown) != 1)} from outside the maker's "
+            f"palette ({listed}): they show, but the nearest palette colours would keep the game's art in step.")
+
+
 def _replace_art(text: str, key: str, art: str) -> str:
     block = f"=== {key} ===\n{art}\n"
     pattern = re.compile(rf"^=== {re.escape(key)} ===\n.*?(?=^=== |\Z)", re.M | re.S)
@@ -381,7 +417,8 @@ def apply(creations: list[dict], folder: Path | None = None, dry_run: bool = Fal
         existing = tomllib.loads(texts[file]).get(kind, {})
         taken = set(tomllib.loads(texts["monsters.toml"]).get("monster", {})) | \
             set(tomllib.loads(texts["items.toml"]).get("item", {}))
-        fields = _clean(creation.get("fields", {}), MONSTER_FIELDS if kind == "monster" else ITEM_FIELDS)
+        schema = MONSTER_FIELDS if kind == "monster" else ITEM_FIELDS
+        fields = _clean(creation.get("fields", {}), schema)
         name = fields.get("name", "")
         if not name:
             raise ValueError(f"a {kind} needs a name")
@@ -394,12 +431,17 @@ def apply(creations: list[dict], folder: Path | None = None, dry_run: bool = Fal
                     fields[special] = True
             if kind == "item" and existing[base].get("kind") == "key":
                 fields["kind"] = "key"
-            # Set in the game's own data, which the maker doesn't know: an item's powers, where it's found, and what a
+            # Set in the game's own data, which the maker doesn't know, so they stay as they were: everything the
+            # maker doesn't send (an item's powers, stats and where it's found, a monster's tricks), and what a
             # thrown trinket does.
-            game_only = ("powers", "found", "damage") if existing[base].get("kind") == "trinket" else ("powers", "found")
-            for name in game_only if kind == "item" else ():
-                if name not in fields and existing[base].get(name):
-                    fields[name] = existing[base][name]
+            game_only = [field for field in existing[base] if field not in schema]
+            if existing[base].get("kind") == "trinket":
+                game_only.append("damage")
+            for field in game_only:
+                if field not in fields and field in existing[base]:
+                    fields[field] = existing[base][field]
+            order = {field: n for n, field in enumerate(existing[base])}  # its own order, so only changes show
+            fields = dict(sorted(fields.items(), key=lambda pair: order.get(pair[0], len(order))))
         else:
             key, verb, n = slug(name), "Added", 2
             while key in taken:
@@ -410,8 +452,10 @@ def apply(creations: list[dict], folder: Path | None = None, dry_run: bool = Fal
         made = str(creation.get("made") or date.today().isoformat())[:10]
         texts[file] = replace_section(texts[file], kind, key, _section(kind, key, fields, by, made))
         with_small = stale_note = ""
+        custom: set[str] = set()  # colours from outside the maker's palette
         if creation.get("art"):
             frames = decode_art(creation["art"])
+            custom.update(off_palette(frames))
             picture = sprite_file(kind, key, folder)
             if (kind == "item" and not creation.get("small") and small_file(key, folder).is_file()
                     and not _same_picture(picture, frames)):
@@ -429,6 +473,7 @@ def apply(creations: list[dict], folder: Path | None = None, dry_run: bool = Fal
                                  f"{small[0].width}x{small[0].height}")
             sprites[small_file(key, folder)] = small
             with_small = ", with a small version drawn by hand"
+            custom.update(off_palette(small))
         where = ""
         if kind == "monster" and "npc" in fields.get("tags", []):
             where = ", who keeps out of fights (tagged npc)"
@@ -436,6 +481,8 @@ def apply(creations: list[dict], folder: Path | None = None, dry_run: bool = Fal
             lives = [t.name for t in load_content().themes.values() if set(fields.get("tags", [])) & set(t.monster_tags)]
             where = f", lives in {' and '.join(lives)}" if lives else ", but no dungeon has its kind of creature"
         messages.append(f"{verb} {kind} {name} ({key}){' by ' + by if by else ''}{where}{with_small}.{stale_note}")
+        if custom:  # (a message of its own: a thank-you comment only ever quotes the Added/Updated ones)
+            messages.append(_palette_note(name, custom))
 
     def read(name: str) -> str:
         return texts.get(name) if name in texts else (folder / name).read_text(encoding="utf-8")
@@ -636,7 +683,7 @@ def import_saves(url: str, numbers: list[int] | None = None, dry_run: bool = Fal
         except (ValueError, KeyError, IndexError, TypeError) as error:
             lines.append(f"#{number} {_title(creation)}: couldn't import it: {error}")
             continue
-        lines += [f"#{number}: {m}" for m in messages if m.startswith(("Added", "Updated"))]
+        lines += [f"#{number}: {m}" for m in messages if m.startswith(("Added", "Updated", "Colours"))]
         refreshed = next((m for m in messages if m.startswith("Refreshed")), refreshed)
     return lines + ([refreshed] if refreshed else []) + (["(dry run: nothing written)"] if dry_run else [])
 

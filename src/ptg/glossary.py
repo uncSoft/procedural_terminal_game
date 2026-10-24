@@ -1,8 +1,12 @@
-"""Things the story can mention: monsters, items, room features, fixtures, rooms and game terms.
+"""Things the story can mention: monsters, characters, items, room features, fixtures, rooms and game terms.
 
 The UI uses this to highlight them in the narration and to explain them on hover or click. Terms are
 built from the content library plus what's actually around the player, so "the cauldron" lights up in the
 room that has one, and "potion" means the potion you're carrying.
+
+A creature's kind is "monster" (a foe's colour), or "character" for someone who isn't a danger: anyone tagged npc
+(Lucky Lenny, Swoogy, the shopkeepers) unless the one here is fighting you, and any creature here that has stopped
+fighting.
 """
 
 from __future__ import annotations
@@ -10,7 +14,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from . import powers
+from . import npcs, powers
 from .content import Content
 from .models import GameState
 from .text import bare
@@ -66,7 +70,7 @@ def build(state: GameState, content: Content, bestiary: dict | None = None) -> d
     for key, monster in content.monsters.items():
         if monster.ghost:
             continue
-        term = Term(f"monster:{key}", "monster", monster.name.removeprefix("The "),
+        term = Term(f"monster:{key}", creature_kind(state, content, key), monster.name.removeprefix("The "),
                     monster_summary(state, content, key, bestiary.get(key)))
         add(monster.name.removeprefix("The "), term)
         if key in on_floor:
@@ -74,7 +78,8 @@ def build(state: GameState, content: Content, bestiary: dict | None = None) -> d
             add(last, term)
             add(last + "s", term)
     for state_monster in on_floor.values():
-        term = Term(f"monster:{state_monster.key}", "monster", state_monster.name,
+        kind = creature_kind(state, content, state_monster.key)
+        term = Term(f"monster:{state_monster.key}", kind, state_monster.name,
                     monster_summary(state, content, state_monster.key, bestiary.get(state_monster.key)))
         add(state_monster.name, term)
         if state_monster.ghost_of:
@@ -132,10 +137,20 @@ def pattern(terms: dict[str, Term]) -> re.Pattern | None:
     return re.compile(r"(?<![\w-])(" + "|".join(re.escape(a) for a in aliases) + r")(?![\w-])", re.IGNORECASE)
 
 
+def creature_kind(state: GameState, content: Content, key: str) -> str:
+    """"character" for someone who's no danger (anyone tagged npc, unless the one here is fighting you, and anyone
+    here who's stopped fighting), else "monster"."""
+    here = state.room.monster if state.room.monster and state.room.monster.key == key else None
+    if here is not None:
+        return "monster" if here.hostile else "character"
+    return "character" if content.monster(key).npc else "monster"
+
+
 def monster_summary(state: GameState, content: Content, key: str, entry: dict | None) -> str:
     monster = content.monster(key)
     known = state.known_weak.get(key) or (entry or {}).get("weak") or []
-    parts = [monster.name.removeprefix("The "), "boss" if monster.boss else f"tier {monster.tier}"]
+    standing = npcs.status(state, content, key)  # a character: "wants his bad tooth back"
+    parts = [monster.name.removeprefix("The "), "boss" if monster.boss else standing or f"tier {monster.tier}"]
     here = state.room.monster
     if here and here.key == key:
         parts.append(f"{max(0, here.hp)}/{here.max_hp} HP")
@@ -147,11 +162,16 @@ def monster_summary(state: GameState, content: Content, key: str, entry: dict | 
     return " · ".join(parts)
 
 
+def item_stats(item) -> str:
+    """What an item is and does, its powers aside: "weapon, 1d8 damage", "restores 8 HP"."""
+    return {"weapon": f"weapon, {item.damage} damage", "armor": f"armor, +{item.defense} defense",
+            "consumable": "escape" if item.escape else f"restores {item.heal} HP",
+            "key": "key", "trinket": "trinket: use it creatively"}[item.kind]
+
+
 def item_summary(content: Content, key: str) -> str:
     item = content.item(key)
-    stats = {"weapon": f"weapon, {item.damage} damage", "armor": f"armor, +{item.defense} defense",
-             "consumable": "escape" if item.escape else f"restores {item.heal} HP",
-             "key": "key", "trinket": "trinket: use it creatively"}[item.kind]
+    stats = item_stats(item)
     if item.powers:
         stats += "; " + "; ".join(powers.describe(item))
     tags = f" · {', '.join(item.tags)}" if item.tags else ""

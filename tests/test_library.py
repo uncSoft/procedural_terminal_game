@@ -1,10 +1,14 @@
 import base64
+import importlib.util
 import json
+import re
 import shutil
 import tomllib
 import zlib
+from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from ptg import integrity, library
 from ptg.content import build_content
@@ -56,6 +60,60 @@ def test_art_survives_the_trip_to_the_page_and_back():
     frames = read_frames(library.data_folder() / "sprites" / "troll.png")
     again = decode_art(encode_art(frames))
     assert [f.tobytes() for f in again] == [f.tobytes() for f in frames]
+
+
+def rows_of(img) -> list[bytes]:
+    return [img.crop((0, y, img.width, y + 1)).tobytes() for y in range(img.height)]
+
+
+def test_one_picture_bobs_with_its_feet_planted():
+    """Its idle frame sinks the body a pixel, as the game's own sprites do, and nothing falls off the bottom."""
+    rows = ["." * 24] * 4 + ["......" + "a" * 12 + "......"] * 15 + ["....bb" + "." * 12 + "bb...."] * 5
+    art = {"w": 24, "h": 24, "palette": ["#e43b44", "#a22633"], "frames": [rows]}
+    still, bobbed = decode_art(art)
+    feet = [(x, y) for y in range(19, 24) for x in range(24) if still.getpixel((x, y))[3]]
+    assert all(bobbed.getpixel(p) == still.getpixel(p) for p in feet)  # the feet (the red shoes) stay put
+    assert rows_of(bobbed)[1:19] == rows_of(still)[:18]  # the body sinks
+    assert bobbed.getbbox()[1] == still.getbbox()[1] + 1
+    tool = importlib.util.spec_from_file_location("build_sprites",
+                                                  Path(__file__).parents[1] / "tools" / "build_sprites.py")
+    build_sprites = importlib.util.module_from_spec(tool)
+    tool.loader.exec_module(build_sprites)
+    assert library.bob(still).tobytes() == build_sprites.bob(still).tobytes()  # the same bob as the game's own art
+    small = decode_art({"w": 12, "h": 12, "palette": ["#e43b44"], "frames": [["a" * 12] * 12]})
+    assert rows_of(small[1])[-2:] == rows_of(small[0])[-2:] and not any(small[1].crop((0, 0, 12, 1)).tobytes())
+
+
+def test_no_idle_frame_loses_pixels_off_the_bottom():
+    """A second frame that's just the first moved down a pixel must have had nothing in its bottom row to lose."""
+    for path in sorted((library.data_folder() / "sprites").rglob("*.png")):
+        frames = read_frames(path)
+        if len(frames) != 2:
+            continue
+        shifted = Image.new("RGBA", frames[0].size, (0, 0, 0, 0))
+        shifted.alpha_composite(frames[0], (0, 1))
+        if frames[1].tobytes() == shifted.tobytes():
+            assert not any(rows_of(frames[0])[-1][3::4]), f"{path.name} loses its bottom row as it bobs"
+
+
+def stale_pictures(stored: dict, folder) -> list[str]:
+    """The creations whose picture (or small version) in a maker library isn't the game's PNG any more."""
+    stale = []
+    for kind, entries in (("monster", stored["monsters"]), ("item", stored["items"])):
+        for entry in entries:
+            picture, small = library.sprite_file(kind, entry["key"], folder), library.small_file(entry["key"], folder)
+            if entry["art"] != (encode_art(read_frames(picture)) if picture.is_file() else None):
+                stale.append(entry["key"])
+            if kind == "item" and entry.get("small") != (encode_art(read_frames(small)) if small.is_file() else None):
+                stale.append(f"{entry['key']} (small)")
+    return stale
+
+
+def test_the_maker_page_has_the_pictures_the_game_has():
+    """docs/maker/library.json holds each creation's picture as its PNG is now. The maker sends a stale one back with
+    any change to that creation, and the import saves it over the PNG: after changing a sprite, run `ptg export`."""
+    stored = json.loads((Path(__file__).parents[1] / "docs" / "maker" / "library.json").read_text(encoding="utf-8"))
+    assert not stale_pictures(stored, library.data_folder()), "library.json is out of date: run `uv run ptg export`"
 
 
 def test_a_new_monster_joins_the_game(data):
@@ -233,6 +291,42 @@ def test_a_new_picture_keeps_what_the_game_gave_an_item(data):
     assert item["powers"] == ["throw"] and item["damage"] == "2d4" and item["tags"] == ["fire", "liquid"]
 
 
+def page_fields(kind: str) -> list[str]:
+    """The fields the maker page sends back for a monster or an item (its MONSTER_FIELDS and ITEM_FIELDS)."""
+    page = (library.maker_folder() / "index.html").read_text(encoding="utf-8")
+    return re.findall(r'"(\w+)"', re.search(rf"const {kind.upper()}_FIELDS = \[(.*?)\];", page).group(1))
+
+
+def test_sending_anything_back_from_the_library_unchanged_changes_nothing(data):
+    """Touching up art starts from the maker's library: an entry sent back as it is keeps everything the maker
+    doesn't know about (Baby Joey's tricks, the Unusual Butter's stats, every power and `found`), in its place."""
+    before = {name: (data / name).read_text(encoding="utf-8") for name in ("monsters.toml", "items.toml", "art.txt")}
+    stored = export_library(data)
+    edits = []
+    for kind, shelf in (("monster", "monsters"), ("item", "items")):
+        for entry in stored[shelf]:
+            fields = {k: entry["fields"][k] for k in page_fields(kind) if k in entry["fields"]}
+            edit = {"v": 1, "type": kind, "base": entry["key"], "fields": fields, "art": entry["art"],
+                    "by": entry.get("by", ""), "made": entry.get("made", "")}
+            if entry.get("small"):
+                edit["small"] = entry["small"]
+            edits.append(edit)
+    messages = [m for m in apply(edits, data) if not m.startswith("Colours:")]  # (notes on colours aside)
+    for edit, message in zip(edits, messages, strict=True):  # each called by its own name
+        assert message.startswith(f"Updated {edit['type']} {edit['fields']['name']} ({edit['base']})"), message
+    assert {name: (data / name).read_text(encoding="utf-8") for name in before} == before
+    assert export_library(data)["items"] == stored["items"] and export_library(data)["monsters"] == stored["monsters"]
+
+
+def test_an_items_stats_are_written_as_a_table(data):
+    edit = {"v": 1, "type": "item", "base": "unusual_butter", "art": drawing("#feae34"),
+            "fields": {"name": "Unusual Butter", "kind": "trinket", "tier": 3, "desc": "Even more exotic."}}
+    apply([edit], data)
+    assert "stats = {might = 1, agility = 1, wits = 1, max_hp = 5}" in (data / "items.toml").read_text()
+    butter = load(data).items["unusual_butter"]
+    assert butter.desc == "Even more exotic." and butter.found == ["chest", "secret"]
+
+
 def files(folder):
     return {p.name: p.read_bytes() for p in folder.rglob("*") if p.is_file()}
 
@@ -387,3 +481,23 @@ def test_monsters_dont_get_small_versions(data):
     creature["small"] = small_drawing()
     apply([creature], data)
     assert not list((data / "sprites" / "small").glob("*squeaks*"))
+
+
+def test_colours_from_outside_the_makers_palette_are_pointed_out(data):
+    """A custom colour still shows, but each one is another colour for the game's effects and the terminal."""
+    item = spoon()
+    item["art"] = drawing("#9e9e9e")  # a custom grey, not Endesga's
+    item["small"] = small_drawing("#f9eeb4")
+    added, note = apply([item], data)[:2]
+    assert note.startswith("Colours:") and "2 colours from outside the maker's palette (#9e9e9e, #f9eeb4)" in note
+    assert added.startswith("Added") and "palette" not in added  # (the maker's thank-you quotes only this one)
+    assert (data / "sprites" / "item_spoon_of_destiny.png").is_file()  # it's only a warning
+    assert not any("palette" in m for m in apply([spoon(damage="1d10")], data))  # all Endesga: nothing to say
+
+
+def test_the_palette_is_the_makers():
+    page = (library.maker_folder() / "index.html").read_text(encoding="utf-8")
+    listed = re.search(r"const PALETTE = \[(.*?)\];", page, re.S).group(1)
+    assert tuple(re.findall(r'"(#[0-9a-f]{6})"', listed)) == library.ENDESGA
+    picture = decode_art({"w": 8, "h": 8, "palette": ["#181425", "#123456"], "frames": [["ab" * 4] * 8]})
+    assert library.off_palette(picture) == ["#123456"]

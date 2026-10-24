@@ -32,8 +32,10 @@ def offline_narration(state: GameState, content: Content, events: list[Event], r
         parts.append(event.text)
     if question:
         parts += [player_status(state, content), room_facts(state, content)]
-    if not parts:
-        parts.append(f"You {raw.strip().rstrip('.').lower()}. The dungeon is unimpressed." if raw else "Nothing happens.")
+    if not parts:  # words that came to nothing: told as tried, never as done ("You give the tooth to lenny.")
+        said = re.sub(r"^i\s+", "", raw.strip().rstrip(".!").lower())
+        parts.append(f"You try to {said}, but nothing comes of it. The dungeon is unimpressed." if said
+                     else "Nothing happens.")
     return " ".join(parts)
 
 

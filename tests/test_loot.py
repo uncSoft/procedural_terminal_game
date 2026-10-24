@@ -8,7 +8,7 @@ from conftest import put_monster
 from ptg import loot
 from ptg.combat import defeat
 from ptg.content import ItemDef
-from ptg.rules import gain_item, heal_verb, perform
+from ptg.rules import heal_verb, perform
 from ptg.world import build_floor, generate
 
 
@@ -110,9 +110,8 @@ def test_food_is_eaten_and_found_things_name_themselves(content):
     index, feature = next((i, f) for i, f in state.room.visible_features())
     feature.loot = ["smoke_bomb"]
     events = perform(state, content, f"search:{index}")
-    assert [(e.kind, e.data.get("item")) for e in events if e.data.get("item")] == [("find", "smoke_bomb"),
-                                                                                 ("take", "smoke_bomb")]
-    assert gain_item(state, content, "hand_axe")[0].data == {"item": "hand_axe", "left": "rusty_sword"}
+    assert [(e.kind, e.data.get("item")) for e in events if e.data.get("item")] == [("find", "smoke_bomb")]
+    assert "smoke_bomb" in state.room.items and "smoke_bomb" not in state.player.inventory  # to take, or leave
 
 
 def test_a_slain_monster_drops_what_loot_says(content):
@@ -122,5 +121,6 @@ def test_a_slain_monster_drops_what_loot_says(content):
     rng.random = lambda: 0.0  # always drop
     events = defeat(state, content, rng, how="slain")
     dropped = next(e for e in events if e.kind == "drop")
-    assert dropped.data == {"item": "healing_potion"} and "healing_potion" in state.room.items
+    assert dropped.data["item"] == "healing_potion" and "healing_potion" in state.room.items
+    assert (dropped.data["how"], dropped.data["to"]) == ("drop", "room")
     assert dropped.text.endswith("dropped a Healing Potion.")

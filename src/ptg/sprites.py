@@ -2,21 +2,22 @@
 
 Each terminal cell shows two pixels: "▀" in the top pixel's colour on a background of the bottom pixel's
 colour. That works in any terminal with 24-bit colour, inside Textual's layout, with no image protocol.
-Sprites are PNG strips in ptg/data/sprites: frames side by side with a transparent background. Frames are
-square unless the PNG says otherwise (the build tool stores a "frames" count). Anything without a sprite,
-or a player who prefers it, gets the ASCII art instead.
+Sprites are PNG strips in ptg/data/sprites: frames side by side with a transparent background. The PNG stores how
+many frames it holds (the build tool and the maker write a "frames" count); a picture editor may drop that, and then
+frames are taken to be the game's own 24 pixels wide (12 for a small version), or square for art taller than that.
+Anything without a sprite, or a player who prefers it, gets the ASCII art instead.
 
-Pixel art doesn't shrink well, so a sprite can have a hand-made small version in ptg/data/sprites/small (items
-are drawn 12 pixels wide in the inventory and in loot cards; the Monster & Item Maker draws them). Without one, a
-sprite drawn at half size is halved block by block (see halve, which the maker page copies), which keeps its lines
-whole but is no match for a version drawn by hand.
+Pixel art doesn't shrink well, so a sprite can have a hand-made small version in ptg/data/sprites/small (drawn 12
+pixels wide where there's no room for the full 24: see ui/widgets.py art_for; the Monster & Item Maker draws them).
+Without one, a sprite drawn at half size is halved block by block (see halve, which the maker page copies), which
+keeps its lines whole but is no match for a version drawn by hand.
 
 Poses are made from a sprite's own frames at draw time, so every sprite gets them for free:
 
     idle     the sprite's own animation
     windup   rears up, with a pulsing red-orange glow (a heavy blow is coming)
     dizzy    stars circling its head (stunned)
-    calm     greyed out (pacified)
+    calm     just as it is: characters are always in their own colours (a calm one says so in words, not in grey)
     lunge    lurches forward, tinted red (attacking)
     shake    rattles side to side
     death    dissolves in an ordered dither, frame by frame (0-5)
@@ -27,6 +28,7 @@ Poses are made from a sprite's own frames at draw time, so every sprite gets the
 from __future__ import annotations
 
 import sys
+import warnings
 from functools import lru_cache
 from importlib import resources
 
@@ -46,11 +48,14 @@ DEATH_FRAMES = 6
 BAYER = ((0, 8, 2, 10), (12, 4, 14, 6), (3, 11, 1, 9), (15, 7, 13, 5))
 GLOW = ((228, 59, 68), (254, 174, 52))
 STAR = (254, 231, 97)
-# Effects recolour a sprite in a few fixed shades, picked by how light each pixel is: greyed out when calm, flushed
-# red when it lunges, white when it's hit. Few fixed colours keep a GPU terminal's glyph cache small (see palette).
+# Effects recolour a sprite in a few fixed shades, picked by how light each pixel is: flushed red when it lunges, white
+# when it's hit, grey as it dies. Few fixed colours keep a GPU terminal's glyph cache small (see palette).
 GREYS = ((46, 48, 62), (82, 86, 104), (122, 126, 144), (166, 170, 186), (210, 212, 222))
 REDS = ((96, 26, 40), (150, 38, 52), (204, 58, 66), (236, 104, 98), (250, 160, 150))
 LIGHTS = ((200, 206, 224), (232, 234, 244), (255, 255, 255))
+# Fixtures whose last frame shows them used up (a looted chest, a shrine with its candles out): the room picture draws
+# that frame once they're spent, and it's left out of their idle animation.
+SPENT = ("chest", "shrine")
 
 
 @lru_cache(maxsize=128)
@@ -77,17 +82,46 @@ def _strip(key: str, small: bool = False) -> tuple | None:
         return None
     with path.open("rb") as f:
         sheet = Image.open(f)
-        count = int(sheet.info.get("frames") or 0)
+        count = count_frames(sheet, small, f"sprites/{'small/' if small else ''}{key}.png")
         sheet = sheet.convert("RGBA")
         sheet.load()
-    count = count or max(1, sheet.width // sheet.height)
     frame_width = sheet.width // count
     return tuple(sheet.crop((i * frame_width, 0, (i + 1) * frame_width, sheet.height)) for i in range(count))
+
+
+def count_frames(sheet, small: bool = False, name: str = "a sprite") -> int:
+    """How many frames a strip holds: the count stored in the PNG, or else as many 24-pixel frames as fit (12 for a
+    small version), or square ones if the art is taller than that. A strip whose width doesn't divide evenly gets a
+    warning, since the frames would be cut in the wrong places."""
+    stored = int(sheet.info.get("frames") or 0)
+    if stored:
+        return stored
+    size = SMALL if small else DEFAULT_WIDTH
+    width, height = sheet.size
+    if height <= size and width % size == 0:
+        return width // size
+    if width > height and width % height:
+        warnings.warn(f"{name} is {width}x{height} pixels with no frame count stored, so its frames can't be told "
+                      f"apart: make it {size} pixels a frame, or keep the PNG's 'frames' text", stacklevel=2)
+    return max(1, width // height)
 
 
 def has_small(key: str) -> bool:
     """Whether a sprite has a hand-made small version."""
     return Image is not None and _strip(key, small=True) is not None
+
+
+def fill(key: str, width: int = DEFAULT_WIDTH) -> float:
+    """How much of its frame a sprite's art takes up at `width` (its small version at SMALL): the share of the frame
+    inside the box round its pixels, all frames together (0 without a sprite). Art in under half its frame looks
+    small on cards and in rooms."""
+    found = frames(key, width)
+    boxes = [box for frame in found or () if (box := frame.getbbox())]
+    if not boxes:
+        return 0.0
+    width = max(box[2] for box in boxes) - min(box[0] for box in boxes)
+    height = max(box[3] for box in boxes) - min(box[1] for box in boxes)
+    return width * height / (found[0].width * found[0].height)
 
 
 def _fit(frame, width: int):
@@ -123,6 +157,12 @@ def frame_count(key: str) -> int:
     return len(found) if found else 0
 
 
+def idle_frames(key: str) -> list[int]:
+    """The frames a sprite's idle animation cycles through: all of them, but a used-up fixture's last (see SPENT)."""
+    count = frame_count(key)
+    return list(range(max(1, count - (key in SPENT and count > 1))))
+
+
 def sprite_text(key: str, frame: int = 0, width: int = DEFAULT_WIDTH, flash: bool = False,
                 pose: str = "idle") -> Text | None:
     """The sprite as Rich text, or None so the caller can fall back to ASCII art."""
@@ -140,13 +180,12 @@ def _render(key: str, frame: int, width: int, flash: bool, pose: str) -> Text | 
 
 
 def posed(img, pose: str, frame: int = 0):
-    """A copy of `img` in the given pose (see the module docstring)."""
+    """A copy of `img` in the given pose (see the module docstring), or `img` itself when the pose changes nothing
+    (idle, calm)."""
     if pose == "windup":
         return _glow(_shift(img, 0, -1), GLOW[frame % 2])
     if pose == "dizzy":
         return _stars(img, frame)
-    if pose == "calm":
-        return _recolour(img, lambda r, g, b: _shade(GREYS, r, g, b, 0.85))
     if pose == "lunge":
         return _recolour(_shift(img, 0, 1 + frame % 2), lambda r, g, b: _shade(REDS, r, g, b))
     if pose == "shake":
@@ -176,6 +215,26 @@ def image_text(img, flash: bool = False, snap: bool = False) -> Text:
         if y + 2 < img.height:
             text.append("\n")
     return text
+
+
+def engrave(img, words: dict[int, str], ink: tuple = (24, 20, 37)) -> Text:
+    """The image as half-block text with words carved into it (a name on a tombstone): each of `words` is centred on
+    that row of cells, in `ink` on the colour of the stone beneath."""
+    lines = image_text(img, snap=True).split("\n")
+    pixels = img.load()
+    for row, word in words.items():
+        if not 0 <= row < len(lines) or not word:
+            continue
+        word = word[:img.width]
+        start = (img.width - len(word)) // 2
+        carved = lines[row][:start]
+        for x, ch in enumerate(word, start):
+            r, g, b, alpha = pixels[x, min(2 * row, img.height - 1)]
+            stone = Color.from_rgb(*_nearest((r, g, b))) if alpha >= 128 else None
+            carved.append(ch, Style(color=Color.from_rgb(*ink), bgcolor=stone))
+        carved.append_text(lines[row][start + len(word):])
+        lines[row] = carved
+    return Text("\n", no_wrap=True, overflow="crop").join(lines)
 
 
 def side_by_side(texts: list[Text], gap: int = 3) -> Text:
@@ -304,7 +363,8 @@ def main(keys: list[str]) -> None:
 
     console = Console()
     content = load_content()
-    keys = keys or [*content.monsters, "campfire", "shrine", "fountain", "chest", "stairs", "mirror", "sunglasses"]
+    keys = keys or [*content.monsters, "campfire", "shrine", "fountain", "chest", "stairs", "mirror", "sunglasses",
+                    "tombstone", "crown"]
     for key in keys:
         text = sprite_text(key)
         console.print(f"[bold]{key}[/]  ({frame_count(key)} frames)")

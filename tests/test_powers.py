@@ -1,12 +1,15 @@
 """Item powers (ptg/powers.py): what trinkets and the odd weapon or armor do beyond their numbers."""
 
 import random
+from dataclasses import replace
 
 from conftest import put_monster
 from ptg import powers, rules
+from ptg.content import ItemDef
 from ptg.meta import souls_earned
-from ptg.models import Feature
-from ptg.rules import available_actions, gain_item, perform
+from ptg.models import Feature, GameState
+from ptg.inventory import gain
+from ptg.rules import available_actions, perform
 from ptg.world import generate, render_map
 
 
@@ -80,7 +83,7 @@ def test_the_floppy_disk_hands_you_the_map(content):
     state = generate(11)
     rooms = [r for r in state.rooms if not r.secret]
     assert "".join(render_map(state)).count("[") < len(rooms)
-    events = gain_item(state, content, "mysterious_floppy_disk")
+    events = gain(state, content, "mysterious_floppy_disk")
     assert state.mapped_floor == 1 and any(e.kind == "map" for e in events)
     assert "".join(render_map(state)).count("[") == len(rooms)  # every room, but not the sealed secret one
 
@@ -118,3 +121,55 @@ def test_every_power_is_described(content):
     for item in content.items.values():
         assert len(powers.describe(item)) == len(item.powers) + bool(item.stats)  # (and a line for stats)
     assert set(powers.SHORT) == set(powers.POWERS)
+
+
+def test_a_spare_weapon_or_armor_does_nothing_in_your_pack(content):
+    """A Hard Hat's seeker, a Stewpot's cooking, any stats: only while they're on (F73). Trinkets work from the
+    pack."""
+    state = generate(3)
+    state.room.monster = None
+    state.player.armor = "chain_shirt"
+    state.player.inventory += ["hard_hat", "adamant_stewpot", "torch"]
+    assert powers.roll_bonuses(state, content, "search") == [("Torch", 1)]
+    assert not powers.holders(state, content, "cook")
+    perform(state, content, "equip:hard_hat")
+    assert ("Hard Hat", 1) in powers.roll_bonuses(state, content, "search")
+    buff = ItemDef(key="mighty_axe", name="Mighty Axe", kind="weapon", damage="1d8", tier=1, stats={"might": 2})
+    content = replace(content, items={**content.items, buff.key: buff})
+    might = state.player.might
+    state.player.inventory.append("mighty_axe")
+    powers.settle_stats(state, content)
+    assert state.player.might == might
+    perform(state, content, "equip:mighty_axe")
+    assert state.player.might == might + 2
+
+
+def test_putting_a_thing_down_and_taking_it_back_does_not_heal_you(content):
+    """Dropping and taking back the Unusual Butter (+5 max HP), or taking off and putting on armor with max HP, gave
+    the HP again each time, for no turn: 5/35 to 30/35 in five goes (W5 review). It comes the first time only."""
+    state = generate(3)
+    state.room.monster = None
+    player = state.player
+    hp, most = player.hp, player.max_hp
+    state.room.items = ["unusual_butter"]
+    perform(state, content, "take:unusual_butter")
+    assert (player.hp, player.max_hp) == (hp + 5, most + 5)  # the first time, it comes with as much HP
+    player.hp = 5
+    for _ in range(5):
+        perform(state, content, "drop:unusual_butter")
+        assert player.max_hp == most
+        perform(state, content, "take:unusual_butter")
+    assert (player.hp, player.max_hp) == (5, most + 5)
+
+    vest = ItemDef(key="hearty_vest", name="Hearty Vest", kind="armor", defense=1, tier=1, stats={"max_hp": 5})
+    content = replace(content, items={**content.items, vest.key: vest})
+    state.room.items.append("hearty_vest")
+    perform(state, content, "take:hearty_vest")  # (straight on: there's no armor on you)
+    assert (player.armor, player.hp, player.max_hp) == ("hearty_vest", 10, most + 10)
+    for _ in range(4):
+        perform(state, content, "unequip:armor")
+        assert player.max_hp == most + 5
+        perform(state, content, "equip:hearty_vest")
+    assert (player.hp, player.max_hp) == (10, most + 10)
+    restored = GameState.model_validate_json(state.model_dump_json())
+    assert restored.player.hp_given == ["unusual_butter", "hearty_vest"]  # a save keeps track

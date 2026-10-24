@@ -3,7 +3,8 @@
 The die is an icosahedron seen face-on: a hexagon showing ten faces, the light central one holding the
 number, the other nine shaded as if lit from the top left. Numbers use a 3x5 pixel font and always sit on
 the face with a pixel of margin, so a 20 never runs into an edge. Tumbling frames are the same die turned
-in 90 degree steps and bounced, which reads as a roll.
+in 90 degree steps and bounced, which reads as a roll. It comes in two sizes: SIZE, and SMALL_SIZE for a tiny
+screen (the smallest that still holds a 20 on its face).
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from rich.text import Text
 from .sprites import Image, image_text
 
 SIZE = 31  # odd, so the centre is a whole pixel: spokes stay one pixel wide and numbers centre exactly
+SMALL_SIZE = 27  # two rows shorter, for a tiny screen; smaller than this, a 20 no longer fits on its face
 FACE_RATIO = 0.74  # how far the number face's corners reach towards the rim
 FACE = (238, 232, 252)
 LIT, SHADED = (198, 178, 238), (104, 78, 162)  # the other faces range between these
@@ -62,13 +64,13 @@ def _shade(triangle, centre: float) -> tuple:
     return tuple(round(s + (l - s) * lit) for s, l in zip(SHADED, LIT))
 
 
-@lru_cache(maxsize=1)
-def _blank() -> "Image.Image":
-    """The die with an empty face."""
-    img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+@lru_cache(maxsize=2)
+def _blank(size: int = SIZE) -> "Image.Image":
+    """The die with an empty face, `size` pixels across."""
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     px = img.load()
-    c = (SIZE - 1) / 2
-    radius = SIZE / 2 - 1
+    c = (size - 1) / 2
+    radius = size / 2 - 1
 
     def point(r: float, degrees: float) -> tuple[float, float]:
         return c + r * math.cos(math.radians(degrees)), c + r * math.sin(math.radians(degrees))
@@ -82,8 +84,8 @@ def _blank() -> "Image.Image":
               (left, rim[3], right), (left, rim[5], rim[4]), (right, rim[1], rim[2]), (left, rim[4], rim[3]),
               (right, rim[2], rim[3])]
     shades = [(triangle, _shade(triangle, c)) for triangle in others]
-    for y in range(SIZE):
-        for x in range(SIZE):
+    for y in range(size):
+        for x in range(size):
             if not _inside_hex(x - c, y - c, radius):
                 continue
             if any(_near_segment((x, y), a, b) for a, b in edges):
@@ -97,16 +99,16 @@ def _blank() -> "Image.Image":
     return img
 
 
-@lru_cache(maxsize=1)
-def _number_top() -> int:
+@lru_cache(maxsize=2)
+def _number_top(size: int = SIZE) -> int:
     """The lowest row where a two-digit number fits on the face with a pixel of clear face all round."""
-    px = _blank().load()
-    left = (SIZE - 7) // 2
+    px = _blank(size).load()
+    left = (size - 7) // 2
 
     def clear(top: int) -> bool:
         return all(px[x, y][:3] == FACE for y in range(top - 1, top + 6) for x in range(left - 1, left + 8)
                    if not (y in (top - 1, top + 5) and x in (left - 1, left + 7)))  # corners may touch
-    return next(top for top in range(SIZE - 6, 0, -1) if clear(top))
+    return next(top for top in range(size - 6, 0, -1) if clear(top))
 
 
 def _ring(img, colour: tuple) -> None:
@@ -119,12 +121,14 @@ def _ring(img, colour: tuple) -> None:
                 px[x, y] = (*colour, 255)
 
 
-def die_image(value: int | None, turn: int = 0, bounce: int = 0, glow: tuple | None = None, dim: bool = False):
-    """The die showing `value` (None shows "?"), turned `turn` quarter-turns, raised `bounce` pixels (0-2)."""
-    img = _blank().copy()
+def die_image(value: int | None, turn: int = 0, bounce: int = 0, glow: tuple | None = None, dim: bool = False,
+              size: int = SIZE):
+    """The die showing `value` (None shows "?"), turned `turn` quarter-turns, raised `bounce` pixels (0-2), `size`
+    pixels across."""
+    img = _blank(size).copy()
     px = img.load()
     label = "?" if value is None else str(value)
-    left, top = (SIZE - (len(label) * 4 - 1)) // 2, _number_top()
+    left, top = (size - (len(label) * 4 - 1)) // 2, _number_top(size)
     for i, ch in enumerate(label):
         for row, bits in enumerate(DIGITS[ch]):
             for col, bit in enumerate(bits):
@@ -132,7 +136,7 @@ def die_image(value: int | None, turn: int = 0, bounce: int = 0, glow: tuple | N
                     px[left + i * 4 + col, top + row] = (*INK, 255)
     if turn % 4:
         img = img.rotate(-90 * (turn % 4))
-    canvas = Image.new("RGBA", (SIZE + 2, SIZE + 3), (0, 0, 0, 0))  # room for the glow, and to bounce
+    canvas = Image.new("RGBA", (size + 2, size + 3), (0, 0, 0, 0))  # room for the glow, and to bounce
     canvas.alpha_composite(img, (1, 2 - bounce))
     if glow:
         _ring(canvas, glow)
@@ -148,5 +152,9 @@ def die_image(value: int | None, turn: int = 0, bounce: int = 0, glow: tuple | N
 
 
 @lru_cache(maxsize=512)
-def d20(value: int | None, turn: int = 0, bounce: int = 0, glow: tuple | None = None, dim: bool = False) -> Text:
-    return image_text(die_image(value, turn, bounce, glow, dim))
+def d20(value: int | None, turn: int = 0, bounce: int = 0, glow: tuple | None = None, dim: bool = False,
+        size: int = SIZE) -> Text:
+    """The die as half-block text, in its own colours. They aren't snapped to the sprites' (see sprites.palette),
+    which have nothing near its violet; they are a fixed few already (the faces, edges and number, the glows, and the
+    same greyed), whatever it shows and however it's turned, so a GPU terminal's glyph cache stays small anyway."""
+    return image_text(die_image(value, turn, bounce, glow, dim, size))

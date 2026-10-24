@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .content import Content
 
@@ -39,10 +39,14 @@ class MonsterState(BaseModel):
     ghost_of: str = ""
     distracted: bool = False  # something has drawn its eye once this fight (a distract power)
     asked: bool = False  # you've asked it what it knows about this floor (once: see rules._ask)
+    met: bool = False  # you've walked in on it, and it's had its say (npcs.react)
     mood: str = ""  # where an NPC's story has got to (see npcs.py): Lenny's "tooth", Swoogy's "challenge"...
     secret: int = 0  # the number on Swoogy's die, while you guess
     stolen_item: str = ""  # what a thief grabbed and means to run off with (a steal trick: see combat.monster_turn)
     stolen_gold: int = 0
+    tier: int = 0  # its tier here, if not its maker's: a character cut down to size for its floor (npcs.sized)
+    warden: bool = False  # the one guarding the stairs (or standing in for it): it always leaves something
+    rewarded: bool = False  # talked down already, and paid for it: killing it now pays nothing more
 
 
 class Feature(BaseModel):
@@ -72,6 +76,7 @@ class Ware(BaseModel):
 class Shop(BaseModel):
     keeper: str  # a monster key, tagged npc: Granny Gristle, or now and then Granny Kamultruk
     wares: list[Ware] = Field(default_factory=list)
+    asked: bool = False  # you've asked her what she knows about this floor (once, as any creature: rules._ask)
 
 
 class Room(BaseModel):
@@ -84,6 +89,7 @@ class Room(BaseModel):
     exits: dict[Direction, Exit] = Field(default_factory=dict)
     features: list[Feature] = Field(default_factory=list)
     items: list[str] = Field(default_factory=list)
+    left: list[str] = Field(default_factory=list)  # those you put down here yourself: no choice offers them back
     monster: MonsterState | None = None
     visited: bool = False
     rested: bool = False
@@ -102,6 +108,13 @@ class Room(BaseModel):
     draft: str = ""  # the wall you felt a draft through: the secret room is behind it
     told: str = ""  # who told you about this secret room (it's on your map)
     shop: Shop | None = None  # a shopkeeper and her wares, behind a locked door (fixture "shop")
+
+    @model_validator(mode="after")
+    def _mark_warden(self) -> Room:
+        """(A save from before wardens were marked: the stairs' own guard is the one there before anyone rested.)"""
+        if self.fixture == "stairs" and self.monster and not self.rested:
+            self.monster.warden = True
+        return self
 
     def visible_features(self) -> list[tuple[int, Feature]]:
         return [(i, f) for i, f in enumerate(self.features) if not f.hidden]
@@ -140,7 +153,11 @@ class Player(BaseModel):
     second_wind_floor: int = 0
     last_breath_used: bool = False
     item_stats: dict[str, int] = Field(default_factory=dict)  # what carried things add to your stats now (powers.py)
+    hp_given: list[str] = Field(default_factory=list)  # things whose extra max HP came with as much HP: once a run
     tangled: bool = False  # caught in a monster's vines: no running until it's had its next go (a tangle trick)
+    lifted: list[str] = Field(default_factory=list)  # cursed things whose curse a shrine has lifted (inventory.py)
+    coating: str = ""  # what your weapon's coated in, as a tag its hits count as: "holy", "fire" (interactions.RECIPES)
+    coated: int = 0  # hits the coating has left
 
     @property
     def attack_bonus(self) -> int:
@@ -169,6 +186,7 @@ class LogEntry(BaseModel):
     text: str
     title: str = ""
     art: str = ""  # a story card's sprite
+    speaker: str = ""  # a card that's a character's own words: whose (npcs.say), for showing it as their speech
 
 
 class SceneState(BaseModel):
@@ -202,6 +220,7 @@ class GameState(BaseModel):
     daily: str = ""
     run_id: int | None = None
     suggestion: str = ""
+    suggestion_id: str = ""  # the use the suggested trick is (interactions.py): what picking it does
     known_weak: dict[str, list[str]] = Field(default_factory=dict)
     ghost: dict | None = None
     test_room: str = ""  # a test room's run (testrooms.py): it counts for nothing, and is never saved
@@ -212,6 +231,9 @@ class GameState(BaseModel):
     scene: SceneState | None = None
     mapped_floor: int = 0  # a floor whose whole map you've been handed
     rares: list[str] = Field(default_factory=list)  # rare items this run has turned up: each comes once
+    warned: list[str] = Field(default_factory=list)  # cursed things you've been warned of: taking one now takes it
+    quests: dict[str, str] = Field(default_factory=dict)  # each character's stage this run, by its key (npcs.STAGES)
+    said: dict[str, int] = Field(default_factory=dict)  # how often each character's said each thing (they take turns)
 
     @property
     def room(self) -> Room:

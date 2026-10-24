@@ -39,11 +39,28 @@ def tell(name: str, words: str) -> str:
     return f"{cap(the(name))} {mid_sentence(words)}"
 
 
+# What a place's or a thing's title can be named for that isn't anybody: "the Saint's Alcove", not "Saint's Alcove".
+NOBODY = {"saint", "abbot", "monk", "priest", "king", "queen", "lord", "lady", "knight", "giant", "dragon", "troll",
+          "goblin", "ogre", "wizard", "witch", "hermit", "miner", "butcher", "hunter", "warden", "jester", "beggar",
+          "thief", "smith", "sailor", "fool", "devil", "demon", "angel", "god", "rabbit", "wolf", "bird", "cat", "dog"}
+
+
 def _owned(name: str) -> bool:
-    """Someone's, by name: "Brannoc's remains" takes no article (a "mourner's lantern" and "the Saint's Alcove", a
-    place's title, still do)."""
-    first, _, rest = name.partition(" ")
-    return first[:1].isupper() and first.endswith(("'s", "s'")) and rest[:1].islower()
+    """Someone's, by name, which takes no article: "Brannoc's remains", a character's ("Swoogy's Diaper", "Granny
+    Gristle's Shop", "Lenny's Bad Tooth"), or anyone's at all ("Mama's Shillelagh"). A thing named for something that
+    isn't anybody still takes one: "a mourner's lantern", "the Lucky Rabbit's Foot", "the Saint's Alcove"."""
+    words = name.split()
+    mark = next((i for i, w in enumerate(words) if w.endswith(("'s", "s'"))), None)
+    if mark is None or not all(w[:1].isupper() for w in words[:mark + 1]):
+        return False
+    stem = words[mark][:-2] if words[mark].endswith("'s") else words[mark][:-1]
+    owner, rest = words[:mark] + [stem], words[mark + 1:]
+    if not rest or rest[0][:1].islower():  # "Brannoc's remains"
+        return True
+    characters = [n.split() for n in NAMED]
+    if any(owner == n[i:i + len(owner)] for n in characters for i in range(len(n))):  # Lenny, of Lucky Lenny
+        return True
+    return len(owner) == 1 and words[mark].endswith("'s") and owner[0].lower() not in NOBODY
 
 
 def cap(text: str) -> str:

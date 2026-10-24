@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-TRIGGERS = ("enter_room", "say", "roll", "defeat", "pacify", "run_start", "turn")
+TRIGGERS = ("enter_room", "say", "roll", "defeat", "pacify", "run_start", "turn", "meet", "gain")
 VOICES = ("exact", "narrated", "silent")
 ONCE = ("run", "profile", "always")
 # Words filled in when the event plays: this run's ghost (your adventurer from a run that ended), from the profile.

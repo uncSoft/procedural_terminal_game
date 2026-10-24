@@ -6,15 +6,22 @@ for the Look panel (F4):
 
     walls, floor, ceiling     the dungeon's own look: the Crypt's bricks and candles, the Warren's earth, timber
                               and torches, the Ruins' marble (broken, under the stars, if the room's decor says sky)
-    exits                     doorways in the walls they're in: dark if unexplored, planked if locked
+    exits                     doorways in the walls they're in: dark if unexplored, planked and barred if locked
     decor                     the room map's water, pillars, tables, cages, shelves, plants, fungus, roots...
     features                  small props by their kind (a pew, a barrel, a cauldron, a throne, a coffin...)
-    fixture, monster, items   their own sprites, smaller further back; a shop is its keeper behind her counter,
-                              her wares (their small pictures) on the shelf above her, never drawn over her
+    fixture, monster          their own sprites, smaller further back; a shop is its keeper behind her counter,
+                              her wares (their small pictures) on the shelf above her, or on the counter beside
+                              her in a picture too short for the shelf, never drawn over her
+    items                     their small pictures, with a glint: never smaller in a picture as tall as the story
+                              card's, halved in a shorter one where whoever's in the room would be
     light                     the lantern you carry, candles and torches, glowing things, moonlight
 
 Sizes are a stage set's, not a surveyor's: drawn to the scale of the floor plan a goblin would be two pixels wide,
-so things are bigger than the plan says, and a monster steps toward the middle so it doesn't stand in a doorway.
+so things are bigger than the plan says. Whoever is in the room stands where the room map has them, but stepped
+aside from the fixture, and a step or two rather than hide most of a feature or an item; they're drawn last, so
+nothing hides them. Items step aside from them and the fixture rather than lose more than a quarter to either, and a
+feature from them rather than lose half (see Picture._stand). Nothing you can do something with is cut off at the
+picture's edges or lost in the dark (see Picture._fit).
 Every colour is snapped to one the sprites use (sprites.palette()), so a GPU terminal's glyph cache meets nothing
 new (see PTGApp.action_redraw).
 
@@ -26,7 +33,9 @@ from __future__ import annotations
 import math
 import sys
 from dataclasses import dataclass
+from functools import lru_cache
 
+from rich.style import Style
 from rich.text import Text
 
 from . import layout, sprites
@@ -48,6 +57,7 @@ def _ramp(*hexcodes: str) -> list:
 
 DARK = _rgb("#181425")
 FLAME = _ramp("#be4a2f", "#f77622", "#feae34", "#fee761")
+BRASS = _ramp("#feae34", "#fee761")  # a locked door's bands and lock, the colour of a locked way on the maps
 
 
 @dataclass(frozen=True)
@@ -70,6 +80,11 @@ class Look:
     sconces: str  # candles | torches | ""
     fog: float
     accent: str  # the story card's border
+    props: list | None = None  # stone props and doorframes, if not in `stone`: two steps above dark walls, to stand out
+
+    @property
+    def prop_stone(self) -> list:
+        return self.props or self.stone
 
 
 LOOKS = {
@@ -83,8 +98,8 @@ LOOKS = {
         wood=_ramp("#3e2731", "#733e39", "#b86f50", "#c28569"),
         stone=_ramp("#262b44", "#3a4466", "#5a6988", "#8b9bb4", "#c0cbdc"),
         moss=_ramp("#193c3e", "#265c42", "#3e8948", "#63c74d"),
-        walls="bricks", ground="flags", above="vault", ambient=0.10, lantern=0.70, sconces="candles", fog=0.45,
-        accent="#0099db"),
+        walls="bricks", ground="flags", above="vault", ambient=0.17, lantern=0.70, sconces="candles", fog=0.38,
+        accent="#0099db", props=_ramp("#3a4466", "#5a6988", "#8b9bb4", "#c0cbdc", "#ffffff")),
     "goblin_warren": Look(
         wall=_ramp("#181425", "#3e2731", "#733e39", "#b86f50", "#c28569"),
         wall_warm=_ramp("#181425", "#733e39", "#be4a2f", "#d77643", "#e4a672"),
@@ -150,8 +165,19 @@ def _pick(shades: list, level: float, x: int, y: int, dither: float = 0.45) -> t
     return shades[max(0, min(len(shades) - 1, math.floor(value + 0.5 + (_bayer(x, y) - 0.5) * dither)))]
 
 
-def _darker(colour: tuple, k: float) -> tuple:
-    return sprites._nearest(tuple(int(c * k) for c in colour))
+@lru_cache(maxsize=4096)
+def _shadow(colour: tuple, k: float) -> tuple:
+    """A colour in shadow, `k` as bright, but never so dark it's lost in the black of an unexplored doorway: only
+    what was outline to start with (darker than sprites.OUTLINE) goes that dark."""
+    darker = tuple(int(c * k) for c in colour)
+    if sprites._light(colour) < sprites.OUTLINE:
+        return sprites._nearest(darker)
+    return min(_lit_palette(), key=lambda c: sum((c[i] - darker[i]) ** 2 for i in range(3)))
+
+
+@lru_cache(maxsize=1)
+def _lit_palette() -> tuple:
+    return tuple(c for c in sprites.palette() if sprites._light(c) >= sprites.OUTLINE)
 
 
 # --- where things are, seen from the door you came in by ----------------------------------------------------
@@ -240,7 +266,7 @@ PROPS = {
     "rail": ["cccccccccccccccc", "b..b..b..b..b..b", "b..b..b..b..b..b", "a..a..a..a..a..a"],
     "case": ["eMMMMMMMMe", "M=.k.k..=M", "M.k...k..M", "Mk..k...kM", "MMMMMMMMMM", "ab......ba", "ab......ba"],
     "grate": ["nmnmnmnmnm", "mnmnmnmnmn", "nmnmnmnmnm"],
-    "hole": [".kkkkkk.", "kkkkkkkk", ".kkkkkk."],
+    "hole": [".mmmmmm.", "mkkkkkkm", ".nkkkkn."],
     "mosaic": ["uRyuRyuR", "RyuRyuRy", "yuRyuRyu"],
     "cart": ["..bbbbbbbbb.", ".bcccccccccb", ".bbbbbbbbbb.", "..a......a..", ".mMm....mMm.", "..m......m.."],
     "shelf": ["aaaaaaaaaaaa", "aRuPcBRuGcBa", "aaaaaaaaaaaa", "acBRu.GPcRua", "aaaaaaaaaaaa", "aGcRBuPc.Bua",
@@ -284,6 +310,16 @@ PROPS = {
     "saddle": ["..bb......", ".bccb...bb", "bccccbbbcb", "bcccccccb.", ".bbbbbbb..", "..a....a.."],
 }
 FLAT = {"grate", "hole", "mosaic", "sap"}  # lie on the floor: never sunk, never in front of anything
+# Half-size props drawn by hand, for those that halved block by block (sprites.halve) come out one flat colour.
+PROPS_HALF = {
+    "shelf": ["aaaaaa", "aRuGPa", "aaaaaa", "acBRua"],
+    "cage": ["mmmmm", "M.M.M", "mmmmm"],
+    "bones": [".BB...", "BkB.e.", "eBeBBe"],
+    "grate": ["nmnmn", "mnmnm"],
+    "hole": ["mkkm", ".kk."],
+    "bedroll": ["BRRuRR", "RRRuRR"],
+    "boots": ["b..b.", "bc.bc", "aa.aa"],
+}
 PROP_OF_WORD = {"pew": "pew", "bench": "bench", "altar": "altar", "case": "case", "trough": "trough",
                 "mosaic": "mosaic", "drain": "grate", "gap": "hole", "wall": "rack", "niche": "niche",
                 "skulls": "niche", "creepers": "vines", "vine": "vines", "lantern": "lantern", "throne": "throne",
@@ -294,7 +330,7 @@ PHRASES = {"burial": "niche", "potting": "table"}  # words that settle what a fe
 PROP_OF_GLYPH = {"π": "table", "θ": "barrel", "Ö": "cauldron", "Ω": "statue", "ı": "candle", "▯": "wardrobe",
                  "∪": "basin", "%": "bones", "≡": "chest", "◊": "fountain", "Å": "bell", "═": "rail",
                  "▒": "grate", "Ð": "cart", "▤": "shelf", "▭": "coffin", "§": "rope", "╥": "altar", "°": "plates",
-                 "#": "cage", "&": "junk", "ð": "sack", "‡": "rack", "Ø": "gong", "●": "puffball", "≈": "bedroll",
+                 "▥": "cage", "&": "junk", "ð": "sack", "‡": "rack", "Ø": "gong", "●": "puffball", "≈": "bedroll",
                  "ь": "boots", "♨": "forge", "Ħ": "throne", "¥": "chandelier", "☼": "orrery", "/": "telescope",
                  "¶": "lectern", "♣": "fungus", "▪": "plinth", "†": "sword", "o": "stump", "ö": "nest", "~": "sap",
                  "♥": "heart", "◘": "basin", "⁘": "table", "▫": "mosaic"}
@@ -335,25 +371,45 @@ def prop_colours(look: Look) -> dict:
              "s": "#8b9bb4", "R": "#e43b44", "u": "#124e89", "p": "#f6757a", "P": "#b55088", "i": "#68386c",
              "k": "#181425", "v": "#3e8948", "V": "#63c74d", "z": "#b4ffd6"}
     colours = {k: _rgb(v) for k, v in fixed.items()}
-    colours.update({str(5 + i): look.stone[i] for i in range(5)})
+    colours.update({str(5 + i): look.prop_stone[i] for i in range(5)})
     colours.update({"g": look.moss[1], "G": look.moss[2], "h": look.moss[-1]})
     return colours
 
 
 def prop_image(kind: str, look: Look, name: str = "", spent: bool = False):
-    """A feature's prop: a fixture's sprite for chests, fountains and altars, otherwise its little drawing."""
+    """A feature's prop: a fixture's sprite for chests, fountains and altars, otherwise its little drawing. A `spent`
+    one looks it: a chest emptied, an altar's candles out, a fountain dry."""
     if kind in SPRITE_PROPS:
-        frames = sprites._strip(SPRITE_PROPS[kind])
-        img = (frames[-1] if kind == "chest" and spent else frames[0]).copy()
-        if kind == "fountain" and ("dry" in name.lower() or spent):
-            _dry(img, look)
-        return img
+        return fixture_image(SPRITE_PROPS[kind], look, spent or (kind == "fountain" and "dry" in name.lower()))
     if kind == "fungus":
         return _mushroom(sum(map(ord, name)))
     img = _grid_image(PROPS[kind], prop_colours(look))
     if any(word in name.lower() for word in ("toppled", "fallen")) and kind in ("statue", "bell", "coffin"):
         img = img.transpose(Image.Transpose.ROTATE_90)
     return img
+
+
+def fixture_image(key: str, look: Look, spent: bool = False):
+    """A fixture's sprite as it stands: its first frame, or once it's been used, its used-up last frame (see
+    sprites.SPENT), or for a fountain, drained."""
+    frames = sprites._strip(key)
+    img = (frames[-1] if spent and key in sprites.SPENT else frames[0]).copy()
+    if key == "fountain" and spent:
+        _dry(img, look)
+    return img
+
+
+def prop_at(kind: str, look: Look, factor: float, name: str = "", spent: bool = False):
+    """A prop at a scale (see _at_scale), from its half-size drawing (PROPS_HALF) where it has one."""
+    if factor < 0.75 and kind in PROPS_HALF:
+        half = _grid_image(PROPS_HALF[kind], prop_colours(look))
+        return half if factor >= 0.375 else sprites.halve(half)
+    return _at_scale(prop_image(kind, look, name, spent), factor)
+
+
+def _unlit(kind: str, spent: bool) -> bool:
+    """Whether a prop that would give light has gone out: a used altar's candles, like a used shrine's."""
+    return spent and SPRITE_PROPS.get(kind) in sprites.SPENT
 
 
 def _dry(img, look: Look) -> None:
@@ -363,7 +419,7 @@ def _dry(img, look: Look) -> None:
         for x in range(img.width):
             r, g, b, alpha = px[x, y]
             if alpha and b > r + 40:
-                px[x, y] = (*look.stone[1 if y > img.height // 2 else 2], alpha)
+                px[x, y] = (*look.prop_stone[1 if y > img.height // 2 else 2], alpha)
 
 
 def _tuft(seed: int, look: Look):
@@ -386,6 +442,23 @@ def _at_scale(img, factor: float):
     return img if factor >= 0.375 else sprites.halve(img)
 
 
+# How much it matters for whoever's in the room to stand in front of each (see Picture._crowding): a little for each
+# bit of it they'd hide, and dearly for any more than they may: a quarter of the fixture (less what's in front of it
+# already), half of a feature or an item, or a quarter of one nearer you than them (which they're drawn over).
+CROWDING = {"fixture": 1.0, "feature": 0.4, "door": 0.3, "item": 0.25}
+DEARLY = {"fixture": 30.0, "feature": 4.0, "item": 4.0}
+FIGURE = 1.25  # how big whoever's in the room (or a shopkeeper) is drawn, against the lens's scale
+FULL = 30  # a picture this tall or more (the story card, a tall Look panel): items never smaller than their small ones
+
+
+def _overlap(box: tuple, other: tuple) -> float:
+    """How much of `other` a box covers, from 0 to 1. Boxes are (left, top, right, bottom)."""
+    width = min(box[2], other[2]) - max(box[0], other[0])
+    height = min(box[3], other[3]) - max(box[1], other[1])
+    area = (other[2] - other[0]) * (other[3] - other[1])
+    return width * height / area if width > 0 and height > 0 and area else 0.0
+
+
 # --- the picture -------------------------------------------------------------------------------------------
 
 @dataclass
@@ -398,9 +471,21 @@ class Light:
     warm: float = 1.0
 
 
+@dataclass
+class Placed:
+    """A sprite drawn in the picture: what it is (`tag`: occupant, fixture, feature, item or decor), the image as
+    drawn, the box its solid pixels fill, (left, top, right, bottom) on the picture, and how far away it stands."""
+    tag: str
+    img: object
+    box: tuple
+    z: float = 0.0
+    pixels: int = 0  # how many of its pixels were drawn (inside the picture)
+
+
 class Picture:
-    """One room, drawn: surfaces, then decor and everything standing in the room back to front, then reflections
-    and flames. `kind` says what each pixel shows (wall, floor, water, sky, void, locked, ceiling, object)."""
+    """One room, drawn: surfaces, then decor and everything standing in the room back to front, then whoever is in
+    it, then reflections and flames. `kind` says what each pixel shows (wall, floor, water, sky, void, locked,
+    ceiling, object); `placed` lists the sprites drawn, and `owner` which of them each pixel shows (-1 for none)."""
 
     def __init__(self, state: GameState, content: Content, w: int, h: int, room: Room | None = None) -> None:
         self.state, self.content, self.room = state, content, room or state.room
@@ -417,6 +502,11 @@ class Picture:
         self.info = [[None] * w for _ in range(h)]
         self.lights: list[Light] = []
         self.flames: list[tuple[float, float, float, int]] = []  # (a, z, v, size)
+        self.placed: list[Placed] = []
+        self.owner = [[-1] * w for _ in range(h)]
+        self.centre: tuple | None = None  # the box the fixture (or a shop's stall) fills, if there's one
+        self.plans: list[Placed] = []  # where the features, the fixture and the items will stand, before they're drawn
+        self.standing: tuple | None = None  # the box whoever's in the room will fill, once that's settled
         self.doors = self._doors()
 
     def draw(self):
@@ -429,6 +519,11 @@ class Picture:
         self._reflections()
         self._flames()
         return self.img
+
+    def showing(self, index: int) -> float:
+        """How much of a placed sprite is still in sight once everything's drawn (1 if none of it was covered)."""
+        shown = sum(row.count(index) for row in self.owner)
+        return shown / max(1, self.placed[index].pixels)
 
     # light ----------------------------------------------------------------------------------------------
     def light(self, a: float, z: float, v: float) -> tuple[float, float]:
@@ -458,13 +553,15 @@ class Picture:
 
     # what's where ---------------------------------------------------------------------------------------
     def _doors(self) -> dict:
-        """Each exit you can see, by wall: where along it (a on the far wall, z on a side wall), and if it's locked."""
-        doors = {}
+        """Each exit you can see, by wall: where along it (a on the far wall, z on a side wall), and if it's locked.
+        `ways` says which way each one goes."""
+        doors, self.ways = {}, {}
         for direction, exit_ in self.room.exits.items():
             wall = self.view.side[direction]
             if wall != "behind":
                 a, z = self.view.cell(*layout.DOORS[direction])
                 doors[wall] = (a if wall == "back" else z, exit_.locked)
+                self.ways[wall] = direction
         return doors
 
     def _door_half(self, wall: str) -> float:
@@ -492,10 +589,10 @@ class Picture:
         room = self.room
         for feature in room.features:
             kind = prop_kind(feature.name)
-            if not feature.hidden and kind in GLOWS:
+            if not feature.hidden and kind in GLOWS and not _unlit(kind, feature.searched or bool(feature.used)):
                 a, z = self.view.cell(*feature.pos)
                 self.lights.append(Light(a, z, 0.2, 0.6, 0.30, warm=GLOWS[kind]))
-        if room.fixture == "shrine":
+        if room.fixture == "shrine" and not room.fixture_used:
             a, z = self.view.cell(CX, CY)
             self.lights.append(Light(a, z, 0.2, 0.55, 0.30))
         for y, line in enumerate(room.grid):
@@ -619,11 +716,16 @@ class Picture:
             self.px[x, y] = self._sky(x, y)
         elif kind == "void":  # the dark beyond an unexplored door, a faint floor deep inside
             self.px[x, y] = look.floor[1] if (0.62 - v) / 0.62 > 0.85 and _bayer(x, y) < 0.5 else DARK
-        elif kind == "locked":
-            plank = math.floor((a if wall == "back" else z) * 2.2)
-            band = abs(v - 0.15) < 0.035 or abs(v - 0.45) < 0.035  # iron bands
-            self.px[x, y] = _rgb("#525668") if band else self.shade(look.wood, look.wood, a, z, v, x, y,
-                                                                    -0.05 * (plank % 2))
+        elif kind == "locked":  # planks never lost in the dark, with brass bands and a lock: a way you can't take
+            along = a if wall == "back" else z
+            u = (along - self.doors[wall][0]) / self._door_half(wall)
+            if abs(u) < 0.2 and 0.22 < v < 0.34:
+                self.px[x, y] = DARK if abs(u) < 0.07 and v < 0.29 else BRASS[1]  # the lock, and its keyhole
+            elif abs(v - 0.12) < 0.04 or abs(v - 0.46) < 0.04:
+                self.px[x, y] = BRASS[0]
+            else:
+                level = self.light(a, z, v)[0] - 0.06 * (math.floor(along * 2.2) % 2)
+                self.px[x, y] = _pick(look.wood, max(0.4, level), x, y)
         elif kind == "wall":
             self.px[x, y] = self._wall(x, y, a, z, v, wall, tiles)
         elif kind in ("floor", "water"):
@@ -708,7 +810,7 @@ class Picture:
 
     def _door_frames(self) -> None:
         """Pull the doorways' frames out of the dark."""
-        frame = self.look.wood if self.look.walls == "earth" else self.look.stone
+        frame = self.look.wood if self.look.walls == "earth" else self.look.prop_stone
         for y in range(self.h):
             for x in range(self.w):
                 if self.kind[y][x] == "wall" and any(
@@ -739,87 +841,221 @@ class Picture:
                                      "^": FLAME[1 + i % 2]}[ch]
 
     def _objects(self) -> None:
-        """The decor, then the things you can do something with (features, the fixture, items, the monster), each
-        back to front: scenery never hides what matters, as on the room map."""
+        """The decor, then the things you can do something with (features, the fixture, items), each back to front:
+        scenery never hides what matters, as on the room map. Whoever is in the room comes last, so nothing hides them,
+        but where they stand is settled first (see _stand), for items to keep clear of them."""
         room, view, lens, look = self.room, self.view, self.lens, self.look
         scenery, things = [], []  # (z, draw)
         tables = {(gx, gy) for gy, line in enumerate(room.grid) for gx, ch in enumerate(line) if ch == "="}
-        decor = {"π": "table", "&": "junk", "▤": "shelf", "#": "cage"}
+        decor = {"π": "table", "&": "junk", "▤": "shelf", layout.CAGE: "cage", "#": "cage"}  # (an older save's cages)
         for gy, line in enumerate(room.grid):
             for gx, ch in enumerate(line):
                 a, z = view.cell(gx, gy)
                 inside = 1 <= gx <= WIDTH and 1 <= gy <= HEIGHT
-                if not inside or z < (2.0 if ch in "#▤" else 1.2):  # right beside you: out of the picture
+                if not inside or z < (2.0 if ch in ("#", "▤", layout.CAGE) else 1.2):  # right beside you: not seen
                     continue
                 if ch == "O":
                     scenery.append((z, lambda a=a, z=z: self._pillar(a, z)))
                 elif ch == "=":
                     scenery.append((z + 0.01, lambda gx=gx, gy=gy: self._table(gx, gy, tables)))
                 elif ch == "\"" and _hash01(gx, gy, 91) < 0.8:
-                    img = _tuft(gx * 31 + gy, look)
-                    scenery.append((z, lambda a=a, z=z, img=img: self._place(_at_scale(img, lens.scale(z) * 1.4), a,
-                                                                              z)))
+                    img = _at_scale(_tuft(gx * 31 + gy, look), lens.scale(z) * 1.4)
+                    scenery.append((z, lambda a=a, z=z, img=img: self._place(img, a, z, tag="decor")))
                 elif ch == "♣":
-                    img = _mushroom(gx * 17 + gy)
-                    scenery.append((z, lambda a=a, z=z, img=img: self._place(_at_scale(img, lens.scale(z) * 1.4), a,
-                                                                              z, lit=True)))
+                    img = _at_scale(_mushroom(gx * 17 + gy), lens.scale(z) * 1.4)
+                    scenery.append((z, lambda a=a, z=z, img=img: self._place(img, a, z, lit=True, tag="decor")))
                 elif ch in decor:
-                    img = prop_image(decor[ch], look)
-                    scenery.append((z, lambda a=a, z=z, img=img: self._place(_at_scale(img, lens.scale(z) * 1.2), a,
-                                                                              z)))
+                    img = prop_at(decor[ch], look, lens.scale(z) * 1.2)
+                    scenery.append((z, lambda a=a, z=z, img=img: self._place(img, a, z, tag="decor")))
         for feature in room.features:
             if not feature.hidden and prop_kind(feature.name):
                 things.append(self._feature(feature))
-        if room.shop:
+        if room.shop or room.fixture:
             a, z = view.cell(CX, CY)
-            img = shop_stall(room.shop)
-            things.append((z, lambda a=a, z=z, img=img: self._place(_at_scale(img, lens.scale(z) * 1.1), a, z,
-                                                                     lit=True, framed=True)))
-        elif room.fixture:
-            a, z = view.cell(CX, CY)
-            frames = sprites._strip(room.fixture)
-            img = (frames[-1] if room.fixture == "chest" and room.fixture_used else frames[0]).copy()
-            if room.fixture == "fountain" and room.fixture_used:
-                _dry(img, look)
-            things.append((z, lambda a=a, z=z, img=img: self._place(_at_scale(img, lens.scale(z) * 1.2), a, z,
-                                                                     lit=room.fixture == "shrine", framed=True)))
-        for key, (gx, gy) in zip(room.items, room.item_spots):
+            if room.shop:
+                img, lit = self._stall(a, z), True
+            else:
+                img = _at_scale(fixture_image(room.fixture, look, room.fixture_used), lens.scale(z) * 1.2)
+                lit = room.fixture == "shrine" and not room.fixture_used
+            self.centre = self._box(img, a, z)  # known before anything's drawn, for what's around it to keep clear of
+            self.plans.append(Placed("fixture", img, self.centre, z))
+            things.append((z, lambda a=a, z=z, img=img, lit=lit: self._place(img, a, z, lit=lit, framed=True,
+                                                                              tag="fixture")))
+        for key, (gx, gy) in zip(room.items, layout.item_spots(room)):
             small = sprites.frames(f"item_{key}", sprites.SMALL)
             if small:
-                a, z = view.cell(gx, gy)
-                things.append((z, lambda a=a, z=z, img=small[0]: self._item(img, a, z)))
-        if room.monster:
-            frames = sprites._strip(room.monster.key)
-            if frames:
-                a, z = view.cell(*room.monster_pos)
-                a, z = a * 0.5, max(z, 0.3 * view.depth)  # it faces you from the middle, not from a doorway
-                img = sprites.posed(frames[0], "idle" if room.monster.hostile else "calm")
-                things.append((z, lambda a=a, z=z, img=img: self._place(_at_scale(img, lens.scale(z) * 1.25), a, z,
-                                                                         lit=True, framed=True)))
+                things.append(self._item(small[0], *view.cell(gx, gy)))
+        occupant = self._stand() if room.monster else None
         for layer in (scenery, things):
             for _, draw in sorted(layer, key=lambda t: -t[0]):
                 draw()
+        if occupant:
+            self._place(*occupant, lit=True, framed=True, tag="occupant")
 
     def _feature(self, feature) -> tuple:
+        """A feature as a prop of its kind, standing where the room map has it, unless that's in front of the fixture
+        (see _aside)."""
         a, z = self.view.cell(*feature.pos)
         kind = prop_kind(feature.name)
         spent = feature.searched or bool(feature.used)
-        img = prop_image(kind, self.look, feature.name, spent)
+        factor = self.lens.scale(z) * (0.75 if kind in SPRITE_PROPS else 1.6)
+        img = prop_at(kind, self.look, factor, feature.name, spent)
         gx, gy = feature.pos
         sunk = kind not in FLAT and any(self._glyph(gx + dx, gy + dy) == "~"
                                         for dx, dy in ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)))
-        factor = self.lens.scale(z) * (0.75 if kind in SPRITE_PROPS else 1.6)
-        return (z + (0.3 if kind in FLAT else 0.0),
-                lambda: self._place(_at_scale(img, factor), a, z, lit=kind in GLOWS, sunk=sunk, framed=True))
+        lit = kind in GLOWS and not _unlit(kind, spent)
+        order = z + (0.3 if kind in FLAT else 0.0)
+        plan = Placed("feature", img, self._box(img, a, z), order)
+        self.plans.append(plan)
+        return order, lambda: self._place(img, self._aside(img, a, z, item=False, plan=plan), z, lit=lit, sunk=sunk,
+                                          framed=True, tag="feature")
 
-    def _place(self, img, a: float, z: float, lit: bool = False, sunk: bool = False, framed: bool = False) -> None:
-        """A sprite standing on the floor at (a, z), a step darker in shadow (unless it gives light itself). One
-        standing in water loses its lower third to it; a `framed` one is kept wholly inside the picture."""
+    def _stall(self, a: float, z: float):
+        """A shop standing at (a, z): her wares on the shelf above her, if the picture has the height for that at full
+        size; else on the counter either side of her."""
+        factor = self.lens.scale(z) * FIGURE  # she stands where whoever's in a room would
+        img = shop_stall(self.room.shop)
+        if factor < 0.75 or img.height > self.lens.at(a, z)[1] + 4:
+            img = _at_scale(shop_stall(self.room.shop, self.w * (1 if factor >= 0.75 else 2)), factor)
+        return img
+
+    def _stand(self) -> tuple | None:
+        """Where whoever is in the room stands, (their picture, a, z): where the room map has them (so the picture
+        agrees with what you're told) unless that's right under your nose. Rather than stand in front of the fixture
+        they step aside, as far as it takes; and a step or two, rather than hide most of a feature or an item, or much
+        of one nearer you than them, which they'd be drawn over (see _crowding). Settled before anything's drawn."""
+        room, view, lens = self.room, self.view, self.lens
+        frames = sprites._strip(room.monster.key)
+        if not frames:
+            return None
+        a, z = view.cell(*room.monster_pos)
+        z = max(z, 0.3 * view.depth)
+        img = frames[0]  # in their own colours, calm or not: characters always are
+        img = self._fit(_at_scale(img, lens.scale(z) * FIGURE), a, z, framed=True)[0]
+        x0, _, x1, _ = img.getbbox() or (0, 0, img.width, 0)
+        home, doors = self._fit(img, a, z, framed=True)[1], list(self.door_boxes().values())
+        fixture = next((p for p in self.plans if p.tag == "fixture"), None)
+        in_front = sum(_overlap(p.box, fixture.box) for p in self.plans if p.z < fixture.z) if fixture else 0.0
+        spare = 0.25 - in_front  # of the fixture, a quarter less what's in front of it already
+
+        def cost(c: float) -> float:
+            moved = abs(self._fit(img, c, z, framed=True)[1] - home) / max(1, x1 - x0)  # in their own widths
+            return self._crowding(img, c, z, doors, spare) + 0.15 * moved + 2 * max(0.0, moved - 1)
+
+        a = min(self._steps(a), key=cost)
+        self.standing = self._box(img, a, z)
+        return img, a, z
+
+    def _steps(self, a: float) -> list[float]:
+        """Places across the room a step aside from `a` might be, nearest first."""
+        half = self.view.half
+        return sorted((c for c in (a + i * half / 25 for i in range(-50, 51)) if abs(c) <= half),
+                      key=lambda c: abs(c - a))
+
+    def _covered(self) -> float | None:
+        """How much of the fixture what's in front of it so far covers, whoever's in the room included, from 0 (None if
+        it's not drawn yet, or there's no fixture)."""
+        drawn = next((i for i, p in enumerate(self.placed) if p.tag == "fixture"), None)
+        if drawn is None:
+            return None
+        them = _overlap(self.standing, self.centre) if self.standing else 0.0
+        return them + sum(_overlap(p.box, self.centre) for p in self.placed[drawn + 1:] if p.tag != "occupant")
+
+    def _aside(self, img, a: float, z: float, item: bool = True, plan: Placed | None = None) -> float:
+        """Where across the floor something standing at (a, z) goes so that, with whatever's in front of the fixture
+        already, it hides no more than a quarter of it; and if it's an `item`, so that it loses no more than a quarter
+        of itself to the fixture standing in front of it, or to whoever's in the room (drawn over everything); a
+        feature only gives way to them rather than lose half of itself. Where it is, if it can; else the nearest place
+        that does, and neither covers nor is covered by more than a quarter of any other item or feature (drawn, or
+        still to be: `plan` is this one's own), if there's one; else the one that hides least."""
+        already = self._covered()  # None: the fixture's still to be drawn, over this (or there's none)
+        them = self.standing
+        if them is None and (self.centre is None or (already is None and not item)):
+            return a
+
+        def hidden(c: float) -> float:
+            box = self._box(img, c, z)
+            lost = _overlap(them, box) * (1.0 if item else 0.5) if them else 0.0
+            if self.centre is not None and already is not None:
+                lost = max(lost, already + _overlap(box, self.centre))
+            elif self.centre is not None and item:
+                lost = max(lost, _overlap(self.centre, box))
+            return lost
+
+        if hidden(a) <= 0.25:
+            return a
+        here = [p.box for p in self.placed + self.plans if p.tag in ("item", "feature") and p is not plan]
+
+        def apart(c: float) -> bool:  # neither over nor under a quarter of another item or feature
+            box = self._box(img, c, z)
+            return all(_overlap(box, other) <= 0.25 and _overlap(other, box) <= 0.25 for other in here)
+
+        clear = [c for c in self._steps(a) if hidden(c) <= 0.25]
+        return next((c for c in clear if apart(c)), clear[0] if clear else min(self._steps(a), key=hidden))
+
+    def _box(self, img, a: float, z: float) -> tuple:
+        """The box a framed sprite standing at (a, z) fills on the picture, (left, top, right, bottom)."""
+        img, left, top = self._fit(img, a, z, framed=True)
+        x0, y0, x1, y1 = img.getbbox() or (0, 0, 0, 0)
+        return left + x0, top + y0, left + x1, top + y1
+
+    def _crowding(self, img, a: float, z: float, doors: list, spare: float = 0.25) -> float:
+        """How much someone standing at (a, z) would hide (see CROWDING): the fixture above all (`spare` of it, a
+        quarter less what's in front of it already, is as much as it should lose to them), then features, items and
+        doorways."""
+        box = self._box(img, a, z)
+        cost = sum(CROWDING["door"] * _overlap(box, door) for door in doors)
+        for plan in self.plans:
+            hidden = _overlap(box, plan.box)
+            most = spare if plan.tag == "fixture" else (0.25 if plan.z < z else 0.5)
+            cost += CROWDING[plan.tag] * hidden + DEARLY[plan.tag] * max(0.0, hidden - most)
+        return cost
+
+    def door_boxes(self) -> dict[str, tuple]:
+        """The box each doorway you can see fills on the picture, (left, top, right, bottom), by wall."""
+        boxes: dict[str, tuple] = {}
+        for y in range(self.h):
+            for x in range(self.w):
+                cell = self.info[y][x]
+                if cell and cell[0] in ("void", "locked"):
+                    x0, y0, x1, y1 = boxes.get(cell[4], (x, y, x + 1, y + 1))
+                    boxes[cell[4]] = (min(x0, x), min(y0, y), max(x1, x + 1), max(y1, y + 1))
+        return boxes
+
+    def door_marks(self) -> list[tuple[str, int, int]]:
+        """Which way each doorway you can see goes, and where to say so in the picture as half-block text: (way,
+        column, row), just inside the top of the doorway."""
+        marks = []
+        for wall, (x0, y0, x1, y1) in self.door_boxes().items():
+            marks.append((self.ways[wall], (x0 + x1 - 1) // 2, min(y1 - 1, y0 + 2) // 2))
+        return marks
+
+    def _fit(self, img, a: float, z: float, framed: bool) -> tuple:
+        """Where a sprite standing at (a, z) goes on the picture: (the sprite, its left, its top). A `framed` one is
+        kept wholly inside: moved in from the sides, and if it's taller than the picture above its feet, moved down
+        (as if it stood a little nearer), or a size smaller if it's taller than the whole picture or would have to
+        come down more than a third of its height."""
         sx, sy = self.lens.at(a, z)
+        while framed and img.height >= 4 and (img.height > self.h or img.height - sy > img.height / 3):
+            img = sprites.halve(img)
         left, top = round(sx - img.width / 2), round(sy - img.height)
         if framed:
-            left = max(0, min(self.w - img.width, left))
+            left, top = max(0, min(self.w - img.width, left)), max(0, top)
+        return img, left, top
+
+    def _place(self, img, a: float, z: float, lit: bool = False, sunk: bool = False, framed: bool = False,
+               tag: str = "") -> Placed:
+        """A sprite standing on the floor at (a, z), a step darker in shadow (unless it gives light itself). One
+        standing in water loses its lower third to it. A `framed` one, something you can do something with, is kept
+        wholly inside the picture (see _fit) and only ever a little shadowed."""
+        img, left, top = self._fit(img, a, z, framed)
         level, _ = self.light(a, z, 0.3)
+        dim = 1.0 if lit else (0.5 if level < 0.22 else (0.72 if level < 0.42 else 1.0))
+        dim = max(dim, 0.72) if framed else dim
+        x0, y0, x1, y1 = img.getbbox() or (0, 0, 0, 0)
+        placed = Placed(tag, img, (left + x0, top + y0, left + x1, top + y1), z)
+        index = len(self.placed)
+        self.placed.append(placed)
         cut = img.height - max(1, img.height // 3) if sunk else img.height
         src = img.load()
         for y in range(cut):
@@ -828,26 +1064,39 @@ class Picture:
                 tx, ty = left + x, top + y
                 if alpha < 128 or not (0 <= tx < self.w and 0 <= ty < self.h):
                     continue
-                colour = (r, g, b)
-                if not lit:
-                    colour = _darker(colour, 0.5) if level < 0.22 else (_darker(colour, 0.72) if level < 0.42 else colour)
-                self.px[tx, ty] = colour
+                self.px[tx, ty] = (r, g, b) if dim == 1.0 else _shadow((r, g, b), dim)
                 self.kind[ty][tx] = "object"
+                self.owner[ty][tx] = index
+                placed.pixels += 1
         if sunk:  # a ripple where it meets the water
             for x in range(img.width):
                 tx, ty = left + x, top + cut
                 if 0 <= tx < self.w and 0 <= ty < self.h and src[x, cut - 1][3] >= 128:
                     self.px[tx, ty] = self.look.water[2]
                     self.kind[ty][tx] = "object"
+                    self.owner[ty][tx] = index
+                    placed.pixels += 1
+        return placed
 
-    def _item(self, img, a: float, z: float) -> None:
-        """Something lying on the floor, with a glint to catch your eye."""
-        img = _at_scale(img, self.lens.scale(z) * 0.7)
-        self._place(img, a, z, lit=True)
-        sx, sy = self.lens.at(a, z)
-        x, y = round(sx + img.width / 2), round(sy - img.height)
-        if 0 <= x < self.w and 0 <= y < self.h:
-            self.px[x, y] = _rgb("#ffffff")
+    def _item(self, img, a: float, z: float) -> tuple:
+        """Something lying on the floor, in its small picture, with a glint to catch your eye: (z, how to draw it). In
+        a picture as tall as the story card's (FULL) it's always that size, never a speck; in a shorter one it's halved
+        wherever whoever's in the room would be, so a potion is never as big as Lucky Lenny beside it. It's moved
+        aside, if it must be, rather than lie over a quarter of the fixture or lose a quarter of itself behind it, or
+        under whoever's in the room."""
+        if self.h < FULL and self.lens.scale(z) * FIGURE < 0.75:
+            img = sprites.halve(img)
+        plan = Placed("item", img, self._box(img, self._aside(img, a, z), z), z)
+        self.plans.append(plan)
+
+        def draw() -> None:
+            placed = self._place(img, self._aside(img, a, z, plan=plan), z, lit=True, framed=True, tag="item")
+            x, y = placed.box[2], placed.box[1]
+            if 0 <= x < self.w and 0 <= y < self.h:
+                self.px[x, y] = _rgb("#ffffff")
+                self.owner[y][x] = len(self.placed) - 1
+
+        return z, draw
 
     def _pillar(self, a: float, z: float) -> None:
         """A round stone column, floor to ceiling (or broken off, under the sky), lit from the left."""
@@ -961,17 +1210,28 @@ class Picture:
                 self.px[x, y] = _rgb("#f6757a") if _hash01(i, 103) < 0.7 else _rgb("#faa096")
 
 
+COMPASS = Style(bold=True, color="#fee761", bgcolor="#181425")  # a doorway's way, marked on it
 WOOD = {"edge": _rgb("#181425"), "dark": _rgb("#3e2731"), "board": _rgb("#733e39"), "plank": _rgb("#b86f50"),
         "top": _rgb("#c28569"), "shine": _rgb("#e4a672")}
 
 
-def shop_stall(shop) -> Image.Image:
-    """A shop as it stands: the shopkeeper behind her counter, her wares on the shelf above, each its own small
-    picture side by side, none of them drawn over her."""
+def shop_stall(shop, width: int | None = None) -> Image.Image:
+    """A shop as it stands: the shopkeeper behind her counter, and her wares, each its own small picture side by side,
+    none of them drawn over her: on the shelf above her, or given a `width`, on the counter either side of her (as
+    many as fit that wide), for a picture without the height for the shelf."""
     keeper = (sprites._strip(shop.keeper) or [Image.new("RGBA", (24, 24))])[0]
     icons = [frames[0] for w in shop.wares[:4] if (frames := sprites.frames(f"item_{w.item}", sprites.SMALL))]
-    width = max(keeper.width + 8, len(icons) * 13 + 3)
-    shelf, ground = 13, 13 + keeper.height  # the shelf's plank, and where she stands (her feet behind the counter)
+    if width is None:
+        width, shelf = max(keeper.width + 8, len(icons) * 13 + 3), 13
+        spots = [(width - (len(icons) * 13 - 1)) // 2 + i * 13 for i in range(len(icons))]
+    else:
+        icons = icons[:2 * max(0, (width - keeper.width - 8) // 26)]
+        side = (len(icons) + 1) // 2 * 13  # the left side has the odd one out
+        width, shelf = keeper.width + 8 + 2 * side, 0
+        middle = width // 2
+        spots = [middle - keeper.width // 2 - 4 - (i + 1) * 13 + 1 for i in range(side // 13)]
+        spots += [middle + keeper.width // 2 + 4 + i * 13 for i in range(len(icons) - len(spots))]
+    ground = shelf + keeper.height  # where she stands (her feet behind the counter)
     img = Image.new("RGBA", (width, ground + 2), (0, 0, 0, 0))
     px = img.load()
 
@@ -987,13 +1247,14 @@ def shop_stall(shop) -> Image.Image:
                     colour = WOOD["board"] if (x - x0) % 6 == 0 else (WOOD["dark"] if y >= y1 - 2 else WOOD["plank"])
                 px[x, y] = (*colour, 255)
 
-    plank(shelf - 1, shelf + 2, 0, width, front=False)
-    for i, icon in enumerate(icons):  # each ware on the shelf, standing on it
-        x0 = (width - (len(icons) * 13 - 1)) // 2 + i * 13
-        img.alpha_composite(icon, (x0, shelf - 1 - icon.getbbox()[3] if icon.getbbox() else shelf - 13))
+    if shelf:
+        plank(shelf - 1, shelf + 2, 0, width, front=False)
     img.alpha_composite(keeper, ((width - keeper.width) // 2, ground - keeper.height))
     plank(ground - 7, ground - 5, 1, width - 1, front=False)  # the counter top, at her waist
     plank(ground - 6, ground + 2, 2, width - 2, front=True)
+    stand = shelf - 1 if shelf else ground - 7  # each ware stands on the shelf, or on the counter
+    for x0, icon in zip(spots, icons):
+        img.alpha_composite(icon, (x0, stand - icon.getbbox()[3] if icon.getbbox() else stand - 12))
     return img
 
 
@@ -1005,10 +1266,22 @@ def draw(state: GameState, content: Content, width: int, height: int, room: Room
     return Picture(state, content, width, height, room).draw()
 
 
-def picture_text(state: GameState, content: Content, width: int, height: int, room: Room | None = None) -> Text | None:
-    """The room you're in (or another on this floor) as half-block text, `width` cells across and height / 2 rows."""
-    img = draw(state, content, width, height, room)
-    return None if img is None else sprites.image_text(img.convert("RGBA"), snap=True)
+def picture_text(state: GameState, content: Content, width: int, height: int, room: Room | None = None,
+                 compass: bool = False) -> Text | None:
+    """The room you're in (or another on this floor) as half-block text, `width` cells across and height / 2 rows.
+    With `compass`, each doorway you can see is marked with the way it goes (N, E, S or W), as on the floor map."""
+    if Image is None:
+        return None
+    picture = Picture(state, content, width, height, room)
+    text = sprites.image_text(picture.draw().convert("RGBA"), snap=True)
+    if not compass:
+        return text
+    lines = text.split("\n")
+    for way, column, row in picture.door_marks():
+        if 0 <= row < len(lines) and 0 <= column < len(lines[row]):
+            line = lines[row]
+            lines[row] = Text.assemble(line[:column], (way[0].upper(), COMPASS), line[column + 1:])
+    return Text("\n", no_wrap=True, overflow="crop").join(lines)
 
 
 def main(argv: list[str]) -> None:

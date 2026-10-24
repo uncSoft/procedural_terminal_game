@@ -56,7 +56,7 @@ def choose(state: GameState, content: Content) -> str:
         if state.room.monster.intent == "heavy":
             return "dodge"
         return "attack"
-    for prefix in ("take", "search:", "chest", "fountain"):  # (take: one thing, take_all: the lot)
+    for prefix in ("take", "equip:", "search:", "chest", "fountain"):  # (take: one thing, take_all: the lot)
         found = next((a for a in actions if a.startswith(prefix)), None)
         if found:
             return found

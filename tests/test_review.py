@@ -13,7 +13,8 @@ from ptg.llm import extras
 from ptg.llm.guard import Rules, check
 from ptg.llm.prompts import narrator_messages, plain, situation, suggestion_situation
 from ptg.models import MonsterState
-from ptg.rules import gain_item, perform_creative, room_facts
+from ptg.inventory import gain
+from ptg.rules import perform, perform_creative, room_facts
 from ptg.world import build_floor, generate
 
 
@@ -55,10 +56,15 @@ def test_an_attempt_is_only_attempted_once(content):
     assert events[0].text.startswith("You attempt to talk down the goblin")
 
 
-def test_gear_you_leave_behind_is_remembered_as_yours(content):
+def test_gear_changing_hands_is_not_a_rooms_memory(content):
+    """'Earlier here: you left your old Rusty Sword here.' stayed after you'd picked it back up (F69)."""
     state = generate(3)
-    gain_item(state, content, "war_pick")
-    assert "rusty_sword" in state.room.items and "you left your old Rusty Sword here" in state.room.history
+    state.room.monster = None
+    gain(state, content, "war_pick")
+    perform(state, content, "equip:war_pick")
+    perform(state, content, "drop:rusty_sword")
+    perform(state, content, "take:rusty_sword")
+    assert not state.room.history and "rusty_sword" in state.player.inventory
 
 
 def test_the_narrator_gets_health_in_words_and_the_setting_once(content):

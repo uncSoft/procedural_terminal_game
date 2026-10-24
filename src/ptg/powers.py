@@ -8,7 +8,8 @@
         cook         resting heals 4 more
         goblin_bane  +2 damage against goblins (a weapon's)
         prophecy     a Fate token each time you go down the stairs, if there's room for it
-        cursed       the stairs take 2 of your most HP each time you go down them carrying it
+        cursed       the stairs take 2 of your most HP each time you go down them carrying it, and it won't leave you
+                     (no dropping, selling or giving it away, nor taking it off) until a shrine lifts the curse
         valuable     30 more souls when your run ends, if you still have it
         eloquent     +1 when you talk: talking a monster down, asking what it knows, bartering
         reeks        monsters' hits do 2 less damage (they don't want to get close)
@@ -19,13 +20,16 @@
         distract     in a fight, once per fight: the monster loses its next attack. You keep it
         reveal       out of a fight: use it up to light the room. Anything hidden shows, and any hidden room behind
                      these walls
-        dazzle       a food: eaten in a fight, you glow and the monster flees the room (not a boss or a guardian)
+        dazzle       a food: eaten in a fight, you glow and the monster flees the room (not a boss, a guardian, the
+                     stairs' warden, a ghost or a character)
 
 An item can also change your stats while you carry it, with `stats` (Lenny's Bad Tooth: {might = 1, wits = -1}; max_hp
-too). settle_stats applies the difference each turn, so dropping or using it up takes it back.
+too). settle_stats applies the difference each turn, so dropping or using it up takes it back. (Extra max HP comes
+with as much HP only the first time a thing gives it.)
 
-Carrying means in your pack, or as your weapon or armor. Two of the same item count once. (The Lucky Rabbit's Foot's
-extra Fate is older than this and lives in Player.max_fate.)
+Carrying means in your pack, but a weapon or armor works only while it's on: in your hand or on your back, not as a
+spare in your pack. Two of the same item count once. A curse a shrine has lifted is gone (see inventory.py). (The Lucky
+Rabbit's Foot's extra Fate is older than this and lives in Player.max_fate.)
 """
 
 from __future__ import annotations
@@ -44,7 +48,7 @@ POWERS = {
     "cook": "resting heals 4 more",
     "goblin_bane": "+2 damage against goblins",
     "prophecy": "a Fate token each time you go down the stairs",
-    "cursed": "cursed: the stairs take 2 of your most HP each time",
+    "cursed": "cursed: it won't leave you, and the stairs take 2 of your most HP each time (a shrine lifts it)",
     "valuable": "30 more souls when your run ends, if you still have it",
     "eloquent": "+1 when you talk: talking monsters down, asking, bartering",
     "reeks": "monsters' hits do 2 less damage: they don't want to get close",
@@ -52,7 +56,7 @@ POWERS = {
     "throw": "throw it in a fight (it's gone after)",
     "distract": "distracts a monster once a fight: it loses its next attack",
     "reveal": "light the room with it: anything hidden shows (it's gone after)",
-    "dazzle": "eat it in a fight and you glow: the monster flees (not a boss)",
+    "dazzle": "eat it in a fight and you glow: the monster flees (not a boss or a character)",
 }
 SHORT = {  # a power in a few words, for an item's tile
     "luck": "+1 every roll", "seeker": "+1 searching", "careful": "+2 lockpicking", "unseen": "+2 dodge & flee",
@@ -66,17 +70,27 @@ PICKED_UP = {"bomb": "for walls and monsters", "small_key": "opens a chest"}  # 
 ROLLS = {"luck": (1, None), "seeker": (1, {"search"}), "careful": (2, {"disarm"}), "unseen": (2, {"dodge", "flee"}),
          "eloquent": (1, {"talk", "ask", "barter"})}
 GOBLINS = {"goblin", "goblinoid"}  # monster tags a goblin-bane weapon bites
+GEAR = ("weapon", "armor")  # what works only while it's on
 
 
 def carried(state: GameState, content: Content) -> list[ItemDef]:
-    """Everything you have on you: weapon, armor and pack, each item once."""
+    """Everything that works for you: your weapon and armor, and whatever else is in your pack (a spare weapon or
+    armor does nothing until it's on), each item once."""
     player = state.player
-    keys = dict.fromkeys(k for k in [player.weapon, player.armor, *player.inventory] if k)
+    pack = [k for k in player.inventory if content.item(k).kind not in GEAR]
+    keys = dict.fromkeys(k for k in [player.weapon, player.armor, *pack] if k)
     return [content.item(k) for k in keys]
 
 
+def powers_of(state: GameState, item: ItemDef) -> list[str]:
+    """An item's powers as they stand: one whose curse a shrine has lifted isn't cursed any more."""
+    if "cursed" in item.powers and item.key in state.player.lifted:
+        return [p for p in item.powers if p != "cursed"]
+    return item.powers
+
+
 def holders(state: GameState, content: Content, power: str) -> list[ItemDef]:
-    return [item for item in carried(state, content) if power in item.powers]
+    return [item for item in carried(state, content) if power in powers_of(state, item)]
 
 
 def has(state: GameState, content: Content, power: str) -> bool:
@@ -88,7 +102,7 @@ def roll_bonuses(state: GameState, content: Content, kind: str) -> list[tuple[st
     "creative", "throw"), each under its item's name so the dice show where it came from."""
     bonuses = []
     for item in carried(state, content):
-        for power in item.powers:
+        for power in powers_of(state, item):
             value, kinds = ROLLS.get(power, (0, set()))
             if value and (kinds is None or kind in kinds):
                 bonuses.append((item.name, value))
@@ -117,14 +131,22 @@ def stat_changes(state: GameState, content: Content) -> dict[str, int]:
 
 def settle_stats(state: GameState, content: Content) -> None:
     """Bring your stats in line with what you carry now: what carried things add is kept in item_stats, and only the
-    difference changes. More max HP comes with as much HP; less leaves you no more than the new most (and at least 1)."""
+    difference changes. More max HP comes with as much HP, but only the first time a thing gives it (hp_given): put down
+    and picked up again, or taken off and put on, it gives back the room and not the HP, so it can't heal you over and
+    over. Less leaves you no more than the new most (and at least 1). Fate too: no more tokens than you have room for
+    (the Lucky Rabbit's Foot gone, its extra one goes with it)."""
     player = state.player
     wanted = stat_changes(state, content)
+    fresh = [item for item in carried(state, content)
+             if item.stats.get("max_hp", 0) > 0 and item.key not in player.hp_given]
+    player.hp_given += [item.key for item in fresh]
     for stat in set(wanted) | set(player.item_stats):
         change = wanted.get(stat, 0) - player.item_stats.get(stat, 0)
         if not change:
             continue
         setattr(player, stat, getattr(player, stat) + change)
         if stat == "max_hp":
-            player.hp = max(1, min(player.max_hp, player.hp + max(0, change)))
+            given = sum(item.stats["max_hp"] for item in fresh)
+            player.hp = max(1, min(player.max_hp, player.hp + given))
     player.item_stats = wanted
+    player.fate = min(player.fate, player.max_fate())

@@ -6,7 +6,8 @@ from conftest import put_monster
 from ptg import loot
 from ptg.combat import defeat
 from ptg.models import DELTA
-from ptg.rules import available_actions, bombable_walls, gain_item, hidden_room_beside, perform
+from ptg.inventory import gain
+from ptg.rules import available_actions, bombable_walls, hidden_room_beside, perform
 from ptg.world import build_floor, generate
 
 
@@ -22,7 +23,7 @@ def beside_the_secret_room(seed=11):
 
 def test_bombs_and_keys_go_on_counters(content):
     state = generate(1)
-    events = gain_item(state, content, "bomb") + gain_item(state, content, "small_key")
+    events = gain(state, content, "bomb") + gain(state, content, "small_key")
     assert (state.player.bombs, state.player.keys) == (2, 1)
     assert "bomb" not in state.player.inventory and "small_key" not in state.player.inventory
     assert [e.data["item"] for e in events] == ["bomb", "small_key"]  # so they get loot cards

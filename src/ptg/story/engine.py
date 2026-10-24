@@ -3,18 +3,22 @@
 Like the rules, it only changes GameState, so a Fate reroll rewinds it cleanly. Anything that has to
 outlive the run (events seen, marks, secrets) goes out as events, and Game commits them to the profile
 once the turn is final.
+
+The characters' stories are npcs.py's, and a story file can read and move them: "if: npc lucky_lenny met", "[npc
+lucky_lenny done]", "when: meet swoogy_the_gooey" (the first time you see him this run), "when: gain
+lenny_s_bad_tooth" (when it comes your way).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .. import dice
+from .. import dice, inventory, npcs
 from ..combat import defeat
 from ..content import Content
 from ..events import Action, Event
 from ..models import GameState, MonsterState, SceneState
-from ..rules import apply_perk, check_level, gain_item
+from ..rules import apply_perk, check_level
 from ..text import a, cap
 from .model import PLACEHOLDER, PLACEHOLDERS, Effect, Node, StoryEvent
 from .parser import Library, normalize
@@ -37,6 +41,14 @@ def fill(text: str, state: GameState) -> str:
         return str(ghost.get(PLACEHOLDERS.get(name, ""), "") or STAND_INS.get(name, match.group(0)))
 
     return PLACEHOLDER.sub(value, text)
+
+
+def gained(event: Event) -> bool:
+    """Whether an event is something coming your way (picked up, bought, given, won: inventory.moved), not a move
+    of what's yours already (putting it on or taking it off)."""
+    data = event.data
+    return bool(data.get("item")) and data.get("to") in ("pack", "weapon", "armor", "counter") and \
+        data.get("how") not in ("equip", "unequip") and data.get("from") not in ("pack", "weapon", "armor")
 
 
 @dataclass
@@ -85,10 +97,14 @@ class StoryEngine:
         for event in list(events):
             if event.kind in ("enter", "descend"):
                 out += self._trigger(state, "enter_room", {"first": bool(event.data.get("first"))})
+            elif event.data.get("met"):  # a character's first look at you this run (npcs.react)
+                out += self._trigger(state, "meet", {"monster": event.data["met"]})
             elif event.kind in ("defeat", "pacify") and event.data.get("monster"):
                 out += self._trigger(state, event.kind, {"monster": event.data["monster"]})
             elif event.dice and event.dice.actor == "player" and (event.dice.crit or event.dice.fumble):
                 out += self._trigger(state, "roll", {"roll": "nat20" if event.dice.crit else "nat1"})
+            elif gained(event):
+                out += self._trigger(state, "gain", {"item": event.data["item"]})
             if state.scene or state.over:
                 return out
         return out + self._trigger(state, "turn", {})
@@ -117,6 +133,9 @@ class StoryEngine:
                 continue
             if trigger == "roll" and event.trigger_args[0] != context.get("roll"):
                 continue
+            named = context.get("monster") if trigger == "meet" else context.get("item")
+            if trigger in ("meet", "gain") and event.trigger_args and event.trigger_args[0] != named:
+                continue  # (when: meet lucky_lenny: him, not whoever)
             if event.is_scene and (state.scene or (state.in_combat and not self._about_the_fight(state, event))):
                 continue
             if self._eligible(state, event, context):
@@ -170,6 +189,10 @@ class StoryEngine:
         if name == "monster":
             here = context.get("monster") or (room.monster.key if room.monster else "")
             return here == value
+        if name == "npc":  # "npc lucky_lenny done": where his story's got to; "npc lucky_lenny": met him at all
+            key, _, wanted = value.partition(" ")
+            now = npcs.stage(state, key)
+            return now == wanted if wanted else now != "unknown"
         if name == "in_combat":
             return state.in_combat
         if name == "first_visit":
@@ -180,10 +203,11 @@ class StoryEngine:
 
     @staticmethod
     def _about_the_fight(state: GameState, event: StoryEvent) -> bool:
-        """Whether an event is about the monster you're fighting (if: monster ghost). Only such a scene plays out in
-        the middle of a fight, and the fight waits while it does."""
+        """Whether an event is about the monster you're fighting (if: monster ghost, or when: meet king_mouse). Only
+        such a scene plays out in the middle of a fight, and the fight waits while it does."""
         here = state.room.monster.key if state.room.monster else ""
-        return any(c.name == "monster" and not c.negate and c.value == here for c in event.conditions)
+        return any(c.name == "monster" and not c.negate and c.value == here for c in event.conditions) or \
+            (event.trigger == "meet" and event.trigger_args == [here])
 
     # --- scenes -----------------------------------------------------------------
 
@@ -295,12 +319,17 @@ class StoryEngine:
                 player.xp += amount
                 notes.append(f"+{amount} XP")
                 leveled = True
-            elif verb == "give":
-                notes += [e.text for e in gain_item(state, content, args[0])]
-            elif verb == "take":
-                if args[0] in player.inventory:
-                    player.inventory.remove(args[0])
-                    notes.append(f"lost the {content.item(args[0]).name}")
+            elif verb == "give":  # into your pack (or straight on, gear for an empty slot): its card shows it
+                for gained in inventory.gain(state, content, args[0], "story", event.id):
+                    notes.append(gained.text)  # (told on the card, unless the narrator tells the event)
+                    told = gained.text if event.voice == "narrated" else ""
+                    out.append(Event(gained.kind, told, data={**gained.data, "told_by": event.voice}))
+            elif verb == "take":  # from your pack, your back, a counter, or your hand if you've another weapon
+                lost, note = inventory.lose(state, content, args[0])
+                notes.append(note)
+                if lost:
+                    told = f"You {note}." if event.voice == "narrated" else ""
+                    out.append(Event("lose", told, data={**lost, "told_by": event.voice}))
             elif verb == "perk":
                 if apply_perk(state, content, args[0]):
                     notes.append(f"perk: {content.perks[args[0]].name}")
@@ -319,6 +348,8 @@ class StoryEngine:
                                  data={"event": target.id, "title": target.title}))
             elif verb == "calm":
                 notes += self._calm(state, event, out)
+            elif verb == "npc":  # a character's story moved on, and the character with it (npcs.set_stage)
+                npcs.set_stage(state, args[0], args[1])
             elif verb == "spawn":
                 monster_def = content.monster(args[0])
                 state.room.monster = MonsterState(key=monster_def.key, name=monster_def.name,

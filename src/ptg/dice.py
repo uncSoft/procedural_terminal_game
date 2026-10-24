@@ -18,6 +18,15 @@ def roll(expr: str, rng: random.Random) -> int:
     return total + (int(bonus.replace(" ", "")) if bonus else 0)
 
 
+def average(expr: str) -> float:
+    """What a roll comes to on average: "2d6+2" is 9."""
+    match = _DICE.match(expr)
+    if not match:
+        raise ValueError(f"bad dice expression: {expr!r}")
+    count, sides, bonus = int(match.group(1)), int(match.group(2)), match.group(3)
+    return count * (sides + 1) / 2 + (int(bonus.replace(" ", "")) if bonus else 0)
+
+
 def d20(rng: random.Random) -> int:
     return rng.randint(1, 20)
 

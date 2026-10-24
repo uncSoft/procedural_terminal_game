@@ -486,7 +486,7 @@ desc = "PIZZA!!!... wait I have to eat both?  Long way down the evolution line o
 
 # drawn by BelleDaBest (2026-10-24)
 [item.king_mouses_vest]
-name = "King Mouses Vest"
+name = "King Mouse's Vest"
 kind = "armor"
 defense = 2
 tier = 1

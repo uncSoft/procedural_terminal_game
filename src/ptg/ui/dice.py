@@ -1,6 +1,9 @@
 """The big dice moment, Baldur's Gate 3 style: you press Space (or click), the d20 tumbles and lands, the bonuses
 add up one at a time, and the result is stamped in the colour of how it went. A failed check can be rerolled with
-a Fate token."""
+a Fate token.
+
+The box keeps one size from the roll to the verdict (the Fate button's row is there from the start, empty till it's
+wanted), and it fits the screen: on a short one without blank lines, on a tiny one with a smaller die."""
 
 from __future__ import annotations
 
@@ -18,24 +21,24 @@ from textual.widgets import Static
 
 from .. import sound
 from ..dice import Roll
-from ..dice_art import CRIMSON, GOLD, d20
+from ..dice_art import CRIMSON, GOLD, SIZE, SMALL_SIZE, d20
 from ..outcome import AWFUL, BAD, GOOD, GREAT, NEUTRAL
 from ..sprites import side_by_side
 from . import effects
-from .widgets import Clickable
+from .widgets import TINY, Clickable
 
 VERDICTS = {GREAT: "★  CRITICAL SUCCESS  ★", GOOD: "✔  SUCCESS", NEUTRAL: "•  {word}", BAD: "✘  FAILURE",
             AWFUL: "✖  CRITICAL FAIL  ✖"}
 
 
 def dice_row(values: list[int | None], turn: int | None = None, bounce: int = 0, glows: list | None = None,
-             dims: list[bool] | None = None) -> Text:
-    """One or two pixel d20s side by side. While they tumble (`turn` given) each turns out of step with the
-    other; once they land they sit upright."""
+             dims: list[bool] | None = None, size: int = SIZE) -> Text:
+    """One or two pixel d20s side by side, `size` pixels across. While they tumble (`turn` given) each turns out of
+    step with the other; once they land they sit upright."""
     glows = glows or [None] * len(values)
     dims = dims or [False] * len(values)
     turns = [0 if turn is None else (turn + i) % 4 for i in range(len(values))]
-    return side_by_side([d20(v, t, bounce, g, d) for v, t, g, d in zip(values, turns, glows, dims)], gap=2)
+    return side_by_side([d20(v, t, bounce, g, d, size) for v, t, g, d in zip(values, turns, glows, dims)], gap=2)
 
 
 class DiceScreen(ModalScreen[str]):
@@ -58,8 +61,10 @@ class DiceScreen(ModalScreen[str]):
         self.can_reroll = can_reroll
         self.auto = auto
         self.stage = "ready"  # ready -> rolling -> done
+        self.die = SIZE  # how big the dice are drawn (smaller on a tiny screen: see compose)
 
     def compose(self) -> ComposeResult:
+        self.die = SIZE if self.app.size.height >= TINY else SMALL_SIZE
         with Vertical(id="dice-box") as box:
             box.border_title = f"{self.roll.label.upper()} CHECK"
             yield Static(Text(self.summary, style="italic #c8c8e0"), id="dice-summary")
@@ -69,12 +74,12 @@ class DiceScreen(ModalScreen[str]):
             yield Static("", id="dice-bonuses")
             yield Static("", id="dice-verdict")
             hint = "two dice: keep the best" if self.roll.advantage > 0 else ""
-            with Center():
-                yield Clickable("", action="screen.reroll", id="dice-fate")  # shown when a failed roll can be rerolled
+            with Center():  # (its row is kept for it: it shows when a failed roll can be rerolled)
+                yield Clickable(Text(" "), action="screen.reroll", id="dice-fate")
             yield Static(Text(f"[space] or click to roll the dice   {hint}", style="#ffb000"), id="dice-prompt")
 
     def _idle_faces(self) -> Text:
-        return dice_row([None] * len(self.roll.dice))
+        return dice_row([None] * len(self.roll.dice), size=self.die)
 
     def on_mount(self) -> None:
         if self.auto:
@@ -112,7 +117,7 @@ class DiceScreen(ModalScreen[str]):
         for i in range(14):
             values = [random.randint(1, 20) for _ in range(count)]
             bounce = (2, 0, 1, 0)[i % 4] if i < 10 else 0
-            dice_widget.update(dice_row(values, turn=i, bounce=bounce))
+            dice_widget.update(dice_row(values, turn=i, bounce=bounce, size=self.die))
             await asyncio.sleep(0.03 + i * 0.012)
         kept_index = roll.dice.index(roll.kept)
         glows = [None] * count
@@ -121,7 +126,7 @@ class DiceScreen(ModalScreen[str]):
         elif roll.fumble:
             glows[kept_index] = CRIMSON
         dims = [i != kept_index for i in range(count)]  # with advantage, the die you don't keep greys out
-        dice_widget.update(dice_row(list(roll.dice), glows=glows, dims=dims))
+        dice_widget.update(dice_row(list(roll.dice), glows=glows, dims=dims, size=self.die))
         sound.play("dice_land")
         await asyncio.sleep(0.25)
 
@@ -151,7 +156,7 @@ class DiceScreen(ModalScreen[str]):
                             style=f"bold {'reverse ' if big else ''}{effects.COLORS[how]}"))
         box.add_class(f"tone-{how}")
         glows[kept_index] = effects.rgb(how)
-        dice_widget.update(dice_row(list(roll.dice), glows=glows, dims=dims))
+        dice_widget.update(dice_row(list(roll.dice), glows=glows, dims=dims, size=self.die))
         effects.flash(verdict, how)
         sound.play(how)
         if big:
@@ -161,7 +166,7 @@ class DiceScreen(ModalScreen[str]):
         if not roll.success and self.can_reroll:
             fate = self.query_one("#dice-fate", Clickable)
             fate.update(Text(f" ✦ Spend Fate to reroll ({self.fate} left) ", style="bold #10122a on #ffd166"))
-            fate.display = True
+            fate.add_class("-shown")  # (into the row kept for it: the box doesn't grow)
             prompt.append("[f] reroll     [enter] or click anywhere to accept", style="#9a9cc0")
         else:
             prompt.append("[enter] or click to continue", style="#9a9cc0")

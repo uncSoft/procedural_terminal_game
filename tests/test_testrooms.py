@@ -108,3 +108,39 @@ def test_the_command_line_lists_them(capsys):
     main(["--test-room", "list"])
     out = capsys.readouterr().out
     assert "lenny" in out and "shiny_shop" in out and "goblin_king" in out and "Kits: new" in out
+
+
+def test_the_tooth_or_the_key_in_your_pack_is_the_only_one(content):
+    """18 Lenny test rooms in 60 hid a second tooth on the floor, and Lenny let slip where it was while you held one."""
+    def on_the_floor(state, key):
+        return sum(r.items.count(key) + sum(f.loot.count(key) for f in r.features) for r in state.rooms)
+
+    for seed in range(60):
+        state = testrooms.build(content, "lenny", "strong", seed=seed)
+        assert state.player.inventory.count(npcs.BAD_TOOTH) == 1 and on_the_floor(state, npcs.BAD_TOOTH) == 0
+        assert npcs.tooth_spot(state) is None
+    for seed in range(10):
+        state = testrooms.build(content, "goblin_king", "new", seed=seed)
+        assert on_the_floor(state, content.themes[state.theme].key_item) == 0
+
+
+async def test_lenny_still_missing_his_tooth(content, profile):
+    """The Lenny room always put his tooth in your pack, so the half of his quest a player meets first (Lenny without
+    it, his telling you where, finding it) couldn't be tried (F79)."""
+    for seed in range(20):
+        state = testrooms.build(content, "lenny_quest", "strong", seed=seed)
+        teeth = [(r, f) for r in state.rooms for f in r.features if npcs.BAD_TOOTH in f.loot]
+        assert npcs.BAD_TOOTH not in state.player.inventory and len(teeth) == 1 and teeth[0][1].hidden
+        assert teeth[0][0] not in (state.room, testrooms.target(state)) and state.quests == {}
+    state = testrooms.build(content, "lenny_quest", "new", seed=4)
+    game = Game(state, Config(backend="offline"), None, content, profile)
+    result = await do(game, f"go:{way_to(state)}")
+    assert [e.data["moment"] for e in result.events if e.kind == "story"] == ["meet"]
+    result = await do(game, f"talk:{npcs.LENNY}")
+    assert any(e.kind == "tip" for e in result.events) and npcs.tooth_spot(state) is None  # (on your map now)
+
+
+def test_lenny_with_his_tooth_is_as_if_you_found_it_first(content):
+    state = testrooms.build(content, "lenny", "new", seed=4)
+    assert state.quests == {npcs.LENNY: "found_item"} and testrooms.floor_for(content, "lenny_quest") == 1
+    assert testrooms.build(content, "lenny_quest", "new", floor=2, seed=4).floor == 2  # (his floor can be 1 or 2)

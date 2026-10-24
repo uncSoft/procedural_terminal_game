@@ -45,3 +45,22 @@ def test_every_problem_is_reported_at_once():
 def test_valid_edits_still_load():
     content = build_content(edited("monsters.toml", "hp = 8\n", "hp = 1\n"))
     assert content.monster("goblin").hp == 1
+
+
+@pytest.mark.parametrize("old,new,message", [
+    ("meet = \"WOAH", "meeet = \"WOAH", "dialogue.toml [lucky_lenny]: unknown moment 'meeet' (did you mean 'meet'?)"),
+    ("[king_mouse]", "[king_mice]", "dialogue.toml [king_mice]: there's no monster 'king_mice' in monsters.toml"),
+    ('lying = "You found it!', 'lying = "You found it, {player}!', "lying has a blank the game can't fill, {player}"),
+    ('missing = "My tooth', 'missing = 7\nx = "My tooth', "missing must be a line in quotes, or a list of them"),
+])
+def test_bad_lines_are_explained(old, new, message):
+    """The characters' lines (dialogue.toml) are checked like the rest of the data: a typo says where it is."""
+    with pytest.raises(ContentError) as error:
+        build_content(edited("dialogue.toml", old, new))
+    assert message in str(error.value)
+
+
+def test_the_lines_load_one_or_a_list():
+    content = build_content()
+    lenny = content.dialogue["lucky_lenny"]
+    assert len(lenny["meet"]) == 1 and len(lenny["point"]) == 3 and "{feature}" in lenny["point"][0]

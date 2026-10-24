@@ -21,6 +21,7 @@ from .game_screen import GameScreen
 from .hub import EndScreen, HubScreen
 from .screens import AbandonScreen, IntroScreen, SetupScreen, TitleScreen, describe_backend
 from .theme import CRT
+from .widgets import TALL, TINY, WIDE
 
 
 class PTGApp(App):
@@ -28,6 +29,10 @@ class PTGApp(App):
     TITLE = "Procedural Terminal Game"
     BINDINGS = [Binding("f8", "toggle_sound", "Sound"), Binding("f12", "debug", "Debug", show=False),
                 Binding("ctrl+l", "redraw", "Redraw", show=False)]
+    # How big the terminal is, as a class on every screen (a pop-up's too) to style it by in app.tcss: -narrow or
+    # -wide, and -tiny, -short or -tall (see widgets.WIDE, TALL and TINY).
+    HORIZONTAL_BREAKPOINTS = [(0, "-narrow"), (WIDE, "-wide")]
+    VERTICAL_BREAKPOINTS = [(0, "-tiny"), (TINY, "-short"), (TALL, "-tall")]
     REDRAW_EVERY = 6  # turns between the game's own redraws (see action_redraw)
 
     def __init__(self, config: Config | None, seed: int | None = None, setup: bool = False,

@@ -87,6 +87,24 @@ async def test_the_art_tab_animates_any_pose():
         assert art.query_one(debug.PoseSprite).pose == "windup"  # the next sprite keeps the pose
 
 
+async def test_the_art_tab_points_out_art_drawn_small_and_custom_colours():
+    """Art in under half its frame looks tiny in the game; colours off the maker's palette are one more to draw."""
+    app = PTGApp(Config(backend="offline"))
+    async with app.run_test(size=(140, 44)) as pilot:
+        await pilot.pause()
+        app.push_screen(DebugScreen("art"))
+        await pilot.pause(0.3)
+        table = tab(app, debug.ArtTab).query_one(DataTable)
+        fills = list(debug.ArtTab.columns).index("Fills")
+        torch, goblin = table.get_row("item_torch")[fills], table.get_row("goblin")[fills]
+        assert torch.plain == "38%" and str(torch.style) == debug.WARN
+        assert not str(goblin.style)
+    assert "draw it bigger" in debug.fills_line("item_torch").plain
+    assert "draw it bigger" not in debug.fills_line("item_davy_j_skull").plain
+    assert "#fbff00" in debug.colours_line("item_hard_hat").plain
+    assert debug.colours_line("item_pizza_rat").plain.endswith("all from the maker's palette")
+
+
 async def test_ptg_debug_opens_it_straight_away():
     app = PTGApp(Config(backend="offline"), debug=True)
     async with app.run_test(size=(140, 44)) as pilot:

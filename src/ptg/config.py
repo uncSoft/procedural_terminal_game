@@ -37,6 +37,13 @@ def hosted() -> bool:
     return os.environ.get("PTG_HOSTED") == "1"
 
 
+def touch() -> bool:
+    """Played with a finger (`ptg serve`'s page sets PTG_TOUCH=1 when the browser's pointer is a touch screen):
+    things to tap want to be bigger. It follows the input, not the size: a phone turned sideways is still a finger,
+    and a small window on a laptop is still a mouse."""
+    return os.environ.get("PTG_TOUCH") == "1"
+
+
 def home() -> Path:
     path = Path(os.environ.get("PTG_HOME", Path.home() / ".ptg"))
     path.mkdir(parents=True, exist_ok=True)

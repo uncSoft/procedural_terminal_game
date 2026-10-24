@@ -216,7 +216,7 @@ footer { color: var(--dim); font-size: 13px; text-align: center; padding: 16px; 
             <button data-frame="0" aria-pressed="true">Frame 1</button>
             <button data-frame="1" aria-pressed="false">Frame 2</button>
           </div>
-          <button class="btn" id="auto-wiggle" title="Frame 2 = frame 1, one pixel lower: the idle bob the game's sprites use">Make it bob</button>
+          <button class="btn" id="auto-wiggle" title="Frame 2 = frame 1 sinking a pixel, feet planted: the idle bob the game's sprites use">Make it bob</button>
           <button class="btn" id="copy-frame" title="Copy frame 1 into frame 2">Copy 1 → 2</button>
         </div>
         <div class="grid-wrap"><canvas id="grid" aria-label="Drawing grid, 24 by 24"></canvas></div>
@@ -516,7 +516,13 @@ function decodeArt(art, size = SIZE) {  // careful: saved art comes from anyone
   return frames;
 }
 const hasPixels = px => px.some(Boolean);
-function bobbed(px, size = SIZE) { const out = blank(size); for (let i = 0; i < size * (size - 1); i++) out[i + size] = px[i]; return out; }
+// The idle bob the game's sprites use (ptg/library.py bob): the feet stay put and the rest sinks a pixel.
+function bobbed(px, size = SIZE) {
+  const out = blank(size), feet = size - Math.max(1, Math.floor(size * 5 / 24));
+  for (let i = 0; i < size * feet; i++) out[i + size] = px[i];
+  for (let i = size * feet; i < size * size; i++) if (px[i]) out[i] = px[i];
+  return out;
+}
 const shownFrames = c => hasPixels(c.frames[1]) ? c.frames : [c.frames[0], bobbed(c.frames[0])];
 const shownSmall = c => hasPixels(c.small[1]) ? c.small : [c.small[0], bobbed(c.small[0], SMALL)];
 function paintTo(canvas, px, size = SIZE) {

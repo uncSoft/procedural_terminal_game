@@ -8,7 +8,8 @@ from ptg.creative import available_props, clamp_intent, match_props, spends
 from ptg.intent import Intent
 from ptg.llm.prompts import player_status
 from ptg.models import Feature
-from ptg.rules import TRAITS, available_actions, check_traits, gain_item, perform, perform_creative, room_facts
+from ptg.inventory import gain
+from ptg.rules import TRAITS, available_actions, check_traits, perform, perform_creative, room_facts
 from ptg.world import build_floor, generate
 
 
@@ -287,24 +288,28 @@ def test_weakness_gives_advantage_and_is_learned(content):
 
 
 def test_what_you_hand_over_is_gone_even_if_the_interpreter_forgets(content):
-    """Bribing an orc with stale bread leaves the bread with the orc, though the model only said it was used."""
+    """Bribing an orc with stale bread leaves the bread with the orc, though the model only said it was used (if the
+    bribe works: if it doesn't, the bread's still yours). What a stunt only shows, it keeps; and a spare weapon thrown
+    at it lands at its feet, not used up."""
     state = generate(3)
-    put_monster(state, content, key="orc", hp=200)
+    orc = put_monster(state, content, key="orc", hp=200)
     state.player.inventory += ["stale_bread", "lucky_charm", "hand_axe"]
-    perform_creative(state, content, creative(success_effects=["pacify"], uses=["Stale Bread"],
-                                              summary="bribe the orc with the stale bread"))
-    assert "stale_bread" not in state.player.inventory
     perform_creative(state, content, creative(success_effects=["stun"], uses=["Lucky Rabbit's Foot"],
                                               summary="rub the lucky rabbit's foot and glare at the orc"))
     perform_creative(state, content, creative(success_effects=["damage_small"], uses=["Hand Axe"],
                                               summary="throw the hand axe at the orc"))
-    assert {"lucky_charm", "hand_axe"} <= set(state.player.inventory)  # only shown; and gear is never assumed spent
+    assert "lucky_charm" in state.player.inventory and state.room.items == ["hand_axe"]
+    state.player.wits = 50
+    perform_creative(state, content, creative(success_effects=["pacify"], uses=["Stale Bread"],
+                                              summary="bribe the orc with the stale bread"))
+    assert "stale_bread" not in state.player.inventory and not orc.hostile
     assert spends("tossing it") and spends("he threw") and spends("emptied the vial") and spends("dropped bait")
     assert not spends("rub the charm") and not spends("hide behind the table")
 
 
 def test_what_a_stunt_throws_or_pours_is_gone_though_the_interpreter_lists_nothing(content):
-    """The model can leave `uses` and `consumes` empty, or name only what the holy water is poured on."""
+    """The model can leave `uses` and `consumes` empty, or name only what the holy water is poured on. (Splashed on
+    the goblin, it's thrown at it: gone, hit or miss. Poured over the altar, a stunt: gone if it works.)"""
     state = generate(3)
     put_monster(state, content, hp=200)
     state.room.features.append(Feature(name="a stone altar"))
@@ -314,10 +319,12 @@ def test_what_a_stunt_throws_or_pours_is_gone_though_the_interpreter_lists_nothi
     _, events = perform_creative(state, content, creative(success_effects=["damage_small"],
                                                           summary="splash the holy water on the goblin"))
     assert state.player.inventory.count("holy_water") == 1
-    assert "The Vial of Holy Water is used up." in [e.text for e in events]
-    perform_creative(state, content, creative(success_effects=["stun"], uses=["stone altar"],
-                                              summary="pour holy water over the altar"))
+    assert (events[0].data["item"], events[0].data["how"], events[0].data["to"]) == ("holy_water", "throw", "gone")
+    state.player.wits = 50
+    _, events = perform_creative(state, content, creative(success_effects=["stun"], uses=["stone altar"],
+                                                          summary="pour holy water over the altar"))
     assert "holy_water" not in state.player.inventory
+    assert "The Vial of Holy Water is used up." in [e.text for e in events]
 
 
 def test_choices_say_how_many_you_carry_and_using_one_says_what_is_left(content):
@@ -343,7 +350,8 @@ def test_a_weakness_is_cheered_only_when_the_attempt_works(content):
         state.player.inventory.append("oil_flask")
         state.player.wits = 50
         _, events = perform_creative(state, content, creative(success_effects=["damage_small"], difficulty=difficulty,
-                                                              uses=["Flask of Lamp Oil"], summary="hurl the oil at it"))
+                                                              uses=["Flask of Lamp Oil"],
+                                                              summary="set the troll's beard alight with the oil"))
         assert events[0].data["success"] is works and "fire" in state.known_weak["troll"]  # learned either way
         assert ("That's the Troll's weakness: fire!" in [e.text for e in events]) is works
 
@@ -425,7 +433,8 @@ def test_a_prop_is_spent_once_its_stunt_works(content):
     assert feature.used == "topple it onto the goblin"
     assert feature.name not in [p.name for p in available_props(state, content)]  # no farming the same prop
     facts = room_facts(state, content)
-    assert "already used: topple it onto the goblin" in facts and "topple it onto the goblin (it worked)" in facts
+    assert "already used: topple it onto the goblin" in facts
+    assert "you tried to topple it onto the goblin, and it worked" in facts
 
 
 def test_a_failed_stunt_leaves_the_prop_for_another_try(content):
@@ -436,13 +445,13 @@ def test_a_failed_stunt_leaves_the_prop_for_another_try(content):
     assert not feature.used and not state.room.history
 
 
-def test_swapped_gear_stays_where_you_left_it(content):
+def test_gear_goes_in_your_pack_or_on_into_an_empty_slot(content):
     state = generate(1)
-    old_weapon, old_armor = state.player.weapon, state.player.armor
-    gain_item(state, content, "war_pick")
-    gain_item(state, content, "scale_hauberk")
-    assert state.player.weapon == "war_pick" and old_weapon in state.room.items
-    assert state.player.armor == "scale_hauberk" and (old_armor is None or old_armor in state.room.items)
+    state.player.armor = None
+    gain(state, content, "war_pick")
+    gain(state, content, "scale_hauberk")
+    assert state.player.weapon == "rusty_sword" and "war_pick" in state.player.inventory  # a weapon's always in hand
+    assert state.player.armor == "scale_hauberk" and not state.room.items  # nothing tossed on the floor
 
 
 def test_rooms_remember_what_happened_in_them(content):
@@ -458,3 +467,231 @@ def test_rooms_remember_what_happened_in_them(content):
     back = next(d for d, e in state.room.exits.items() if e.to == start.id)
     events = perform(state, content, f"go:{back}")
     assert start.history == ["you killed the Goblin"] and "Earlier here: you killed the Goblin." in events[0].text
+
+
+# --- what the audit found (W1) ------------------------------------------------
+
+def calm(state, content, key):
+    """A creature here that isn't fighting you (Lucky Lenny, or one you've talked down)."""
+    monster = put_monster(state, content, key=key)
+    monster.hostile, monster.mood = False, "tooth" if key == "lucky_lenny" else ""
+    return monster
+
+
+def test_killing_what_you_talked_down_pays_nothing_more(content):
+    """Run 36 talked the Cursed Wight down (+40 XP, +18 souls), then killed it for +68 XP, +18 souls and 36 gold."""
+    import random
+
+    from ptg.combat import defeat, monster_turn
+
+    state = generate(3)
+    joey = put_monster(state, content, key="baby_joey")
+    joey.stolen_gold, state.player.gold = 15, 0
+    joey.hostile = False
+    defeat(state, content, random.Random(1), how="pacified")
+    assert state.player.gold == 15 and joey.rewarded and not joey.stolen_gold  # his to run off with no more
+    xp, souls, items = state.player.xp, state.souls, list(state.room.items)
+    assert next(a for a in available_actions(state, content) if a.id == "attack").hint == "it's calm · no reward"
+    state.player.might = -50  # a miss: provoked, he gets his go
+    events = perform(state, content, "attack")
+    assert events[0].text == "Baby Joey had stopped fighting. Not any more."
+    assert not any(e.kind == "getaway" for e in events + monster_turn(state, content, random.Random(2)))
+    joey.hp, state.player.might = 1, 50
+    while state.room.monster:
+        events = perform(state, content, "attack")
+    assert (state.player.xp, state.souls, state.player.gold, state.room.items) == (xp, souls, 15, items)
+    assert "No reward this time" in next(e.text for e in events if e.kind == "defeat") and state.player.kills == 1
+
+
+def test_only_the_stairs_own_warden_always_leaves_something(content):
+    """Resting by the stairs once the warden was dead brought an ambusher that dropped a warden's prize."""
+    import random
+
+    from ptg.combat import _kept
+    from ptg.models import GameState
+    from ptg.world import monster_for
+
+    state = generate(1)
+    stairs = next(r for r in state.rooms if r.fixture == "stairs")
+    assert stairs.monster.warden and not any(r.monster.warden for r in state.rooms if r.monster and r is not stairs)
+    state.room_id = stairs.id
+    assert _kept(state, content, random.Random(1), stairs.monster)  # (a small key, on floor 1)
+    stairs.monster = monster_for(random.Random(1), content, state.theme, 1)
+    assert not stairs.monster.warden and _kept(state, content, random.Random(1), stairs.monster) == []
+    old = state.model_dump()  # a save from before wardens were marked
+    stairs.monster.warden = False
+    for rested in (False, True):
+        old["rooms"][stairs.id].update(rested=rested, monster=stairs.monster.model_dump() | {"warden": False})
+        assert GameState.model_validate(old).rooms[stairs.id].monster.warden is not rested
+
+
+def test_resting_beside_someone_or_in_a_shop_brings_no_ambush(content):
+    """Resting beside Lucky Lenny replaced him with an ambusher, for good, in 42 rests out of 200."""
+    from ptg.models import Shop
+
+    state = generate(1)
+    lenny = calm(state, content, "lucky_lenny")
+    for turn in range(40):
+        state.turn, state.room.rested, state.player.hp = turn, False, 5
+        assert next(a for a in available_actions(state, content) if a.id == "rest").hint == "safe here"
+        events = perform(state, content, "rest")
+        assert state.room.monster is lenny and not any(e.kind == "ambush" for e in events)
+    state.room.monster, state.room.shop = None, Shop(keeper="granny_gristle")
+    for turn in range(40):
+        state.turn, state.room.rested, state.player.hp = turn, False, 5
+        assert not any(e.kind == "ambush" for e in perform(state, content, "rest"))
+    state.room.shop, ambushed = None, 0
+    for turn in range(40):  # anywhere else, it's as risky as ever
+        state.turn, state.room.rested, state.room.monster, state.player.hp = turn, False, None, 5
+        ambushed += any(e.kind == "ambush" for e in perform(state, content, "rest"))
+    assert ambushed
+
+
+def test_a_hit_always_hurts(content):
+    """King Mouse, cut down to 1d12+4-5, hit for 0 damage on a roll of 1."""
+    import random
+
+    from ptg import npcs
+    from ptg.combat import monster_turn
+
+    state = generate(3)
+    state.room.monster = npcs.sized(content, npcs.KING_MOUSE, 2, npcs.KING_MOUSE_SIZE, warden=True)
+    state.player.agility, state.player.max_hp = -50, 10_000
+    damage = []
+    for seed in range(200):
+        state.room.monster.intent, state.player.hp = "strike", 10_000
+        events = monster_turn(state, content, random.Random(seed))
+        damage += [e.data["damage"] for e in events if e.kind == "monster_hit"]
+    assert damage and min(damage) >= 1
+
+
+def test_king_mouse_is_as_hard_to_get_past_as_the_warden_he_stands_in_for(content):
+    """Sized at his maker's tier 1, he was easier to dodge and run from, and worth fewer souls, than a warden."""
+    import random
+
+    from ptg import npcs
+    from ptg.combat import defeat, dodge, flee
+
+    state = generate(3)
+    mouse = state.room.monster = npcs.sized(content, npcs.KING_MOUSE, 2, npcs.KING_MOUSE_SIZE, warden=True)
+    assert mouse.tier == 3 and content.monster(npcs.KING_MOUSE).tier == 1  # the floor-2 warden's, not his maker's
+    assert next(e for e in dodge(state, content, random.Random(1)) if e.dice).dice.dc == 12
+    assert next(e for e in flee(state, content, random.Random(1)) if e.dice).dice.dc == 13
+    state.room.monster, souls = mouse, state.souls  # (wherever that left you)
+    defeat(state, content, random.Random(1))
+    assert state.souls - souls == 27  # 3 a tier, three times over
+
+
+def test_running_out_of_a_tangle_leaves_the_vines_behind(content):
+    """Fled from Swamp Bottoms with a smoke bomb, you were still 'tangled in the Goblin's vines' in the next fight."""
+    state = generate(3)
+    swamp = put_monster(state, content, key="swamp_bottoms")
+    state.player.tangled = True
+    state.player.inventory.append("smoke_bomb")
+    perform(state, content, "use:smoke_bomb")
+    assert state.room.monster is not swamp and not state.player.tangled
+    goblin = put_monster(state, content, key="goblin")
+    assert "flee" in ids(state, content) and "tangled" not in room_facts(state, content)
+    goblin.hp, state.player.might, state.player.tangled = 1, 50, True
+    while state.room.monster:
+        perform(state, content, "attack")
+    assert not state.player.tangled  # (no vines once there's no fight)
+
+
+def test_what_you_get_when_you_are_not_hurt_is_not_called_healing(content):
+    """'You eat the Jar o' Light and recover 0 HP', 'The water is cool and clean (+0 HP)'."""
+    import random
+
+    from ptg.creative import _apply_effect
+    from ptg.rules import _fixture
+
+    state = generate(3)
+    put_monster(state, content, key="goblin")
+    state.player.inventory = ["jar_o_light"]
+    events = perform(state, content, "use:jar_o_light")
+    assert events[0].text == "You eat the Jar o' Light." and "0 HP" not in " ".join(e.text for e in events)
+    state.room.monster = None
+    assert _apply_effect(state, content, random.Random(1), "heal_small", 0) == []
+    texts = set()
+    for seed in range(60):
+        state.player.hp, state.room.fixture, state.room.fixture_used = state.player.max_hp, "fountain", False
+        texts |= {e.text for e in _fixture(state, content, random.Random(seed), "fountain")}
+    assert "The water is cool and clean." in texts and not any("+0 HP" in t for t in texts)
+
+
+def test_fate_goes_with_the_rabbits_foot(content):
+    """Spending the Lucky Rabbit's Foot left Fate at 4/3 for the rest of the run."""
+    state = generate(3)
+    state.room.monster = None
+    state.player.inventory.append("lucky_charm")
+    state.player.fate, state.player.wits = 4, 50
+    perform_creative(state, content, creative(success_effects=["find_gold"], consumes=["Lucky Rabbit's Foot"],
+                                              summary="toss the rabbit's foot over your shoulder"))
+    assert "lucky_charm" not in state.player.inventory and state.player.fate == state.player.max_fate() == 3
+
+
+def test_no_dead_end_choices_at_locked_doors_or_a_shrine_with_nothing_to_heal(content):
+    from ptg.rules import locked_doors
+
+    state = generate(11)
+    state.floor = 3
+    build_floor(state, content)
+    gate = next(r for r in state.rooms for e in r.exits.values() if e.locked and not e.key)
+    direction = next(d for d, e in gate.exits.items() if e.locked and not e.key)
+    state.room_id, gate.monster = gate.id, None
+    assert f"go:{direction}" not in ids(state, content)  # nothing to do there yet...
+    assert f"go:{direction}" in [a.id for a in locked_doors(state, content)]
+    turn = state.turn
+    assert perform(state, content, f"go:{direction}")[0].kind == "locked" and state.turn == turn  # ...but it says so
+    state.pending_perks = ["tough"]  # (not while a level-up waits to be picked)
+    assert locked_doors(state, content) == []
+    state.pending_perks = []
+    state.room.fixture, state.room.fixture_used, state.player.gold = "shrine", False, 50
+    assert "shrine_gold" not in ids(state, content)  # at full health, it would only take your gold
+    state.player.hp -= 5
+    assert "shrine_gold" in ids(state, content)
+
+
+def test_someones_things_take_no_article_title_case_or_not(content):
+    """'You take the Swoogy's Diaper.', 'You go north into the Granny Gristle's Shop', 'a King Mouses Vest'."""
+    from ptg.text import a, the
+
+    for name in ("Swoogy's Diaper", "Lenny's Bad Tooth", "Mama's Shillelagh", "Granny Gristle's Shop",
+                 "King Mouse's Vest", "Brannoc's remains", "Sir Bob's remains"):
+        assert the(name) == a(name) == name
+    for name in ("Lucky Rabbit's Foot", "Saint's Alcove", "Hidden Saint's Alcove"):
+        assert the(name) == f"the {name}" and a(name) == f"a {name}"
+    assert content.item("king_mouses_vest").name == "King Mouse's Vest"
+    state = generate(1)
+    assert gain(state, content, "swoogy_s_diaper")[0].text == "You take Swoogy's Diaper."
+
+
+def test_the_narrator_hears_about_a_character_by_name_and_of_a_stunt_as_something_you_did(content):
+    """'About the Lucky Lenny', and 'Earlier here: offer the ghost the stale bread (it worked)'."""
+    from ptg.llm.prompts import narrator_messages
+
+    state = generate(1)
+    calm(state, content, "lucky_lenny")
+    from ptg.llm.prompts import situation
+
+    _, user = narrator_messages(state, content, "hello", [], "classic")
+    assert "About Lucky Lenny:" in user and "About the Lucky Lenny" not in user
+    assert "About Lucky Lenny:" in situation(state, content)
+    state.room.monster, state.player.wits = None, 50
+    perform_creative(state, content, creative(success_effects=["find_gold"], summary="pry at the loose stones"))
+    assert state.room.history[-1] == "you tried to pry at the loose stones, and it worked"
+
+
+def test_a_ghosts_remains_hold_no_second_rare_and_nothing_this_run_must_earn(content):
+    """Remains brought back the Sword Still in the Stone a run had already, and Lenny's tooth in a run without him."""
+    ghost = {"id": 7, "name": "Old Me", "level": 2, "floor": 1, "gold": 10, "epitaph": "", "cause": "",
+             "items": ["lenny_s_bad_tooth", "swoogy_s_diaper", "reliquary_key", "sword_still_in_the_stone",
+                       "moonsilver_vest", "healing_potion", "healing_potion"]}
+    for seed in range(30):
+        state = generate(seed, ghost=ghost)
+        remains = next(f for r in state.rooms for f in r.features if f.name == "Old Me's remains")
+        assert not {"lenny_s_bad_tooth", "swoogy_s_diaper", "reliquary_key"} & set(remains.loot)
+        rares = [k for k in remains.loot if k in ("sword_still_in_the_stone", "moonsilver_vest")]
+        assert rares and all(state.rares.count(k) == 1 for k in rares)  # this run's one of each
+        placed = [k for r in state.rooms for k in r.items + [i for f in r.features for i in f.loot]]
+        assert all(placed.count(k) == 1 for k in rares)

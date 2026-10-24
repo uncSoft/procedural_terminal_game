@@ -1,14 +1,20 @@
 """The model's side jobs: a suggested trick each scene, bestiary lore, epitaphs, recaps and the Void's
-campfire greeting. Each has a plain fallback so the game works offline."""
+campfire greeting. Each has a plain fallback so the game works offline.
+
+The suggested trick is always one of the interaction grid's uses that would really do something here (ideas): the
+model only picks which and puts it in its own words, and picking it does just that use, whatever the words."""
 
 from __future__ import annotations
 
 import re
 
+from .. import interactions
 from ..content import Content
 from ..creative import SPENDING, available_props
+from ..events import Action
 from ..meta import fallback_epitaph
 from ..models import GameState
+from ..scene import RoomView, words as named_by
 from ..text import bare, the
 from .base import LLM, LLMError
 from .narrator import clean
@@ -16,11 +22,12 @@ from .prompts import EPITAPH_SYSTEM, LORE_SYSTEM, RECAP_SYSTEM, SUGGEST_SYSTEM, 
 
 THROWING = SPENDING | {"roll"}  # outside a fight, a trick that starts with one of these spends what you carry
 COMMON = {"the", "and", "for", "with", "its", "his", "her", "old"}  # words in a name that don't say which thing
+IDEAS = 6  # how many the model picks from
 
 SUGGEST_SCHEMA = {
     "type": "object",
-    "properties": {"suggestion": {"type": "string"}},
-    "required": ["suggestion"],
+    "properties": {"idea": {"type": "integer"}, "suggestion": {"type": "string"}},
+    "required": ["idea", "suggestion"],
     "additionalProperties": False,
 }
 
@@ -30,44 +37,77 @@ async def _text(llm: LLM, system: str, user: str, max_tokens: int = 200) -> str:
     return clean("".join(parts)).strip().strip('"')
 
 
-def offline_suggestion(state: GameState, content: Content) -> str:
-    """A template trick built from what's actually here, so players learn they can improvise."""
-    props = available_props(state, content)
-    monster = state.room.monster if state.in_combat else None
-    if monster:
-        name = bare(monster.name).lower()
-        weak = set(content.monster(monster.key).weak) & set(state.known_weak.get(monster.key, []))
-        for prop in props:
-            if weak & set(prop.tags) and "throwable" in prop.tags:
-                return f"Hurl {the(prop.name)} at the {name}"
-        for prop in props:
-            if prop.kind == "feature" and "heavy" in prop.tags:
-                return f"Topple {the(prop.name)} onto the {name}"
-        for prop in props:
-            if "throwable" in prop.tags:
-                return f"Throw {the(prop.name)} in the {name}'s face"
-        if content.monster(monster.key).intelligent:
-            return f"Convince the {name} you're its long-lost cousin"
-        return f"Kick dust in the {name}'s eyes"
-    for prop in props:
-        if prop.kind == "feature" and "holy" in prop.tags:
-            return f"Kneel and pray at {the(prop.name)}"
-        if prop.kind == "feature" and {"heavy", "paper"} & set(prop.tags):
-            return f"Look behind {the(prop.name)}"
-    return "Listen at the walls for hidden passages"
+def ideas(state: GameState, content: Content) -> list[Action]:
+    """What the suggested trick may be: uses of the interaction grid that would really do something here, the best
+    first, each a whole use (its id, and how it's said). In a fight, something you carry turned on the monster: what
+    it's known to be weak to first, then what isn't a numbered choice already (a thing that isn't made for throwing,
+    thrown; a bribe), then the rest. Never anything that heals (you'll want it), your getaway, a bomb or a key: those
+    are numbered choices, there when you need them. Out of a fight, a feature with something in it, or the walls of a
+    room with something hidden in it. Nothing, if nothing would do: no stunts that roll for nothing and can hurt."""
+    from ..rules import available_actions, hidden_room_beside
+
+    if state.over or state.pending_perks or state.scene:
+        return []
+    view = RoomView(state, content)
+    monster, room = view.monster, state.room
+    if monster is not None and state.in_combat:
+        listed = {a.label.lower(): a.id for a in available_actions(state, content)}
+        known = set(state.known_weak.get(monster.key, []))
+        found = []
+        for ref in view.of("item", "gold"):
+            item = content.item(ref.key) if ref.kind == "item" else None
+            if item is not None and (item.heal or item.escape):
+                continue
+            use = interactions.Use("use", ref.key, monster.id)
+            row = interactions.plan(state, content, use, view)
+            if row is None or not row.works or not row.label:
+                continue
+            action_id = row.alias or listed.get(row.label.lower()) or interactions.use_id("use", ref.key, monster.id)
+            rank = 0 if known & set(ref.tags) else 1 if row.label.lower() not in listed else 2
+            found.append((rank, len(found), Action(action_id, row.label, row.hint)))
+        return [action for *_, action in sorted(found)]
+    if monster is not None and monster.state["hostile"]:
+        return []
+    out = []
+    for i, feature in room.visible_features():
+        if not feature.searched and (feature.loot or feature.gold):
+            how = "Look behind" if {"heavy", "paper"} & set(content.feature_tags(feature.name)) else "Rummage through"
+            out.append(Action(f"search:{i}", f"{how} {the(bare(feature.name))}"))
+    hidden = any(f.hidden for f in room.features) or hidden_room_beside(state)
+    if hidden and not room.room_searched and not room.shop:
+        out.append(Action("search_room", "Tap the walls for hollow spots"))
+    return out
 
 
-async def suggestion(llm: LLM | None, state: GameState, content: Content) -> str:
-    fallback = offline_suggestion(state, content)
-    if llm is None:
-        return fallback
+async def suggestion(llm: LLM | None, state: GameState, content: Content) -> Action | None:
+    """The trick to suggest: one of the ideas (its id is what picking it does), in the model's words for it if a
+    model's there and its words are about it, else as the grid says it. None if nothing would do."""
+    found = ideas(state, content)[:IDEAS]
+    if llm is None or not found:
+        return found[0] if found else None
+    listed = "\n".join(f"{i}. {idea.label}" for i, idea in enumerate(found, 1))
     try:
-        reply = await llm.complete_json(SUGGEST_SYSTEM, suggestion_situation(state, content), SUGGEST_SCHEMA,
-                                        max_tokens=80)
-        text = str(reply.get("suggestion", "")).strip().rstrip(".")
-    except (LLMError, ValueError):
-        return fallback
-    return text if 3 <= len(text) <= 80 and sensible(text, state, content) else fallback
+        reply = await llm.complete_json(SUGGEST_SYSTEM, f"{suggestion_situation(state, content)}\n\nIDEAS:\n{listed}",
+                                        SUGGEST_SCHEMA, max_tokens=80)
+        pick, text = int(reply.get("idea", 1)), str(reply.get("suggestion", "")).strip().rstrip(".")
+    except (LLMError, ValueError, TypeError):
+        return found[0]
+    idea = found[pick - 1] if 1 <= pick <= len(found) else found[0]
+    if 3 <= len(text) <= 80 and says(text, idea, state, content):
+        return Action(idea.id, text, idea.hint)
+    return idea
+
+
+def says(text: str, idea: Action, state: GameState, content: Content) -> bool:
+    """Whether a model's words for an idea are about it: they share a word that names something with how the grid
+    says it, and name nothing else you carry ("Throw the potion at it" is no way to say the holy water), and they
+    don't throw or use up what you carry outside a fight (sensible)."""
+    said = named_by(text)
+    if not said & {w for w in named_by(idea.label.partition(" ")[2]) if len(w) > 2 and w not in COMMON}:
+        return False
+    used = (interactions.parse(idea.id) or interactions.Use("", idea.id.partition(":")[2])).subject
+    other = RoomView(state, content).match(said, ("item", "gear"))
+    return (other is None or other.key == used) and sensible(text, state, content)
 
 
 def sensible(text: str, state: GameState, content: Content) -> bool:

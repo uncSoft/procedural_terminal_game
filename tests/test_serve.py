@@ -6,7 +6,7 @@ import json
 from aiohttp import WSMsgType
 from aiohttp.test_utils import TestClient, TestServer
 
-from ptg import serve
+from ptg import config, serve
 
 
 def test_a_name_is_its_folder_however_it_is_typed(tmp_path):
@@ -115,3 +115,49 @@ async def test_the_test_rooms_page_sends_you_next_door_to_whoever_you_pick(tmp_p
         assert server.playing["ava"].command.split()[-7:] == ["--test-room", "lenny", "--loadout",
                                                              "items=pickle+pickle", "--floor", "2", "--offline"]
         await socket.close()
+
+
+async def test_the_game_page_is_made_for_phones(tmp_path):
+    server = serve.make_server(tmp_path, "localhost", 8000, "http://localhost:8000", test_rooms=True)
+    async with TestClient(TestServer(await server._make_app())) as client:
+        await client.get("/play?name=Ava", allow_redirects=False)
+        game = await (await client.get("/play/ava")).text()  # ptg's page (web/app_index.html), not textual-serve's
+        assert ('<meta name="viewport" content="width=device-width, initial-scale=1, '
+                'interactive-widget=resizes-content"') in game
+        assert "touch-action: manipulation" in game and "visualViewport" in game and '"wheel"' in game
+        assert 'data-session-websocket-url="ws://localhost:8000/play/ava/ws"' in game
+        assert 'data-touch-websocket-url="ws://localhost:8000/play/ava/ws/touch"' in game  # for a finger
+        assert "(pointer: coarse)" in game and 'setAttribute("inputmode", "none")' in game and 'id="keyboard"' in game
+        assert 'data-font-size=""' in game and "across / 40 / 0.6" in game  # the page picks it from its width...
+        # ...and by touch from the screen's short side too, so a phone loaded sideways still fits 40 upright...
+        assert "touch ? Math.min(innerWidth, screen.width, screen.height) : innerWidth" in game
+        assert 'data-font-size="12"' in await (await client.get("/play/ava?fontsize=12")).text()  # ...unless asked
+        assert "fonts.googleapis" not in game  # (the font is textual-serve's own copy, from this server)
+        for path in ("/static/js/textual.js", "/static/css/xterm.css", "/static/fonts/RobotoMono-VariableFont_wght.ttf",
+                     "/static/fonts/RobotoMono-Italic-VariableFont_wght.ttf"):
+            assert (await client.get(path)).status == 200, path
+        room = await (await client.get("/test/ava/lenny/2/random")).text()
+        assert 'data-touch-websocket-url="ws://localhost:8000/test/ava/lenny/2/random/ws/touch"' in room
+
+
+async def test_a_game_played_by_touch_is_told_so(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)  # (the games are narrated offline)
+    monkeypatch.setenv("PTG_TOUCH", "1")  # (the server's own setting never reaches a game played with a mouse)
+    server = serve.make_server(tmp_path, "localhost", 8000, "http://localhost:8000", test_rooms=True)
+    async with TestClient(TestServer(await server._make_app())) as client:
+        await client.get("/play?name=Ava", allow_redirects=False)
+        for path, touch in (("/play/ava/ws/touch", "1"), ("/play/ava/ws", "0"),
+                            ("/test/ava/lenny/2/random/ws/touch", "1")):
+            socket = await client.ws_connect(f"{path}?width=40&height=34")
+            assert (await socket.receive(timeout=30)).type == WSMsgType.BINARY, path  # the game, drawing
+            assert server.playing["ava"]._build_environment(40, 34)["PTG_TOUCH"] == touch, path
+            await socket.close()
+
+
+def test_touch_mode_follows_the_page(monkeypatch):
+    monkeypatch.delenv("PTG_TOUCH", raising=False)
+    assert not config.touch()
+    monkeypatch.setenv("PTG_TOUCH", "0")
+    assert not config.touch()
+    monkeypatch.setenv("PTG_TOUCH", "1")
+    assert config.touch()

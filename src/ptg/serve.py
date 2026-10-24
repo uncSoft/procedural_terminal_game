@@ -9,6 +9,11 @@ same name ends the first, so a run is only ever played in one place. Set PTG_PAS
 to a character, a shop, a boss or any monster with the kit you pick, in the player's folder but counting for nothing
 (see ptg/testrooms.py), and back to their own title screen when they leave it.
 
+The game's page is ptg's own (web/app_index.html, in place of textual-serve's): made for phones too, it fits at
+least 40 columns, keeps the terminal above the keyboard, scrolls with a swipe and keeps the keyboard down until its
+button is tapped. A browser whose pointer is a finger opens its game's websocket at .../ws/touch, and that game runs
+with PTG_TOUCH=1 (see config.touch): touch mode follows the input, not the screen's size.
+
 The narrator is Claude when ANTHROPIC_API_KEY is set (PTG_MODEL picks the model, Haiku by default) and offline
 otherwise. Every game runs hosted (PTG_HOSTED=1, see config.hosted) and quiet: its sound would play on the server.
 """
@@ -34,6 +39,7 @@ from .config import Config
 DEFAULT_MODEL = "claude-haiku-5-5"  # a few cents a run (docs/plans/cross-platform-and-mobile.md)
 MAX_NAME = 24
 PASS_COOKIE = "ptg_pass"
+TEMPLATES = Path(__file__).parent / "web"  # the game's page (app_index.html), in place of textual-serve's
 
 log = logging.getLogger("textual-serve")
 
@@ -203,14 +209,16 @@ def make_server(data: Path, host: str, port: int, public_url: str, password: str
     class PlayerService(AppService):
         """One player's game, in their own folder."""
 
-        def __init__(self, command: str, home: Path, **kwargs) -> None:
+        def __init__(self, command: str, home: Path, touch: bool = False, **kwargs) -> None:
             super().__init__(command, **kwargs)
             self.home = home
+            self.touch = touch  # played with a finger (the page said so)
 
         def _build_environment(self, width: int = 80, height: int = 24) -> dict[str, str]:
             environment = super()._build_environment(width, height)
             # (textual-serve asks for 60 frames a second; the game's animations step every 70 ms or more)
-            environment.update(PTG_HOME=str(self.home), PTG_HOSTED="1", PTG_SOUND="0", TEXTUAL_FPS="30")
+            environment.update(PTG_HOME=str(self.home), PTG_HOSTED="1", PTG_SOUND="0", TEXTUAL_FPS="30",
+                               PTG_TOUCH="1" if self.touch else "0")
             return environment
 
         async def stop(self) -> None:
@@ -221,7 +229,8 @@ def make_server(data: Path, host: str, port: int, public_url: str, password: str
 
     class PlayersServer(Server):
         def __init__(self) -> None:
-            super().__init__("ptg", host=host, port=port, title="Procedural Terminal Game", public_url=public_url)
+            super().__init__("ptg", host=host, port=port, title="Procedural Terminal Game", public_url=public_url,
+                             templates_path=TEMPLATES)
             self.playing: dict[str, PlayerService] = {}  # each player's open game, by their folder's name
 
         async def _make_app(self) -> web.Application:
@@ -232,6 +241,7 @@ def make_server(data: Path, host: str, port: int, public_url: str, password: str
                 web.get("/play", self.handle_play, name="play"),
                 web.get("/play/{player}", self.handle_index, name="index"),
                 web.get("/play/{player}/ws", self.handle_websocket, name="websocket"),
+                web.get("/play/{player}/ws/touch", self.handle_websocket, name="websocket-touch"),
                 web.get("/download/{key}", self.handle_download, name="download"),
                 web.static("/static", self.statics_path, name="static"),
             ])
@@ -241,6 +251,8 @@ def make_server(data: Path, host: str, port: int, public_url: str, password: str
                     web.get("/test/play", self.handle_test_play, name="test-play"),
                     web.get("/test/{player}/{who}/{floor}/{kit}", self.handle_index, name="test-index"),
                     web.get("/test/{player}/{who}/{floor}/{kit}/ws", self.handle_websocket, name="test-websocket"),
+                    web.get("/test/{player}/{who}/{floor}/{kit}/ws/touch", self.handle_websocket,
+                            name="test-websocket-touch"),
                 ])
             app.on_startup.append(self.on_startup)
             app.on_shutdown.append(self.on_shutdown)
@@ -318,23 +330,32 @@ def make_server(data: Path, host: str, port: int, public_url: str, password: str
             return who, kit, int(floor)
 
         async def handle_index(self, request: web.Request) -> web.Response:
-            """A player's game page: textual-serve's, its websocket the one for their folder (and test room)."""
+            """A player's game page (web/app_index.html), its websocket the one for their folder (and test room),
+            and the same one by touch. The page picks its font size from its width, unless the address has a
+            ?fontsize=."""
             player = self.known(request)
             test = "who" in request.match_info
             if player is None or test and self.test_room(request) is None:
                 raise web.HTTPSeeOther("/test" if test else "/")
-            socket = request.app.router["test-websocket" if test else "websocket"]
-            url = f"{self.public_url}{socket.url_for(**request.match_info)}"
             scheme = "wss:" if self.public_url.startswith("https") else "ws:"
+
+            def socket(name: str) -> str:
+                url = f"{self.public_url}{request.app.router[name].url_for(**request.match_info)}"
+                return scheme + url.split(":", 1)[1]
+
+            name = "test-websocket" if test else "websocket"
+            font_size = request.query.get("fontsize", "")
             return aiohttp_jinja2.render_template("app_index.html", request, {
-                "font_size": to_int(request.query.get("fontsize", "16"), 16),
-                "app_websocket_url": scheme + url.split(":", 1)[1],
+                "font_size": int(font_size) if font_size.isdigit() else "",  # (none: the page picks one)
+                "app_websocket_url": socket(name),
+                "touch_websocket_url": socket(f"{name}-touch"),
                 "config": {"static": {"url": f"{self.public_url}/static/"}},
                 "application": {"name": self.title},
             })
 
         async def handle_websocket(self, request: web.Request) -> web.WebSocketResponse:
-            """A player's game, for as long as their tab is open (textual-serve's, in their folder)."""
+            """A player's game, for as long as their tab is open (textual-serve's, in their folder, and by touch at
+            .../ws/touch)."""
             player = self.known(request)
             test = self.test_room(request) if "who" in request.match_info else None
             if player is None or self.full(player) or "who" in request.match_info and test is None:
@@ -348,7 +369,8 @@ def make_server(data: Path, host: str, port: int, public_url: str, password: str
                 older = self.playing.pop(player, None)
                 if older is not None:  # the same player in a second tab: the first one ends, its game saved
                     await older.stop()
-                service = PlayerService(command(test), data / player, write_bytes=websocket.send_bytes,
+                touch = request.match_info.route.name.endswith("-touch")
+                service = PlayerService(command(test), data / player, touch, write_bytes=websocket.send_bytes,
                                         write_str=websocket.send_str, close=websocket.close,
                                         download_manager=self.download_manager, debug=self.debug)
                 self.playing[player] = service

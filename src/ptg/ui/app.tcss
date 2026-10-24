@@ -1,7 +1,17 @@
-/* A DOS/CRT look: black glass, phosphor blue frames, amber and hot-pink highlights. */
+/* A DOS/CRT look: black glass, phosphor blue frames, amber and hot-pink highlights.
+
+   Every screen, a pop-up's too, has a class for how big the terminal is (ui/app.py PTGApp's breakpoints): -narrow
+   or -wide, and -tiny, -short or -tall (below 28 rows, below 34, or from there). On a short screen boxes drop their
+   blank lines and the bigger pictures shrink. */
 
 Screen {
     background: $background;
+}
+
+ToastRack {  /* at the top right, over the room and the sidebar: never over the choices, the pad or the command line */
+    dock: top;
+    align: right top;
+    margin-bottom: 0;
 }
 
 Toast {
@@ -77,8 +87,10 @@ Clickable:hover {
     text-style: reverse;
 }
 
-/* The ✕ in a panel's border (ui/panels.py CloseButton), placed in code. */
+/* The ✕ in a panel's border (ui/panels.py CloseButton), placed in code: on a layer of its own, so it takes no room
+   from the box (which would sit a row off the middle). */
 #close {
+    layer: close;
     position: absolute;
     overlay: screen;
     width: 3;
@@ -97,9 +109,12 @@ Clickable:hover {
     margin-top: 1;
 }
 
+.-short .panel-action, .-tiny .panel-action {
+    margin-top: 0;
+}
+
 /* A new floor: the card on arrival (ui/panels.py FloorScreen) and the banner left in the story. */
 .panel-box.floor-box {
-    width: 64;
     border: double $accent;
     border-title-color: $accent;
     border-title-style: bold;
@@ -109,6 +124,10 @@ Clickable:hover {
     width: 100%;
     text-align: center;
     margin-bottom: 1;
+}
+
+.-tiny .floor-box > Static {
+    margin-bottom: 0;
 }
 
 .floor-box > .floor-name {
@@ -235,6 +254,16 @@ Clickable:hover {
     border-title-color: $error;
 }
 
+#scene-art {
+    width: 100%;
+    text-align: center;
+}
+
+#scene-status {  /* always the same lines, each one line (ui/widgets.py monster_status) */
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+}
+
 #map {
     height: 1fr;
 }
@@ -322,9 +351,7 @@ Clickable:hover {
     color: $primary;
 }
 
-.panel-sprite {  /* a monster in the bestiary or on its card, animated (ui/panels.py) */
-    width: auto;
-    height: auto;
+.panel-sprite {  /* a picture in a panel: a monster in the bestiary, a card's picture, the shopkeeper (ui/panels.py) */
     margin-bottom: 1;
 }
 
@@ -375,7 +402,7 @@ Clickable:hover {
     border-title-color: $success;
 }
 
-.loot-card.drop, .loot-card.left, .loot-card.floor {  /* lying there: click to take */
+.loot-card.lying {  /* lying there: click to take */
     border: round $warning;
     border-title-color: $warning;
 }
@@ -416,9 +443,11 @@ DiceScreen {
     background: $background 60%;
 }
 
-#dice-box {
+#dice-box {  /* the same height from the roll to the verdict: the Fate button's row is kept for it from the start */
     width: 76;
+    max-width: 100%;
     height: auto;
+    max-height: 100%;
     border: double $secondary;
     border-title-color: $secondary;
     border-title-style: bold;
@@ -441,8 +470,22 @@ DiceScreen {
 }
 
 #dice-fate {
-    display: none;
+    visibility: hidden;
     margin-top: 1;
+}
+
+#dice-fate.-shown {
+    visibility: visible;
+}
+
+/* A short screen: no blank lines in the dice box (and on a tiny one a smaller die, see DiceScreen). */
+.-short #dice-box, .-tiny #dice-box {
+    padding: 0 2;
+}
+
+.-short #dice-faces, .-tiny #dice-faces, .-short #dice-bonuses, .-tiny #dice-bonuses, .-short #dice-verdict,
+.-tiny #dice-verdict, .-short #dice-prompt, .-tiny #dice-prompt, .-short #dice-fate, .-tiny #dice-fate {
+    margin: 0;
 }
 
 #dice-fate:hover {
@@ -475,20 +518,43 @@ DiceScreen {
     border-title-color: #ff2a6d;
 }
 
-/* --- level up and panels --- */
+/* --- panels (ui/panels.py Panel) ---
+   One box each, of a size class, sized as it opens and never again while it's open: small (as tall as what's in
+   it), card (84 wide), wide (as wide as the panel works out), full. A card's or a wide panel's height is set in code
+   from the screen's (panel_rows); what changes inside scrolls inside. */
 
-LevelUpScreen, Panel, HelpScreen {
+Panel {
+    layers: default close;
     align: center middle;
     background: $background 60%;
 }
 
-#levelup-box {
-    width: 70;
+.panel-box {
+    width: 84;
+    max-width: 100%;
     height: auto;
-    border: double $foreground;
-    border-title-style: bold;
+    max-height: 100%;
+    border: double $primary;
+    border-title-color: $secondary;
     padding: 1 2;
     background: $surface;
+}
+
+.panel-box.small {
+    width: 64;
+}
+
+.panel-box.wide {
+    width: 100;
+}
+
+.-short .panel-box, .-tiny .panel-box {  /* a short screen: no blank lines inside (see panels.box_frame) */
+    padding: 0 1;
+}
+
+/* A level-up's three perk cards (LevelUpScreen). */
+.panel-box.levelup-box {
+    width: 70;
 }
 
 .perk-card {
@@ -497,24 +563,21 @@ LevelUpScreen, Panel, HelpScreen {
     padding: 0 1;
 }
 
+.-tiny .perk-card {
+    margin-top: 0;
+}
+
 .perk-card:hover {
     background: $panel;
 }
 
-.panel-box {
-    width: 84;
-    max-width: 100%;
+/* The card of a word in the story (InfoScreen): its words scroll, the action under them stays put. */
+.info-box #info-body {
     height: auto;
-    max-height: 90%;
-    border: double $primary;
-    border-title-color: $secondary;
-    padding: 1 2;
-    background: $surface;
 }
 
-.panel-box.wide {
-    width: 100;
-    height: 32;
+.info-box.card #info-body {
+    height: 1fr;
 }
 
 .panel-box.abandon-box {
@@ -534,26 +597,33 @@ LevelUpScreen, Panel, HelpScreen {
     margin: 0 1;
 }
 
-.panel-box.inventory-box {
-    width: 100;
+/* Your things and a shop's: a shelf of tiles that scrolls, beside the one you've picked in full, whose words scroll
+   under its picture, and what you can do with it stays put at the bottom. Their widths are set to suit the screen
+   (InventoryScreen.plan, ShopScreen.plan). */
+#inv-shelf, #shop-shelf {
+    height: 100%;
 }
 
-#inv-shelf {
-    width: 65;
-    height: auto;
-    max-height: 34;
-}
-
-#inv-grid {
+#inv-grid, #shop-grid {
     grid-size: 3;
     grid-gutter: 0 1;
     height: auto;
 }
 
-.item-tile {
+.item-tile {  /* an item's picture over its name and a note (ui/panels.py ItemTile) */
     width: 20;
     height: 11;
     border: round $primary-darken-2;
+    align-horizontal: center;
+}
+
+.item-tile.full {  /* its picture at full size (ui/panels.py TILE) */
+    width: 26;
+    height: 17;
+}
+
+.tile-words {
+    width: 100%;
     text-align: center;
 }
 
@@ -561,70 +631,72 @@ LevelUpScreen, Panel, HelpScreen {
     border: round $secondary-darken-2;
 }
 
+#inv-side, #shop-side {
+    width: 1fr;
+    height: 100%;
+    padding-left: 2;
+}
+
+#inv-words, #shop-words {
+    height: 1fr;
+    scrollbar-size-vertical: 1;
+}
+
+#inv-detail, #shop-detail, #shop-about, #shop-says {
+    height: auto;
+}
+
+#shop-about {
+    margin-top: 1;
+}
+
+#inv-use, #inv-hint, #shop-buy, #shop-barter, #shop-hint {
+    width: 100%;
+    height: auto;
+    margin-top: 1;
+}
+
+.-short #inv-hint, .-tiny #inv-hint, .-short #shop-barter, .-tiny #shop-barter, .-short #shop-hint,
+.-tiny #shop-hint {
+    margin-top: 0;
+}
+
+#shop-keeper {
+    height: 100%;
+    padding-right: 2;
+}
+
+/* The bestiary: the creatures you've met, and the one you're on in full. */
+.panel-box.bestiary-box {
+    width: 100;
+}
+
+#beast-list {
+    width: 28;
+    height: 100%;
+    background: $surface;
+}
+
+#beast-body {
+    height: 100%;
+}
+
+/* The one way a panel shows what you've picked (after the rules it overrides): framed or barred in the accent
+   colour, on the panel colour. The campfire's cards do the same (.unlock-card.-picked). */
 .item-tile:focus {
     border: round $accent;
     background: $panel;
 }
 
-#inv-side {
-    width: 1fr;
-    height: auto;
-    padding-left: 2;
+#beast-list > ListItem.-highlight, #beast-list:focus > ListItem.-highlight {
+    color: $accent;
+    background: $panel;
+    text-style: bold;
 }
 
-#inv-detail, #inv-use, #inv-hint {
-    height: auto;
-}
-
-#inv-use, #inv-hint {
-    width: 100%;
-    margin-top: 1;
-}
-
-.panel-box.shop-box {  /* a shop (ui/panels.py ShopScreen): the shopkeeper, her counter, and the ware you picked */
-    width: 120;
-    max-width: 100%;
-}
-
-#shop-keeper {
-    width: 28;
-    height: auto;
-    padding-right: 2;
-}
-
-#shop-shelf {
-    width: 44;
-    height: auto;
-    max-height: 34;
-}
-
-#shop-grid {
-    grid-size: 2;
-    grid-gutter: 0 1;
-    height: auto;
-}
-
-#shop-side {
-    width: 1fr;
-    height: auto;
-    padding-left: 2;
-}
-
-#shop-says, #shop-detail, #shop-buy, #shop-barter, #shop-hint {
-    height: auto;
-}
-
-#shop-buy, #shop-barter, #shop-hint {
-    width: 100%;
-    margin-top: 1;
-}
-
-#beast-list {
-    width: 28;
-    background: $surface;
-}
-
-/* --- campfire hub --- */
+/* --- campfire hub (ui/hub.py HubScreen) ---
+   Picking a card shows what it does in a pane of its own height under the tabs, so nothing moves; the buttons to go
+   back down stay at the bottom; on a short screen the fire's smaller and the Hall of Legends keeps a few lines. */
 
 #hub {
     height: 1fr;
@@ -642,16 +714,26 @@ LevelUpScreen, Panel, HelpScreen {
     padding: 0 1;
 }
 
+#hub-tabs, #hub-tabs > ContentSwitcher, #hub-tabs TabPane {
+    height: 1fr;
+}
+
+#hub-tabs TabPane {
+    padding: 0;
+}
+
 .unlock-grid {
     grid-size: 3;
     grid-gutter: 1;
+    grid-rows: auto;
     height: auto;
     padding: 1 0;
 }
 
-.unlock-card {
+.unlock-card {  /* a name that wraps keeps its cost under it; the cards in a row stay the same height */
     width: 100%;
-    height: 4;
+    height: 100%;
+    min-height: 4;
 }
 
 .unlock-card.locked {
@@ -668,8 +750,18 @@ LevelUpScreen, Panel, HelpScreen {
     text-style: bold;
 }
 
+.unlock-card.-picked {  /* the one whose detail shows (the one selection style: see .item-tile:focus) */
+    border-top: tall $accent;
+    border-bottom: tall $accent;
+}
+
+#unlock-pane {
+    dock: bottom;
+    height: 8;
+}
+
 #unlock-detail {
-    height: auto;
+    height: 1fr;
     margin: 1 0;
 }
 
@@ -695,18 +787,33 @@ LevelUpScreen, Panel, HelpScreen {
 
 #legends-box {
     height: 1fr;
+    min-height: 6;
     border: round $primary-darken-2;
     border-title-color: $primary;
     margin-top: 1;
 }
 
 #hub-buttons {
+    dock: bottom;
     height: auto;
     margin-top: 1;
 }
 
-#hub-buttons Button {
-    margin-right: 1;
+.-short #campfire, .-tiny #campfire, .-short #void-line, .-tiny #void-line, .-short #legends-box,
+.-tiny #legends-box, .-tiny .unlock-grid, .-tiny #unlock-detail {
+    margin: 0;
+}
+
+.-tiny .unlock-grid {
+    padding: 0;
+}
+
+.-narrow #back {  /* no room for three buttons: Esc is the way to the title (and the footer says so) */
+    display: none;
+}
+
+.-tiny #unlock-pane {  /* (with no blank lines, the longest card still has room for its name and two lines) */
+    height: 7;
 }
 
 /* --- end of a run --- */
@@ -733,6 +840,14 @@ EndScreen {
 #end-box > .end-hint {
     height: auto;
     align-horizontal: center;
+}
+
+#end-box.-tight {  /* a short screen: no blank lines (see EndScreen.fit) */
+    padding: 0 2;
+}
+
+#end-box.-tight > Static {
+    margin-bottom: 0;
 }
 
 .end-hint > Clickable {

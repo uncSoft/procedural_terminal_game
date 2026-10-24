@@ -1,5 +1,17 @@
-"""Free-text attempts. The interpreter proposes a stat, a difficulty, effects and the props being used;
-this module checks the props exist, clamps the effects, rolls, and applies the result."""
+"""Free-text stunts: what the interaction grid (interactions.py) has no row for. The interpreter proposes a stat, a
+difficulty, effects and the props being used; this module checks the props exist, clamps the effects, rolls, and
+applies the result.
+
+A stunt wastes nothing. It still rolls, but what it would use up is used up, and its flair paid, only if it changed
+something: hurt, stunned or calmed the monster, got you away, turned something up. One that can't change anything
+at all (no effect survives the clamp: talking a beast down, a trick with no one to play it on) isn't made: it's told
+as an attempt, with why it came to nothing, and costs nothing, not even a turn in a fight.
+
+What it uses up is only what it's done with: what the interpreter says it uses up (`consumes`), and the thing its
+own words throw, pour, hand over or eat ("splash the vial on the altar"), never a word that merely turns up ("throw
+sand at the rat's eyes" uses up no Pizza Rat). Never your gear, a key, what someone's waiting for, or a curse that
+won't let go; gold, as much as is said ("offer 30 gold"), or, said of no amount, a few coins.
+"""
 
 from __future__ import annotations
 
@@ -7,36 +19,39 @@ import random
 import re
 from dataclasses import dataclass
 
-from . import dice, loot, powers
-from .combat import defeat, discover, flee, fortune
+from . import dice, interactions, inventory, loot, npcs, powers
+from .combat import defeat, discover, flee, fortune, provoked
 from .content import Content
 from .events import Event
 from .intent import DC, Intent
+from .interactions import ATTEMPT, forms
 from .models import GameState
+from .scene import FIXTURE_NAMES, FIXTURE_TAGS, RoomView
 from .text import a, bare, cap, the
 
 MONSTER_EFFECTS = {"damage_small", "damage_medium", "damage_large", "stun", "pacify", "escape", "evade"}
 ONCE_PER_ROOM = {"find_item", "find_gold", "heal_small"}
 OFFENSIVE = {"damage_small", "damage_medium", "damage_large", "stun", "pacify"}
+HOSTILE = {"damage_small", "damage_medium", "damage_large", "stun"}  # done to a calm creature, it fights back
 SELF_HARM = {"hurt_self_small", "hurt_self_medium"}
 CREATIVE_DAMAGE = {"damage_small": "1d4", "damage_medium": "2d6", "damage_large": "3d6"}
 UPGRADE = {"damage_small": "damage_medium", "damage_medium": "damage_large", "damage_large": "damage_large"}
-DISTRACTIONS = {"food", "shiny"}
+DISTRACTIONS = {"food", "shiny"}  # what a beast can be calmed with, if it's weak to it; any other weakness dazes it
 STOPWORDS = {"the", "a", "an", "of", "my", "your", "some", "to", "with", "on", "in", "at", "and"}
-# Doing one of these with a thing you carry leaves you without it, whether or not the interpreter says so.
+# Doing one of these with a thing you carry leaves you without it, if the stunt comes to anything. (Not dropping or
+# leaving it: that's inventory.drop, and it stays where you leave it.)
 SPENDING = {"throw", "toss", "hurl", "fling", "lob", "give", "offer", "bribe", "feed", "trade", "pay", "drink", "eat",
             "pour", "splash", "spill", "smash", "shatter", "burn", "ignite", "scatter", "sprinkle", "sacrifice", "empty",
-            "dump", "drop", "leave", "lure", "bait"}
-IRREGULAR = {"threw": "throw", "thrown": "throw", "flung": "fling", "gave": "give", "given": "give", "fed": "feed",
-             "paid": "pay", "drank": "drink", "ate": "eat", "eaten": "eat", "spilt": "spill", "burnt": "burn"}
+            "dump", "lure", "bait"}
 SPENDABLE = {"consumable", "trinket"}  # never your gear, and never a key: a run could hang on it
-ATTEMPT = re.compile(r"^(?:attempt(?:ing|s)?|try(?:ing)?|tries)\s+to\s+", re.I)  # the check says "You attempt to" itself
+# What shows a stunt changed something: and so used up what it used, and earned its flair.
+CHANGES = {"hit", "stun", "pacify", "defeat", "flee", "dodge_ready", "secret", "find", "heal", "victory", "ghost_rest"}
 
 
 @dataclass
 class Prop:
     name: str
-    kind: str  # "feature", "item", "floor" or "gold"
+    kind: str  # "feature", "item", "floor", "gold" or "fixture"
     key: str
     tags: list[str]
 
@@ -45,6 +60,8 @@ def available_props(state: GameState, content: Content) -> list[Prop]:
     room, player = state.room, state.player
     props = [Prop(bare(f.name), "feature", str(i), content.feature_tags(f.name))
              for i, f in room.visible_features() if not f.used]  # a prop that's done its stunt is spent
+    if room.fixture and f"prop:{room.fixture}" not in room.creative_uses:  # the chest to hurl, the fountain to dunk in
+        props.append(Prop(FIXTURE_NAMES[room.fixture], "fixture", room.fixture, FIXTURE_TAGS[room.fixture]))
     for key in dict.fromkeys([player.weapon, *([player.armor] if player.armor else []), *player.inventory]):
         item = content.item(key)
         props.append(Prop(item.name, "item", key, item.tags))
@@ -74,57 +91,88 @@ def match_props(names: list[str], props: list[Prop]) -> list[Prop]:
 
 
 def spends(summary: str) -> bool:
-    """Whether an attempt hands over, throws, feeds, drinks or pours what it uses: "bribe the orc with stale bread"."""
-    for word in re.findall(r"[a-z]+", summary.lower()):
-        word = IRREGULAR.get(word, word)
-        forms = {word}
-        for ending in ("ing", "ies", "ied", "es", "ed", "s"):
-            if word.endswith(ending):
-                stem = word[:-len(ending)]
-                forms |= {stem, stem + "e", stem[:-1], stem + "y"}  # bribing, dropped, emptied
-        if forms & SPENDING:
-            return True
-    return False
+    """Whether an attempt's words hand over, throw, feed, drink or pour something: "bribe the orc with stale bread"."""
+    return any(forms(word) & SPENDING for word in re.findall(r"[a-z]+", summary.lower()))
 
 
-def spent(content: Content, intent: Intent, props_here: list[Prop], props: list[Prop]) -> list[Prop]:
-    """What an attempt uses up: what the interpreter says it does, and anything carried or lying here that it hands
-    over, throws or pours, said or not (a bribe leaves the bread with the orc). When the interpreter names nothing
-    of the kind, what the attempt itself names counts: "splash holy water on the altar" spends the vial."""
-    def spendable(p: Prop) -> bool:
-        return p.kind == "gold" or p.kind in ("item", "floor") and content.item(p.key).kind in SPENDABLE
+def _spendable(content: Content, prop: Prop) -> bool:
+    return prop.kind == "gold" or prop.kind in ("item", "floor") and content.item(prop.key).kind in SPENDABLE
 
-    consumed = [p for p in match_props(intent.consumes, props_here) if p.kind in ("item", "gold", "floor")]
-    if spends(intent.summary):
-        named = [p for p in props if spendable(p)] or match_props([intent.summary], list(filter(spendable, props_here)))
-        consumed += [p for p in named if p not in consumed]
-    return consumed
+
+def _held(state: GameState, content: Content, prop: Prop) -> str:
+    """Why a stunt won't use up something, though it's named as what's used up: a key or what someone's waiting for
+    (npcs.needed), or, yours, a curse that won't let go. "" if it would."""
+    if prop.kind not in ("item", "floor"):
+        return ""
+    if npcs.needed(state, content, prop.key):
+        where = "it stays in your pack" if prop.kind == "item" else "you leave it where it is"
+        return f"You'll be needing {the(prop.name)}: {where}."
+    return inventory.keeps(state, content, prop.key) if prop.kind == "item" else ""
+
+
+def spent(state: GameState, content: Content, intent: Intent, props_here: list[Prop]) -> list[Prop]:
+    """What a stunt would use up if it comes to anything: what the interpreter says it uses up, and the thing its own
+    words throw, pour, hand over or eat (interactions.spent_by), but only what can be: not gear, keys, what someone's
+    waiting for, or a curse."""
+    consumed = [p for p in match_props(intent.consumes, props_here) if _spendable(content, p)]
+    for key in interactions.spent_by(RoomView(state, content), intent.summary, SPENDING):
+        prop = next((p for p in props_here if p.key == key and p.kind in ("item", "gold")), None)
+        if prop and _spendable(content, prop) and prop not in consumed:
+            consumed.append(prop)
+    return [p for p in consumed if not _held(state, content, p)]
+
+
+def gold_said(state: GameState, intent: Intent) -> int:
+    """How much gold a stunt hands over: what it says ("offer 30 gold"), as much as you have; or, said of no amount,
+    a few coins (5 a floor)."""
+    words = re.findall(r"[a-z0-9]+", intent.summary.lower())
+    said = intent.amount or interactions.amount_said(words)
+    return min(state.player.gold, said or 5 * state.floor)
 
 
 def clamp_intent(state: GameState, content: Content, intent: Intent, props: list[Prop] | None = None) -> Intent:
     """Keep the interpreter honest: drop effects that can't apply here and cap how strong they can be."""
+    return _clamp(state, content, intent, props)[0]
+
+
+def _clamp(state: GameState, content: Content, intent: Intent, props: list[Prop] | None = None) -> tuple[Intent, str]:
+    """The clamped intent, and why the first effect dropped was ("there's no one here to do it to"), for a stunt that
+    comes to nothing."""
     props = props or []
     room = state.room
     monster = room.monster if room.monster and room.monster.hp > 0 else None
     monster_def = content.monster(monster.key) if monster else None
-    distracting = monster_def is not None and any(set(p.tags) & DISTRACTIONS & set(monster_def.weak) for p in props)
+    weak = set(monster_def.weak) if monster_def else set()
+    tags = {t for p in props for t in p.tags}
+    distracting = bool(tags & DISTRACTIONS & weak)
+    dazing = bool(tags & weak) and not distracting  # a beast startled by what it can't stand, rather than won over
     difficulty = intent.difficulty
     effects: list[str] = []
+    why = ""
     for effect in intent.success_effects:
         if effect in SELF_HARM or effect == "nothing":
             continue
         if effect in MONSTER_EFFECTS and not monster:
+            why = why or "there's no one here to do it to"
             continue
         if effect in ("escape", "evade") and not state.in_combat:
+            why = why or "there's nothing here to get away from"
             continue
         uses = room.creative_uses.count(effect)
         if effect in ONCE_PER_ROOM and uses >= (2 if "scavenger" in state.player.perks else 1):
+            why = why or "this room has nothing more of that kind to give"
             continue
         if effect == "pacify":
+            if not monster.hostile:
+                why = why or f"{the(monster.name)} isn't fighting you"
+                continue
             if monster_def.boss:
                 effect = "stun"
             elif not (monster_def.intelligent or distracting):
-                continue
+                if not dazing:
+                    why = why or f"{the(monster.name)} doesn't understand a word of it"
+                    continue
+                effect = "stun"  # (it can't be won over, but what it's weak to throws it off its stride)
             elif monster.hostile and difficulty in ("easy", "medium") and not distracting:
                 difficulty = "hard"
         if effect == "damage_large" and difficulty not in ("hard", "absurd"):
@@ -133,12 +181,15 @@ def clamp_intent(state: GameState, content: Content, intent: Intent, props: list
             effect = "damage_small"
         if effect == "heal_small" and difficulty == "easy":
             difficulty = "medium"
+        if effect == "pacify" and set(effects) & HOSTILE or effect in HOSTILE and "pacify" in effects:
+            continue  # (hurting it and talking it down at once: whichever was said first)
         if effect not in effects:
             effects.append(effect)
     failure = [e for e in intent.failure_effects if e in SELF_HARM][:1]
     stat = intent.stat if intent.stat != "none" else "wits"
-    return intent.model_copy(update={"success_effects": effects[:2], "failure_effects": failure,
-                                     "difficulty": difficulty, "stat": stat})
+    clamped = intent.model_copy(update={"success_effects": effects[:2], "failure_effects": failure,
+                                        "difficulty": difficulty, "stat": stat})
+    return clamped, why
 
 
 def perform_creative(state: GameState, content: Content, intent: Intent, rng: random.Random) -> tuple[Intent, list[Event], bool]:
@@ -146,29 +197,29 @@ def perform_creative(state: GameState, content: Content, intent: Intent, rng: ra
     player, room = state.player, state.room
     props_here = available_props(state, content)
     props = match_props(intent.uses, props_here)
-    consumed = spent(content, intent, props_here, props)
+    named = [p for p in match_props(intent.consumes, props_here) if p.kind in ("item", "floor")]
+    # Never a key, nor what a character's waiting for, nor a curse, whatever the interpreter says: a run could hang on
+    # it. An attempt said to use one up isn't made at all, so it costs no turn and earns nothing (a bribe you won't let
+    # go of buys nothing, and could otherwise be offered fight after fight). Only said to be used, it's kept.
+    held = next((why for why in (_held(state, content, p) for p in named) if why), "")
+    if held:
+        return intent, [Event("info", held)], False
+    consumed = spent(state, content, intent, props_here)
     props += [p for p in consumed if p not in props]  # anything used up was obviously used
-    intent = clamp_intent(state, content, intent, props)
+    gold = gold_said(state, intent)
+    intent, why = _clamp(state, content, intent, props)
     summary = ATTEMPT.sub("", intent.summary) or "try something unexpected"  # "You attempt to attempt to..." no more
-    events: list[Event] = []
 
-    for prop in consumed:
-        if prop.kind == "gold":
-            paid = min(player.gold, 5 * state.floor)
-            player.gold -= paid
-            events.append(Event("spend", f"You part with {paid} gold."))
-        elif prop.kind == "item" and prop.key in player.inventory:
-            player.inventory.remove(prop.key)
-            events.append(Event("spend", f"{cap(the(prop.name))} is used up."))
-        elif prop.kind == "floor" and prop.key in room.items:
-            room.items.remove(prop.key)
-            events.append(Event("spend", f"{cap(the(prop.name))} is used up."))
-
-    if intent.difficulty == "trivial" or not intent.success_effects:
-        return intent, [Event("creative", f"You {summary}.")] + events, state.in_combat
+    if intent.difficulty == "trivial" or not intent.success_effects:  # it can't change anything: it isn't made
+        said = f"You try to {summary}, but {why}." if why else f"You try to {summary}. Nothing much comes of it."
+        return intent, [Event("creative", said, data={"nothing": True})], False
 
     monster = room.monster if room.monster and room.monster.hp > 0 else None
     monster_def = content.monster(monster.key) if monster else None
+    events: list[Event] = []
+    if monster and not monster.hostile and HOSTILE & set(intent.success_effects):
+        monster.hostile = True  # a stunt against a creature that wasn't fighting: it is now
+        events.append(provoked(monster, content))
     # A weakness only counts when the prop is turned on the monster, not when you hide behind it.
     offensive = bool(OFFENSIVE & set(intent.success_effects))
     weak_hits = [(p, t) for p in props for t in p.tags if offensive and monster_def and t in monster_def.weak]
@@ -190,8 +241,9 @@ def perform_creative(state: GameState, content: Content, intent: Intent, rng: ra
     impossible = intent.difficulty == "absurd"
     roll = dice.check(rng, intent.stat, bonuses, DC.get(intent.difficulty, 13), advantage=advantage, impossible=impossible)
     verdict = "It works" if roll.success else "It fails"
-    events.insert(0, Event("check", f"You attempt to {summary}. {verdict}.", dice=roll,
-                           data={"success": roll.success, "rerollable": True, "props": [p.name for p in props]}))
+    events.append(Event("check", f"You attempt to {summary}. {verdict}.", dice=roll,
+                        data={"success": roll.success, "rerollable": could_change(state, intent),
+                              "props": [p.name for p in props]}))
     if weak_hits and monster:
         tag = weak_hits[0][1]
         if roll.success:  # (told after a miss, it read as if the miss had worked: run 44)
@@ -199,19 +251,6 @@ def perform_creative(state: GameState, content: Content, intent: Intent, rng: ra
         events += discover(state, monster, tag)
     events += fortune(state, roll)
 
-    if roll.success:
-        player.bump("creative_win")
-        for prop in props:
-            if prop.kind == "feature":
-                room.features[int(prop.key)].used = summary
-        room.remember(f"{summary} (it worked)")
-        if props:
-            player.bump("flair")
-            state.souls += 1
-            if player.fate < player.max_fate():
-                player.fate += 1
-                events.append(Event("fate", f"Style points! The dungeon rewards flair with a Fate token "
-                                            f"({player.fate}/{player.max_fate()})."))
     outcome: list[Event] = []
     for effect in intent.success_effects if roll.success else intent.failure_effects:
         target = state.room.monster
@@ -222,7 +261,43 @@ def perform_creative(state: GameState, content: Content, intent: Intent, rng: ra
         outcome += _apply_effect(state, content, rng, effect, max(0, player.stat(intent.stat)))
     if any(e.kind in ("find", "secret") for e in outcome):  # not "nothing hidden here" and then a find (run 44)
         outcome = [e for e in outcome if not e.data.get("nothing")]
-    return intent, events + outcome, True
+    events += outcome
+
+    if roll.success and any(e.kind in CHANGES and not e.data.get("nothing") for e in outcome):
+        events += _used_up(state, content, consumed, gold)
+        player.bump("creative_win")
+        for prop in props:
+            if prop.kind == "feature":
+                room.features[int(prop.key)].used = summary
+            elif prop.kind == "fixture":
+                room.creative_uses.append(f"prop:{prop.key}")
+        room.remember(f"you tried to {summary}, and it worked")  # (what you did, not an order to do it)
+        if props:
+            events += interactions.flair(state)
+    return intent, events, True
+
+
+def could_change(state: GameState, intent: Intent) -> bool:
+    """Whether a stunt that worked could change anything, and so is worth a Fate token to roll again: turning up a
+    secret where nothing's hidden can't (as searching the room isn't, with nothing to find)."""
+    return bool(set(intent.success_effects) - {"reveal_secret"}) or any(f.hidden for f in state.room.features)
+
+
+def _used_up(state: GameState, content: Content, consumed: list[Prop], gold: int) -> list[Event]:
+    """What a stunt that came to something used up: gone from your pack (or where it lay), and `gold` handed over."""
+    player, room, events = state.player, state.room, []
+    for prop in consumed:
+        if prop.kind == "gold" and player.gold:
+            paid = min(gold, player.gold)
+            player.gold -= paid
+            events.append(Event("spend", f"You part with {paid} gold."))
+        elif prop.kind == "item" and prop.key in player.inventory:
+            events.append(Event("spend", f"{cap(the(prop.name))} is used up.",
+                                data=inventory.consume(state, prop.key, "spend")))
+        elif prop.kind == "floor" and prop.key in room.items:
+            events.append(Event("spend", f"{cap(the(prop.name))} is used up.",
+                                data=inventory.consume(state, prop.key, "spend", "room")))
+    return events
 
 
 def _apply_effect(state: GameState, content: Content, rng: random.Random, effect: str, bonus: int) -> list[Event]:
@@ -244,7 +319,7 @@ def _apply_effect(state: GameState, content: Content, rng: random.Random, effect
         monster.intent = "strike"
         player.bump("stuns")
         return [Event("stun", f"{cap(the(monster.name))} is stunned and loses its next two attacks.")]
-    if effect == "pacify":
+    if effect == "pacify":  # (a character talked down is npcs.calm's: no reward, nothing lost)
         monster.hostile = False
         return defeat(state, content, rng, how="pacified")
     if effect == "escape":
@@ -261,14 +336,12 @@ def _apply_effect(state: GameState, content: Content, rng: random.Random, effect
         if hidden:
             return [Event("secret", "You uncover something hidden: " + ", ".join(f.name for f in hidden) + ".")]
         return [Event("info", "There turns out to be nothing hidden here.", data={"nothing": True})]
-    if effect == "find_item":
-        from .rules import gain_item
-
+    if effect == "find_item":  # it lies there, to take or leave, like any find
         key = loot.one_of(rng, content, loot.FINDS)
         if key is None:
             return [Event("info", "You turn up nothing worth keeping.", data={"nothing": True})]
-        found = Event("find", f"You turn up {a(content.item(key).name)}.", data={"item": key})
-        return [found] + gain_item(state, content, key)
+        return [Event("find", f"You turn up {a(content.item(key).name)}.", data=inventory.lay(state, key, "find",
+                                                                                            "stunt"))]
     if effect == "find_gold":
         gold = rng.randint(2, 8) * max(1, room.distance) + (4 if "scavenger" in player.perks else 0)
         player.gold += gold
@@ -276,7 +349,7 @@ def _apply_effect(state: GameState, content: Content, rng: random.Random, effect
     if effect == "heal_small":
         healed = min(dice.roll("1d4+2", rng), player.max_hp - player.hp)
         player.hp += healed
-        return [Event("heal", f"You recover {healed} HP ({player.hp}/{player.max_hp}).")]
+        return [Event("heal", f"You recover {healed} HP ({player.hp}/{player.max_hp}).")] if healed else []
     if effect in SELF_HARM:
         damage = dice.roll("1d4" if effect == "hurt_self_small" else "1d6+1", rng)
         player.hp = max(1, player.hp - damage)

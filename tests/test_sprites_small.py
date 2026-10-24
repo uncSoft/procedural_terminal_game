@@ -59,7 +59,7 @@ def test_effects_keep_to_the_colours_the_sprites_use():
 def test_items_nobody_has_drawn_get_a_grey_stand_in(content):
     """Not the old glyph, which looked like a broken picture next to the drawn ones."""
     from ptg import loot
-    from ptg.ui.widgets import BLANKS, blank_art, item_picture, item_tile
+    from ptg.ui.widgets import BLANKS, art_for, blank_art, item_words
 
     allowed = set(sprites.palette())
     for role in {loot.role(item) for item in content.items.values()} | set(BLANKS):
@@ -72,8 +72,11 @@ def test_items_nobody_has_drawn_get_a_grey_stand_in(content):
         assert colours and colours <= allowed, role  # greys the GPU terminal has already cached
     roast = ItemDef(key="roast_boar", name="Roast Boar", kind="consumable", heal=12, tier=2, tags=["food"])
     content = replace(content, items={**content.items, "roast_boar": roast})  # nobody has drawn it
-    assert item_picture(content, "roast_boar", True).plain == blank_art("food").plain
-    for key in ("roast_boar", "stale_bread"):
-        for drawn in (True, False):  # the art's (or glyph's) colour stays its own and doesn't leak into the name
-            tile = item_tile(content, key, "heals", drawn)
-            assert not tile.style and content.item(key).name in tile.plain
+    for size in (sprites.DEFAULT_WIDTH, sprites.SMALL):  # at either size, like a drawn one
+        art = art_for("roast_boar", "item", content, size)
+        assert art.blank and not art.sprite and art.still.plain == blank_art("food", size).plain
+        assert (art.columns, art.rows) == (size, size // 2)
+    glyph = art_for("roast_boar", "item", content, sprites=False)  # ASCII art: its glyph, as tall as its picture
+    assert glyph.still.plain.strip() == "!" and glyph.rows == sprites.DEFAULT_WIDTH // 2
+    words = item_words(content, "roast_boar", "heals 12")
+    assert not words.style and words.plain == "Roast Boar\n\nheals 12"  # (a name on up to two lines)

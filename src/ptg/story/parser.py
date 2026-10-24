@@ -30,7 +30,7 @@ import re
 from importlib import resources
 from pathlib import Path
 
-from .. import sprites
+from .. import npcs, sprites
 from ..content import Content
 from .model import (ONCE, PLACEHOLDER, PLACEHOLDERS, TRIGGERS, VOICES, Choice, Condition, Effect, Node, StoryError,
                     StoryEvent)
@@ -39,8 +39,9 @@ HEADER_KEYS = {"id", "title", "when", "if", "once", "voice", "secret", "hint", "
 EFFECT = re.compile(r"\[([a-z_]+)((?:\s+[^\]\s]+)*)\s*\]")
 NAME = re.compile(r"^[a-z0-9_]+$")
 NUMERIC = re.compile(r"^(floor|level|hp|gold|fate|souls|turn|runs|deaths|wins)\s*(>=|<=|==|=|>|<)\s*(-?\d+)$")
-WITH_ARG = {"theme", "room", "fixture", "has", "flag", "mark", "seen", "monster"}
+WITH_ARG = {"theme", "room", "fixture", "has", "flag", "mark", "seen", "monster", "npc"}
 BARE = {"in_combat", "first_visit", "seen", "tampered"}
+NAMED_TRIGGERS = {"meet": "monster", "gain": "item"}  # when: meet lucky_lenny, when: gain lenny_s_bad_tooth (or any)
 
 # verb -> (min args, max args, kind of argument)
 EFFECTS = {
@@ -48,7 +49,7 @@ EFFECTS = {
     "xp": (1, 1, "number"), "heal": (0, 0, ""), "give": (1, 1, "item"), "take": (1, 1, "item"),
     "perk": (1, 1, "perk"), "flag": (1, 1, "name"), "unflag": (1, 1, "name"), "mark": (1, 1, "name"),
     "secret": (0, 1, "event"), "spawn": (1, 1, "monster"), "goto": (1, 1, "node"), "end": (0, 0, ""),
-    "calm": (0, 0, ""),
+    "calm": (0, 0, ""), "npc": (2, 2, "monster"),
 }
 
 
@@ -114,6 +115,11 @@ def _trigger(value: str, source: str, line: int) -> tuple[str, list[str]]:
         if rest.strip() not in ("nat20", "nat1"):
             raise StoryError(f"{source}:{line}: 'roll' takes nat20 or nat1")
         return name, [rest.strip()]
+    if name in NAMED_TRIGGERS:  # (whose key is checked against the game's content in validate)
+        if len(rest.split()) > 1:
+            raise StoryError(f"{source}:{line}: '{name}' takes one {NAMED_TRIGGERS[name]}'s key at most, e.g. "
+                             f"'when: {name} {'lucky_lenny' if name == 'meet' else 'lenny_s_bad_tooth'}'")
+        return name, rest.split()
     if rest.strip():
         raise StoryError(f"{source}:{line}: {name!r} doesn't take anything after it (use 'if:' for conditions)")
     return name, []
@@ -249,6 +255,10 @@ def validate(event: StoryEvent, content: Content, event_ids: set[str]) -> list[s
         problems.append(f"{where}: voice must be one of {', '.join(VOICES)}")
     if event.sprite and sprites.Image is not None and not sprites.frame_count(event.sprite):
         problems.append(f"{where}: no sprite called {event.sprite!r} in data/sprites")
+    named = {"meet": content.monsters, "gain": content.items}.get(event.trigger)
+    if named is not None and event.trigger_args and event.trigger_args[0] not in named:
+        problems.append(f"{where}: unknown {NAMED_TRIGGERS[event.trigger]} {event.trigger_args[0]!r} for "
+                        f"'when: {event.trigger}'")
     for condition in event.conditions:
         if condition.name == "chance" and not 0 <= int(condition.value) <= 100:
             problems.append(f"{where}:{condition.line}: chance must be 0-100%")
@@ -258,6 +268,8 @@ def validate(event: StoryEvent, content: Content, event_ids: set[str]) -> list[s
             problems.append(f"{where}:{condition.line}: unknown {condition.name} {condition.value!r}")
         if condition.name == "fixture" and condition.value not in ("shrine", "chest", "fountain", "stairs"):
             problems.append(f"{where}:{condition.line}: unknown fixture {condition.value!r}")
+        if condition.name == "npc":
+            problems += _check_npc(condition.value.split(), f"{where}:{condition.line}", content, optional=True)
     for node in event.nodes.values():
         effect_lists = [node.effects] + [c.effects for c in node.choices]
         for effects in effect_lists:
@@ -280,6 +292,8 @@ def _check_effect(effect: Effect, event: StoryEvent, content: Content, event_ids
         return [f"{where}: [{effect.verb}] takes {low if low == high else f'{low}-{high}'} argument(s)"]
     if not effect.args:
         return []
+    if effect.verb == "npc":
+        return _check_npc(effect.args, where, content)
     arg = effect.args[0]
     checks = {
         "number": (re.fullmatch(r"[+-]?\d+", arg), "a number like 5, +5 or -5"),
@@ -292,6 +306,18 @@ def _check_effect(effect: Effect, event: StoryEvent, content: Content, event_ids
     }
     ok, expected = checks[kind]
     return [] if ok else [f"{where}: [{effect.verb} {arg}] needs {expected}"]
+
+
+def _check_npc(args: list[str], where: str, content: Content, optional: bool = False) -> list[str]:
+    """A character and a stage of its story ("lucky_lenny done": npcs.stages), as `npc` names them in a condition
+    (where the stage may be left out: met at all) or an effect."""
+    if len(args) not in ((1, 2) if optional else (2,)) or args[0] not in content.monsters:
+        who = f"{args[0]!r} isn't a monster key from monsters.toml" if args and args[0] not in content.monsters else \
+            "it needs a character and a stage"
+        return [f"{where}: npc {' '.join(args)}: {who} (e.g. npc lucky_lenny done)"]
+    if len(args) == 2 and args[1] not in npcs.stages(args[0]):
+        return [f"{where}: npc {' '.join(args)}: {args[0]}'s stages are {', '.join(npcs.stages(args[0]))}"]
+    return []
 
 
 class Library:

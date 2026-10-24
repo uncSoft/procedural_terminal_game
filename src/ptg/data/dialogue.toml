@@ -1,0 +1,157 @@
+# What the dungeon's characters say, in their own words. Each line is shown just as it's written, on a card with the
+# character's picture: the narrator never rewords it, so a quest can't get lost in the telling. (src/ptg/npcs.py says
+# when each one comes up.)
+#
+# Each [section] is a character's key from monsters.toml. [npc] is for anyone the maker tagged npc who has no lines of
+# their own yet. A line is one text in quotes, or a list of them: then they take turns, so talking to someone again
+# says the next one.
+#
+# The moments a line can be for (not every character has every one):
+#
+#   meet         the first time you walk in on them
+#   again        seeing them again: walking back into a shop, or meeting them on a later floor
+#   talk         talking to them, while nothing much is going on
+#   angry        you've hit them, or they've got cranky
+#   calmed       calmed down again
+#   beaten       their last words
+#   refuse_gift  handed something they don't want
+#   has_item     you're carrying what they want
+#   point        telling you where what they want is
+#   lying        what they want is lying where you can pick it up
+#   done         you've given them what they wanted
+#   after        talking to them once that's done
+#   keep_it      handed something once that's done
+#   missing      what they want is gone for good
+#   guessing     their game's on, and they're waiting for your guess
+#   won, lost    you won their game, or lost it
+#   paid         calmed down with something you gave them
+#   sulk         talking to them after their game, when they've kept their prize
+#   bare         talking to them after you've won their prize
+#   steal        grabbing something of yours
+#   greet        a shopkeeper, as you walk in
+#   thanks       a shopkeeper, when you buy something
+#   buys         a shopkeeper, when you sell her something
+#   haggle_won   a shopkeeper, talked down
+#   haggle_lost  a shopkeeper, when your haggling goes wrong
+#
+# Blanks the game fills in: {name} (who's talking), and where a thing is: {feature} ("a heap of old rubbish") and
+# {place} ("right here", "in the Feast Hall", "in a room you haven't been to yet").
+#
+# After editing, check the game still loads (uv run ptg) and sign the data: uv run python -m ptg.integrity --sign
+
+# Lucky Lenny, by BelleDaBest: his cousin's a leprechaun, but he's ironically unlucky. A goblin's pan knocked his
+# tooth out, and now he has a gold crown in its place.
+[lucky_lenny]
+meet = "WOAH WOAH WOAH WOAH! Don't hit me! I'm Lucky Lenny. Well, Lenny. The lucky bit's a joke. A goblin bonked me with a frying pan and knocked my bad tooth clean out! This gold crown in the gap? Fake. It PINCHES. I want my real tooth back! It flew off somewhere on this floor. Help a fella out?"
+has_item = [
+    "WOAH WOAH WOAH WOAH! Is that... that's MY TOOTH! You found my bad tooth! A goblin's frying pan knocked it clean out of my head. Give it here, give it here!",
+    "My tooth! You've got my tooth! Give it here, before something else goes wrong!",
+]
+point = [
+    "That goblin flung my tooth away! It's in {feature} {place}, I just know it! Go on, before a rat eats it.",
+    "It's in {feature} {place}! Smells like old cheese and bad luck. You can't miss it.",
+    "Still no tooth? Try {feature} {place}. I'd go myself, but I'm unlucky. I'd fall in.",
+]
+lying = "You found it! My tooth's lying {place}! Pick it up, quick, before a goblin does!"
+missing = "My tooth's gone? Gone for good? Unlucky. Story of my life."
+done = "Ahhh, MY TOOTH! *squelch* Feels like home. Here, have my good one: *POP*! Don't need it anymore. Lucky you!"
+after = [
+    "Smile with me! *gap-toothed grin*",
+    "That good tooth's lucky, you know. Luckier than me, anyway.",
+    "My cousin's a leprechaun. He's got pots of gold. I've got my tooth back. We're even.",
+]
+refuse_gift = [
+    "That's not my tooth! My tooth is BAD. That's not nearly bad enough.",
+    "Nope. Not a tooth. Not MY tooth. Keep looking!",
+]
+keep_it = "Keep it, friend. You've done plenty!"
+angry = "WOAH WOAH WOAH WOAH! What was that for?! I thought we were pals!"
+calmed = "Okay... okay. No more hitting? No more hitting."
+beaten = "Unlucky... as always..."
+
+# Swoogy The Gooey, by ItsmeCermm: a manchild who hides in secret rooms and loves a guessing game. Get the number on
+# his die right and his prized underwear is yours. Get it wrong and he gets VERY cranky.
+[swoogy_the_gooey]
+meet = "*sniff sniff* A visitor! Swoogy LOVES visitors! Wanna play a game? Swoogy rolls his die, you guess the number. Guess right and you win Swoogy's prized diaper! Guess wrong and Swoogy gets... CRANKY."
+again = "YOU again! Swoogy wants a REMATCH! Same game. Same diaper. Hehehe."
+talk = [
+    "Play Swoogy's game! One little guess! What could go wrong?",
+    "Swoogy's diaper is the best diaper. Fully loaded. You want it. Everybody wants it.",
+]
+guessing = [
+    "Hehehe! Swoogy's got a number. One to six! Guess! GUESS!",
+    "Well? Guess! One, two, three, four, five or six! Swoogy's waiting!",
+]
+won = "WAAAAAAH! No fair! NO FAIR! Fine. FINE! Take it. It's... fully loaded."
+lost = "WRONG! Wrong wrong WRONG! Now Swoogy is CRANKY!"
+angry = "OW! Swoogy said GAME, not FIGHT! Now Swoogy is CRANKY!"
+paid = "*sniff* ...Okay. Swoogy is less cranky. But Swoogy keeps his diaper. Hmph."
+calmed = "Hmph. Swoogy's not cranky. Swoogy's just... sulking."
+sulk = ["Swoogy's done playing. Go away. *sulks*", "Hmph."]
+bare = ["Swoogy is cold. And BARE. Swoogy doesn't want to talk about it.", "WAAAH! Swoogy wants his diaper back!"]
+refuse_gift = "Swoogy doesn't want THAT. Play Swoogy's game!"
+keep_it = "Hmph. *turns his back*"
+beaten = "WAAAAAH! Swoogy's diaper! Not the diaper!"
+
+# King Mouse, by BelleDaBest: VEERY BIG MOUSE!!! BEWARE THE CLAWS!
+[king_mouse]
+meet = "squeeeeeeeEEAKKK!!! I am KING MOUSE! VEERY BIG MOUSE! These are MY stairs! BEWARE THE CLAWS!"
+angry = "squeeeeeeeEEAKKK!!! TREACHERY! The king remembers!"
+calmed = "...squeak. Fine. You may pass. But the stairs are still MINE."
+talk = ["Squeak. The king is watching you.", "BEWARE THE CLAWS! ...sorry. Habit."]
+beaten = "squeak... you are... INEVITABLE..."
+
+# Baby Joey, by BelleDaBest: I don't think Joey is a baby, but if you get close enough you might get robbed...
+[baby_joey]
+meet = "Gimme dat!! Whatever you got. Gimme dat!!"
+steal = ["Mine now! Hehehe!", "Gimme dat!! ...thanks!"]
+angry = "Hey! Joey was being NICE!"
+calmed = "Okay okay. Joey's not a baby. Joey's a BUSINESSMAN."
+talk = ["Joey's not a baby. Don't call Joey a baby.", "You got snacks? Joey likes snacks."]
+beaten = "Waaah... Joey wanted dat..."
+
+# Swamp Bottoms, by BelleDaBest: shorts found in the jungle and swamps. Get too close to his swamp and you might get
+# tangled in his jungle vines...
+[swamp_bottoms]
+meet = "Somethings Comin'!!!! *the shorts rustle in the muck*"
+angry = "Somethings Comin'!!!! And it's ME!"
+calmed = "Fine. FINE. But keep your socks away from me."
+talk = ["You ever been worn in a swamp? It's damp.", "Somethings Comin'!!!! ...nah, just me."]
+beaten = "Somethings... goin'..."
+
+# Granny Gristle, by JT: a kobold pawnbroker who carries her whole shop on her back, rubber chicken included.
+[granny_gristle]
+greet = "Come in, come in, dearie! Mind the rubber chicken. Granny Gristle sells everything and buys anything. Almost anything."
+again = ["Back again, dearie? Granny knew you'd miss her.", "Ooh, it's you! Come to spend more gold, I hope."]
+talk = [
+    "Three dungeons I've outlived, dearie. Three! The trick is never to haggle with me.",
+    "This frying pan? Took it off a goblin who went about bonking folk with it. Poor Lenny.",
+    "Steal from Granny? Ha! Plenty have tried. The frying pan remembers them all.",
+]
+thanks = ["Pleasure doing business, dearie!", "Ooh, good choice. Try not to die with it.", "Sold! No refunds."]
+buys = ["Granny'll take that off your hands, dearie.", "Hm! A bit grubby. Granny's had worse."]
+haggle_won = "Grrr. You drive a hard bargain, dearie. FINE."
+haggle_lost = "Cheeky! For that, it costs MORE."
+
+# Granny Kamultruk, by JT: Granny Gristle's cousin from the deep tunnels. She'll sell you anything except the candle.
+[granny_kamultruk]
+greet = "Welcome, welcome! Look! Buy! Granny Kamultruk has shiny things. Is good things. But NO TAKE CANDLE!"
+again = "You come back! Good. Buy more. Candle stays."
+talk = [
+    "Candle is MY candle. Is very old candle. NO TAKE.",
+    "Cousin Gristle? Ha! Her prices is cheap. Her things is cheaper.",
+    "Deep tunnels is very dark. Is why candle. You understand now.",
+]
+thanks = ["Good buy! Very shiny. Candle stays.", "Is yours now! Not candle. Candle is mine."]
+buys = ["Granny Kamultruk pays good! Better than cousin.", "Hm. Is not candle, but okay."]
+haggle_won = "Hmph! Okay, okay. Cheaper. But not candle!"
+haggle_lost = "No! Now is MORE. You want candle too? NO TAKE CANDLE!"
+
+# Anyone the maker tagged npc who has no lines of their own yet.
+[npc]
+meet = "Oh! Hello there. I'm {name}. I'm not here to fight, honest!"
+talk = ["Nice day for a dungeon, isn't it?", "Mind the goblins. They're rude.", "If you find anything shiny, I didn't see it."]
+refuse_gift = "That's kind of you, but you keep it!"
+angry = "Hey! What was that for?!"
+calmed = "Alright, alright. Truce?"
+beaten = "Oof... bad day..."

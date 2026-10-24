@@ -137,7 +137,8 @@ def make_server(data: Path, host: str, port: int, public_url: str, password: str
 
         def _build_environment(self, width: int = 80, height: int = 24) -> dict[str, str]:
             environment = super()._build_environment(width, height)
-            environment.update(PTG_HOME=str(self.home), PTG_HOSTED="1", PTG_SOUND="0")
+            # (textual-serve asks for 60 frames a second; the game's animations step every 70 ms or more)
+            environment.update(PTG_HOME=str(self.home), PTG_HOSTED="1", PTG_SOUND="0", TEXTUAL_FPS="30")
             return environment
 
         async def stop(self) -> None:

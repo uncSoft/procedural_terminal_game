@@ -72,6 +72,7 @@ TOASTS = {
 SPARKS = "✧✦★✦"
 LEAVE_WINDOW = 2.0  # seconds for the second Esc that leaves for the title
 LOOT_CARD = 28  # a loot card's width in the story, with its margins (see .loot-card)
+NARRATION_STEP = 0.12  # seconds between repaints of narration still arriving: re-colouring it every word costs
 
 
 def secret_banner(frame: int, words: str = "SECRET ROOM", colour: str = "#ffd166") -> Text:
@@ -151,7 +152,9 @@ class GameScreen(Screen):
             self.run_turn(None)
         else:
             lexicon = self.lexicon()
-            for entry in state.log[-60:]:
+            recent = state.log[-60:]
+            floors = [i for i, entry in enumerate(recent) if entry.kind == "floor"]
+            for entry in recent[floors[-1] if floors else 0:]:  # this floor's story, as a new floor starts a page
                 self.add_entry(entry, lexicon)
             self.refresh_panels()
             self.pick_up_again()
@@ -288,10 +291,10 @@ class GameScreen(Screen):
 
     @work(exclusive=True, group="turn")
     async def run_turn(self, text: str | None, action: Action | None = None) -> None:
-        """A turn: the opening (None), a numbered choice or typed words, or an `action` from a panel (the shop's)."""
+        """A turn: the opening (None), a numbered choice or typed words, or an `action` from a panel (the shop's).
+        Enter waits while it runs (see submitted). The box isn't disabled meanwhile: that moved focus twice a turn,
+        and every move had Textual's footer rebuild itself, a fifth of a served game's work."""
         self.busy = True
-        command = self.query_one("#command", Input)
-        command.disabled = True
         try:
             if text is None:
                 await self._opening()
@@ -299,8 +302,7 @@ class GameScreen(Screen):
                 await self._turn(text, action)
         finally:
             self.busy = False
-            command.disabled = False
-            command.focus()
+            self.query_one("#command", Input).focus()
 
     def _record_shown(self, start: int) -> None:
         """What the story has shown since its `start`th piece, top to bottom, in the run's turn log ("shown"): the
@@ -316,6 +318,7 @@ class GameScreen(Screen):
         narration, on_text = self._narration_sink()
         result = await self.game.opening(on_text)
         narration.update(highlight(result.narration, self.lexicon()))
+        self.query_one("#story", VerticalScroll).scroll_end(animate=False)
         self._show_story(result.events)
         self._record_shown(0)
         self.refresh_panels()
@@ -375,6 +378,8 @@ class GameScreen(Screen):
         # walk in, its chest, shrine or shopkeeper, and what turned up or lies there to take. (Run 44: the potion
         # lying in a room came above the room's picture, and on the stairs above the new floor's header.)
         if any(e.kind == "descend" for e in pending.events):
+            await self._new_page(start)
+            start = 0
             self._new_floor(narration)
         await self._secret_room_moment(pending.events, narration)
         await self._shop_moment(pending.events, narration)
@@ -390,6 +395,7 @@ class GameScreen(Screen):
         result = await game.finish(on_text)
         if result.narration:
             narration.update(highlight(result.narration, self.lexicon()))
+            self.query_one("#story", VerticalScroll).scroll_end(animate=False)
         else:
             await narration.remove()  # an authored moment speaks for itself
         for error in result.errors:
@@ -445,13 +451,26 @@ class GameScreen(Screen):
         story = self.query_one("#story", VerticalScroll)
         buffer: list[str] = []
         lexicon = self.lexicon()
+        shown = 0.0
 
-        def on_text(chunk: str) -> None:
+        def on_text(chunk: str) -> None:  # (all of it is shown once it's in: see _turn and _opening)
+            nonlocal shown
             buffer.append(chunk)
-            narration.update(highlight("".join(buffer), lexicon))
-            story.scroll_end(animate=False)
+            if time.monotonic() - shown >= NARRATION_STEP:
+                shown = time.monotonic()
+                narration.update(highlight("".join(buffer), lexicon))
+                story.scroll_end(animate=False)
 
         return narration, on_text
+
+    async def _new_page(self, keep_from: int) -> None:
+        """A new floor, a clean page: the last floor's story leaves the screen (the save, the journal and the turn log
+        keep it). Everything shown stays in the screen's layout, so a long run would grow heavier turn by turn."""
+        floor = self.game.state.floor
+        self.floor_cards = [card for card in self.floor_cards if card[0] == floor]
+        self.fixture_sprites = {where: sprite for where, sprite in self.fixture_sprites.items() if where[0] == floor}
+        story = self.query_one("#story", VerticalScroll)
+        await story.remove_children(list(story.children)[:keep_from])
 
     def _new_floor(self, narration: Static) -> None:
         """A header in the story, and the floor's card on top until you've read it (the arrival is narrated

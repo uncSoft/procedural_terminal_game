@@ -226,10 +226,9 @@ async def test_a_room_comes_before_what_lies_in_it(monkeypatch):
         for room in state.rooms:
             room.monster = None
         state.room_id = next(r.id for r in state.rooms if r.fixture == "stairs")
-        start = len(story.children)
         await take_choice(app, pilot, screen, "descend")
-        assert told_since(story, start)[:2] == ["player-line", "floor-header"]
-        assert told_since(story, start)[-3:] == ["room-row", "loot-row", "narration"]
+        assert told_since(story, 0)[:2] == ["player-line", "floor-header"]  # a new floor, a new page
+        assert told_since(story, 0)[-3:] == ["room-row", "loot-row", "narration"]
 
 
 async def test_a_hosted_game_keeps_its_narrator_and_debug_screen_to_itself(monkeypatch):
@@ -474,8 +473,9 @@ async def test_a_new_floor_waits_for_you():
         await pilot.click(offset=(60, 20))
         await pilot.pause(0.2)
         assert isinstance(app.screen, GameScreen) and game.state.floor == 2
-        assert len(screen.query(".floor-header")) == 2
+        assert len(screen.query(".floor-header")) == 1  # a new page: floor 1's story is in the save, not on screen
         assert [e.kind for e in game.state.log].count("floor") == 2
+        assert str(screen.query_one("#story").children[0].render()) == "> descend"  # this turn, at the top
         lines = list(screen.query_one("#story").children)
         header, card = screen.query(".floor-header").last(), screen.query(".room-card").last()
         assert str(card.border_title) == f"✦ {game.state.room.name}"  # the new floor's first room, under its banner

@@ -20,7 +20,7 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Label, ListItem, ListView, Static
 
-from .. import config, glossary, interactions, layout, npcs, sound
+from .. import config, glossary, interactions, inventory, layout, npcs, sound
 from ..content import Content, Theme
 from ..game import Game
 from ..meta import epithet
@@ -313,21 +313,22 @@ class InventoryScreen(Panel):
         return SMALL, width
 
     def compose(self) -> ComposeResult:
-        content, player = self.game.content, self.game.state.player
-        usable = {}  # an item's action right now: drink or eat it, throw it, distract with it, light the room
-        for action in self.game.actions:
-            verb, _, key = action.id.partition(":")
-            if verb in USES and key not in usable:
-                usable[key] = action
-        items = [(player.weapon, f"in hand · {content.item(player.weapon).damage}", None, True)]
+        content, state = self.game.content, self.game.state
+        player = state.player
+
+        def verbs(ref: str) -> list[Action]:  # what the engine says you can do with it now (a tile's buttons)
+            return interactions.verbs(state, content, ref)
+
+        items = [(player.weapon, f"in hand · {content.item(player.weapon).damage}", verbs("gear:weapon"), True)]
         if player.armor:
-            items.append((player.armor, f"worn · +{content.item(player.armor).defense} defense", None, True))
+            items.append((player.armor, f"worn · +{content.item(player.armor).defense} defense",
+                          verbs("gear:armor"), True))
         counts: dict[str, int] = {}
         for key in player.inventory:
             counts[key] = counts.get(key, 0) + 1
         for key, count in counts.items():
             note = (f"×{count} · " if count > 1 else "") + item_note(content, key)
-            items.append((key, note, usable.get(key), False))
+            items.append((key, note, verbs(f"item:{key}"), False))
         self.items = items
         size, width = self.plan(len(items))
         height = self.app.size.height
@@ -348,7 +349,7 @@ class InventoryScreen(Panel):
                 yield art
                 with VerticalScroll(id="inv-words"):
                     yield Static("", id="inv-detail")
-                yield Clickable("", "screen.use", id="inv-use")
+                yield Vertical(id="inv-use")  # what you can do with it: a button for each (see show_detail)
                 hint = Text("arrows pick · enter uses · esc closes", style=DIM)
                 if height >= TALL:
                     hint.append("\n\nTo use something creatively, close this and type what you do with it.")
@@ -360,7 +361,7 @@ class InventoryScreen(Panel):
     def show_detail(self, index: int) -> None:
         self.current = index
         content, player = self.game.content, self.game.state.player
-        key, _, action, equipped = self.items[index]
+        key, _, buttons, equipped = self.items[index]
         item = content.item(key)
         art = self.query_one("#inv-art", Picture)
         art.become(key)
@@ -384,14 +385,19 @@ class InventoryScreen(Panel):
         text.rstrip()
         self.query_one("#inv-detail", Static).update(text)
         self.query_one("#inv-words").scroll_home(animate=False)
-        if action:
-            use = Text(f"▶ {action.label}  (enter)", style="bold #4cff8a")
-        else:
+        box = self.query_one("#inv-use", Vertical)
+        box.remove_children()
+        first = self.default(buttons)
+        for i, action in enumerate(buttons):  # (Enter does the first that's a use; the rest are a click away)
+            label = f"▶ {action.label}" + (f"  [{action.hint}]" if action.hint else "")
+            box.mount(Clickable(Text(label + ("  (enter)" if action is first else ""),
+                                     style="bold #4cff8a" if action is first else "#9a9cc0"),
+                                f"screen.verb({i})", classes="inv-verb"))
+        if first is None:
             idle = {"key": "It must open something important.", "trinket": "No use on its own: try it creatively.",
                     "consumable": "Throw it in a fight to get away." if item.escape else
                     "You're at full health." if player.hp >= player.max_hp else "Not now."}
-            use = Text(idle.get(item.kind, ""), style=DIM)
-        self.query_one("#inv-use", Clickable).update(use)
+            box.mount(Static(Text(idle.get(item.kind, ""), style=DIM)))
 
     def action_move(self, step: int) -> None:
         tiles = list(self.query(ItemTile))
@@ -400,14 +406,29 @@ class InventoryScreen(Panel):
     def action_move_rows(self, rows: int) -> None:
         self.action_move(rows * self.columns)
 
+    @staticmethod
+    def default(buttons: list[Action]) -> Action | None:
+        """What Enter does: the first button that uses the thing (or puts it on), never dropping or selling it."""
+        return next((a for a in buttons if a.id.partition(":")[0] in (*USES, "equip") and
+                     not interactions.is_picker(a.id)), None)
+
     def action_use(self) -> None:
-        _, _, action, _ = self.items[self.current]
+        action = self.default(self.items[self.current][2])
         if self.peek:
             self.notify("Choose your perk first: then it's yours to use.", timeout=3)
         elif action:
-            self.dismiss(action.id)
+            self.dismiss(action)
         else:
             self.notify("Not usable on its own. Try typing what you want to do with it.", timeout=3)
+
+    def action_verb(self, index: int) -> None:
+        """A button on the picked thing: that action, as the engine has it (a picker opens its list)."""
+        buttons = self.items[self.current][2]
+        if self.peek:
+            self.notify("Choose your perk first: then it's yours to use.", timeout=3)
+        elif 0 <= index < len(buttons) and self.app.screen is self:
+            sound.play("select")
+            self.dismiss(buttons[index])
 
 
 class ShopScreen(Panel):
@@ -421,7 +442,8 @@ class ShopScreen(Panel):
                 Binding("up", "move_rows(-1)", show=False, priority=True),
                 Binding("down", "move_rows(1)", show=False, priority=True),
                 Binding("enter", "buy", "Buy", priority=True),
-                Binding("b", "barter", "Barter")]
+                Binding("b", "barter", "Barter"),
+                Binding("s", "sell", "Sell")]
     size_class = "wide"
 
     def __init__(self, game: Game, selected: int = 0) -> None:
@@ -484,7 +506,8 @@ class ShopScreen(Panel):
                     yield Static("", id="shop-about")
                 yield Clickable("", "screen.buy", id="shop-buy")
                 yield Clickable("", "screen.barter", id="shop-barter")
-                yield Static(Text("arrows pick · enter buys · b haggles · esc leaves", style=DIM), id="shop-hint")
+                yield Clickable(Text("▶ Sell something  (s)", style="bold #ffb000"), "screen.sell", id="shop-sell")
+                yield Static(Text("arrows pick · enter buys · b haggles · s sells · esc leaves", style=DIM), id="shop-hint")
 
     def on_mount(self) -> None:
         tiles = list(self.query(ItemTile))
@@ -502,6 +525,11 @@ class ShopScreen(Panel):
         text.append(item_note(content, ware.item) + "\n", style=WORDS)
         text.append(f"\n¤ {ware.price} gold", style="bold #ffd166")
         text.append({"down": "  talked down", "up": "  dearer since you haggled"}.get(ware.haggled, ""), style=SOFT)
+        if item.kind in inventory.GEAR:  # against what you have on, and whether it'd only be a spare
+            state = self.game.state
+            text.append(f"\n\nvs yours: {inventory.versus(state, content, ware.item)}", style=WORDS)
+            if not inventory.upgrade(state, content, ware.item):
+                text.append("\nYou'd carry it as a spare: it's no better than what you have on.", style="#ffb000")
         self.query_one("#shop-detail", Static).update(text)
         about = power_lines(content, ware.item)
         about.append(item.desc, style=f"italic {WORDS}")
@@ -536,6 +564,17 @@ class ShopScreen(Panel):
             self.notify(f"{item.name} is {ware.price} gold, and you have {self.game.state.player.gold}.", timeout=3)
             return
         self.dismiss(Action(f"buy:{self.current}", f"Buy {the(item.name)} for {ware.price} gold"))
+
+    def action_sell(self) -> None:
+        """What you'd sell her: the picker of what you carry that she'd buy (at half the price here), or why not."""
+        state, content = self.game.state, self.game.content
+        keeper = state.room.shop.keeper
+        picker = next((a for a in interactions.verbs(state, content, f"keeper:{keeper}")
+                       if interactions.is_picker(a.id) and a.id.startswith("sell:")), None)
+        if picker is None:
+            self.notify("There's nothing you carry that she'd buy.", timeout=3)
+        else:
+            self.dismiss(picker)
 
     def action_barter(self) -> None:
         item, ware = self._ware()
@@ -913,7 +952,8 @@ class InfoScreen(Panel):
         super().__init__()
         self.game = game
         self.term_id = term_id
-        self.action_id: str | None = None
+        self.action_id: str | None = None  # what Enter does: the engine's own action for it (see _offer)
+        self.action: Action | None = None
         self.picture: Picture | None = None  # what it is, drawn above the card's words
 
     def compose(self) -> ComposeResult:
@@ -925,9 +965,8 @@ class InfoScreen(Panel):
                 if self.picture is not None:
                     yield self.picture
                 yield Static(body, id="info-text")
-            if self.action_id:
-                label = next(a.label for a in self.game.choices() if a.id == self.action_id)
-                yield Clickable(Text(f" ▶ {label}  [enter] ", style="bold #ffb000"), action="screen.act",
+            if self.action is not None:
+                yield Clickable(Text(f" ▶ {self.action.label}  [enter] ", style="bold #ffb000"), action="screen.act",
                                 classes="panel-action")
 
     def fit(self) -> None:
@@ -936,9 +975,16 @@ class InfoScreen(Panel):
             rows = box_rows(self.app.size.height) - (2 if self.action_id else 0)
             self.query_one("#info-body").styles.max_height = rows
 
-    def _available(self, action_id: str) -> None:
-        if any(a.id == action_id for a in self.game.choices()):
-            self.action_id = action_id
+    def _offer(self, ref_id: str) -> None:
+        """What Enter does here: the first thing the engine says you can do with this now (interactions.verbs: what a
+        tile in Here would offer), not a picker or one of Swoogy's guesses. Taking something that lies here, or giving
+        a character what they're after, needn't be a numbered choice."""
+        if self.action is not None:
+            return
+        for action in interactions.verbs(self.game.state, self.game.content, ref_id):
+            if action.id and not interactions.is_picker(action.id) and not action.id.startswith("guess:"):
+                self.action, self.action_id = action, action.id
+                return
 
     def _picture(self, key: str, kind: str, **kwargs) -> Picture:
         """The card's picture: full size if the screen has the room for it and a few lines under it (the card
@@ -962,13 +1008,10 @@ class InfoScreen(Panel):
                         f"killed you {entry['killed_you']}\n", style=SOFT)
         text.append("\n" + (entry.get("lore") or "No notes on this one yet."), style=f"italic {WORDS}")
         here = state.room.monster
-        if here and here.key == key and here.hostile:
-            self._available("attack")
-        elif here and here.key == key:  # someone calm: what they're here for, or else ask them things (not a blow)
-            own = npcs.actions(state, content)
-            self._available(own[0].id if len(own) == 1 else "ask")
+        if here and here.key == key:  # a foe: a blow; someone calm: what they're here for, or else ask them things
+            self._offer(f"monster:{key}")
         if state.room.shop and state.room.shop.keeper == key:  # the shopkeeper: her wares
-            self._available("shop")
+            self._offer(f"keeper:{key}")
         return text, monster.name
 
     def _item(self, key: str) -> tuple[Text, str]:
@@ -994,9 +1037,9 @@ class InfoScreen(Panel):
         ideas = [TAG_IDEAS[t] for t in item.tags if t in TAG_IDEAS]
         if ideas:
             text.append("\n\nIdeas: " + "; ".join(ideas[:3]), style="#ff4f9a")
-        for verb in (*USES, "take"):
-            if not self.action_id:
-                self._available(f"{verb}:{key}")
+        player = game.state.player
+        self._offer(f"floor:{key}" if key in game.state.room.items else "gear:weapon" if key == player.weapon else
+                    "gear:armor" if key == player.armor else f"item:{key}")
         return text, item.name
 
     def _feature(self, ref: str) -> tuple[Text, str]:
@@ -1014,7 +1057,7 @@ class InfoScreen(Panel):
                 text.append("Ideas: " + "; ".join(ideas[:3]), style="#ff4f9a")
         else:
             text.append("Nothing special about it, as far as you can tell.", style=DIM)
-        self._available(f"search:{ref}")
+        self._offer(f"feature:{ref}")
         return text, cap(feature.name)
 
     def _fixture(self, ref: str) -> tuple[Text, str]:
@@ -1025,11 +1068,7 @@ class InfoScreen(Panel):
         text = Text()
         text.append(ref.title() + "\n\n", style="bold #ff4f9a")
         text.append(glossary.FIXTURES[ref], style=WORDS)
-        for action in {"stairs": ["descend"], "shrine": ["shrine_blood", "shrine_gold"],
-                       "chest": ["chest_key", "chest", "chest_smash"], "fountain": ["fountain"],
-                       "shop": ["shop"]}.get(ref, []):
-            if not self.action_id:
-                self._available(action)
+        self._offer(f"fixture:{ref}")
         return text, ref.title()
 
     def _room(self, ref: str) -> tuple[Text, str]:
@@ -1057,7 +1096,7 @@ class InfoScreen(Panel):
     def action_act(self) -> None:
         if self.app.screen is self:
             sound.play("select")
-            self.dismiss(self.action_id)
+            self.dismiss(self.action)
 
 
 class PickScreen(Panel):

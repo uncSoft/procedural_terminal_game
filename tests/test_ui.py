@@ -763,7 +763,7 @@ async def test_the_inventory_is_tiles_and_enter_uses_the_one_picked(monkeypatch)
         await pilot.press("left")
         await pilot.pause(0.1)
         assert inventory.items[inventory.current][0] == "healing_potion"
-        assert "Drink the Healing Potion" in str(inventory.query_one("#inv-use").render())
+        assert "Drink" in " ".join(str(b.render()) for b in inventory.query(".inv-verb"))
         await pilot.press("enter")
         await settle(app, pilot)
         assert isinstance(app.screen, GameScreen)

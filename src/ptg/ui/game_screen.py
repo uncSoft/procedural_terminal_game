@@ -150,11 +150,13 @@ class GameScreen(Screen):
         self.busy = False
         self.turn_marker: Widget | None = None  # where the turn now being shown began (see _mark_turn)
         self.animating = False  # a fight's flashes, lunges or death are playing on its tile
+        self.counter_open = False  # the shop's own screen sent the turn now coming: it opens again after it
         self.leave_asked = 0.0  # when Esc last asked "again for the title?" (time.monotonic)
         self.since_redraw = 0  # turns since the whole screen was last drawn afresh (see PTGApp.action_redraw)
         self.plan: Plan | None = None  # how the screen is shared out now (ui/plan.py)
         self.things: list[Thing] = []  # what Here shows, in its order
         self.tile_verbs: list[Action] = []  # the live buttons on those, numbered first
+        self.verb_owner: dict[str, str] = {}  # whose each of them is, for the story's line ("Search · prayer rail")
         self.numbered: list[Action] = []  # what typing a number does: Here's buttons, then the strip's choices
         self.choices_shown: tuple | None = None  # what the choices strip shows (see refresh_choices)
         self.here_shown: tuple | None = None  # what Here was built for: rebuilt only when it changes
@@ -290,6 +292,7 @@ class GameScreen(Screen):
                 if action.id and action.id not in numbers:
                     numbers[action.id] = len(numbers) + 1
         self.tile_verbs = self._ordered(things, numbers)
+        self.verb_owner = {a.id: thing.name for thing in things for a in thing.verbs if a.id}  # (whose button it is)
         box = self.query_one("#here" if plan.two_columns else "#here-strip")
         other = self.query_one("#here-strip" if plan.two_columns else "#here")
         width = (plan.side if plan.two_columns else plan.columns) - 4  # less the frame and padding
@@ -352,6 +355,14 @@ class GameScreen(Screen):
         narrow screen; fight tactics and the ways out come before the rest."""
         on_tiles = {a.id for a in self.tile_verbs}
         actions = [a for a in self._choices() if a.id not in on_tiles]
+        if any(a.id.startswith("use:@") for a in self.tile_verbs):  # (a foe's "Use…" picks the thing: no row for each)
+            actions = [a for a in actions if not a.id.startswith(("use:", "throw:", "distract:"))]
+        things = [a for a in actions if a.id.startswith(("use:", "throw:", "distract:", "reveal:"))]
+        if len(things) > 1 and not self.game.state.scene:  # a row for each thing is a long list: one chip opens them
+            state, content = self.game.state, self.game.content
+            picker = next((a for a in interactions.verbs(state, content, "self") if interactions.is_picker(a.id)), None)
+            if picker is not None:
+                actions = [a for a in actions if a not in things] + [Action(picker.id, "Use an item…", picker.hint)]
         if not self.plan.two_columns and not self.game.state.scene:
             actions = [a for a in actions if not a.id.startswith("go:")]
         return sorted(actions, key=lambda a: not a.id.startswith(FIRST) or bool(self.game.state.scene))
@@ -460,6 +471,9 @@ class GameScreen(Screen):
         """A button or a choice pressed: its action goes through the turn as it is (a picker opens its choices first)."""
         if self.busy or self.game.state.over or not action.id:
             return
+        owner = self.verb_owner.get(action.id) if any(action is a for a in self.tile_verbs) else ""
+        if owner:  # a button's words are bare ("Search"): the story says what it was done to
+            action = Action(action.id, f"{action.label} · {owner}", action.hint)
         if interactions.is_picker(action.id):
             options = interactions.choices(self.game.state, self.game.content, action.id)
 
@@ -467,7 +481,7 @@ class GameScreen(Screen):
                 if chosen is not None:
                     self.run_turn(chosen.label, action=chosen)
 
-            self.app.push_screen(PickScreen(action.label.removesuffix("…"), options), done)
+            self.app.push_screen(PickScreen(action.label.replace("… ·", " ·").removesuffix("…"), options), done)
         else:
             self.run_turn(action.label, action=action)
 
@@ -707,6 +721,7 @@ class GameScreen(Screen):
     async def _turn(self, text: str, action: Action | None = None) -> None:
         game = self.game
         marker = self._mark_turn()
+        at_the_counter, self.counter_open = self.counter_open, False  # (whether the shop's own screen sent this)
         choices = game.choices()
         shown = choices[int(text) - 1].label if text.isdigit() and 1 <= int(text) <= len(choices) else text
         shown = action.label if action else shown
@@ -795,9 +810,10 @@ class GameScreen(Screen):
             self.app.end_run(self)
             return
         self._record_shown(marker)
-        shopping = any(e.kind == "shop" for e in result.events) or (action and action.id.startswith(("buy:", "barter:")))
-        if shopping and game.state.room.shop:  # the counter again, after a purchase or a haggle
-            self.open_shop(int(action.id.partition(":")[2]) if action else 0)
+        shopping = any(e.kind == "shop" for e in result.events) or at_the_counter
+        if shopping and game.state.room.shop:  # the counter again, after a purchase, a haggle or a sale there
+            arg = action.id.partition(":")[2] if action else ""
+            self.open_shop(int(arg) if arg.isdigit() else 0)
         await self.update_suggestion()
 
     def action_shop_counter(self) -> None:
@@ -809,7 +825,8 @@ class GameScreen(Screen):
         """The shop's own screen: what's on the counter and what it costs. What you do there comes back as a turn."""
         def done(chosen: Action | None) -> None:
             if chosen:
-                self.run_turn(chosen.label, action=chosen)
+                self.counter_open = True
+                self.press(chosen)  # (a purchase or a haggle is a turn; "Sell…" opens its list first)
 
         self.app.push_screen(ShopScreen(self.game, selected), done)
 
@@ -1038,18 +1055,22 @@ class GameScreen(Screen):
         """Whether a panel can open now: not mid-turn, bar the help."""
         return not self.busy or name == "help"
 
+    def _picked(self, picked: Action | str | None) -> None:
+        """What a panel or a card sent back: the engine's action for it, as it is (a picker opens its choices), or the id
+        of one of the numbered choices."""
+        if isinstance(picked, Action):
+            self.press(picked)
+        elif picked:
+            action = next((a for a in self._choices() if a.id == picked), None)
+            if action is not None:
+                self.press(action)
+
     def action_panel(self, name: str) -> None:
         """Open a panel (see can_open_panel): what's picked in it comes back as that choice's turn."""
         if not self.can_open_panel(name):
             return
 
-        def done(action_id: str | None) -> None:
-            if action_id:
-                index = next((i for i, a in enumerate(self.game.choices(), 1) if a.id == action_id), None)
-                if index:
-                    self.run_turn(str(index))
-
-        self.app.push_screen(self.panel(name), done)
+        self.app.push_screen(self.panel(name), self._picked)
 
     open_panel = action_panel  # (what a panel's F1-F7 open the next one with: see Panel.action_switch)
 
@@ -1058,13 +1079,7 @@ class GameScreen(Screen):
         if self.busy:
             return
 
-        def done(action_id: str | None) -> None:
-            if action_id:
-                index = next((i for i, a in enumerate(self.game.choices(), 1) if a.id == action_id), None)
-                if index:
-                    self.run_turn(str(index))
-
-        self.app.push_screen(InfoScreen(self.game, term_id), done)
+        self.app.push_screen(InfoScreen(self.game, term_id), self._picked)
 
     def action_go(self, direction: str) -> None:
         """Clicked an arrow on the pad: go that way, as if you'd picked its choice. A locked door (no choice of its own)

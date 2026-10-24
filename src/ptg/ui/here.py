@@ -13,6 +13,7 @@ it is a form too small for it.
 
 from __future__ import annotations
 
+import re
 import textwrap
 from dataclasses import dataclass, field
 
@@ -123,6 +124,8 @@ def things_here(state: GameState, content: Content) -> list[Thing]:
                                    badge="★" if npcs.waiting(state, monster) else "", compact=mood))
         elif ref.kind == "keeper":
             greeting = npcs.line(state, content, ref.key, "greet") or npcs.status(state, content, ref.key)
+            first = re.match(r".+?[.!?](?=\s|$)|.+", greeting)  # (her first sentence: a tile's room is short)
+            greeting = first.group(0) if first else greeting
             found.append(Thing(ref.id, ref.key, "monster", ref.name, greeting, FRIEND, buttons, True, compact="shopkeeper"))
         elif ref.kind == "ware":
             item, price = content.item(ref.state["item"]), ref.state["price"]

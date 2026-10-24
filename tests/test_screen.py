@@ -188,3 +188,34 @@ def test_what_changes_hands_with_a_character_is_a_line_each(content):
     assert lines == [f"→ given to {content.monster(npcs.LENNY).name}: {content.item(npcs.BAD_TOOTH).name}",
                      f"← a gift from {content.monster(npcs.SWOOGY).name}: {content.item(npcs.DIAPER).name}",
                      f"→ given to {content.monster(npcs.SWOOGY).name}: 30 gold"]
+
+
+async def test_a_foes_use_button_stands_in_for_a_row_a_thing_in_the_strip():
+    app = PTGApp(Config(backend="offline", player_name="T"), test_room=("swamp_bottoms", "new", 0))
+    async with app.run_test(size=(130, 46)) as pilot:
+        screen = await walk_in(app, pilot)
+        screen.game.state.player.inventory += ["holy_water", "rubber_duck"]
+        screen.refresh_panels()
+        assert any(a.id.startswith("use:@") for a in screen.tile_verbs)
+        assert any(a.id.startswith("throw:") for a in screen.game.choices())  # (the engine still lists them)
+        assert not any(c.action_id.startswith(("throw:", "use:", "distract:")) for c in screen.query(ChoiceItem))
+        assert any(c.action_id in ("dodge", "flee") for c in screen.query(ChoiceItem))  # (tactics stay in the strip)
+
+
+async def test_many_things_to_use_are_one_chip_that_opens_them():
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        state = screen.game.state
+        state.room.monster = None
+        state.player.hp = 10
+        state.player.inventory += ["healing_potion", "stale_bread", "pickle"]
+        screen.refresh_panels()
+        await pilot.pause(0.3)
+        assert len([a for a in screen.game.choices() if a.id.startswith("use:")]) > 1  # (a row each, in the engine)
+        chips = [c for c in screen.query(ChoiceItem)]
+        assert not any(c.action_id.startswith("use:") and "@" not in c.action_id for c in chips)
+        [use] = [c for c in chips if c.action_id.startswith("use:@")]
+        screen.press(next(a for a in screen.numbered if a.id == use.action_id))
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, PickScreen) and len(app.screen.options) > 1

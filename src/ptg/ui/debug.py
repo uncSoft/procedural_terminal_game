@@ -10,6 +10,7 @@ sounds to play and a model check to run.
     State      this run's story flags and its whole save, and your profile's marks, secrets and souls
     Models     the model check (ptg.llm.check) against any model, with earlier results to compare
     Log        the latest exchanges with the model (llm.log), guard cuts included
+    Test rooms straight to a character, a shop, a boss or any monster, with the kit you pick (ptg/testrooms.py)
 
 It only looks, except where a button says otherwise.
 """
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 import os
 import platform
+import random
 import re
 import subprocess
 import sys
@@ -36,7 +38,7 @@ from textual.coordinate import Coordinate
 from textual.events import Click
 from textual.widgets import Button, DataTable, Input, ProgressBar, Select, Static, TabbedContent, TabPane, Tree
 
-from .. import __version__, integrity, loot, powers, sound
+from .. import __version__, integrity, loot, powers, sound, testrooms
 from ..config import DEFAULT_CLAUDE_MODEL, DEFAULT_URLS, Config, home, load_game, save_config
 from ..content import Content, load_content
 from ..game import Game
@@ -1065,16 +1067,95 @@ def exchange_text(entry: Exchange) -> Text:
     return out
 
 
+# --- Test rooms ---------------------------------------------------------------------------------------------------
+
+TEST_INTRO = """\
+You start next door, so walking in plays out as in a run: Swoogy's wall to bomb (with a bomb), a shop's door (a small
+key, two bombs and gold to spend), a boss's locked door (its key), Lucky Lenny (his bad tooth in your pack). The kit
+you see is the kit you get: ↻ for another draw. Nothing in a test room counts: it never saves over your run, banks no
+souls, and leaves your Hall of Legends, ghosts and bestiary as they were. Esc twice to leave it. (Also: ptg --test-room
+list)"""
+
+
+class TestRoomsTab(DebugTab):
+    main = "#test-who"
+    seed = 0
+
+    def compose(self) -> ComposeResult:
+        found = testrooms.choices(load_content())
+        with Horizontal(classes="debug-toolbar"):
+            yield Select([(words, key) for key, words in found.items()], value="lenny", allow_blank=False,
+                         compact=True, id="test-who")
+            yield Select([("its own floor", 0)] + [(f"floor {n}", n) for n in (1, 2, 3)], value=0,
+                         allow_blank=False, compact=True, id="test-floor")
+            yield Select([(words, key) for key, words in testrooms.LOADOUTS.items()] + [("a kit of your own", "own")],
+                         value="random", allow_blank=False, compact=True, id="test-kit")
+        with Horizontal(classes="debug-toolbar"):
+            yield Input(placeholder="weapon=war_pick,armor=chain_shirt,items=holy_water+pickle,level=3,gold=50",
+                        compact=True, disabled=True, id="test-own")
+            yield Button("↻ Another", compact=True, id="test-another")
+            yield Button("Go", variant="primary", compact=True, id="test-go")
+        with VerticalScroll():
+            yield Static("", classes="debug-info", id="test-info")
+
+    def load(self) -> None:
+        super().load()
+        self.seed = random.randrange(1_000_000)
+        self.preview()
+
+    def chosen(self) -> tuple[str, str, int]:
+        kit = self.query_one("#test-kit", Select).value
+        if kit == "own":
+            kit = self.query_one("#test-own", Input).value.strip() or "new"
+        return self.query_one("#test-who", Select).value, kit, self.query_one("#test-floor", Select).value
+
+    def preview(self) -> None:
+        content = load_content()
+        who, kit, floor = self.chosen()
+        self.query_one("#test-floor", Select).disabled = bool(testrooms.fixed_floor(content, who))
+        self.query_one("#test-own", Input).disabled = self.query_one("#test-kit", Select).value != "own"
+        info = self.query_one("#test-info", Static)
+        try:
+            state = testrooms.build(content, who, kit, floor, name=self.app.config.player_name, seed=self.seed)
+        except (ValueError, KeyError) as error:
+            info.update(Group(Text(""), Text(str(error).strip("'\""), style=BAD), Text("\n" + TEST_INTRO, style=DIM)))
+            return
+        info.update(Group(Text(""), pairs(testrooms.describe(content, state)), Text("\n" + TEST_INTRO, style=DIM)))
+
+    @on(Select.Changed, "#test-who, #test-floor, #test-kit")
+    def changed(self, event: Select.Changed) -> None:
+        if self.loaded:
+            self.preview()
+            if event.select.id == "test-kit" and event.value == "own":
+                self.query_one("#test-own", Input).focus()
+
+    @on(Input.Changed, "#test-own")
+    def typed(self) -> None:
+        if self.loaded:
+            self.preview()
+
+    @on(Button.Pressed, "#test-another")
+    def another(self) -> None:
+        self.seed = random.randrange(1_000_000)
+        self.preview()
+
+    @on(Input.Submitted, "#test-own")
+    @on(Button.Pressed, "#test-go")
+    def go(self) -> None:
+        self.app.start_test_room(*self.chosen(), seed=self.seed)
+
+
 # --- the screen ---------------------------------------------------------------------------------------------------
 
 TABS = {"overview": ("Overview", OverviewTab), "monsters": ("Monsters", MonstersTab), "items": ("Items", ItemsTab),
         "art": ("Art", ArtTab), "sounds": ("Sounds", SoundsTab), "story": ("Story", StoryTab),
-        "state": ("State", StateTab), "models": ("Models", ModelsTab), "log": ("Log", LogTab)}
+        "state": ("State", StateTab), "models": ("Models", ModelsTab), "log": ("Log", LogTab),
+        "test": ("Test rooms", TestRoomsTab)}
 
 
 class DebugScreen(Panel):
     BINDINGS = [Binding("escape,f12", "close", "Close"), Binding("r", "reload", "Refresh", show=False),
-                *[Binding(str(n), f"tab('{key}')", show=False) for n, key in enumerate(TABS, 1)]]
+                *[Binding(n, f"tab('{key}')", show=False) for n, key in zip("1234567890", TABS)]]
 
     def __init__(self, tab: str = "overview") -> None:
         super().__init__()
@@ -1083,7 +1164,7 @@ class DebugScreen(Panel):
     def compose(self) -> ComposeResult:
         with Vertical(classes="panel-box debug-box") as box:
             box.border_title = "Debug"
-            box.border_subtitle = "1-9 tabs · r refresh · Esc close"
+            box.border_subtitle = "1-9, 0 tabs · r refresh · Esc close"
             with TabbedContent(initial=f"debug-{self.first}", id="debug-tabs"):
                 for key, (title, tab) in TABS.items():
                     with TabPane(title, id=f"debug-{key}"):

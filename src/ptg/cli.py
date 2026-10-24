@@ -35,6 +35,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--event", metavar="ID", help="fire a story event right after the opening (to test it)")
     parser.add_argument("--debug", action="store_true",
                         help="open the debug screen: the library, art, sounds, story, state and a model check (F12)")
+    parser.add_argument("--test-room", metavar="WHO",
+                        help="start next door to someone (lenny, swoogy, king_mouse, shop, shiny_shop, a boss, any "
+                             "monster) in a run that counts for nothing; `--test-room list` for them all")
+    parser.add_argument("--loadout", default="random", metavar="KIT",
+                        help="a test room's kit: new, random, strong, or weapon=..,armor=..,items=a+b,level=N,gold=N")
+    parser.add_argument("--floor", type=int, default=0, help="a test room's floor (1-3)")
     return parser.parse_args(argv)
 
 
@@ -82,17 +88,27 @@ def main(argv: list[str] | None = None) -> None:
     if not preflight():
         sys.exit(1)
     config = build_config(args)
+    if args.test_room in ("list", "?"):
+        from .testrooms import LOADOUTS, choices
+
+        content = load_content()
+        print("Test rooms (ptg --test-room WHO [--loadout KIT] [--floor N]):")
+        for key, words in choices(content).items():
+            print(f"  {key:22} {words}")
+        print("Kits: " + "; ".join(f"{k} ({v})" for k, v in LOADOUTS.items()) +
+              "; or your own: weapon=war_pick,armor=chain_shirt,items=holy_water+pickle,level=3,gold=50")
+        return
     if args.plain:
         try:
             asyncio.run(play_plain(config or Config(url=DEFAULT_URLS["lmstudio"]), args.seed, args.resume, args.daily,
-                                   args.event))
+                                   args.event, (args.test_room, args.loadout, args.floor) if args.test_room else None))
         except (KeyboardInterrupt, EOFError):
             print("\nGame saved. Bye.")
         return
     from .ui.app import PTGApp
 
     PTGApp(config, seed=args.seed, setup=args.setup, resume=args.resume, daily=args.daily, event=args.event,
-           debug=args.debug).run()
+           debug=args.debug, test_room=(args.test_room, args.loadout, args.floor) if args.test_room else None).run()
 
 
 def show_portrait(game: Game) -> None:
@@ -138,7 +154,7 @@ def print_story(events) -> None:
 
 
 async def play_plain(config: Config, seed: int | None, resume: bool, daily: bool = False,
-                     event: str | None = None) -> None:
+                     event: str | None = None, test_room: tuple[str, str, int] | None = None) -> None:
     llm = make_llm(config)
     if llm is not None:
         try:
@@ -149,7 +165,13 @@ async def play_plain(config: Config, seed: int | None, resume: bool, daily: bool
             llm = None
     profile = Profile.open()
     content = load_content()
-    state = load_game() if resume else None
+    if test_room:  # (it counts for nothing: your real run's save is left alone)
+        from .testrooms import build
+
+        state = build(content, *test_room, name=config.player_name)
+        resume = False
+    else:
+        state = load_game() if resume else None
     unfinished = load_game() if state is None else None
     if unfinished is not None:  # (a new run's first save would wipe it out: no death, no souls, no ghost)
         print("Your run isn't over: " + " · ".join(run_summary(unfinished)))
@@ -160,8 +182,8 @@ async def play_plain(config: Config, seed: int | None, resume: bool, daily: bool
             print(f"☽ {souls} soul{'' if souls == 1 else 's'} kept.")
         else:
             state = unfinished
-    fresh = state is None
-    if fresh:
+    fresh = state is None or bool(state.test_room)
+    if state is None:
         state = start_run(profile, content, config.player_name, seed=seed, daily=daily)
     game = Game(state, config, llm, content, profile)
     game.force_event = event if fresh else None
@@ -189,7 +211,7 @@ async def play_plain(config: Config, seed: int | None, resume: bool, daily: bool
             raw = input("> ").strip()
             command = raw.lower()
             if command in ("quit", "exit"):
-                print("Game saved.")
+                print("A test room: nothing saved." if game.state.test_room else "Game saved.")
                 return
             if command in ("map", "m"):
                 print("\n".join(render_map(game.state)))

@@ -74,7 +74,7 @@ class Game:
         self.llm = llm
         self.content = content or load_content()
         self.profile = profile or Profile.open()
-        self.autosave = autosave
+        self.autosave = autosave and not state.test_room  # a test room never saves over your real run
         self.pending: Pending | None = None
         self._snapshot: GameState | None = None
         self._rerolls = 0
@@ -131,17 +131,18 @@ class Game:
     # --- turns ---
 
     async def opening(self, on_text: Callable[[str], None]) -> TurnResult:
-        room = self.state.room
-        arrival = Event("enter", f"You stand in {the(room.name)}, at the entrance of {self.theme.name}, floor 1 of "
-                                 f"{self.state.floors_total}. {room_facts(self.state, self.content)}",
+        room, state = self.state.room, self.state
+        where = (f"somewhere in {self.theme.name}" if state.test_room else f"at the entrance of {self.theme.name}")
+        arrival = Event("enter", f"You stand in {the(room.name)}, {where}, floor {state.floor} of "
+                                 f"{state.floors_total}. {room_facts(state, self.content)}",
                         data={"first": True, "room": room.id})
         text, error = await narrate(self.llm, self.state, self.content, "", [arrival], self.config.tone, on_text,
                                     opening=True)
         room.description = text
-        self.state.journal.append(f"You arrived in {the(room.name)}, the entrance of {self.theme.name}.")
+        self.state.journal.append(f"You arrived in {the(room.name)}, {where.replace('at the', 'the')}.")
         self.state.log.append(self.floor_entry())
         self.state.log.append(LogEntry(kind="narration", text=text))
-        events = self.story.on_run_start(self.state)
+        events = [] if state.test_room else self.story.on_run_start(state)  # (a test room isn't a run's start)
         if self.force_event:
             events += self.story.force(self.state, self.force_event)
             self.force_event = None
@@ -319,8 +320,9 @@ class Game:
         return await extras.recap(self.llm, self.state, stand_in)
 
     def _record_story(self, events: list[Event]) -> None:
-        """Log story cards and their effects, and save what the profile should remember."""
+        """Log story cards and their effects, and save what the profile should remember (nothing, in a test room)."""
         state, profile = self.state, self.profile
+        test = bool(state.test_room)
         for event in events:
             if event.kind == "story" and event.data.get("voice") == "exact":
                 state.log.append(LogEntry(kind="card", text=event.text, title=event.data.get("title", ""),
@@ -328,13 +330,13 @@ class Game:
             elif event.kind == "story_effect" and event.text:
                 state.log.append(LogEntry(kind="mechanic", text=f"◆ {event.text}"))
             elif event.kind == "story_secret":
-                if profile.add_secret(event.data["event"], state.run_id):
+                if test or profile.add_secret(event.data["event"], state.run_id):
                     state.log.append(LogEntry(kind="system", text=f"✧ {event.text}"))
                 else:
                     event.data["repeat"] = True  # already in the Book of Secrets
-            elif event.kind == "story_seen":
+            elif event.kind == "story_seen" and not test:
                 profile.mark_seen(event.data["event"])
-            elif event.kind == "story_mark":
+            elif event.kind == "story_mark" and not test:
                 profile.set_mark(event.data["mark"])
             if event.kind in ("story", "story_effect") and event.text:
                 state.journal.append(event.text)
@@ -344,6 +346,8 @@ class Game:
 
     def _update_profile(self, events: list[Event]) -> None:
         profile, state = self.profile, self.state
+        if state.test_room:  # (a test room's run counts for nothing: not even in the bestiary)
+            return
         for event in events:
             monster = event.data.get("monster")
             if event.kind in ("enter", "ambush", "descend", "story_effect") and monster:

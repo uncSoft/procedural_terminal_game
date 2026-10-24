@@ -204,6 +204,7 @@ class GameState(BaseModel):
     suggestion: str = ""
     known_weak: dict[str, list[str]] = Field(default_factory=dict)
     ghost: dict | None = None
+    test_room: str = ""  # a test room's run (testrooms.py): it counts for nothing, and is never saved
     modded: bool = False  # played on edited game data
     flags: list[str] = Field(default_factory=list)  # story flags for this run
     story_seen: list[str] = Field(default_factory=list)  # story events fired this run

@@ -124,6 +124,8 @@ def abandon(profile: Profile, state: GameState) -> int:
 
 def record_end(profile: Profile, state: GameState) -> int:
     """Write the finished run to the Hall of Legends, bank the souls, and leave a ghost if you died."""
+    if state.test_room:  # (a test room's run counts for nothing)
+        return 0
     souls = souls_earned(state)
     profile.add_souls(souls)
     if state.run_id is not None:

@@ -52,8 +52,8 @@ async def test_f12_opens_every_tab_and_closes_again():
         await pilot.press("f12")
         await pilot.pause(0.3)
         assert isinstance(app.screen, DebugScreen)
-        for n, key in enumerate(debug.TABS, 1):
-            await pilot.press(str(n))
+        for n, key in zip("1234567890", debug.TABS):
+            await pilot.press(n)
             await pilot.pause(0.2)
             assert app.screen.query_one(TabbedContent).active == f"debug-{key}"
             assert app.screen.query_one(f"#debug-{key}").query_one(debug.DebugTab).loaded

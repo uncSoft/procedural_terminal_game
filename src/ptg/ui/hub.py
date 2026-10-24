@@ -286,6 +286,9 @@ class EndScreen(Screen):
     @work(exclusive=True)
     async def tally(self) -> None:
         widget = self.query_one("#end-souls", Static)
+        if self.state.test_room:
+            widget.update(Text("A test room: nothing banked, nothing remembered.", style="bold #5fe3ff"))
+            return
         total = souls_earned(self.state)
         steps = min(total, 30) or 1
         for i in range(steps + 1):

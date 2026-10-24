@@ -856,6 +856,25 @@ LogTab .debug-detail {
     margin-right: 2;
 }
 
+#test-who {
+    width: 1fr;
+    margin-right: 2;
+}
+
+#test-floor {
+    width: 19;
+    margin-right: 2;
+}
+
+#test-kit {
+    width: 52;
+}
+
+#test-own {
+    width: 1fr;
+    margin-right: 2;
+}
+
 #check-results {
     height: 1fr;
     margin-top: 1;

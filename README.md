@@ -332,6 +332,7 @@ uv run ptg --plain                       # line-by-line mode, no full-screen UI
 uv run ptg --offline                     # no language model
 uv run ptg --url http://localhost:11434  # one-off server override (Ollama here)
 uv run ptg --debug                       # open the debug screen (F12)
+uv run ptg --test-room swoogy            # a test room (below): next door to Swoogy
 ```
 
 For Claude, install the extra and sign in with `ANTHROPIC_API_KEY` (or `ant auth login`):
@@ -379,6 +380,7 @@ Then open http://localhost:8000.
    | `ANTHROPIC_API_KEY` | Your key: every player's game is narrated by Claude on it, and players need no AI of their own (they never see it). Without it, the offline narrator. |
    | `PTG_MODEL` | The Claude model: `claude-haiku-5-5` (the default, a few cents a run) or `claude-sonnet-5-5`. |
    | `PTG_MAX_GAMES` | Games running at once (5). Each is about 80 MB, and the Starter plan has 512. |
+   | `PTG_TEST_ROOMS` | `1` adds a **Test rooms** link to the name page (below). Leave it off for players. |
 
    Keep the key in Render's settings, never in the `Dockerfile` or the repository: the repository is public, and
    anything in an image can be read back out of it. Set a monthly spend limit in Anthropic's console, and a
@@ -406,9 +408,36 @@ a tab:
 | Models | the model check against any model on the server, with earlier results kept to compare |
 | Log | the latest exchanges with the model, what the guard cut, newest first |
 
+| Test rooms | straight to a character, a shop, a boss or any monster, with the kit you pick (below) |
+
 The Models tab lists the server's models with the loaded ones first. Picking one that isn't loaded warns you first:
 LM Studio would load it to answer, which can unload the one you have loaded. **Use for the narrator** saves the
 choice for your next descent.
+
+## Test rooms
+
+To try someone out without playing down to them: a test room starts you next door to whoever you pick, so walking
+in plays out as it would in a run. Lucky Lenny (his bad tooth is in your pack), Swoogy (behind a wall to bomb, with
+a bomb), King Mouse (at the floor-2 stairs), either shop (at its door, with a small key, two bombs and 100 gold to
+spend), each boss (at its locked door, with its key), or any monster.
+
+Pick a kit: a new adventurer (`new`), what a run might have by that floor (`random`: gear, level and a perk for each
+level), the best of everything (`strong`), or your own (`weapon=war_pick,armor=chain_shirt,items=holy_water+pickle,
+level=3,gold=50,bombs=2,keys=1`, anything left out as a new adventurer has it). Most can be tried on any floor.
+
+Nothing in a test room counts: it never saves over your run, banks no souls, and leaves your Hall of Legends,
+ghosts and bestiary as they were. Esc twice leaves it.
+
+```bash
+uv run ptg --test-room list                                  # who, and the kits
+uv run ptg --test-room king_mouse --loadout strong
+uv run ptg --test-room shiny_shop --loadout new --floor 3
+uv run ptg --test-room goblin --loadout "weapon=war_pick,items=pickle+pickle"
+```
+
+On the debug screen (F12, then 0) the same choices show the kit you'll get before you go (↻ for another draw). On
+the browser version, `PTG_TEST_ROOMS=1` puts a test-rooms page at `/test`, under the tester's own name: when they
+leave a test room they're back at their own title screen, their run where they left it.
 
 ## Project layout
 
@@ -419,6 +448,7 @@ src/ptg/
   world.py         seeded floors: layout, stairs, fixtures, elites, loot, ghosts, the secret room, the map
   loot.py          what turns up where: loot by kind and tier, read from the items, and where rare things are kept
   powers.py        what items do beyond their numbers: roll bonuses, maps, throwing, distracting, curses
+  npcs.py          characters who aren't just monsters: Lucky Lenny, Swoogy, King Mouse, anyone tagged npc
   layout.py        room floor plans and where things stand
   models.py        game state (pydantic; a save file is just this as JSON)
   dice.py          d20 checks with advantage, as data the UI can animate
@@ -428,6 +458,7 @@ src/ptg/
   game.py          one turn: interpret -> resolve -> (reroll) -> narrate -> save -> profile
   profile.py       SQLite: souls, unlocks, Hall of Legends, bestiary, ghosts, turn log
   meta.py          building the adventurer from unlocks, starting runs, scoring the end
+  testrooms.py     test rooms: next door to anyone, with any kit, counting for nothing
   sprites.py       PNG sprites rendered as half-block pixel art, and their poses
   room_picture.py  pictures of rooms, seen from the doorway, drawn in code from the room itself
   dice_art.py      the pixel-art d20

@@ -77,3 +77,41 @@ async def test_a_name_plays_its_own_game_and_a_second_tab_ends_the_first(tmp_pat
                 break
             await asyncio.sleep(0.1)
         assert not server.playing
+
+
+def test_a_test_room_runs_instead_of_the_players_run(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert serve.command(("lenny", "items=pickle+pickle", 2)).endswith(
+        "-m ptg --test-room lenny --loadout items=pickle+pickle --floor 2 --offline")
+
+
+async def test_test_rooms_only_with_the_switch_on(tmp_path):
+    server = serve.make_server(tmp_path, "localhost", 8000, "http://localhost:8000")
+    async with TestClient(TestServer(await server._make_app())) as client:
+        assert "Test rooms" not in await (await client.get("/")).text()
+        assert (await client.get("/test")).status == 404
+
+
+async def test_the_test_rooms_page_sends_you_next_door_to_whoever_you_pick(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    server = serve.make_server(tmp_path, "localhost", 8000, "http://localhost:8000", password="dragon",
+                               test_rooms=True)
+    async with TestClient(TestServer(await server._make_app())) as client:
+        assert '<a href="/test">Test rooms</a>' in await (await client.get("/")).text()
+        page = await (await client.get("/test")).text()
+        assert 'value="swoogy"' in page and 'value="shiny_shop"' in page and 'type="password"' in page
+        assert "not the password" in await (await client.get("/test/play?name=Ava&password=wyrm&who=lenny")).text()
+        assert "no test room" in await (await client.get("/test/play?name=Ava&password=dragon&who=nobody")).text()
+        assert "a kit is" in await (await client.get("/test/play?name=Ava&password=dragon&who=lenny&own=x")).text()
+        moved = await client.get("/test/play?name=Ava&password=dragon&who=lenny&floor=2&kit=random&own=items%3D"
+                                 "pickle%2Bpickle", allow_redirects=False)
+        assert moved.status == 303 and moved.headers["Location"] == "/test/ava/lenny/2/items=pickle%2Bpickle"
+        game = await (await client.get(moved.headers["Location"])).text()
+        assert "ws://localhost:8000/test/ava/lenny/2/items=pickle+pickle/ws" in game  # (a + in a path is a +)
+        assert (await client.get("/test/ava/nobody/1/new", allow_redirects=False)).headers["Location"] == "/test"
+        assert (await client.get("/test/ava/nobody/1/new/ws")).status == 403
+        socket = await client.ws_connect("/test/ava/lenny/2/items=pickle+pickle/ws?width=120&height=40")
+        assert (await socket.receive(timeout=30)).type == WSMsgType.BINARY  # the test room, drawing
+        assert server.playing["ava"].command.split()[-7:] == ["--test-room", "lenny", "--loadout",
+                                                             "items=pickle+pickle", "--floor", "2", "--offline"]
+        await socket.close()

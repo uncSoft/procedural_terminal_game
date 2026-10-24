@@ -287,6 +287,45 @@ async def test_death_goes_to_the_tombstone_then_the_campfire():
         assert isinstance(app.screen, HubScreen)
 
 
+async def test_a_test_room_from_the_command_line_counts_for_nothing():
+    app = PTGApp(Config(backend="offline", player_name="Tester"), test_room=("swoogy", "strong", 0))
+    async with app.run_test(size=(130, 44)) as pilot:
+        await pilot.pause(0.5)
+        await settle(app, pilot)
+        assert isinstance(app.screen, GameScreen) and app.screen.game.state.test_room == "swoogy"
+        assert not app.screen.game.autosave and app.screen.game.state.player.weapon == "silvered_blade"
+        await pilot.press("escape", "escape")
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, TitleScreen) and not save_path().exists()
+
+
+async def test_a_test_room_from_f12_mid_run_leaves_that_run_as_it_was():
+    from test_debug import plain
+    from textual.widgets import Select
+
+    from ptg.ui.debug import DebugScreen, TestRoomsTab
+
+    app = PTGApp(Config(backend="offline", player_name="Tester"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        await into_a_run(app, pilot)
+        await pilot.press("f12")
+        await pilot.pause(0.3)
+        await pilot.press("0")
+        await pilot.pause(0.3)
+        tab = app.screen.query_one(TestRoomsTab)
+        assert isinstance(app.screen, DebugScreen) and "Lucky Lenny" in plain(tab.query_one("#test-info").content)
+        tab.query_one("#test-who", Select).value = "shiny_shop"
+        tab.query_one("#test-kit", Select).value = "new"
+        await pilot.pause(0.2)
+        assert "Granny Kamultruk's shop" in plain(tab.query_one("#test-info").content)
+        await pilot.click("#test-go")
+        await pilot.pause(0.5)
+        await settle(app, pilot)
+        games = [s for s in app.screen_stack if isinstance(s, GameScreen)]
+        assert len(games) == 1 and games[0] is app.screen and app.screen.game.state.test_room == "shiny_shop"
+        assert load_game().test_room == "" and load_game().seed == 1  # the real run, saved as it was
+
+
 async def test_first_run_opens_settings():
     app = PTGApp(None)
     async with app.run_test(size=(120, 40)) as pilot:

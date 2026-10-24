@@ -210,7 +210,8 @@ def this_turn(state: GameState, events: list[Event], opening: bool = False) -> s
     room = the(state.room.name)
     arrived = next((e for e in events if e.kind in ("enter", "descend")), None)
     if opening:
-        return f"the player has just arrived at the entrance of the dungeon, in {room}."
+        where = f"on floor {state.floor} of the dungeon" if state.test_room else "at the entrance of the dungeon"
+        return f"the player has just arrived {where}, in {room}."
     if arrived is None:
         return f"the player is in {room}."
     known = "a room they have never been in before" if arrived.data.get("first") else "a room they have been in before"

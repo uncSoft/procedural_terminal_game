@@ -31,7 +31,8 @@ class PTGApp(App):
     REDRAW_EVERY = 6  # turns between the game's own redraws (see action_redraw)
 
     def __init__(self, config: Config | None, seed: int | None = None, setup: bool = False,
-                 resume: bool = False, daily: bool = False, event: str | None = None, debug: bool = False) -> None:
+                 resume: bool = False, daily: bool = False, event: str | None = None, debug: bool = False,
+                 test_room: tuple[str, str, int] | None = None) -> None:
         super().__init__()
         self.needs_setup = config is None or setup
         self.config = config or Config()
@@ -40,6 +41,7 @@ class PTGApp(App):
         self.daily = daily
         self.event = event  # a story event to fire at the start of the next descent (for testing)
         self.open_debug = debug and not hosted()
+        self.test_room = test_room  # (who, kit, floor): straight to a test room (see ptg/testrooms.py)
         self.profile = Profile.open()
 
     async def on_event(self, event: events.Event) -> None:
@@ -64,6 +66,8 @@ class PTGApp(App):
             self.push_screen(SetupScreen(self.config))
         elif self.resume and load_game() is not None:
             self.continue_game()
+        elif self.test_room:
+            self.start_test_room(*self.test_room)
         elif self.daily:
             self.unfinished_first(lambda: self.start_descent(daily=True))
         if self.open_debug:
@@ -161,6 +165,30 @@ class PTGApp(App):
             self.switch_screen(screen)
         else:
             self.push_screen(screen)
+
+    @work(exclusive=True, group="start")
+    async def start_test_room(self, who: str, loadout: str = "random", floor: int = 0, seed: int | None = None) -> None:
+        """A run next door to `who` that counts for nothing (see ptg/testrooms.py): your real run's save is safe."""
+        from ..testrooms import build
+
+        content = load_content()
+        try:
+            state = build(content, who, loadout, floor, name=self.config.player_name, seed=seed)
+        except (ValueError, KeyError) as error:
+            self.notify(str(error).strip("'\""), title="Can't make that test room", severity="error", timeout=8)
+            return
+        llm = await self.connect()
+        stack = self.screen_stack  # from F12, out of a run first (it's saved as it was after its last turn)
+        games = [i for i, s in enumerate(stack) if isinstance(s, GameScreen)]
+        keep = games[0] if games else next((i for i, s in enumerate(stack) if isinstance(s, DebugScreen)), len(stack))
+        for screen in stack[keep:]:
+            if isinstance(screen, GameScreen):
+                self.run_worker(screen.game.aclose())
+        while len(self.screen_stack) > max(1, keep):
+            self.pop_screen()
+        self.push_screen(GameScreen(Game(state, self.config, llm, content, self.profile), fresh=True))
+        self.notify("Nothing here counts: no save, no souls, nothing remembered. Esc twice to leave.",
+                    title="A test room", timeout=6)
 
     @work(exclusive=True, group="start")
     async def continue_game(self) -> None:

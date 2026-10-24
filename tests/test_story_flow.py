@@ -38,32 +38,31 @@ async def walk_into_the_chest_room(app, pilot):
 
 
 async def test_using_the_fixture_keeps_the_command_in_the_turn_log():
-    """The chest's arrival sprite is moved down to the turn that uses it, which shifted every count of the story's
-    children: the turn's own '> ...' line fell out of the log (run 44, turns 113 and 120)."""
+    """Whatever the turn mounts or moves, its own '> ...' line is the first row in the log (run 44, turns 113 and 120,
+    where a sprite moved down to the turn shifted every count of the story's children)."""
     app = PTGApp(Config(backend="offline", player_name="T", auto_roll=True), seed=chest_room_seed())
     async with app.run_test(size=(130, 46)) as pilot:
         screen, state, story = await walk_into_the_chest_room(app, pilot)
-        assert screen.fixture_sprites  # (the arrival sprite, to be moved)
         ids = [a.id for a in screen.game.choices()]
         screen.run_turn(str(ids.index("chest_smash") + 1))
         await settle(app, pilot)  # (the roll's dice, and whatever the chest does)
         rows = logged(app, state)
-        assert rows[0] == "> Smash the chest open" and "sprite: chest" in rows
+        assert rows[0] == "> Smash the chest open"
         assert not any(row == "" for row in rows)  # (the marker is never a row of its own)
 
 
-async def test_the_command_and_the_picture_stay_in_view_on_a_first_visit():
-    """A picture, a sprite and loot under a command are taller than a small story: it used to end scrolled to the
-    narration, with the command and the picture's top gone (run 44, and the audit at 100x30 and 150x46)."""
+async def test_the_command_stays_in_view_on_a_first_visit():
+    """A turn taller than a small story used to end scrolled to the narration, with the command gone (run 44, and the
+    audit at 100x30 and 150x46). The room's picture is the stage's now, above the story, never scrolled away."""
     for size in [(100, 30), (150, 46)]:
         app = PTGApp(Config(backend="offline", player_name="T", auto_roll=True), seed=chest_room_seed())
         async with app.run_test(size=size) as pilot:
             screen, state, story = await walk_into_the_chest_room(app, pilot)
             await pilot.pause(0.5)
             command = [w for w in story.query(".player-line")][-1]
-            card = story.query(".room-row").last()
             assert in_view(story, command), size
-            assert in_view(story, card), size
+            stage = screen.query_one("#stage-box")
+            assert not stage.display or stage.region.y >= 0 and stage.region.bottom <= story.region.y, size
 
 
 async def test_a_short_turn_follows_the_end_of_the_story():

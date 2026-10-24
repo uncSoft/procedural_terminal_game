@@ -646,6 +646,8 @@ def _walk_in(state: GameState, content: Content) -> list[Event]:
     if first:
         said = said or [Event("meet", "", data={"told_by": "silent"})]
         said[0].data["met"] = key
+        if key == LENNY and not (BAD_TOOTH in state.player.inventory):  # (a job for you, in a box of its own)
+            said.append(Event("story_effect", "New quest: Lucky Lenny's bad tooth.", data={"quest": LENNY}))
     return said
 
 

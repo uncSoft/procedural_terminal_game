@@ -20,7 +20,7 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Label, ListItem, ListView, Static
 
-from .. import glossary, layout, npcs, sound
+from .. import config, glossary, interactions, layout, npcs, sound
 from ..content import Content, Theme
 from ..game import Game
 from ..meta import epithet
@@ -774,11 +774,16 @@ class JournalScreen(Panel):
 
     def compose(self) -> ComposeResult:
         state = self.game.state
-        text = Text()
+        text, quests = Text(), Text()
         for line in state.journal[-80:]:
             text.append("· " + line + "\n", style=WORDS)
+        for _, line, still in npcs.quest_log(state, self.game.content):  # who wants what of you, the open ones first
+            quests.append(("★ " if still else "✓ ") + line + "\n", style="bold #ffd166" if still else DIM)
         with VerticalScroll(classes="panel-box") as box:
             box.border_title = f"Journal · turn {state.turn}"
+            if quests.plain:
+                yield Static(quests)
+                yield Static(Text("What's happened:", style="bold"))
             yield Static(text or Text("Nothing written yet.", style=DIM))
 
     def on_mount(self) -> None:
@@ -979,6 +984,9 @@ class InfoScreen(Panel):
         where = whereabouts(game, key)
         if where:
             text.append(" · ".join(where) + "\n", style="#ffb000")
+        wanted = npcs.wanted_by(game.state, content, key)  # ("Lucky Lenny wants it back.")
+        if wanted:
+            text.append(wanted + "\n", style="bold #ffd166")
         text.append(gear_comparison(game, key), style=WORDS)
         text.append("\n")
         text.append_text(power_lines(content, key))  # (its powers, once)
@@ -1050,3 +1058,54 @@ class InfoScreen(Panel):
         if self.app.screen is self:
             sound.play("select")
             self.dismiss(self.action_id)
+
+
+class PickScreen(Panel):
+    """What to give, or use on: a picker's choices (interactions.choices), the ones that would work first, to pick by
+    number or a click. One that won't work is shown dimly, and can't be picked. Esc, the ✕ or a click outside it
+    picks nothing."""
+
+    BINDINGS = [Binding(str(n), f"pick({n - 1})", show=False) for n in range(1, 10)]
+    size_class = "small"
+
+    def __init__(self, title: str, options: list[Action]) -> None:
+        super().__init__()
+        self.words, self.options = title, options
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="panel-box pick-box") as box:
+            box.border_title = self.words
+            if not self.options:
+                yield Static(Text("Nothing to pick.", style=DIM))
+            for i, action in enumerate(self.options):
+                works = action.hint != interactions.NO
+                row = Text(f"{i + 1}  ", style="bold #ffb000" if works else DIM)
+                row.append(action.label, style=WORDS if works else DIM)
+                if action.hint:
+                    row.append(f"  [{action.hint}]", style=SOFT if works else DIM)
+                yield Clickable(row, f"screen.pick({i})", classes="pick-row")
+
+    def action_pick(self, index: int) -> None:
+        if index < len(self.options) and self.options[index].hint != interactions.NO and self.app.screen is self:
+            sound.play("select")
+            self.dismiss(self.options[index])
+
+
+class MenuScreen(Panel):
+    """A short screen's ☰: the panels the footer's F-keys open, as buttons (three rows tall for a finger)."""
+
+    size_class = "small"
+    opening_sound = None
+    PANELS = (("Bag", "inventory"), ("Character", "character"), ("Look around", "look"), ("Map", "map"),
+              ("Quests", "journal"), ("Bestiary", "bestiary"), ("Help", "help"))
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="panel-box menu-box") as box:
+            box.border_title = "Menu"
+            for label, name in self.PANELS:
+                yield Clickable(Text(f" {label} ", style="bold #0b0b14 on #6c8cff" if config.touch() else "#c8c8e0"),
+                                f"screen.choose('{name}')", classes="menu-row")
+
+    def action_choose(self, name: str) -> None:
+        if self.app.screen is self:
+            self.dismiss(name)

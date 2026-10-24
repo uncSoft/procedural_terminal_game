@@ -21,7 +21,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Static
 
-from .. import inventory, loot, npcs
+from .. import inventory, npcs
 from ..content import Content
 from ..events import Action
 from ..models import GameState
@@ -38,6 +38,7 @@ CARD_WIDTH, MINI_WIDTH = 26, 17  # the least columns a card or mini card is draw
 VERB_STYLES = {"Attack": "#ff4b4b", "Talk": "#4cff8a", "Give": "#4cff8a", "Play": "#4cff8a", "Take": "#ffb000",
                "Equip": "#ffb000", "Buy": "#ffb000"}
 PLAIN_VERB = "#6c8cff"
+DIE = {f"guess:{n}": face for n, face in enumerate("⚀⚁⚂⚃⚄⚅", 1)}  # Swoogy's guesses are the faces of his die
 DEAD_VERB = "#6c6f99"  # a button that can't be pressed ("need 12¤")
 FRIEND, FOE, COIN, DIM = "#4cff8a", "#ff4b4b", "#ffb000", "#9a9cc0"
 
@@ -96,7 +97,8 @@ def foe_status(monster, width: int = 8) -> tuple[str, str]:
     warning = "⚠ big hit next! " if monster.intent == "heavy" else "★ stunned " if monster.stunned else \
         "⛨ guarding " if monster.guarding else ""
     short = "⚠" if monster.intent == "heavy" else "★" if monster.stunned else "⛨" if monster.guarding else ""
-    return f"{warning}{bar(monster.hp, monster.max_hp, width)} {hp}", f"{bar(monster.hp, monster.max_hp, 4)} {hp} {short}".strip()
+    left = min(max(0, monster.hp), monster.max_hp)
+    return f"{warning}{bar(left, monster.max_hp, width)} {hp}", f"{bar(left, monster.max_hp, 4)} {hp} {short}".strip()
 
 
 def things_here(state: GameState, content: Content) -> list[Thing]:
@@ -153,16 +155,29 @@ def things_here(state: GameState, content: Content) -> list[Thing]:
 
 # --- the forms ------------------------------------------------------------------------------------------------------
 
+def button_width(action: Action, touch: bool = False) -> int:
+    """The columns a button takes: " 1 Take " and a space after it; with touch, a framed block at least 8 wide with 2
+    between."""
+    n = len(f"{9} {action.label}")  # (every live one gets a number: at most two digits)
+    return max(n + 2, 8) + 2 if touch else n + 3
+
+
 def verbs_width(thing: Thing, touch: bool = False) -> int:
-    """The columns its buttons take: " 1 Take " and a space after each; with touch, framed buttons at least 8 wide with
-    2 between."""
-    if touch:
-        return sum(max(n + 2, 8) + 4 for n in label_lengths(thing))
-    return sum(n + 3 for n in label_lengths(thing))
+    """The columns all its buttons take on a line."""
+    return sum(button_width(a, touch) for a in thing.verbs)
 
 
-def label_lengths(thing: Thing) -> list[int]:
-    return [len(f"{9} {a.label}") for a in thing.verbs]  # (every live one gets a number: at most two digits)
+def verb_lines(thing: Thing, width: int, touch: bool = False) -> list[list[Action]]:
+    """Its buttons packed into lines `width` columns wide: one is never split, and the rest wrap."""
+    out, line, used = [], [], 0
+    for action in thing.verbs:
+        w = button_width(action, touch)
+        if line and used + w > width:
+            out.append(line)
+            line, used = [], 0
+        line.append(action)
+        used += w
+    return out + ([line] if line else [])
 
 
 def lines(text: str, width: int, most: int) -> int:
@@ -179,18 +194,19 @@ def measure(thing: Thing, form: str, width: int, touch: bool, content: Content |
     """A tile's (columns, rows) in a box `width` columns wide: its picture, its name (up to two lines), how it is (up
     to three for a character) and its buttons (wrapping onto a second line rather than being cut)."""
     verb_row, verbs = (3 if touch else 1), verbs_width(thing, touch)
+    widest = max((button_width(a, touch) for a in thing.verbs), default=0)
     if form in (CARD, MINI):
-        w = max(CARD_WIDTH if form == CARD else MINI_WIDTH, verbs + 2)
+        w = max(CARD_WIDTH if form == CARD else MINI_WIDTH, widest + 2)
         if w > width:
             return w, 999
         inner = w - 2
         rows = art_rows(thing, form, content) + lines(thing.title, inner, 2) + \
             lines(thing.status, inner, 3 if thing.character else 1)
-        return w, rows + verb_row * (1 if verbs <= inner else 2) + 1
+        return w, rows + verb_row * len(verb_lines(thing, inner, touch)) + 1
     if form == ROW:
         words = width - SMALL - 1
         text = lines(thing.title, words, 2) + lines(thing.status, words, 3 if thing.character else 1)
-        return width, max(art_rows(thing, form, content), text) + verb_row * (1 if verbs <= width else 2) + 1
+        return width, max(art_rows(thing, form, content), text) + verb_row * len(verb_lines(thing, width, touch)) + 1
     name = len(thing.title) + 1 + (len(thing.compact) + 1 if thing.character else 0)
     if packed and name + verbs <= width:  # chips side by side, in the phone's strip
         return name + verbs, verb_row
@@ -244,7 +260,7 @@ class Tile(Vertical):
 
     def __init__(self, thing: Thing, form: str, size: tuple[int, int], numbers: dict[str, int], content: Content,
                  touch: bool = False, animate: bool = True) -> None:
-        super().__init__(classes=f"tile tile-{form}" + (" character" if thing.character else ""))
+        super().__init__(classes=f"here-tile here-{form}" + (" character" if thing.character else ""))
         self.thing, self.form, self.tile_size, self.numbers = thing, form, size, numbers
         self.content, self.touch, self.animate = content, touch, animate
         self.styles.width, self.styles.height = size
@@ -258,15 +274,15 @@ class Tile(Vertical):
             if thing.character and thing.compact:
                 name.append(f" {thing.compact}", style=thing.style)
             stacked = self.tile_size[1] > (3 if self.touch else 1)  # (too long for a line)
-            with (Vertical if stacked else Horizontal)(classes="tile-body"):
-                yield Static(name, classes="tile-name")
+            with (Vertical if stacked else Horizontal)(classes="here-body"):
+                yield Static(name, classes="here-name")
                 yield self.buttons()
             return
-        words = [Static(name, classes="tile-name"), Static(Text(thing.status, style=thing.style), classes="tile-status")]
+        words = [Static(name, classes="here-name"), Static(Text(thing.status, style=thing.style), classes="here-status")]
         if self.form == ROW:
-            with Horizontal(classes="tile-body"):
+            with Horizontal(classes="here-body"):
                 yield self.picture()
-                with Vertical(classes="tile-words"):
+                with Vertical(classes="here-words"):
                     yield from words
         else:
             yield self.picture()
@@ -278,7 +294,7 @@ class Tile(Vertical):
         pose = "idle" if self.form != CARD and thing.pose == "windup" else thing.pose  # (a glow swamps a small picture)
         return Picture(thing.sprite, thing.kind, ART[self.form], pose=pose, animate=self.animate and thing.character,
                        action=f"screen.lookup('{self.lookup_id()}')", content=self.content, loop=thing.loop,
-                       classes="tile-art")
+                       classes="here-art")
 
     def lookup_id(self) -> str:
         """The glossary term a click on its picture opens: its card."""
@@ -286,23 +302,29 @@ class Tile(Vertical):
         return {"floor": f"item:{key}", "ware": f"item:{self.thing.sprite}", "keeper": f"monster:{key}"}.get(
             kind, self.thing.id)
 
-    def buttons(self) -> Horizontal:
-        out = []
-        for action in self.thing.verbs:
-            number = self.numbers.get(action.id)
-            label = f"{number} {action.label}" if number else action.label
-            word = action.label.removesuffix("…").split(" ")[0]
-            live = bool(action.id)
-            colour = VERB_STYLES.get(word, PLAIN_VERB) if live else DEAD_VERB
-            click = f"screen.verb('{action.id}')" if live else "screen.verb('')"
-            if self.touch:  # a solid block three rows tall, easy to hit with a thumb
-                button = Clickable(Text(label, style="bold #0b0b14" if live else DEAD_VERB), click, classes="verb")
-                if live:
-                    button.styles.background = colour
-            else:
-                button = Clickable(Text(f" {label} ", style=f"reverse {colour}" if live else DEAD_VERB), click,
-                                   classes="verb")
-            if action.hint:
-                button.tooltip = action.hint
-            out.append(button)
-        return Horizontal(*out, classes="tile-verbs")
+    def buttons(self) -> Vertical:
+        """Its buttons, in the lines they wrap into (see verb_lines)."""
+        width = self.tile_size[0] - (0 if self.form == CHIP else 2)
+        rows = []
+        for line in verb_lines(self.thing, width, self.touch) or [[]]:
+            rows.append(Horizontal(*[self.button(action) for action in line], classes="here-verbs"))
+        return Vertical(*rows, classes="here-verb-rows")
+
+    def button(self, action: Action) -> Clickable:
+        number = self.numbers.get(action.id)
+        face = DIE.get(action.id)
+        label = f"{number} {face or action.label}" if number else face or action.label
+        word = action.label.removesuffix("…").split(" ")[0]
+        live = bool(action.id)
+        colour = VERB_STYLES.get(word, PLAIN_VERB) if live else DEAD_VERB
+        click = f"screen.verb('{action.id}')"
+        if self.touch:  # a solid block three rows tall, easy to hit with a thumb
+            button = Clickable(Text(label, style="bold #0b0b14" if live else DEAD_VERB), click, classes="verb")
+            if live:
+                button.styles.background = colour
+        else:
+            button = Clickable(Text(f" {label} ", style=f"reverse {colour}" if live else DEAD_VERB), click,
+                               classes="verb")
+        if action.hint:
+            button.tooltip = action.hint
+        return button

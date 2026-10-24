@@ -216,12 +216,64 @@ Clickable:hover {
     background: $success 30%;
 }
 
+#hud-row {
+    height: 1;
+}
+
+#hud {
+    width: 1fr;
+}
+
+#hud-short {
+    display: none;
+    width: 1fr;
+    height: 1;
+    padding: 0 1;
+    background: $surface;
+}
+
+#hud-menu {
+    display: none;
+    width: 4;
+    background: $surface;
+    color: $secondary;
+    text-style: bold;
+}
+
 #main {
     height: 1fr;
 }
 
-#story {
+#left {
     width: 1fr;
+}
+
+#stage-box {  /* the room's picture over the story, shaped like a room (ui/plan.py) */
+    height: auto;
+}
+
+#stage {
+    width: auto;
+    height: auto;
+    border: round $primary-darken-2;
+    border-title-color: $secondary;
+    border-title-style: bold;
+}
+
+#stage.combat {
+    border: round $error;
+    border-title-color: $error;
+}
+
+#stage-art {
+    width: auto;
+    height: auto;
+    text-wrap: nowrap;  /* on a terminal made smaller later, a picture is cropped, not wrapped into a mess */
+    text-overflow: clip;
+}
+
+#story {
+    height: 1fr;
     border: double $primary-darken-2;
     border-title-color: $primary;
     border-subtitle-color: $text-muted;
@@ -229,8 +281,8 @@ Clickable:hover {
     scrollbar-size-vertical: 1;
 }
 
-#sidebar {
-    width: 31;
+#side {
+    height: 1fr;
 }
 
 .panel {
@@ -240,48 +292,48 @@ Clickable:hover {
     padding: 0 1;
 }
 
-#scene {  /* clickable (for its card), but a panel: the sidebar's width, and no reverse video on hover */
-    width: 100%;
-}
-
-#scene:hover {
-    text-style: none;
-    border: double $secondary;
-}
-
-#scene.combat {
-    border: double $error;
-    border-title-color: $error;
-}
-
-#scene-art {
-    width: 100%;
-    text-align: center;
-}
-
-#scene-status {  /* always the same lines, each one line (ui/widgets.py monster_status) */
-    text-wrap: nowrap;
-    text-overflow: ellipsis;
+#here-strip {
+    display: none;
 }
 
 #map {
-    height: 1fr;
+    height: auto;
+}
+
+#ways {
+    display: none;
+    height: 1;
+    padding: 0 1;
+}
+
+.way {
+    width: 9;
+    margin-right: 2;
+    text-align: center;
 }
 
 #choices {
-    height: 10;  /* always: a box that grew and shrank moved the choices under the mouse */
-    border: double $secondary-darken-2;
+    height: auto;  /* as many lines as it needs, up to the plan's: the layout fixes the rest (ui/plan.py) */
+    border: none;
+    border-top: heavy $secondary-darken-2;
     border-title-color: $secondary;
     padding: 0 1;
 }
 
-#choice-list, #choice-more {
-    width: 1fr;
-    height: 100%;
+.choice-line {
+    height: auto;
+    width: 100%;
 }
 
-#choice-more {
-    display: none;
+#choices .choice {
+    width: auto;
+    margin-right: 3;
+}
+
+.more {
+    color: $secondary;
+    text-style: bold;
+    width: auto;
 }
 
 .choice {
@@ -290,9 +342,14 @@ Clickable:hover {
     text-overflow: ellipsis;
 }
 
+.choice:hover {
+    background: $secondary 20%;
+}
+
 #dpad {
     width: 17;
     height: 5;
+    margin: 0 0 0 6;
     border: round $secondary-darken-2;
 }
 
@@ -314,8 +371,141 @@ Clickable:hover {
     background: transparent;
 }
 
-.choice:hover {
-    background: $secondary 20%;
+/* --- Here's tiles (ui/here.py) --- */
+
+.here-line {
+    height: auto;
+    width: 100%;
+}
+
+.here-tile {
+    padding: 0 1 1 1;
+}
+
+.here-chip {
+    padding: 0;
+}
+
+.here-body {
+    height: auto;
+    width: 100%;
+}
+
+.here-art {
+    width: auto;
+    height: auto;
+}
+
+.here-words {
+    width: 1fr;
+    height: auto;
+    padding-left: 1;
+}
+
+.here-name, .here-status {
+    width: 100%;
+    height: auto;
+}
+
+.here-chip .here-name {
+    width: auto;
+    margin-right: 1;
+}
+
+.here-verb-rows {
+    height: auto;
+    width: 100%;
+}
+
+.here-chip .here-verb-rows {
+    width: 1fr;
+}
+
+.here-verbs {
+    height: auto;
+    width: 100%;
+    layout: horizontal;
+}
+
+.verb {
+    width: auto;
+    margin-right: 1;
+    height: 1;
+}
+
+.verb:hover {
+    text-style: bold;
+}
+
+.pick-row, .menu-row {
+    height: 1;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+/* --- the size classes the plan sets on the game screen (GameScreen.relayout) --- */
+
+GameScreen.one #main {
+    layout: vertical;
+}
+
+GameScreen.one #side {
+    display: none;
+}
+
+GameScreen.one #here-strip {
+    display: block;
+}
+
+GameScreen.one #ways {
+    display: block;
+}
+
+GameScreen.compact #hud {
+    display: none;
+}
+
+GameScreen.compact #hud-short, GameScreen.compact #hud-menu {
+    display: block;
+}
+
+GameScreen.compact Footer {
+    display: none;
+}
+
+GameScreen.compact #command {
+    height: 1;
+    border: none;
+    padding: 0 1;
+}
+
+GameScreen.compact #story, GameScreen.compact #here, GameScreen.compact #here-strip,
+GameScreen.compact #stage, GameScreen.compact #map {
+    border: none;
+    border-top: heavy $primary-darken-2;
+}
+
+GameScreen.touch .verb {
+    height: 3;
+    min-width: 8;
+    padding: 0 1;
+    margin-right: 2;
+    content-align: center middle;
+}
+
+GameScreen.touch #ways {
+    height: 3;
+}
+
+GameScreen.touch .way {
+    height: 3;
+    background: $panel;
+    content-align: center middle;
+}
+
+GameScreen.touch .verb:hover, GameScreen.touch .choice:hover {
+    background: transparent;
+    text-style: none;
 }
 
 .player-line {
@@ -372,61 +562,20 @@ Clickable:hover {
     text-align: center;
 }
 
-.story-sprite {
-    width: 100%;
-    height: auto;
+.say {  /* a character's words, with who is speaking first (game_screen.add_speech) */
+    border-left: thick $accent;
+    padding: 0 1;
     margin-top: 1;
-    text-align: center;
+    height: auto;
 }
 
-.room-row {
+.quest-banner {
+    border: round $secondary;
+    color: $secondary;
+    text-style: bold;
+    padding: 0 1;
     height: auto;
-    margin-top: 1;
-    align-horizontal: center;
-}
-
-.room-card {
     width: auto;
-    height: auto;
-    border: round $primary;
-    border-title-style: bold;
-}
-
-.room-art {
-    width: auto;
-    height: auto;
-    text-wrap: nowrap;  /* on a terminal made smaller later, a picture is cropped, not wrapped into a mess */
-    text-overflow: clip;
-}
-
-.loot-row {
-    height: auto;
-    margin-top: 1;
-    align-horizontal: center;
-}
-
-.loot-card {
-    width: 26;
-    height: auto;
-    margin: 0 1;
-    border: round $success;
-    border-title-color: $success;
-}
-
-.loot-card.lying {  /* lying there: click to take */
-    border: round $warning;
-    border-title-color: $warning;
-}
-
-.loot-card.taken {
-    border: round $primary-darken-2;
-    border-title-color: $text-muted;
-}
-
-.loot-art, .loot-text {
-    width: 100%;
-    height: auto;
-    text-align: center;
 }
 
 .story-card {
@@ -439,7 +588,7 @@ Clickable:hover {
 }
 
 #choices.scene {
-    border: double $accent;
+    border-top: heavy $accent;
     border-title-color: $accent;
 }
 

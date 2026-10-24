@@ -748,16 +748,15 @@ async def test_the_game_screen_shows_what_they_say_as_story_cards():
             await pilot.pause(0.1)
             if not screen.busy:
                 break
-        [card] = screen.query(".story-card")
-        assert str(card.border_title) == "✧ Lucky Lenny"
-        assert [art.art.sprite for art in card.query(Picture)] == [npcs.LENNY]
+        [card] = screen.query(".say")  # his words, with who is speaking first, and no picture (it's Here's)
+        assert str(card.render()).startswith("Lucky Lenny:") and not card.query(Picture)
         turn = screen.game.state.turn
         await pilot.press("1", "enter")  # Talk to Lucky Lenny
         for _ in range(50):
             await pilot.pause(0.1)
             if not screen.busy:
                 break
-        assert len(screen.query(".story-card")) == 2 and screen.game.state.turn == turn
+        assert len(screen.query(".say")) == 2 and screen.game.state.turn == turn
         assert [e.kind for e in screen.game.state.log[-2:]] == ["narration", "card"]  # (he points; then his words)
 
 

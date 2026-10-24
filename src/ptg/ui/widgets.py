@@ -36,7 +36,7 @@ from .theme import CELL_STYLES, MAP_STYLES
 
 
 TERM_STYLES = {
-    "monster": "bold #ff4b4b", "item": "bold #4cff8a", "feature": "bold #ffb000",
+    "monster": "bold #ff4b4b", "character": "bold #ffd166", "item": "bold #4cff8a", "feature": "bold #ffb000",
     "fixture": "bold #ff4f9a", "room": "#8fa8ff", "rule": "bold #5fe3ff",
 }
 
@@ -199,7 +199,7 @@ def room_text(state: GameState, content: Content, legend_width: int | None = Non
 # are rooms you've been in and the boss's.
 MAP_LEGEND = (("@", "you"), ("!", "foe"), ("B", "boss"), ("#", "visited"), ("?", "unknown"), (">", "stairs"),
               ("†", "shrine"), ("■", "chest"), ("◊", "fountain"), ("¤", "shop"), ("$", "a tip"),
-              ("{✧}", "secret room"), ("=", "locked"))
+              ("{✧}", "secret room"), ("=", "locked"), ("☺", "wants you"))
 
 
 def map_text(state: GameState, legend_width: int | None = None) -> Text:

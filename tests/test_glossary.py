@@ -95,3 +95,14 @@ async def test_clicking_a_term_opens_its_card(profile):
         await pilot.pause(0.3)
         assert isinstance(app.screen, InfoScreen)
         assert app.screen.term_id == "item:healing_potion"
+
+
+def test_plain_water_is_not_holy_water(content):
+    """Carrying a Vial of Holy Water turned every 'water' in the story into its item card (likewise light, stone,
+    dice, duck...): an item's short name is never an everyday word on its own; its full name still is."""
+    state = generate(1)
+    state.player.inventory += ["holy_water", "weighted_dice", "rubber_duck"]
+    text = "Water drips into a puddle. You duck, roll the dice, and uncork the Vial of Holy Water."
+    hits = found(Lexicon(build(state, content)), text)
+    assert hits == {"vial of holy water": "item:holy_water"}
+    assert found(Lexicon(build(state, content)), "The holy water hisses.")["holy water"] == "item:holy_water"

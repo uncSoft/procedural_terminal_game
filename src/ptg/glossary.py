@@ -32,6 +32,10 @@ FIXTURES = {
 COMMON_WORDS = {"stand", "case", "rail", "pile", "heap", "hole", "gap", "wall", "rack", "box", "bench", "ledge",
                 "bowl", "knot", "sack", "rope", "table", "chart", "cart", "cage", "plates", "boots", "stubs", "debris",
                 "bucket", "nest", "hand", "heart", "sword", "bones", "skulls"}
+# Words an item's short name mustn't be on its own, since the story uses them for other things (water in a puddle, light
+# from a torch, the stone walls, the dice you roll, ducking a blow): the full name still counts.
+EVERYDAY = {"water", "oil", "light", "stone", "important", "foot", "rat", "pick", "wrap", "stick", "kit", "dice", "duck",
+            "wheel", "scores", "pointer", "bag"}
 FIXTURE_WORDS = {"shrine": "shrine", "chest": "chest", "fountain": "fountain", "stairs": "stairs",
                  "staircase": "stairs", "shop": "shop", "counter": "shop"}
 RULES = {
@@ -93,15 +97,8 @@ def build(state: GameState, content: Content, bestiary: dict | None = None) -> d
         term = Term(f"item:{key}", "item", item.name, item_summary(content, key))
         add(item.name, term)
         if key in nearby:
-            if " of " in item.name:  # "Flask of Lamp Oil" -> "flask", "lamp oil", "oil"
-                head, tail = item.name.split(" of ", 1)
-                for alias in (head, tail, tail.split()[-1]):
-                    add(alias, term)
-            else:  # "Lucky Rabbit's Foot" -> "rabbit's foot", "foot"
-                words = item.name.split()
-                add(words[-1], term)
-                if len(words) > 2:
-                    add(" ".join(words[-2:]), term)
+            for alias in short_names(item.name):
+                add(alias, term)
 
     # Features of this room: "a stew cauldron" -> "stew cauldron" and "cauldron".
     for index, feature in room.visible_features():
@@ -135,6 +132,24 @@ def build(state: GameState, content: Content, bestiary: dict | None = None) -> d
     for key, (name, summary) in RULES.items():
         add(name, Term(f"rule:{key}", "rule", name, summary))
     return terms
+
+
+def short_names(name: str) -> list[str]:
+    """What the story may call an item you carry or can see, besides its full name: "Flask of Lamp Oil" -> "flask",
+    "lamp oil"; "Lucky Rabbit's Foot" -> "rabbit's foot"; "A Ring, Probably Important" -> "ring". Never an everyday
+    word on its own (EVERYDAY): "Vial of Holy Water" is "holy water" and "vial", but plain water stays water."""
+    name = name.split(",")[0]
+    for article in ("A ", "An ", "The "):
+        name = name.removeprefix(article)
+    for joint in (" of ", " o' ", " in the "):
+        if joint in name:
+            head, tail = name.split(joint, 1)
+            names = [head.split()[0]] if joint == " in the " else [head, tail, tail.split()[-1]]
+            break
+    else:
+        words = name.split()
+        names = [words[-1]] + ([" ".join(words[-2:])] if len(words) > 2 else [])
+    return [alias for alias in dict.fromkeys(names) if alias.lower() not in EVERYDAY]
 
 
 def pattern(terms: dict[str, Term]) -> re.Pattern | None:

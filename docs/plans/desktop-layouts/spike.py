@@ -2,7 +2,7 @@
 portraits, what's here and what you can do with it, the floor map, the story) in rooms of every sort, to try layouts
 against. Nothing in it plays: it's a still to look at, flipped through with keys.
 
-    uv run python docs/plans/desktop-layouts/spike.py              then: L next layout, N/P next/previous room
+    uv run python docs/plans/desktop-layouts/spike.py              then: L layout, N/P room, F focus, D thumbnails
     uv run python docs/plans/desktop-layouts/spike.py --layout hub --room crowded
 
 Rooms (the debug app's own test rooms, filled in to order): sparse (one thing to search, three choices, two rooms
@@ -18,6 +18,11 @@ decide, act):
            choices a room has, and the command line takes the rows the choices don't (one, when there are six).
     band   the room as a band across the top: its picture, and what's here beside it (with their buttons). Under it,
            the story, and beside it the same fixed decision square, with the map under that.
+    focus  as hub, but what's here is one frame and a strip: the thing in focus drawn at full size (all 24 pixels,
+           never the small version), its words and buttons beside it, and under it a strip of everything here as
+           thumbnails; click one (or F) to bring it into the frame. D flips the thumbnails between the hand-made
+           small pictures (12 pixels) and "dense": the full 24-pixel art drawn 2x3 pixels to a cell (sextants), so
+           every pixel shows in a third of the room, two colours to a cell.
 """
 
 from __future__ import annotations
@@ -36,7 +41,7 @@ from textual.app import App, ComposeResult  # noqa: E402
 from textual.containers import Grid, Horizontal, Vertical, VerticalScroll  # noqa: E402
 from textual.widgets import Static  # noqa: E402
 
-from ptg import testrooms  # noqa: E402
+from ptg import sprites, testrooms  # noqa: E402
 from ptg.content import load_content  # noqa: E402
 from ptg.events import Action  # noqa: E402
 from ptg.glossary import Lexicon, build  # noqa: E402
@@ -50,7 +55,8 @@ DIM, WORDS, ACCENT, PINK = "#6c6f99", "#c8c8e0", "#ffb000", "#ff4f9a"
 VERB_COLOURS = {"Attack": "#ff4b4b", "Talk": "#4cff8a"}
 ARROWS = {"north": "▲", "south": "▼", "east": "▶", "west": "◀"}
 MOST_CHOICES = 7  # the most choices a room gives you (a loot room): the decision box is this tall, always
-LAYOUTS = ["hub", "band"]
+LAYOUTS = ["hub", "band", "focus"]
+THUMBS = ["small", "dense"]
 
 # What's on offer in a room beyond its own, to fill a room's choices out to the number asked for: real actions, as
 # the game words them.
@@ -284,6 +290,66 @@ def decision(things, numbers, choices: list[Action], grouped: bool) -> Text:
     return text
 
 
+# --- dense art: 2x3 pixels to a cell ---------------------------------------------------------------------------------
+
+def sextant(bits: int) -> str:
+    """The sextant character (U+1FB00 on) lighting the pixels in `bits` (1 top left, 2 top right, 4, 8, 16, 32 down
+    the rows); the four that already exist elsewhere are those."""
+    if bits in (0, 63, 21, 42):
+        return {0: " ", 63: "█", 21: "▌", 42: "▐"}[bits]
+    return chr(0x1FB00 + bits - 1 - (bits > 21) - (bits > 42))
+
+
+def _distance(a, b) -> int:
+    if a is None or b is None:
+        return 0 if a is b else 10 ** 6
+    return sum((x - y) ** 2 for x, y in zip(a, b))
+
+
+def dense_text(img) -> Text:
+    """An RGBA image 2x3 pixels to a cell. A cell has two colours: where its six pixels have more, the pair that
+    misses least, each pixel taking the nearer."""
+    px, text = img.load(), Text(no_wrap=True)
+    for cy in range(0, img.height, 3):
+        for cx in range(0, img.width, 2):
+            block = []
+            for dy in range(3):
+                for dx in range(2):
+                    x, y = cx + dx, cy + dy
+                    r, g, b, a = px[x, y] if x < img.width and y < img.height else (0, 0, 0, 0)
+                    block.append((r, g, b) if a >= 128 else None)
+            colours = list(dict.fromkeys(block))
+            if len(colours) > 2:
+                count = {c: block.count(c) for c in colours}
+                colours = list(min(((a, b) for i, a in enumerate(colours) for b in colours[i + 1:]),
+                                   key=lambda p: sum(min(_distance(c, p[0]), _distance(c, p[1])) * count[c]
+                                                     for c in colours)))
+            fg, bg = (colours + [None])[:2]
+            if fg is None:
+                fg, bg = bg, None
+            bits = sum(1 << i for i, c in enumerate(block)
+                       if fg is not None and c is not None and (bg is None or _distance(c, fg) <= _distance(c, bg)))
+            hex_ = lambda c: "#%02x%02x%02x" % c  # noqa: E731
+            if fg is None:
+                text.append(" ")
+            else:
+                text.append(sextant(bits), Style(color=hex_(fg), bgcolor=hex_(bg) if bg else None))
+        text.append("\n")
+    text.rstrip()
+    return text
+
+
+class Thumb(Vertical):
+    """A thing in the strip: its picture small, its name under it; clicked, it's brought into the frame."""
+
+    def __init__(self, index: int, *children, **kwargs) -> None:
+        super().__init__(*children, **kwargs)
+        self.index = index
+
+    def on_click(self) -> None:
+        self.app.call_later(self.app.pick, self.index)
+
+
 # --- the app ----------------------------------------------------------------------------------------------------------
 
 CSS = """
@@ -318,17 +384,28 @@ Screen { background: #0b0c18; }
 .pack-name { height: auto; }
 .arrow { content-align: center middle; width: 100%; height: 1; }
 #nav-map { height: auto; }
+#focus { height: auto; min-height: 12; }
+.focus-art { margin-right: 2; }
+.focus-side { height: auto; width: 1fr; padding: 1 0 0 0; }
+#strip { height: auto; margin-top: 1; border-top: dashed #2a2d4a; padding-top: 0; }
+.thumb { width: 14; height: auto; padding: 0 1; border: round #12142a; }
+.thumb.picked { border: round $warning; }
+.thumb:hover { border: round #6c8cff; }
+.thumb-art, .thumb-name { height: auto; width: auto; max-width: 12; }
+.thumb-name { text-wrap: nowrap; text-overflow: ellipsis; }
+#right > #nav { height: 1fr; }
 """
 
 
 class Lab(App):
     CSS = CSS
     BINDINGS = [("l", "layout", "Next layout"), ("n", "room(1)", "Next room"), ("p", "room(-1)", "Previous room"),
+                ("f", "pick_next", "Next in focus"), ("d", "thumbs", "Thumbnails small/dense"),
                 ("ctrl+q", "quit", "Quit")]
 
-    def __init__(self, layout: str = "hub", room_name: str = "crowded") -> None:
+    def __init__(self, layout: str = "hub", room_name: str = "crowded", thumbs: str = "small") -> None:
         super().__init__()
-        self.layout_name, self.room_name = layout, room_name
+        self.layout_name, self.room_name, self.thumbs, self.in_focus = layout, room_name, thumbs, 0
         self.content = load_content()
 
     def compose(self) -> ComposeResult:
@@ -345,13 +422,32 @@ class Lab(App):
     async def action_room(self, step: int) -> None:
         names = list(ROOMS)
         self.room_name = names[(names.index(self.room_name) + step) % len(names)]
+        self.in_focus = 0
         await self.show()
+
+    async def action_pick_next(self) -> None:
+        await self.pick((self.in_focus + 1) % max(1, len(self.pictured())))
+
+    async def action_thumbs(self) -> None:
+        self.thumbs = THUMBS[(THUMBS.index(self.thumbs) + 1) % len(THUMBS)]
+        await self.show()
+
+    async def pick(self, index: int) -> None:
+        """Bring the strip's `index`th thing into the frame."""
+        if self.layout_name != "focus":
+            return
+        self.in_focus = index
+        frame = self.query_one("#focus")
+        await frame.remove_children()
+        await frame.mount(*self.focus_parts())
+        for thumb in self.query(Thumb):
+            thumb.set_class(thumb.index == index, "picked")
 
     async def show(self) -> None:
         """Build the screen afresh for this layout and room."""
         self.state, self.story = room(self.content, self.room_name)
         self.query_one(Hud).show(self.state, self.content)
-        self.title = f"{self.layout_name} · {self.room_name}"
+        self.title = f"{self.layout_name} · {self.room_name}" + (f" · {self.thumbs}" * (self.layout_name == "focus"))
         main = self.query_one("#main")
         await main.remove_children()
         await main.mount(*getattr(self, f"layout_{self.layout_name}")())
@@ -428,6 +524,65 @@ class Lab(App):
         right = Vertical(here, decide, nav, id="right")
         return [Horizontal(left, right, id="row")]
 
+    def pictured(self) -> list:
+        """What's here with a picture: the strip's things, someone first."""
+        things = [t for t in self.things if t.art and t.sprite]
+        return sorted(things, key=lambda t: not t.character)
+
+    def thumb(self, thing) -> Static:
+        if self.thumbs == "dense":
+            name = f"item_{thing.sprite}" if thing.kind == "item" else thing.sprite
+            found = sprites.frames(name)
+            if found:
+                return Static(dense_text(found[0]), classes="thumb-art")
+        return Picture(thing.sprite, thing.kind, 12, content=self.content, animate=False, classes="thumb-art")
+
+    def focus_parts(self) -> list:
+        """The frame: the thing in focus at full size, its words and its buttons beside it."""
+        things = self.pictured()
+        if not things:
+            return [Static(Text("Nothing here to look at.", style=DIM), classes="focus-side")]
+        thing = things[min(self.in_focus, len(things) - 1)]
+        side = [Static(about(thing), classes="card-words")]
+        if thing.verbs:
+            side.append(Static(chips(thing, self.numbers, 40), classes="card-verbs"))
+        return [Picture(thing.sprite, thing.kind, 24, content=self.content, pose=thing.pose, loop=thing.loop,
+                        classes="focus-art"), Vertical(*side, classes="focus-side")]
+
+    def here_focus(self) -> Vertical:
+        """What's here: the frame over the strip, then what has no picture (what's to search) as chips."""
+        self.numbers = {}
+        self.things = things_here(self.state, self.content)
+        for thing in self.pictured():  # (number every button, the frame's and the strip's, the same way each time)
+            for action in thing.verbs:
+                self.numbers.setdefault(action.id, len(self.numbers) + 1)
+        frame = Horizontal(*self.focus_parts(), id="focus")
+        thumbs = [Thumb(i, self.thumb(t), Static(Text(t.name, style=f"bold {PINK if t.character else WORDS}"),
+                                                 classes="thumb-name"),
+                        classes="thumb" + (" picked" if i == self.in_focus else ""))
+                  for i, t in enumerate(self.pictured())]
+        parts = [frame, Horizontal(*thumbs, id="strip")] if len(thumbs) > 1 else [frame]
+        plain = [t for t in self.things if not (t.art and t.sprite)]
+        if plain:
+            line = Text()
+            for thing in plain:
+                line.append(f" {thing.name} ", style="bold #ffd166 on #24284a")
+                line.append(" ")
+                line.append_text(chips(thing, self.numbers, 99))
+                line.append("  ")
+            parts.append(Static(line, classes="here-plain"))
+        box = Vertical(*parts, id="here", classes="box")
+        box.border_title = f"Here · {len(self.things)}"
+        return box
+
+    def layout_focus(self):
+        """The picture over the story; beside them the frame and its strip, the decision square, and the map."""
+        here = self.here_focus()
+        decide, nav = self.decide(grouped=False), self.nav()
+        left = Vertical(self.stage(), self.story_box(), id="left")
+        right = Vertical(here, decide, nav, id="right")
+        return [Horizontal(left, right, id="row")]
+
     def layout_band(self):
         """The room across the top (its picture, what's here beside it: a narrow column for a room with little in it,
         the picture wider); under it the story, and beside that the decision square over the map."""
@@ -446,14 +601,14 @@ class Lab(App):
                                           if self.layout_name == "hub" else 0)
         decide = self.query_one("#decide")
         decide.styles.height = decide_rows + 2
-        if self.layout_name == "hub":
+        if self.layout_name in ("hub", "focus"):
             self.query_one("#left").styles.width = round(w * 0.56)
             self.query_one("#right").styles.width = w - round(w * 0.56)
             self.query_one("#stage").styles.height = round(h * 0.44)
             here = self.query_one("#here")
             here.styles.height = "auto"
             here.styles.max_height = h - decide_rows - 2 - 14
-            self.query_one("#right").styles.align_vertical = "bottom"
+            self.query_one("#right").styles.align_vertical = "bottom" if self.layout_name == "hub" else "top"
         else:
             self.query_one("#band").styles.height = round(h * 0.44)
             here = self.query_one("#here")
@@ -475,5 +630,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--layout", default="hub", choices=LAYOUTS)
     parser.add_argument("--room", default="crowded", choices=list(ROOMS))
+    parser.add_argument("--thumbs", default="small", choices=THUMBS)
     args = parser.parse_args(sys.argv[1:])
-    Lab(args.layout, args.room).run()
+    Lab(args.layout, args.room, args.thumbs).run()

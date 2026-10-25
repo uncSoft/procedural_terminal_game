@@ -25,6 +25,14 @@ decide, act):
            and nothing else, the one in the frame underlined. Click one (or F) to bring it into the frame. D flips
            the thumbnails between the hand-made small pictures (12 pixels) and "dense": the full 24-pixel art drawn
            2x3 pixels to a cell (sextants), every pixel in a third of the room, two colours to a cell.
+    tabs   the owner's idea from round four: the room's picture over the story, the story taking the whole of the
+           left side's lower half. On the right, one pane with tabs, whichever's wanted now: Here (the frame and its
+           strip), Map (the floor drawn big, rooms named), Pack (what you carry, the same frame and strip), Sheet
+           (your numbers); the game's own keys for them (F4, F5, F2, F3), or click a tab. A room with nothing in it
+           opens on the map. Under the pane, the fixed decision square, and beside it the arrows, always there.
+    B flips every layout between boxed (round borders, titled) and open: no borders, each part set apart by its
+    own shade of background, a row of dither between the room's picture and the story, an accent bar down the
+    decision's side.
 """
 
 from __future__ import annotations
@@ -51,14 +59,16 @@ from ptg.glossary import Lexicon, build  # noqa: E402
 from ptg.models import Feature  # noqa: E402
 from ptg.room_picture import look_of, picture_text  # noqa: E402
 from ptg.rules import available_actions, locked_doors, perform  # noqa: E402
-from ptg.ui.here import things_here  # noqa: E402
+from ptg import sheet  # noqa: E402
+from ptg.ui.here import Thing, compare, item_short, things_here  # noqa: E402
 from ptg.ui.widgets import Hud, Picture, highlight, map_text  # noqa: E402
 
 DIM, WORDS, ACCENT, PINK = "#6c6f99", "#c8c8e0", "#ffb000", "#ff4f9a"
 VERB_COLOURS = {"Attack": "#ff4b4b", "Talk": "#4cff8a"}
 ARROWS = {"north": "▲", "south": "▼", "east": "▶", "west": "◀"}
 MOST_CHOICES = 7  # the most choices a room gives you (a loot room): the decision box is this tall, always
-LAYOUTS = ["hub", "band", "focus"]
+LAYOUTS = ["hub", "band", "focus", "tabs"]
+TABS = [("here", "Here", "f4"), ("map", "Map", "f5"), ("pack", "Pack", "f2"), ("sheet", "Sheet", "f3")]
 THUMBS = ["small", "dense"]
 
 # What's on offer in a room beyond its own, to fill a room's choices out to the number asked for: real actions, as
@@ -366,6 +376,96 @@ def facts(state, content, thing) -> Text:
     return text
 
 
+def short(name: str, width: int) -> str:
+    """A room's name in `width` characters: whole if it fits, else its first words, else cut."""
+    name = name.removeprefix("The ")
+    if len(name) <= width:
+        return name
+    words = name.split()
+    while len(words) > 1 and len(" ".join(words)) > width:
+        words.pop()
+    name = " ".join(words)
+    return name if len(name) <= width else name[:width - 1] + "…"
+
+
+def big_map(state, width: int, height: int) -> Text | None:
+    """The floor map drawn big: each room's mark with its name under it, the passages between drawn long. None if
+    the floor's too big for the room it has (then it's the small map)."""
+    from ptg.ui.widgets import MAP_STYLES
+    from ptg.world import map_glyph
+
+    mapped = state.mapped_floor == state.floor
+    known = {r.id for r in state.rooms if r.visited or (mapped and (not r.secret or r.exits))}
+    for room_id in list(known):
+        known.update(e.to for e in state.rooms[room_id].exits.values())
+    known.update(r.id for r in state.rooms if r.told or any(f.told for f in r.features))
+    rooms = [state.rooms[i] for i in known]
+    min_x, max_x = min(r.x for r in rooms), max(r.x for r in rooms)
+    min_y, max_y = min(r.y for r in rooms), max(r.y for r in rooms)
+    step_x, step_y = 14, 4
+    cols, rows = (max_x - min_x) * step_x + 13, (max_y - min_y) * step_y + 2
+    if cols > width or rows > height:
+        return None
+    grid = [[(" ", DIM) for _ in range(cols)] for _ in range(rows)]
+    for room in rooms:
+        cx, cy = (room.x - min_x) * step_x + 6, (room.y - min_y) * step_y
+        glyph = map_glyph(state, room)
+        here = room.id == state.room_id
+        left, right = "{}" if room.secret else "[]"
+        for dx, ch in ((-1, left), (0, glyph), (1, right)):
+            grid[cy][cx + dx] = (ch, f"bold {ACCENT}" if here else MAP_STYLES.get(ch, DIM))
+        if room.visited or (here := here):
+            name = short(room.name, 12)
+            start = cx - len(name) // 2
+            for i, ch in enumerate(name):
+                grid[cy + 1][start + i] = (ch, f"bold {ACCENT}" if room.id == state.room_id else WORDS)
+        if not (room.visited or mapped):
+            continue
+        for direction, exit_ in room.exits.items():
+            style = "#7a3b4c" if exit_.locked else "#3d4a8c"
+            span = {"east": [(cy, x) for x in range(cx + 2, cx + step_x - 1)],
+                    "west": [(cy, x) for x in range(cx - step_x + 2, cx - 1)],
+                    "south": [(y, cx) for y in range(cy + 2, cy + step_y)],
+                    "north": [(y, cx) for y in range(cy - step_y + 2, cy)]}[direction]
+            line = ("═" if exit_.locked else "─") if direction in ("east", "west") else ("║" if exit_.locked else "│")
+            for y, x in span:
+                if 0 <= y < rows and 0 <= x < cols and grid[y][x][0] == " ":
+                    grid[y][x] = (line, style)
+    text = Text()
+    for row in grid:
+        for ch, style in row:
+            text.append(ch, style=style)
+        text.append("\n")
+    text.rstrip()
+    return text
+
+
+def sheet_text(state, content) -> Text:
+    """Your numbers: the stats, then what you roll for each kind of thing."""
+    text = Text()
+    lines = [sheet.hp_line(state, content), sheet.defense_line(state, content), sheet.fate_line(state, content),
+             *[sheet.stat_line(state, content, stat) for stat in sheet.STATS], sheet.damage_line(state, content)]
+    for line in lines:
+        text.append(f"{line.label:<9}", style=f"bold {ACCENT}")
+        text.append(f"{line.total:>3}", style="bold #e8e8f4")
+        if line.note:
+            text.append(f" {line.note}", style=DIM)
+        parts = [f"{p.value:+d} {p.name}" if p.value else p.name for p in line.parts if p.name != "base"]
+        if parts:
+            text.append("   " + " · ".join(parts), style=DIM)
+        text.append("\n")
+    text.append("\nRolls  ", style=f"bold {PINK}")
+    text.append("d20 plus\n", style=DIM)
+    for line in sheet.roll_lines(state, content):
+        text.append(f"  {line.label:<22}", style=WORDS)
+        text.append(f"{line.total:+d}", style="bold #e8e8f4")
+        if line.note:
+            text.append(f"  {line.note}", style=DIM)
+        text.append("\n")
+    text.rstrip()
+    return text
+
+
 class Thumb(Vertical):
     """A thing in the strip: its picture small, underlined when it's the one in the frame; clicked, it's brought in."""
 
@@ -400,7 +500,7 @@ Screen { background: #0b0c18; }
 .here-plain { margin-top: 1; }
 #decide { border: heavy $warning; border-title-color: $warning; border-title-style: bold; padding: 0 1;
           background: #12142a; }
-#choices { height: auto; }
+#choices { height: auto; text-wrap: nowrap; text-overflow: ellipsis; }
 #command { height: 1fr; min-height: 1; background: #1c2040; color: #9a9cc0; padding: 0 1; }
 #nav { height: auto; width: auto; }
 #nav-grid { grid-size: 3 3; grid-columns: 2 auto 2; grid-rows: 1 auto 1; height: auto; width: auto; }
@@ -426,6 +526,28 @@ Screen { background: #0b0c18; }
 .thumb.picked > .thumb-mark { color: $warning; }
 #text-side > #decide { margin-top: 1; }
 #picture-side > #nav { height: 1fr; width: 100%; }
+.dither { display: none; height: 1; }
+.open-title { display: none; height: 1; }
+Screen.open .open-title { display: block; }
+.pane-rule { height: 1; margin: 1 0; border-top: dashed #2a2d4a; }
+#tab-bar { height: 1; }
+#pane { height: 1fr; }
+#act { height: auto; }
+#act > #decide { width: 1fr; }
+#dpad { grid-size: 3 3; grid-columns: 3 3 3; grid-rows: 1 1 1; width: 11; height: 5; margin: 1 1 0 2; }
+#dpad .arrow { width: 3; }
+#big-map, #map-key { width: auto; height: auto; }
+#map-key { margin-top: 1; }
+#sheet { height: auto; }
+/* open: no borders; each part set apart by its own shade, a dither row where a line was */
+Screen.open .box { border: none; padding: 0 2; }
+Screen.open #story { background: #0b0c18; }
+Screen.open #stage { padding: 0; }
+Screen.open #pane { background: #10122a; padding: 1 2; }
+Screen.open #here, Screen.open #nav { background: #10122a; padding: 1 2; }
+Screen.open #decide { border: none; border-left: outer $warning; background: #14173a; padding: 0 2; }
+Screen.open .dither { display: block; color: #2a2d4a; }
+Screen.open #text-side > .dither { color: #23264a; }
 """
 
 
@@ -433,11 +555,15 @@ class Lab(App):
     CSS = CSS
     BINDINGS = [("l", "layout", "Next layout"), ("n", "room(1)", "Next room"), ("p", "room(-1)", "Previous room"),
                 ("f", "pick_next", "Next in focus"), ("d", "thumbs", "Thumbnails small/dense"),
+                ("f4", "tab('here')", "Here"), ("f5", "tab('map')", "Map"), ("f2", "tab('pack')", "Pack"),
+                ("f3", "tab('sheet')", "Sheet"), ("b", "boxes", "Boxed/open"),
                 ("ctrl+q", "quit", "Quit")]
 
     def __init__(self, layout: str = "hub", room_name: str = "crowded", thumbs: str = "small") -> None:
         super().__init__()
         self.layout_name, self.room_name, self.thumbs, self.in_focus = layout, room_name, thumbs, 0
+        self.tab: str | None = None  # the tabs layout's pane: None for the room's own (Here, or the map if it's bare)
+        self.open = False  # no borders
         self.content = load_content()
 
     def compose(self) -> ComposeResult:
@@ -454,7 +580,7 @@ class Lab(App):
     async def action_room(self, step: int) -> None:
         names = list(ROOMS)
         self.room_name = names[(names.index(self.room_name) + step) % len(names)]
-        self.in_focus = 0
+        self.in_focus, self.tab = 0, None
         await self.show()
 
     async def action_pick_next(self) -> None:
@@ -466,7 +592,7 @@ class Lab(App):
 
     async def pick(self, index: int) -> None:
         """Bring the strip's `index`th thing into the frame."""
-        if self.layout_name != "focus":
+        if self.layout_name not in ("focus", "tabs") or not self.query("#focus"):
             return
         self.in_focus = index
         frame = self.query_one("#focus")
@@ -482,6 +608,7 @@ class Lab(App):
         self.state, self.story = room(self.content, self.room_name)
         self.query_one(Hud).show(self.state, self.content)
         self.title = f"{self.layout_name} · {self.room_name}" + (f" · {self.thumbs}" * (self.layout_name == "focus"))
+        self.screen.set_class(self.open, "open")
         main = self.query_one("#main")
         await main.remove_children()
         await main.mount(*getattr(self, f"layout_{self.layout_name}")())
@@ -516,7 +643,8 @@ class Lab(App):
         taken = {a.id for t in self.things for a in t.verbs}
         self.choices = choices_for(self.state, self.content, self.room_name, taken)
         listed = decision(self.things, self.numbers, self.choices, grouped)
-        box = Vertical(Static(listed, id="choices"), Static(Text("› type a number, or anything you want to try…"),
+        box = Vertical(Static(Text("What do you do?", style=f"bold {ACCENT}"), classes="open-title"),
+                       Static(listed, id="choices"), Static(Text("› type a number, or anything you want to try…"),
                                                             id="command"), id="decide")
         box.border_title = "What do you do?"
         return box
@@ -559,9 +687,29 @@ class Lab(App):
         return [Horizontal(left, right, id="row")]
 
     def pictured(self) -> list:
-        """What's here with a picture: the strip's things, someone first."""
+        """The frame's things: what's here with a picture (someone first), or on the Pack tab what you carry."""
+        if self.layout_name == "tabs" and self.tab == "pack":
+            return self.carried()
         things = [t for t in self.things if t.art and t.sprite]
         return sorted(things, key=lambda t: not t.character)
+
+    def carried(self) -> list:
+        """What you carry, as things for the frame: what you have on first."""
+        player, counts = self.state.player, {}
+        for key in [player.weapon, *([player.armor] if player.armor else []), *player.inventory]:
+            counts[key] = counts.get(key, 0) + 1
+        things = []
+        for key, count in counts.items():
+            item = self.content.item(key)
+            on = "⚔ in hand" if key == player.weapon else "⛨ worn" if key == player.armor else ""
+            status = on or (compare(self.state, self.content, key)[0] if item.kind in ("weapon", "armor")
+                            else item_short(self.content, key))
+            if count > 1:
+                status = f"×{count} · {status}"
+            verbs = [] if on else [Action(f"use:{key}", "Use" if item.kind == "consumable" else "Equip"
+                                          if item.kind in ("weapon", "armor") else "Look"), Action(f"drop:{key}", "Drop")]
+            things.append(Thing(f"pack:{key}", key, "item", item.name, status, ACCENT if on else DIM, verbs))
+        return things
 
     def thumb(self, thing) -> Static:
         if self.thumbs == "dense":
@@ -575,7 +723,7 @@ class Lab(App):
         """The frame: the thing in focus at full size, its words and its buttons beside it."""
         things = self.pictured()
         if not things:
-            return [Static(Text("Nothing here to look at.", style=DIM), classes="focus-side")]
+            return []
         thing = things[min(self.in_focus, len(things) - 1)]
         side = [Static(facts(self.state, self.content, thing), classes="card-words")]
         if thing.verbs:
@@ -585,20 +733,26 @@ class Lab(App):
                         classes="focus-art"), Vertical(*side, classes="focus-side")]
 
     def here_focus(self) -> Vertical:
-        """What's here: the frame over the strip, then what has no picture (what's to search) as chips."""
+        """What's here, boxed: the frame over the strip, then what has no picture (what's to search) as chips."""
         self.numbers = {}
         self.things = things_here(self.state, self.content)
+        box = Vertical(*self.focus_strip(), id="here", classes="box")
+        box.border_title = f"Here · {len(self.things)}"
+        return box
+
+    def focus_strip(self) -> list:
+        """The frame over the strip, then (on Here) what has no picture, as chips."""
         for thing in self.pictured():  # (number every button, the frame's and the strip's, the same way each time)
             for action in thing.verbs:
                 self.numbers.setdefault(action.id, len(self.numbers) + 1)
-        frame = Horizontal(*self.focus_parts(), id="focus")
+        frame = Horizontal(*self.focus_parts(), id="focus") if self.pictured() else None
         thumbs = [Thumb(i, self.thumb(t), Static("▀" * 12, classes="thumb-mark"),
                         classes="thumb" + (" picked" if i == self.in_focus else ""))
                   for i, t in enumerate(self.pictured())]
         for thumb, thing in zip(thumbs, self.pictured()):
             thumb.tooltip = thing.name
-        parts = [frame, HorizontalScroll(*thumbs, id="strip")] if len(thumbs) > 1 else [frame]
-        plain = [t for t in self.things if not (t.art and t.sprite)]
+        parts = [frame, HorizontalScroll(*thumbs, id="strip")] if len(thumbs) > 1 else [frame] if frame else []
+        plain = [] if self.tab == "pack" else [t for t in self.things if not (t.art and t.sprite)]
         if plain:
             line, used, width = Text(), 0, self.size.width - round(self.size.width * 0.54) - 4
             for thing in plain:
@@ -610,9 +764,7 @@ class Lab(App):
                 line.append_text(group + Text("  "))
                 used += group.cell_len + 2
             parts.append(Static(line, classes="here-plain"))
-        box = Vertical(*parts, id="here", classes="box")
-        box.border_title = f"Here · {len(self.things)}"
-        return box
+        return parts
 
     def layout_focus(self):
         """Words on the left (the room's picture, the story, the decision square under it); pictures on the right
@@ -622,6 +774,78 @@ class Lab(App):
         left = Vertical(self.stage(), self.story_box(), decide, id="text-side")
         right = Vertical(here, nav, id="picture-side")
         return [Horizontal(left, right, id="row")]
+
+    def default_tab(self) -> str:
+        """Here when there's someone or something to look at, else the map."""
+        return "here" if any(t.art and t.sprite for t in things_here(self.state, self.content)) else "map"
+
+    def tab_bar(self) -> Static:
+        text = Text()
+        for key, label, hotkey in TABS:
+            on = key == self.tab
+            style = Style.parse(f"bold #10122a on {ACCENT}" if on else f"bold {WORDS} on #1c2040")
+            text.append(f" {label} ", style + Style(meta={"@click": f"app.tab('{key}')"}))
+            text.append(f"{hotkey} ", style=Style.parse(f"{'#10122a on ' + ACCENT if on else DIM + ' on #1c2040'}")
+                        + Style(meta={"@click": f"app.tab('{key}')"}))
+            text.append(" ")
+        return Static(text, id="tab-bar")
+
+    def pane_parts(self) -> list:
+        """What the pane shows for its tab."""
+        width = self.size.width - round(self.size.width * 0.54) - 4
+        if self.tab == "here":
+            parts = self.focus_strip()
+            if not self.pictured():
+                parts.insert(0, Static(Text("Nothing here to look at but what you can search.", style=DIM)))
+            # A room with little in it leaves the pane half empty: the map fills the rest, if it fits there.
+            used = (12 if self.pictured() else 1) + (8 if len(self.pictured()) > 1 else 0) + 2
+            big = big_map(self.state, width, self.pane_rows() - used - 3)
+            if big is not None:
+                parts += [Static("", classes="pane-rule"), Hover(big, id="big-map")]
+            return parts
+        if self.tab == "map":
+            big = big_map(self.state, width, self.pane_rows() - 3)
+            return [Hover(big if big is not None else hover_map(self.state), id="big-map"),
+                    Static(map_key(self.state), id="map-key")]
+        if self.tab == "pack":
+            return self.focus_strip()
+        return [Static(sheet_text(self.state, self.content), id="sheet")]
+
+    def pane_rows(self) -> int:
+        """The rows inside the tabbed pane: the screen bar the HUD, the tabs, the decision and the pane's frame."""
+        return self.size.height - 1 - 1 - (MOST_CHOICES + 2) - 1 - 2
+
+    def dpad(self) -> Grid:
+        """The arrows, always there: lit where there's a way, saying where it goes when hovered."""
+        return Grid(Static(""), arrow(self.state, "north"), Static(""),
+                    arrow(self.state, "west"), Static(Text("@", style=f"bold {ACCENT}"), classes="arrow"),
+                    arrow(self.state, "east"),
+                    Static(""), arrow(self.state, "south"), Static(""), id="dpad")
+
+    def layout_tabs(self):
+        """The room's picture over the story on the left; on the right the tabbed pane over the decision square
+        and the arrows."""
+        if self.tab is None:
+            self.tab = self.default_tab()
+        self.things = things_here(self.state, self.content)
+        self.numbers = {}
+        pane = VerticalScroll(*self.pane_parts(), id="pane", classes="box")
+        decide = self.decide(grouped=False)
+        left = Vertical(self.stage(), Static("", classes="dither"), self.story_box(), id="text-side")
+        right = Vertical(self.tab_bar(), pane, Static("", classes="dither"),
+                         Horizontal(decide, self.dpad(), id="act"), id="picture-side")
+        return [Horizontal(left, right, id="row")]
+
+    async def action_tab(self, key: str) -> None:
+        if self.layout_name != "tabs":
+            return
+        self.tab, self.in_focus = key, 0
+        await self.show()
+
+    async def action_boxes(self) -> None:
+        self.open = not self.open
+        self.screen.set_class(self.open, "open")
+        self.call_after_refresh(self.draw)
 
     def layout_band(self):
         """The room across the top (its picture, what's here beside it: a narrow column for a room with little in it,
@@ -636,12 +860,19 @@ class Lab(App):
         return [top, bottom]
 
     def draw(self) -> None:
+        if not self.query("#stage") or not self.query("#decide"):  # (mid-rebuild: the next show draws)
+            return
         w, h = self.size
         decide_rows = MOST_CHOICES + 1 + (sum(2 for t in self.things if t.verbs) + 1  # (+1: the command line)
                                           if self.layout_name == "hub" else 0)
         decide = self.query_one("#decide")
         decide.styles.height = decide_rows + 2
-        if self.layout_name == "focus":
+        if self.layout_name == "tabs":
+            self.query_one("#text-side").styles.width = round(w * 0.54)
+            self.query_one("#picture-side").styles.width = w - round(w * 0.54)
+            self.query_one("#stage").styles.height = round(h * 0.42)
+            decide.styles.height = MOST_CHOICES + 1 + (1 if self.open else 2)
+        elif self.layout_name == "focus":
             self.query_one("#text-side").styles.width = round(w * 0.54)
             self.query_one("#picture-side").styles.width = w - round(w * 0.54)
             self.query_one("#stage").styles.height = round(h * 0.40)
@@ -665,11 +896,15 @@ class Lab(App):
         self.set_timer(0.2, self.paint)  # (once the sizes above are laid out)
 
     def paint(self) -> None:
+        if not self.query("#stage"):
+            return
         self.query_one("#story").scroll_end(animate=False)
+        for dither in self.query(".dither"):
+            dither.update("░" * dither.size.width)
         stage = self.query_one("#stage")
         w, h = stage.content_size
         stage.update(picture_text(self.state, self.content, max(8, w), 2 * max(4, h)) or Text(""))
-        stage.styles.border = ("round", look_of(self.state.theme).accent)
+        stage.styles.border = ("none", "black") if self.open else ("round", look_of(self.state.theme).accent)
 
 
 if __name__ == "__main__":

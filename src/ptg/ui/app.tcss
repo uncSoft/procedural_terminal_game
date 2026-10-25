@@ -107,6 +107,12 @@ Clickable:hover {
 
 .panel-action {
     margin-top: 1;
+    height: auto;
+}
+
+.panel-action .card-verb {
+    width: auto;
+    margin-right: 1;
 }
 
 .-short .panel-action, .-tiny .panel-action {

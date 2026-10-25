@@ -109,3 +109,21 @@ async def test_the_shop_compares_gear_warns_of_a_spare_and_sells():
         assert isinstance(app.screen, PickScreen) and app.screen.options
         await pilot.press("escape")
         await pilot.pause(0.3)
+
+
+async def test_a_weapon_lying_here_can_be_equipped_from_its_card():
+    """The card offered only its first action (Take), so a sword you found could only be put on from the choices."""
+    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    async with app.run_test(size=(120, 36)) as pilot:
+        screen = await into_a_run(app, pilot)
+        state = screen.game.state
+        state.room.monster, state.room.items = None, ["sword_still_in_the_stone"]
+        screen.refresh_panels()
+        card = await open_card(app, pilot, screen, "item:sword_still_in_the_stone")
+        assert card.action_id == "take:sword_still_in_the_stone"
+        assert [a.id for a in card.more] == ["equip:sword_still_in_the_stone"]
+        equip = [b for b in card.query(".card-verb") if "Equip" in str(b.render())]
+        assert equip, "an Equip button beside Take"
+        await pilot.click(equip[0])
+        await settle(app, pilot)
+        assert state.player.weapon == "sword_still_in_the_stone" and "rusty_sword" in state.player.inventory

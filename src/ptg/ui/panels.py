@@ -942,8 +942,9 @@ TAG_IDEAS = {
 
 class InfoScreen(Panel):
     """What a highlighted word (or a picture you clicked) refers to, titled with its name: its picture, animated, what
-    it is, and the matching action one key away, which stays put under the words while they scroll. A card with a
-    picture is a card's size; a few words alone (a rule, a thing in the room) are a small box."""
+    it is, and the matching action one key away, with the other things you can do with it beside it (take a sword
+    lying here, or equip it), which stay put under the words while they scroll. A card with a picture is a card's
+    size; a few words alone (a rule, a thing in the room) are a small box."""
 
     BINDINGS = [Binding("escape,q", "close", "Close"), Binding("enter", "act", "Do it")]
     size_class = "small"  # (a card, once there's a picture: see _picture)
@@ -954,6 +955,7 @@ class InfoScreen(Panel):
         self.term_id = term_id
         self.action_id: str | None = None  # what Enter does: the engine's own action for it (see _offer)
         self.action: Action | None = None
+        self.more: list[Action] = []  # the other things the engine says you can do with it, a click each
         self.picture: Picture | None = None  # what it is, drawn above the card's words
 
     def compose(self) -> ComposeResult:
@@ -966,8 +968,13 @@ class InfoScreen(Panel):
                     yield self.picture
                 yield Static(body, id="info-text")
             if self.action is not None:
-                yield Clickable(Text(f" ▶ {self.action.label}  [enter] ", style="bold #ffb000"), action="screen.act",
-                                classes="panel-action")
+                with Horizontal(classes="panel-action"):
+                    yield Clickable(Text(f" ▶ {self.action.label}  [enter] ", style="bold #ffb000"),
+                                    action="screen.act", classes="card-verb")
+                    for i, action in enumerate(self.more):
+                        label = f" ▶ {action.label}" + (f"  [{action.hint}]" if action.hint else "") + " "
+                        yield Clickable(Text(label, style="#9a9cc0"), action=f"screen.act_more({i})",
+                                        classes="card-verb")
 
     def fit(self) -> None:
         super().fit()
@@ -977,14 +984,14 @@ class InfoScreen(Panel):
 
     def _offer(self, ref_id: str) -> None:
         """What Enter does here: the first thing the engine says you can do with this now (interactions.verbs: what a
-        tile in Here would offer), not a picker or one of Swoogy's guesses. Taking something that lies here, or giving
-        a character what they're after, needn't be a numbered choice."""
+        tile in Here would offer), not a picker or one of Swoogy's guesses; the rest are buttons beside it (more).
+        Taking something that lies here, or giving a character what they're after, needn't be a numbered choice."""
         if self.action is not None:
             return
-        for action in interactions.verbs(self.game.state, self.game.content, ref_id):
-            if action.id and not interactions.is_picker(action.id) and not action.id.startswith("guess:"):
-                self.action, self.action_id = action, action.id
-                return
+        found = [action for action in interactions.verbs(self.game.state, self.game.content, ref_id)
+                 if action.id and not interactions.is_picker(action.id) and not action.id.startswith("guess:")]
+        if found:
+            self.action, self.action_id, self.more = found[0], found[0].id, found[1:]
 
     def _picture(self, key: str, kind: str, **kwargs) -> Picture:
         """The card's picture: full size if the screen has the room for it and a few lines under it (the card
@@ -1097,6 +1104,12 @@ class InfoScreen(Panel):
         if self.app.screen is self:
             sound.play("select")
             self.dismiss(self.action)
+
+    def action_act_more(self, index: int) -> None:
+        """One of the buttons beside the main one (equip the sword you'd take)."""
+        if self.app.screen is self and 0 <= index < len(self.more):
+            sound.play("select")
+            self.dismiss(self.more[index])
 
 
 class PickScreen(Panel):

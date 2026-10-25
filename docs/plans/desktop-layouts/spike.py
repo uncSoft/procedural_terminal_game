@@ -1,18 +1,23 @@
-"""Spike (not the game): the game screen on a desktop, split in half, built from the game's own pieces (the room's
-picture, the portraits, what's here and what you can do with it, the floor map, the story), so what you see is what
-the game would show. Nothing in it plays: it's a still, to look at (hover the map's rooms and the arrows for names).
+"""Layout lab (not the game): the game screen on a desktop, built from the game's own pieces (the room's picture, the
+portraits, what's here and what you can do with it, the floor map, the story) in rooms of every sort, to try layouts
+against. Nothing in it plays: it's a still to look at, flipped through with keys.
 
-    uv run python docs/plans/desktop-layouts/spike.py --layout right --scene lenny
-    layouts: right (A1: the choices under Here, beside the map), left (A2: the choices under the story)
-    scenes: lenny, fight, explore        ctrl+q quits
+    uv run python docs/plans/desktop-layouts/spike.py              then: L next layout, N/P next/previous room
+    uv run python docs/plans/desktop-layouts/spike.py --layout hub --room crowded
 
-From the owner's notes on the first round (three columns, a 2x2 grid, a big map with names in it, the choices in one
-quiet line: all set aside):
-    - The choices are a box of their own, one to a line and plain to see, but only as wide as half the screen.
-    - Ways out leave the choices, and aren't spelled out anywhere: the floor map is the game's own, with its key, and
-      the arrow pad under it; hover a room on the map, or an arrow, for where it is.
-    - The map and the pad have a place of their own that never moves, whatever's in the room.
-    - Here has the room it needs: every card at full size (24 px), scrolling if there's more.
+Rooms (the debug app's own test rooms, filled in to order): sparse (one thing to search, three choices, two rooms
+known), lenny (a character with a job for you), crowded (a fight, three things on the floor, a chest), loot (five
+things lying about, seven choices, the whole floor known), shop.
+
+Layouts, from the owner's notes on round two (where the eye goes through a turn: read what happened, look at the room,
+decide, act):
+    hub    the room's picture over the story, on the left; on the right, top to bottom: what's here (pictures and how
+           they are, only as tall as it needs), "What do you do?" (every action in one place, grouped by what it's for,
+           the command line inside it), and the floor map with its arrows on its edges. The decision sits level with
+           the story, and nothing moves from room to room: the decision box is a fixed square, as tall as the most
+           choices a room has, and the command line takes the rows the choices don't (one, when there are six).
+    band   the room as a band across the top: its picture, and what's here beside it (with their buttons). Under it,
+           the story, and beside it the same fixed decision square, with the map under that.
 """
 
 from __future__ import annotations
@@ -33,49 +38,83 @@ from textual.widgets import Static  # noqa: E402
 
 from ptg import testrooms  # noqa: E402
 from ptg.content import load_content  # noqa: E402
+from ptg.events import Action  # noqa: E402
 from ptg.glossary import Lexicon, build  # noqa: E402
+from ptg.models import Feature  # noqa: E402
 from ptg.room_picture import look_of, picture_text  # noqa: E402
 from ptg.rules import available_actions, locked_doors, perform  # noqa: E402
 from ptg.ui.here import things_here  # noqa: E402
-from ptg.ui.widgets import DPad, Hud, Picture, highlight, map_text  # noqa: E402
+from ptg.ui.widgets import Hud, Picture, highlight, map_text  # noqa: E402
 
-DIM, WORDS, ACCENT = "#6c6f99", "#c8c8e0", "#ffb000"
+DIM, WORDS, ACCENT, PINK = "#6c6f99", "#c8c8e0", "#ffb000", "#ff4f9a"
 VERB_COLOURS = {"Attack": "#ff4b4b", "Talk": "#4cff8a"}
+ARROWS = {"north": "▲", "south": "▼", "east": "▶", "west": "◀"}
+MOST_CHOICES = 7  # the most choices a room gives you (a loot room): the decision box is this tall, always
+LAYOUTS = ["hub", "band"]
+
+# What's on offer in a room beyond its own, to fill a room's choices out to the number asked for: real actions, as
+# the game words them.
+MORE = [Action("search_room", "Search the room for secrets"), Action("rest", "Rest a while", "risky"),
+        Action("use:healing_potion", "Drink the Healing Potion"), Action("bomb:north", "Bomb the north wall", "1 bomb"),
+        Action("use:stale_bread", "Eat the Stale Bread"), Action("take_all", "Take everything lying here", "no turn"),
+        Action("creative", "✦ Rummage through the rubbish heap", "improvise")]
+ROOMS = {  # (test room, seed, things on the floor, features, a fixture, choices or None for the room's own, rooms known)
+    "sparse": ("lenny_quest", 3, [], 1, "", 3, 1),
+    "lenny": ("lenny", 4, [], 2, "", None, 2),
+    "crowded": ("hobgoblin", 5, ["healing_potion", "war_pick", "stale_bread"], 1, "chest", None, 2),
+    "loot": ("lenny_quest", 3, ["healing_potion", "war_pick", "stale_bread", "torch", "chain_shirt"], 2, "", 7, 9),
+    "shop": ("shop", 4, [], 0, "", None, 3),
+}
 
 
-# --- the scene: a real room, walked into ------------------------------------------------------------------------------
+# --- a room, walked into and filled in -------------------------------------------------------------------------------
 
-def scene(content, name: str):
-    """A test room's target walked into (the rooms near the start been to already, so the map has something on it),
-    and what the story would say of it."""
-    who = {"lenny": "lenny", "fight": "hobgoblin", "explore": "lenny_quest"}[name]
-    state = testrooms.build(content, who, "new", seed={"lenny": 4, "fight": 5, "explore": 3}[name])
+def room(content, name: str):
+    """A test room's target walked into, filled in as ROOMS has it, and what the story would say of it."""
+    who, seed, items, features, fixture, _, known = ROOMS[name]
+    state = testrooms.build(content, who, "new", seed=seed)
     target = testrooms.target(state)
     way = next(d for d, e in state.room.exits.items() if e.to == target.id)
     opening = state.room
     events = perform(state, content, f"go:{way}")
-    for room in state.rooms:
-        if room.distance <= 2 and not room.secret and not room.shop and room.id != state.room_id:
-            room.visited = True
-    if name == "fight":
-        state.room.items = ["healing_potion", "war_pick", "stale_bread"]
-    if name == "explore":
-        state.room.monster = None
+    for other in state.rooms:
+        if other.distance <= known and not other.secret and other.id != state.room_id:
+            other.visited = True
+    here = state.room
+    if name in ("sparse", "loot"):
+        here.monster = None
+    here.items = list(items)
+    shown = [f for f in here.features if not f.hidden][:features]
+    while len(shown) < features:
+        shown.append(Feature(name=["a heap of rubbish", "a toppled shelf"][len(shown) % 2]))
+    here.features = shown
+    if fixture:
+        here.fixture, here.fixture_used = fixture, False
     theme = content.themes[state.theme]
     story = [("floor", f"↓  FLOOR {state.floor} OF {state.floors_total}  ·  {theme.name.upper()}  ↓"),
-             ("words", f"{theme.blurb} You stand in the {opening.name}."),
-             ("player", f"> Go {way}")]
+             ("words", f"{theme.blurb} You stand in the {opening.name}."), ("player", f"> Go {way}")]
     for event in events:
         if event.kind == "story" and event.data.get("speaker"):
             story.append(("say", f"{event.data['title']}: “{event.text}”"))
         elif event.text:
             story.append(("words", event.text))
-    if name == "fight":
+    if name == "crowded":
         story += [("player", "> Attack the Hobgoblin"),
                   ("roll", "⚄ attack: d20 17 + 2 might + 1 level = 20 vs 13   ✔ HIT   → 5 damage (1d6 3 + might 2)"),
                   ("roll", "⚄ Hobgoblin attacks: d20 15 + 4 attack = 19 vs 11   ✘ HIT YOU   → 6 damage (1d8 6)"),
                   ("words", "You catch the Hobgoblin under its helmet. It snarls and swings back, hard.")]
     return state, story
+
+
+def choices_for(state, content, name: str, taken: set[str]) -> list[Action]:
+    """The room's choices bar its ways out (the map has those) and what Here's buttons do, filled out from MORE (or
+    cut) to the number ROOMS asks for."""
+    own = [a for a in available_actions(state, content) if not a.id.startswith("go:") and a.id not in taken]
+    wanted = ROOMS[name][5]
+    if wanted is None:
+        return own
+    ids = {a.id for a in own}
+    return (own + [a for a in MORE if a.id not in ids])[:wanted]
 
 
 # --- the pieces -------------------------------------------------------------------------------------------------------
@@ -85,13 +124,13 @@ def story_text(state, content, story) -> Text:
     text = Text()
     for kind, words_ in story:
         if kind == "floor":
-            text.append(words_.center(60) + "\n\n", style="bold #ff4f9a")
+            text.append(words_.center(60) + "\n\n", style=f"bold {PINK}")
         elif kind == "player":
             text.append(words_ + "\n", style=f"bold {ACCENT}")
         elif kind == "roll":
             text.append("  " + words_ + "\n", style="#9a9cc0")
         elif kind == "say":
-            text.append("▌ ", style="#ff4f9a")
+            text.append("▌ ", style=PINK)
             text.append_text(highlight(words_, lexicon, "italic #e8e8f4"))
             text.append("\n\n")
         else:
@@ -100,15 +139,8 @@ def story_text(state, content, story) -> Text:
     return text
 
 
-class MapView(Static):
-    """The game's floor map (map_text, its key under it), each room saying where it is when hovered."""
-
-    def __init__(self, state, **kwargs) -> None:
-        super().__init__(**kwargs)
-        self.state = state
-
-    def on_mount(self) -> None:
-        self.update(hover_map(self.state))
+class Hover(Static):
+    """Text whose parts say what they are when hovered (style meta "tip")."""
 
     def on_mouse_move(self, event) -> None:
         tip = (getattr(self.get_style_at(event.x, event.y), "meta", None) or {}).get("tip")
@@ -119,9 +151,28 @@ class MapView(Static):
         self.tooltip = None
 
 
+def map_key(state) -> Text:
+    """The map's key: the marks on it now, and what each means."""
+    from ptg.ui.widgets import MAP_LEGEND, MAP_STYLES, legend
+    from ptg.world import render_map
+
+    lines = render_map(state)
+    marks = [(glyph, MAP_STYLES.get(glyph[0], DIM), label) for glyph, label in MAP_LEGEND
+             if any(glyph[0] in line for line in lines)]
+    return legend(marks, 30, words=DIM)
+
+
 def hover_map(state) -> Text:
-    """map_text, with each room's three cells ("[@]") carrying its name for a tooltip (render_map's layout)."""
-    text = map_text(state, 30)
+    """The floor map without its key, each room's three cells ("[@]") saying where it is when hovered."""
+    from ptg.ui.widgets import MAP_STYLES
+    from ptg.world import render_map
+
+    text = Text()
+    for line in render_map(state):
+        for ch in line:
+            text.append(ch, style=MAP_STYLES.get(ch, DIM))
+        text.append("\n")
+    text.rstrip()
     mapped = state.mapped_floor == state.floor
     known = {r.id for r in state.rooms if r.visited or (mapped and (not r.secret or r.exits))}
     for room_id in list(known):
@@ -132,16 +183,28 @@ def hover_map(state) -> Text:
     starts = [0]
     for line in text.plain.split("\n"):
         starts.append(starts[-1] + len(line) + 1)
-    for room in rooms:
-        cx, cy = (room.x - min_x) * 4 + 1, (room.y - min_y) * 2
-        name = room.name if room.visited else "unexplored" + (f": a {room.fixture}" if room.fixture else "")
+    for other in rooms:
+        cx, cy = (other.x - min_x) * 4 + 1, (other.y - min_y) * 2
+        name = other.name if other.visited else "unexplored" + (f": a {other.fixture}" if other.fixture else "")
         at = starts[cy] + cx - 1
-        text.stylize(Style(meta={"tip": name + (" (you're here)" if room.id == state.room_id else "")}), at, at + 3)
+        text.stylize(Style(meta={"tip": name + (" (you're here)" if other.id == state.room_id else "")}), at, at + 3)
     return text
 
 
-def buttons(thing, numbers, width: int) -> Text:
-    """A thing's buttons, numbered, each kept whole on a line (a new line rather than split one)."""
+def arrow(state, direction: str) -> Hover:
+    """One arrow on the map's edge: lit where there's a way, saying where it goes when hovered."""
+    exit_ = state.room.exits.get(direction)
+    if exit_ is None:
+        return Hover(Text(ARROWS[direction], style="#2e3149"), classes=f"arrow {direction}")
+    there = state.rooms[exit_.to]
+    where = there.name if there.visited else ("locked" if exit_.locked else there.fixture or "unexplored")
+    style = "#7a3b4c" if exit_.locked else f"bold {'#5fe3ff' if there.visited else '#ffd166'}"
+    return Hover(Text(ARROWS[direction], style=Style.parse(style) + Style(meta={"tip": f"Go {direction}: {where}"})),
+                 classes=f"arrow {direction}")
+
+
+def chips(thing, numbers, width: int) -> Text:
+    """A thing's buttons, numbered, each kept whole on a line."""
     text, used = Text(), 0
     for action in thing.verbs:
         chip = f" {numbers.setdefault(action.id, len(numbers) + 1)} {action.label} "
@@ -154,92 +217,147 @@ def buttons(thing, numbers, width: int) -> Text:
     return text
 
 
-def words(thing) -> Text:
-    text = Text(thing.title, style=f"bold {'#ff4f9a' if thing.character else '#ffd166'}")
+def about(thing) -> Text:
+    text = Text(thing.title, style=f"bold {PINK if thing.character else '#ffd166'}")
     if thing.status:
         text.append(f"\n{thing.status}", style=thing.style or DIM)
     return text
 
 
-def character_card(content, thing, numbers) -> Horizontal:
-    """Someone in the room: their portrait at full size, and beside it who they are, how they are and what you can
-    do with them."""
-    side = Vertical(Static(words(thing), classes="card-words"),
-                    Static(buttons(thing, numbers, 30), classes="card-verbs"), classes="card-side")
-    return Horizontal(Picture(thing.sprite, thing.kind, 24, content=content, animate=False), side,
-                      classes="card character")
+def here_cards(content, things, numbers, buttons: bool, columns: int, compact: bool = False) -> list:
+    """What's here: someone as a wide card (portrait beside their words, always full size), things in a grid under
+    them; things with no picture (what's to search) as a line of chips at the end. With `buttons`, each card has its
+    own. `compact` (a crowded room, too much for full size): the things as their hand-made small pictures with their
+    words beside them, so all of them show (their full pictures are on the stage, and their cards)."""
+    people, pictured, plain = [], [], []
+    for thing in things:
+        words = Static(about(thing), classes="card-words")
+        tail = [Static(chips(thing, numbers, 28), classes="card-verbs")] if buttons and thing.verbs else []
+        small = compact and not thing.character
+        art = Picture(thing.sprite, thing.kind, 12 if small else 24, content=content, animate=False) \
+            if thing.art and thing.sprite else None
+        if thing.character and art:
+            people.append(Horizontal(art, Vertical(words, *tail, classes="card-side"), classes="card character"))
+        elif art and small:
+            pictured.append(Horizontal(art, Vertical(words, *tail, classes="card-side small"), classes="card thing"))
+        elif art:
+            pictured.append(Vertical(art, words, *tail, classes="card thing"))
+        else:
+            plain.append(thing)
+    grid = Grid(*pictured, classes="here-grid")
+    grid.styles.grid_size_columns = columns
+    out = people + ([grid] if pictured else [])
+    if plain:
+        line = Text()
+        for thing in plain:
+            line.append(f" {thing.name} ", style="bold #ffd166 on #24284a")
+            if buttons:
+                line.append(" ")
+                line.append_text(chips(thing, numbers, 99))
+            line.append("  ")
+        out.append(Static(line, classes="here-plain"))
+    return out
 
 
-def thing_card(content, thing, numbers) -> Vertical:
-    """Something in the room: its picture at full size (if it has one) over its name and its buttons."""
-    parts = [Picture(thing.sprite, thing.kind, 24, content=content, animate=False)] if thing.art and thing.sprite else []
-    parts += [Static(words(thing), classes="card-words"), Static(buttons(thing, numbers, 26), classes="card-verbs")]
-    return Vertical(*parts, classes="card thing")
-
-
-def choices_list(state, content, numbers) -> Text:
-    """The choices, bar the ways out (the map and the pad have those): one to a line, numbered after Here's buttons,
-    the number and the words bright, a hint dim beside them, a ✦ idea in its own colour."""
-    rest = [a for a in available_actions(state, content) if not a.id.startswith("go:") and a.id not in numbers]
+def decision(things, numbers, choices: list[Action], grouped: bool) -> Text:
+    """'What do you do?': with `grouped`, every action here, by what it's for (each thing's, then the room's); else
+    the room's choices alone (the things' are on their cards). One to a line, numbered on from Here's."""
     text = Text()
-    for i, action in enumerate(rest):
+    if grouped:
+        for thing in things:
+            if not thing.verbs:
+                continue
+            text.append(f"{thing.name}\n", style=f"bold {PINK if thing.character else '#ffd166'}")
+            text.append_text(chips(thing, numbers, 50))
+            text.append("\n")
+        if text.plain:
+            text.append("─" * 40 + "\n", style="#2a2d4a")
+    for action in choices:
         number = numbers.setdefault(action.id, len(numbers) + 1)
         creative = action.label.startswith("✦")
-        text.append(f" {number:>2} ", style=f"bold #10122a on {'#ff4f9a' if creative else ACCENT}")
-        text.append(f"  {action.label}", style="italic bold #ff4f9a" if creative else "bold #e8e8f4")
+        text.append(f" {number:>2} ", style=f"bold #10122a on {PINK if creative else ACCENT}")
+        text.append(f"  {action.label}", style=f"italic bold {PINK}" if creative else "bold #e8e8f4")
         if action.hint:
             text.append(f"   {action.hint}", style=DIM)
-        if i < len(rest) - 1:
-            text.append("\n")
+        text.append("\n")
+    text.rstrip()
     return text
 
 
-# --- the app: one layout, one scene -----------------------------------------------------------------------------------
+# --- the app ----------------------------------------------------------------------------------------------------------
 
 CSS = """
 Screen { background: #0b0c18; }
 #hud { height: 1; }
 #main { height: 1fr; }
-#left, #right { height: 100%; }
-#story { height: 1fr; }
 .box { border: round #3d4a8c; border-title-color: #6c8cff; padding: 0 1; }
 #stage { border: round $warning; }
-#here { height: 1fr; }
-#here-cards { grid-gutter: 1 2; height: auto; grid-rows: auto; }
+#story { height: 1fr; }
 .card { height: auto; width: 100%; }
 .card.character { margin-bottom: 1; }
 .card-side { height: auto; width: 1fr; padding: 1 0 0 2; }
-.card-words, .card-verbs { height: auto; }
+.card-side.small { padding: 0 0 0 1; }
+.card-words, .card-verbs, .here-plain { height: auto; }
 .card-verbs { margin-top: 1; }
-#choices-box { border: heavy $warning; border-title-color: $warning; border-title-style: bold; padding: 0 1; }
-#right #choices-box { width: 1fr; height: 100%; }
-#left #choices-box { height: auto; max-height: 12; }
-#lower { height: 16; }
-#nav { width: 32; height: 100%; }
-#lower.strip { height: 11; }
-#lower.strip #nav { width: 1fr; }
-#lower.strip #map { width: 1fr; height: 100%; }
-#lower.strip DPad { width: 24; height: 100%; }
-#map { height: 1fr; }
-DPad { height: 5; width: 100%; align: center middle; border: round #3d4a8c; }
-.dpad-row { height: 1; width: auto; }
-.dpad-key, .dpad-gap { width: 5; height: 1; content-align: center middle; }
-#command { height: 1; background: #161a33; color: #6c6f99; padding: 0 1; }
+.here-grid { grid-gutter: 1 2; height: auto; grid-rows: auto; }
+.here-plain { margin-top: 1; }
+#decide { border: heavy $warning; border-title-color: $warning; border-title-style: bold; padding: 0 1;
+          background: #12142a; }
+#choices { height: auto; }
+#command { height: 1fr; min-height: 1; background: #1c2040; color: #9a9cc0; padding: 0 1; }
+#nav { height: auto; width: auto; }
+#nav-grid { grid-size: 3 3; grid-columns: 2 auto 2; grid-rows: 1 auto 1; height: auto; width: auto; }
+#nav-map { width: auto; }
+#nav-key { width: auto; max-width: 32; height: auto; }
+#band > #stage { height: 100%; }
+#dock { height: 1fr; margin-top: 0; }
+#dock > #nav { height: 100%; }
+#pack { width: 1fr; height: 100%; }
+#pack-grid { grid-size: 3; grid-gutter: 0 1; grid-rows: auto; height: auto; }
+.pack-tile { height: auto; }
+.pack-name { height: auto; }
+.arrow { content-align: center middle; width: 100%; height: 1; }
+#nav-map { height: auto; }
 """
 
 
-class Spike(App):
+class Lab(App):
     CSS = CSS
-    BINDINGS = [("ctrl+q", "quit", "Quit")]
+    BINDINGS = [("l", "layout", "Next layout"), ("n", "room(1)", "Next room"), ("p", "room(-1)", "Previous room"),
+                ("ctrl+q", "quit", "Quit")]
 
-    def __init__(self, layout: str, scene_name: str) -> None:
+    def __init__(self, layout: str = "hub", room_name: str = "crowded") -> None:
         super().__init__()
-        self.layout_name = layout
+        self.layout_name, self.room_name = layout, room_name
         self.content = load_content()
-        self.state, self.story = scene(self.content, scene_name)
-        self.numbers: dict[str, int] = {}
 
-    # the boxes, the same in either layout
+    def compose(self) -> ComposeResult:
+        yield Hud(id="hud")
+        yield Vertical(id="main")
+
+    async def on_mount(self) -> None:
+        await self.show()
+
+    async def action_layout(self) -> None:
+        self.layout_name = LAYOUTS[(LAYOUTS.index(self.layout_name) + 1) % len(LAYOUTS)]
+        await self.show()
+
+    async def action_room(self, step: int) -> None:
+        names = list(ROOMS)
+        self.room_name = names[(names.index(self.room_name) + step) % len(names)]
+        await self.show()
+
+    async def show(self) -> None:
+        """Build the screen afresh for this layout and room."""
+        self.state, self.story = room(self.content, self.room_name)
+        self.query_one(Hud).show(self.state, self.content)
+        self.title = f"{self.layout_name} · {self.room_name}"
+        main = self.query_one("#main")
+        await main.remove_children()
+        await main.mount(*getattr(self, f"layout_{self.layout_name}")())
+        self.call_after_refresh(self.draw)
+
+    # the pieces each layout places
     def stage(self) -> Static:
         box = Static(id="stage", classes="box")
         box.border_title = f"✦ {self.state.room.name}"
@@ -250,78 +368,112 @@ class Spike(App):
         box.border_title = "Story"
         return box
 
-    def here(self) -> VerticalScroll:
-        things = things_here(self.state, self.content)
-        people = [character_card(self.content, t, self.numbers) for t in things if t.character]
-        grid = Grid(*[thing_card(self.content, t, self.numbers) for t in things if not t.character], id="here-cards")
-        grid.styles.grid_size_columns = 3
-        box = VerticalScroll(*people, grid, id="here", classes="box")
-        box.border_title = f"Here · {len(things)}"
+    def here(self, buttons: bool, columns: int, rows: int = 0) -> VerticalScroll:
+        """What's here; given the `rows` it has, compact if its things wouldn't all fit at full size."""
+        self.numbers: dict[str, int] = {}
+        self.things = things_here(self.state, self.content)
+        pictured = [t for t in self.things if t.art and t.sprite and not t.character]
+        people = sum(1 for t in self.things if t.character)
+        need = 13 * people + -(-len(pictured) // columns) * 17 + (2 if len(pictured) < len(self.things) - people else 0)
+        compact = bool(rows) and need > rows
+        box = VerticalScroll(*here_cards(self.content, self.things, self.numbers, buttons, columns, compact),
+                             id="here", classes="box")
+        box.border_title = f"Here · {len(self.things)}"
         return box
 
-    def choices(self) -> VerticalScroll:
-        box = VerticalScroll(Static(id="choice-list"), id="choices-box")
+    def decide(self, grouped: bool) -> Vertical:
+        """The decision square: the actions, and the command line under them taking the rows they leave."""
+        taken = {a.id for t in self.things for a in t.verbs}
+        self.choices = choices_for(self.state, self.content, self.room_name, taken)
+        listed = decision(self.things, self.numbers, self.choices, grouped)
+        box = Vertical(Static(listed, id="choices"), Static(Text("› type a number, or anything you want to try…"),
+                                                            id="command"), id="decide")
         box.border_title = "What do you do?"
         return box
 
-    def nav(self, side_by_side: bool = False) -> Vertical | Horizontal:
-        """The floor map and the arrow pad, in a place of their own that never moves: the pad under the map, or
-        beside it."""
-        floor = MapView(self.state, id="map", classes="box")
-        floor.border_title = f"Floor {self.state.floor}/{self.state.floors_total}"
-        return (Horizontal if side_by_side else Vertical)(floor, DPad(id="dpad"), id="nav")
+    def nav(self) -> Vertical:
+        """The floor map with its arrows on its edges (one box), its key under it; hover a room or an arrow."""
+        grid = Grid(Static(""), arrow(self.state, "north"), Static(""),
+                    arrow(self.state, "west"), Hover(hover_map(self.state), id="nav-map"), arrow(self.state, "east"),
+                    Static(""), arrow(self.state, "south"), Static(""), id="nav-grid")
+        box = Vertical(grid, Static(map_key(self.state), id="nav-key"), id="nav", classes="box")
+        box.border_title = f"Floor {self.state.floor}/{self.state.floors_total}"
+        return box
 
-    def compose(self) -> ComposeResult:
-        yield Hud(id="hud")
-        yield from getattr(self, f"layout_{self.layout_name}")()
-        yield Static(Text("Type a number, or anything you want to try...  (F1 help)"), id="command")
+    def pack(self) -> VerticalScroll:
+        """What you carry, as the hand-made small pictures (the 12-px ones are drawn for this), each with how many;
+        what you have on, marked."""
+        player, counts = self.state.player, {}
+        for key in [player.weapon, *([player.armor] if player.armor else []), *self.state.player.inventory]:
+            counts[key] = counts.get(key, 0) + 1
+        tiles = []
+        for key, count in counts.items():
+            on = key in (player.weapon, player.armor)
+            label = Text(("⚔ " if key == player.weapon else "⛨ " if on else "") + self.content.item(key).name,
+                         style=f"bold {'#ffd166' if on else WORDS}")
+            if count > 1:
+                label.append(f" ×{count}", style=DIM)
+            tiles.append(Vertical(Picture(key, "item", 12, content=self.content, animate=False),
+                                  Static(label, classes="pack-name"), classes="pack-tile"))
+        grid = Grid(*tiles, id="pack-grid")
+        box = VerticalScroll(grid, id="pack", classes="box")
+        box.border_title = f"Pack · ¤ {player.gold}"
+        return box
 
-    def layout_right(self):
-        """A1: the screen in halves. Left: the room's picture over the story. Right: Here, and under it the choices,
-        with the map and the pad beside them."""
-        with Horizontal(id="main"):
-            with Vertical(id="left"):
-                yield self.stage()
-                yield self.story_box()
-            with Vertical(id="right"):
-                yield self.here()
-                with Horizontal(id="lower"):
-                    yield self.choices()
-                    yield self.nav()
+    def layout_hub(self):
+        """The picture over the story; beside them, what's here, the decision square and the map."""
+        here, decide, nav = self.here(buttons=False, columns=3), None, None
+        decide, nav = self.decide(grouped=True), self.nav()
+        left = Vertical(self.stage(), self.story_box(), id="left")
+        right = Vertical(here, decide, nav, id="right")
+        return [Horizontal(left, right, id="row")]
 
-    def layout_left(self):
-        """A2: the screen in halves. Left: the room's picture, the story, and the choices under it. Right: Here, and
-        under it the map and the pad side by side."""
-        with Horizontal(id="main"):
-            with Vertical(id="left"):
-                yield self.stage()
-                yield self.story_box()
-                yield self.choices()
-            with Vertical(id="right"):
-                yield self.here()
-                with Horizontal(id="lower", classes="strip"):
-                    yield self.nav(side_by_side=True)
-
-    def on_mount(self) -> None:
-        self.query_one(Hud).show(self.state, self.content)
-        w, h = self.size
-        self.query_one("#left").styles.width = w // 2
-        self.query_one("#right").styles.width = w - w // 2
-        self.query_one("#stage").styles.height = round(h * (0.45 if self.layout_name == "right" else 0.4))
-        self.query_one(DPad).show(available_actions(self.state, self.content), locked_doors(self.state, self.content))
-        self.call_after_refresh(self.draw)
+    def layout_band(self):
+        """The room across the top (its picture, what's here beside it: a narrow column for a room with little in it,
+        the picture wider); under it the story, and beside that the decision square over the map."""
+        few = len(things_here(self.state, self.content)) <= 2
+        here = self.here(buttons=True, columns=1 if few else 2, rows=round(self.size.height * 0.44) - 2)
+        here.set_class(few, "few")
+        decide, nav = self.decide(grouped=False), self.nav()
+        top = Horizontal(self.stage(), here, id="band")
+        bottom = Horizontal(self.story_box(), Vertical(decide, Horizontal(nav, self.pack(), id="dock"), id="right"),
+                            id="lower")
+        return [top, bottom]
 
     def draw(self) -> None:
+        w, h = self.size
+        decide_rows = MOST_CHOICES + 1 + (sum(2 for t in self.things if t.verbs) + 1  # (+1: the command line)
+                                          if self.layout_name == "hub" else 0)
+        decide = self.query_one("#decide")
+        decide.styles.height = decide_rows + 2
+        if self.layout_name == "hub":
+            self.query_one("#left").styles.width = round(w * 0.56)
+            self.query_one("#right").styles.width = w - round(w * 0.56)
+            self.query_one("#stage").styles.height = round(h * 0.44)
+            here = self.query_one("#here")
+            here.styles.height = "auto"
+            here.styles.max_height = h - decide_rows - 2 - 14
+            self.query_one("#right").styles.align_vertical = "bottom"
+        else:
+            self.query_one("#band").styles.height = round(h * 0.44)
+            here = self.query_one("#here")
+            self.query_one("#stage").styles.width = "1fr"
+            here.styles.width = 34 if here.has_class("few") else w - round(w * 0.56)
+            self.query_one("#lower").styles.height = "1fr"
+            self.query_one("#story").styles.width = round(w * 0.56)
+            self.query_one("#right").styles.width = "1fr"
+        self.set_timer(0.2, self.paint)  # (once the sizes above are laid out)
+
+    def paint(self) -> None:
         stage = self.query_one("#stage")
         w, h = stage.content_size
         stage.update(picture_text(self.state, self.content, max(8, w), 2 * max(4, h)) or Text(""))
         stage.styles.border = ("round", look_of(self.state.theme).accent)
-        self.query_one("#choice-list", Static).update(choices_list(self.state, self.content, self.numbers))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--layout", default="right", choices=["right", "left"])
-    parser.add_argument("--scene", default="lenny", choices=["lenny", "fight", "explore"])
+    parser.add_argument("--layout", default="hub", choices=LAYOUTS)
+    parser.add_argument("--room", default="crowded", choices=list(ROOMS))
     args = parser.parse_args(sys.argv[1:])
-    Spike(args.layout, args.scene).run()
+    Lab(args.layout, args.room).run()

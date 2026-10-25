@@ -565,6 +565,10 @@ TabsScreen .map-frame { width: 100%; height: auto; align: center middle; padding
 TabsScreen .pane-map, TabsScreen .small-map { width: auto; height: auto; }
 TabsScreen .pane-text { height: auto; }
 TabsScreen .pane-gap { height: 1; }
+TabsScreen #footer-row { dock: bottom; height: 1; background: $footer-background; }
+TabsScreen #footer-row Footer { dock: none; width: 1fr; }
+TabsScreen #footer-narrator { width: auto; height: 1; padding: 0 1; color: $text-muted;
+                              background: $footer-background; border-left: vkey $foreground 20%; }
 TabsScreen.combat #pane-head, TabsScreen.combat #tab-row { background: #1c0c1a; }
 
 /* the story without its box: a bar down the side of what you did, the dice dimmed behind a faint one, the floor's

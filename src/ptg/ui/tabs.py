@@ -2,7 +2,7 @@
 the whole of the lower half), and on the right where you are with the arrows beside it, one pane with tabs (Here,
 Map, Pack, Sheet, Journal, Bestiary), and under it the decision: every choice numbered, one to a line, and the
 command line. No boxes: each part is set apart by its own shade, with a row of dither where a line would be. The
-footer keeps the keys the tabs don't show: the help, the title, sound and the command palette.
+footer has every key, and at its end who's narrating.
 
 The tabs are the panels F2-F7 used to open over the game. Each key now brings its tab into the pane, and pressed
 again (or the ⤢ at the end of the tabs) opens the panel as it was, in full, for more. A room opens on Here when
@@ -351,10 +351,10 @@ def rule(title: str, width: int, colour: str = PINK) -> Text:
 class TabsScreen(GameScreen):
     """The game screen in tabs (see the module's docstring): its layout and its pane; the turns are GameScreen's."""
 
-    # The footer shows what the tabs don't: F2-F7 are on the tabs themselves, so they're kept off it.
+    # The footer, all of it: F2-F7 by their tabs' names.
     BINDINGS = [
         Binding("f1", "panel('help')", "Help"),
-        *[Binding(key, f"panel('{panel}')", TAB_LABEL[tab], show=False) for key, panel, tab in (
+        *[Binding(key, f"panel('{panel}')", TAB_LABEL[tab]) for key, panel, tab in (
             ("f2", "inventory", "pack"), ("f3", "character", "sheet"), ("f4", "look", "here"), ("f5", "map", "map"),
             ("f6", "bestiary", "bestiary"), ("f7", "journal", "journal"))],
         Binding("escape", "leave", "Title"),
@@ -402,10 +402,13 @@ class TabsScreen(GameScreen):
             yield Vertical(id="here-strip")
             yield Static(id="map")
             yield Horizontal(id="ways")
-        yield Footer()
+        with Horizontal(id="footer-row"):  # the keys, and at the end who's narrating
+            yield Footer()
+            yield Static(id="footer-narrator")
 
     def on_mount(self) -> None:
         super().on_mount()
+        self.query_one("#footer-narrator", Static).update(self.game.llm.name if self.game.llm else "offline narrator")
         self.query_one("#tab-expand").tooltip = "Open this in full"
         self.query_one("#tab-expand").can_focus = False
         for box in ("#pane", "#pane-head", "#tab-row", "#decide"):
@@ -441,18 +444,9 @@ class TabsScreen(GameScreen):
     refresh_panels = relayout
 
     def _dither(self) -> None:
-        """The rows of dither where a line would be: under the picture (with who's narrating, faintly) and over the
-        decision."""
+        """The rows of dither where a line would be: under the picture, and over the decision."""
         for rule_ in self.query(".dither").results(Static):
-            width = rule_.size.width or 40
-            if rule_.id == "stage-rule":
-                who = f" {self.game.llm.name if self.game.llm else 'offline narrator'} "
-                text = Text("░" * max(0, width - len(who) - 2), style="#23264a")
-                text.append(who, style="#3d4170")
-                text.append("░░", style="#23264a")
-                rule_.update(text)
-            else:
-                rule_.update("░" * width)
+            rule_.update("░" * (rule_.size.width or 40))
 
     def refresh_stage(self) -> None:
         """The room's picture, borderless, over the story."""

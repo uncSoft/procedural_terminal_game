@@ -159,13 +159,17 @@ async def test_settings_offer_the_game_screen_and_save_the_choice():
         assert load_config().layout == "classic"
 
 
-async def test_the_footer_keeps_the_keys_the_tabs_dont_show():
+async def test_the_footer_has_every_key_and_who_is_narrating():
     from textual.widgets import Footer
 
-    assert [b.key for b in TabsScreen.BINDINGS if b.show] == ["f1", "escape"]  # (F2-F7 are on the tabs)
+    shown = {b.key: b.description for b in TabsScreen.BINDINGS if b.show}
+    assert shown == {"f1": "Help", "f2": "Pack", "f3": "Sheet", "f4": "Here", "f5": "Map", "f6": "Bestiary",
+                     "f7": "Journal", "escape": "Title"}
     app = PTGApp(Config(backend="offline", player_name="T"), test_room=("lenny", "new", 0))
     async with app.run_test(size=(152, 43)) as pilot:
         screen = await walk_in(app, pilot)
         footer = screen.query_one(Footer)
         assert footer.display and footer.region.height == 1
         assert screen.query_one("#command").region.bottom <= footer.region.y  # (nothing under it)
+        narrator = screen.query_one("#footer-narrator")
+        assert str(narrator.render()) == "offline narrator" and narrator.region.y == footer.region.y

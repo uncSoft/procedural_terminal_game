@@ -1,14 +1,16 @@
-"""The kids' creations and the shopkeepers, touched up: outlined and inside their frames like the game's own sprites,
-in the maker's palette, big enough to read, with small versions that match."""
+"""The kids' creations, touched up: outlined and inside their frames like the game's own sprites, in the maker's
+palette, big enough to read, with small versions that match. Bar four kept as the kids drew them: the shopkeepers
+(Granny Gristle and Granny Kamultruk), the Rat King and the pizza rat were redrawn once, with less in them, and are
+back as they were (KEPT)."""
 
 from PIL import Image
 
 from ptg import sprites
 from ptg.library import data_folder, off_palette
 
-# Monsters touched up here (an outline, pulled in off the frame's edges) or redrawn (the shopkeepers and the rat king)
-OUTLINED = ("palp_guard", "lucky_lenny", "swoogy_the_gooey", "baby_joey", "king_mouse", "swamp_bottoms",
-            "granny_gristle", "granny_kamultruk", "rat_king")
+# Monsters touched up here (an outline, pulled in off the frame's edges)
+OUTLINED = ("palp_guard", "lucky_lenny", "swoogy_the_gooey", "baby_joey", "king_mouse", "swamp_bottoms")
+KEPT = ("granny_gristle", "granny_kamultruk", "rat_king", "item_pizza_rat")  # as the kids drew them
 # Sprites whose custom colours were tidied into the maker's palette (the hard hat keeps its lamp's two)
 TIDIED = ("swoogy_the_gooey", "palp_guard", "lucky_lenny", "granny_gristle", "granny_kamultruk", "rat_king",
           "item_unusual_butter", "item_swoogy_s_diaper", "item_lenny_s_good_tooth", "item_lenny_s_bad_tooth",
@@ -40,10 +42,11 @@ def test_the_touched_up_monsters_have_a_dark_outline_inside_the_frame():
                     assert not edge or light(px[x, y]) < sprites.OUTLINE, f"{key} frame {n}: ({x}, {y}) isn't outline"
 
 
-def test_the_shopkeepers_and_the_rat_king_are_drawn_in_few_colours():
-    """They were 24, 20 and 16 colours of noise at game size; about ten reads as a face."""
-    for key in ("granny_gristle", "granny_kamultruk", "rat_king"):
-        assert len(colours(sprites._strip(key))) <= 11, key
+def test_the_ones_kept_as_drawn_are_whole_two_frame_pictures_with_no_small_version_made_for_a_redraw():
+    for key in KEPT:
+        strip = sprites._strip(key)
+        assert len(strip) == 2 and strip[0].size == (24, 24), key
+    assert not sprites.has_small("item_pizza_rat")  # (the one drawn for the redraw went with it: it's halved)
 
 
 def test_the_kids_colours_are_the_makers():
@@ -55,24 +58,21 @@ def test_the_kids_colours_are_the_makers():
 
 
 def test_quest_rewards_and_little_things_fill_their_frames():
-    """Davy J's Skull was 10 pixels in 24, Pizza Rat a strip along the bottom; Lenny's teeth looked like gamepads."""
-    for key in ("item_davy_j_skull", "item_pizza_rat", "item_lenny_s_good_tooth", "item_lenny_s_bad_tooth"):
+    """Davy J's Skull was 10 pixels in 24; Lenny's teeth looked like gamepads."""
+    for key in ("item_davy_j_skull", "item_lenny_s_good_tooth", "item_lenny_s_bad_tooth"):
         assert sprites.fill(key) >= 0.5, key
-    for frame in sprites._strip("item_pizza_rat"):  # its walk doesn't run off the edge any more
-        left, top, right, bottom = frame.getbbox()
-        assert top >= 4 and bottom <= 23
     assert sprites.fill("no_such_sprite") == 0
     assert 0.3 < sprites.fill("item_torch") < 0.5  # a torch is thin, and that's fine: the Art tab only points it out
 
 
-def test_lennys_teeth_and_pizza_rat_have_small_versions():
-    for key in ("item_lenny_s_good_tooth", "item_lenny_s_bad_tooth", "item_pizza_rat"):
+def test_lennys_teeth_have_small_versions():
+    for key in ("item_lenny_s_good_tooth", "item_lenny_s_bad_tooth"):
         assert sprites.has_small(key), key
         assert sprites.frames(key, sprites.SMALL) == sprites._strip(key, small=True)  # drawn, not halved
 
 
 def test_small_versions_match_their_sprites():
-    for key in ("item_lenny_s_good_tooth", "item_lenny_s_bad_tooth", "item_pizza_rat", "item_hard_hat",
+    for key in ("item_lenny_s_good_tooth", "item_lenny_s_bad_tooth", "item_hard_hat",
                 "item_weighted_dice", "item_unusual_butter", "item_swoogy_s_diaper", "item_davy_j_skull"):
         assert colours(sprites._strip(key, small=True)) <= colours(sprites._strip(key)), key
     skull, small_skull = sprites._strip("item_davy_j_skull"), sprites._strip("item_davy_j_skull", small=True)
@@ -132,10 +132,12 @@ def test_idle_frames_are_outlined_once():
     """The redrawn idle frames were outlined again after the bob, so a dark halo pulsed round them on every tick.
     They're the outlined picture sunk a pixel with the feet planted (Palp Guard's robe gets four pixels of outline
     where it meets his shoes), and no idle frame anywhere grows a ring."""
-    for key in ("granny_gristle", "granny_kamultruk", "palp_guard"):
+    for key in ("palp_guard",):
         first, idle = sprites._strip(key)
         assert idle.tobytes() == sealed(bob(first)).tobytes(), key
     for path in sorted((data_folder() / "sprites").glob("*.png")):
+        if path.stem in KEPT:
+            continue  # (drawn frame by frame by hand)
         first, *rest = sprites._strip(path.stem)
         for n, frame in enumerate(rest, 2):  # the bob can leave a couple where the body sinks onto its feet
             assert lone_ink(frame) <= lone_ink(first) + 2, f"{path.name} frame {n} has a second outline"

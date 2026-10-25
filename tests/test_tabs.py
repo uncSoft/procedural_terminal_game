@@ -84,7 +84,7 @@ async def test_tabs_change_only_the_pane_and_pressed_again_open_the_panel_in_ful
         stage, story = screen.query_one("#stage"), screen.query_one("#story")
         await pilot.press("f5")
         await pilot.pause(0.3)
-        assert screen.tab == "map" and screen.query(".map-frame")
+        assert screen.tab == "map" and screen.query(".map-holder")
         assert screen.query_one("#stage") is stage and screen.query_one("#story") is story  # (nothing else rebuilt)
         await pilot.press("f5")  # (again: the map in full)
         await pilot.pause(0.3)
@@ -173,3 +173,43 @@ async def test_the_footer_has_every_key_and_who_is_narrating():
         assert screen.query_one("#command").region.bottom <= footer.region.y  # (nothing under it)
         narrator = screen.query_one("#footer-narrator")
         assert str(narrator.render()) == "offline narrator" and narrator.region.y == footer.region.y
+
+
+async def test_the_opening_is_told_once():
+    """The tabs screen's own on_mount once called GameScreen's again, and the opening ran twice: two floor headers."""
+    app = PTGApp(Config(backend="offline", player_name="T"), test_room=("lenny", "new", 0))
+    async with app.run_test(size=(152, 43)) as pilot:
+        await pilot.pause(0.5)
+        await settle(app, pilot)
+        assert len(app.screen.query(".floor-header")) == 1
+
+
+async def test_the_tab_stays_where_you_put_it_from_room_to_room_and_a_fight_brings_here():
+    app = PTGApp(Config(backend="offline", player_name="T"), test_room=("hobgoblin", "new", 0))
+    async with app.run_test(size=(152, 43)) as pilot:
+        await pilot.pause(0.5)
+        await settle(app, pilot)
+        screen = app.screen
+        await pilot.press("f2")  # (the pack)
+        await pilot.pause(0.2)
+        assert screen.tab == "pack"
+        screen = await walk_in(app, pilot)  # (into the hobgoblin's room: a fight)
+        assert screen.tab == "here"
+        await pilot.press("f5")
+        await pilot.pause(0.2)
+        screen.refresh_panels()  # (the same room, the same fight: the map stays)
+        assert screen.tab == "map"
+
+
+async def test_a_bare_here_is_filled_with_the_floor_and_what_happened_lately():
+    app = PTGApp(Config(backend="offline", player_name="T"), test_room=("lenny", "new", 0))
+    async with app.run_test(size=(152, 43)) as pilot:
+        await pilot.pause(0.5)
+        await settle(app, pilot)
+        screen = app.screen
+        screen.game.state.room.features = []
+        screen.game.state.room.items = []
+        screen.refresh_panels()
+        await pilot.pause(0.3)
+        words = " ".join(str(w.render()) for w in screen.query("#pane .pane-rule"))
+        assert "FLOOR" in words or "LATELY" in words

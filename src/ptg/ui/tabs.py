@@ -1,13 +1,20 @@
-"""The game screen in tabs, the desktop layout: words on the left (the room's picture over the story, which keeps
-the whole of the lower half), and on the right where you are with the arrows beside it, one pane with tabs (Here,
-Map, Pack, Sheet, Journal, Bestiary), and under it the decision: every choice numbered, one to a line, and the
-command line. No boxes: each part is set apart by its own shade, with a row of dither where a line would be. The
-footer has every key, and at its end who's narrating.
+"""The game screen in tabs, the desktop layout, set out like an illustrated story book: the words on the left page
+and the pictures on the right.
 
-The tabs are the panels F2-F7 used to open over the game. Each key now brings its tab into the pane, and pressed
-again (or the ⤢ at the end of the tabs) opens the panel as it was, in full, for more. A room opens on Here when
-there's anything in it to look at, else on the map; a fight starting brings Here back. Everything a turn does (the
-story, the dice, the animations) is GameScreen's: this only lays the screen out differently and fills the pane.
+The left page is the story in its box (whose border lights up in the turn's colour, as it always has), ending about
+two thirds of the way down so what just happened is where the eye already is, and right under it the decision:
+every choice numbered, one to a line, and the command line taking the rows they leave. Notifications come up in
+the foot of that box, beside the choices.
+
+The right page is the room's picture in its frame (red in a fight), the arrows beside the ways out in words, and one
+pane with tabs, each in its own colour: Here, Map, Pack, Sheet, Journal, Bestiary. They are the panels F2-F7 used to
+open over the game: each key brings its tab into the pane, and pressed again (or the ⤢ at the end of the tabs) opens
+the panel as it was, in full. A tab stays where you put it; only a fight starting brings Here back. Here is never
+bare: what it doesn't need for whoever and whatever is in the room, it fills with the floor map, the quests open and
+the last few things that happened.
+
+Everything a turn does (the story, the dice, the animations, the border's flash) is GameScreen's: this only lays the
+screen out differently and fills the pane. The footer has every key, and at its end who's narrating.
 
 Chosen by Config.layout ("tabs", the default, or "classic"); a touch screen, or one too small for it when the game
 begins, gets the classic one (see game_screen).
@@ -20,13 +27,7 @@ from rich.table import Table
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import (
-    Center,
-    Horizontal,
-    HorizontalScroll,
-    Vertical,
-    VerticalScroll,
-)
+from textual.containers import Center, Grid, Horizontal, Vertical, VerticalScroll
 from textual.widget import Widget
 from textual.widgets import Footer, Input, Static
 
@@ -62,9 +63,13 @@ TAB_PANEL = {tab: panel for panel, tab in PANEL_TAB.items()}
 TAB_LABEL = {key: label for key, label, _ in TABS}
 MOST_CHOICES = 7  # the decision's rows for choices: the most a room usually has (more scroll)
 MIN_COLUMNS, MIN_ROWS = 110, 32  # smaller than this when a run begins, and it's the classic screen
-SIDE_SHARE, SIDE_MIN, SIDE_MAX = 0.5, 64, 96  # the right side's width
-STAGE_SHARE = 0.42  # of the rows under the status bar: the most the room's picture takes
+SIDE_SHARE, SIDE_MIN, SIDE_MAX = 0.48, 62, 100  # the right page's width
+STORY_SHARE = 0.64  # of the rows between the status bar and the footer: the story's, the decision has the rest
+STAGE_SHARE = 0.38  # of those rows: the most the room's picture takes
 STAGE_SHAPE = 4.8  # columns per row (see plan.py)
+TAB_COLOURS = {"here": "#ffb000", "map": "", "pack": "#4cff8a", "sheet": "#ff4f9a", "journal": "#6c8cff",
+               "bestiary": "#ff7b39"}  # each tab's own (the map's is the floor's: see tab_colour)
+LATELY = 4  # the journal's last lines, when Here has room for them
 JOURNAL_SHOWN = 150
 
 WORDS, DIM, FAINT, ACCENT, PINK, GOLD = "#c8c8e0", "#6c6f99", "#2a2d4a", "#ffb000", "#ff4f9a", "#ffd166"
@@ -376,27 +381,22 @@ class TabsScreen(GameScreen):
             yield Static(id="hud-short")
             yield Clickable(Text(" ☰ "), "screen.menu()", id="hud-menu")
         with Horizontal(id="main"):
-            with Vertical(id="left"):
+            with Vertical(id="left"):  # the words
+                yield VerticalScroll(id="story")
+                with Vertical(id="decide"):
+                    yield VerticalScroll(id="choices")
+                    yield Input(id="command", placeholder="Type a number, or anything you want to try…")
+            with Vertical(id="side"):  # the pictures
                 with Center(id="stage-box"):
                     with ClickableBox(action="screen.stage_card()", id="stage"):
                         yield Static(id="stage-art")
-                yield Static(classes="dither", id="stage-rule")
-                yield VerticalScroll(id="story")
-            with Vertical(id="side"):
                 with Horizontal(id="pane-head"):
-                    with Vertical(id="where-col"):
-                        yield Static(id="where")
-                        yield Static(id="where-what")
                     yield DPad(id="dpad")
+                    yield Static(id="ways-words")
                 with Horizontal(id="tab-row"):
                     yield Static(id="tab-bar")
                     yield Clickable(Text(" ⤢ "), "screen.expand()", id="tab-expand")
                 yield VerticalScroll(id="pane")
-                yield Static(classes="dither", id="pane-rule")
-                with Vertical(id="decide"):
-                    yield Static(Text("What do you do?"), id="decide-title")
-                    yield VerticalScroll(id="choices")
-                    yield Input(id="command", placeholder="Type a number, or anything you want to try…")
         with Vertical(id="shims"):  # (what GameScreen's turns look for, that this layout hasn't)
             yield Vertical(id="here")
             yield Vertical(id="here-strip")
@@ -407,18 +407,19 @@ class TabsScreen(GameScreen):
             yield Static(id="footer-narrator")
 
     def on_mount(self) -> None:
-        super().on_mount()
+        # (GameScreen's own on_mount runs first by itself, as Textual calls each class's: calling it again here would
+        # tell the opening twice)
         self.query_one("#footer-narrator", Static).update(self.game.llm.name if self.game.llm else "offline narrator")
         self.query_one("#tab-expand").tooltip = "Open this in full"
-        self.query_one("#tab-expand").can_focus = False
-        for box in ("#pane", "#pane-head", "#tab-row", "#decide"):
+        for box in ("#pane", "#pane-head", "#tab-row", "#decide", "#tab-expand", "#side", "#left"):
             self.query_one(box).can_focus = False
 
     # --- the layout ---
 
     def relayout(self) -> None:
-        """Share the screen out: the right side half of it (within bounds), the room's picture as wide as the left and
-        as tall as its shape asks (to a share of the rows), the story the rest."""
+        """Share the screen out: the right page a share of the width (within bounds); on the left the story most of
+        the height (STORY_SHARE) and the decision the rest; on the right the room's picture as tall as its shape asks
+        (to a share), the head, the tabs and the pane the rest."""
         if self._resize_timer is not None:
             self._resize_timer.stop()
             self._resize_timer = None
@@ -426,30 +427,36 @@ class TabsScreen(GameScreen):
         if not width:
             return
         side = max(SIDE_MIN, min(SIDE_MAX, round(width * SIDE_SHARE)))
-        left = width - side
-        stage_width = left - 4
-        stage_rows = min(30, round(stage_width / STAGE_SHAPE), round(STAGE_SHARE * (height - 1)))
-        stage_width = min(stage_width, round(stage_rows * STAGE_SHAPE * 1.25))
-        pane = height - 1 - 3 - 1 - 1 - (MOST_CHOICES + 3) - 1  # (less the status bar, the head, the tabs, a
-        # dither row, the decision and the footer)
+        rows = height - 2  # (less the status bar and the footer)
+        stage_width = side - 4
+        stage_rows = min(30, round(stage_width / STAGE_SHAPE), round(STAGE_SHARE * rows))
+        stage_width = min(stage_width, round(stage_rows * STAGE_SHAPE * 1.3))
+        story = round(STORY_SHARE * rows)
+        pane = rows - (stage_rows + 2) - 3 - 1 - 2  # (less the picture's frame, the head, the tabs, the pane's frame)
         self.plan = Plan(width, height, True, False, False, side, stage_rows, stage_width, MOST_CHOICES, 0, pane,
-                         height - 1 - stage_rows - 1)
+                         story - 2)
         self.query_one("#side").styles.width = side
+        box = self.query_one("#story")
+        box.styles.height = story
+        box.border_title, box.border_subtitle = "✦ Story", ""  # (who's narrating is at the footer's end)
         self.refresh_hud()
         self.refresh_stage()
         self.refresh_here()
         self.refresh_choices()
-        self.call_after_refresh(self._dither)
+        self._place_toasts()
 
     refresh_panels = relayout
 
-    def _dither(self) -> None:
-        """The rows of dither where a line would be: under the picture, and over the decision."""
-        for rule_ in self.query(".dither").results(Static):
-            rule_.update("░" * (rule_.size.width or 40))
+    def _place_toasts(self) -> None:
+        """Notifications on the left page, in the foot of the decision's box (the rows the command line has spare):
+        beside the choices, never over the story's newest lines or the pictures."""
+        for rack in self.query("ToastRack"):
+            rack.styles.margin = (0, 0, 2, 0)  # (the footer and the box's frame)
+            rack.styles.width = self.size.width - (self.plan.side if self.plan else 0) - 3
 
     def refresh_stage(self) -> None:
-        """The room's picture, borderless, over the story."""
+        """The room's picture in its frame on the right page, titled with the room's name: the floor's colour, red in a
+        fight."""
         plan, game = self.plan, self.game
         state, room = game.state, game.state.room
         monster = room.monster
@@ -464,34 +471,52 @@ class TabsScreen(GameScreen):
             self.query_one("#stage-art", Static).update(art or room_text(state, game.content))
         stage = self.query_one("#stage")
         stage.tooltip = "Click to look around"
-        stage.styles.border = ("none", "black")
+        colour = "#ff4b4b" if fight else look_of(state.theme).accent
+        stage.border_title = f"✦ {room.name}" + ("  ⚔ a fight!" if fight else "")
+        stage.styles.border = ("round", colour)
+        stage.styles.border_title_color = colour
+        stage.set_class(fight, "combat")
 
     def refresh_here(self) -> None:
-        """Who and what is here, numbered as before; the head over the pane (where you are, what's here in a line);
-        the tab chosen afresh on coming into a room or a fight; and the pane drawn, if what it shows has changed."""
+        """Who and what is here, numbered as before; the ways out in words beside the arrows; and the pane drawn, if
+        what it shows has changed. The tab stays as you left it: only a fight starting brings Here in (once, as it
+        starts), and a new room puts Here's frame back on its first thing."""
         state = self.game.state
-        things = self.gather_things()
-        room, monster = state.room, state.room.monster
+        self.gather_things()
+        monster = state.room.monster
         fight = bool(monster and monster.hostile and monster.hp > 0)
         where = (state.floor, state.room_id, fight)
         if where != self.where_was:
-            if (state.floor, state.room_id) != (self.where_was or (None, None))[:2] or fight:
-                pictured = [t for t in things if t.art and t.sprite]
-                self.tab = "here" if pictured or fight else "map"
+            was = self.where_was
+            if was is None or (state.floor, state.room_id) != was[:2]:
                 self.focus["here"] = ""
+            if fight and not (was and was[2] and (state.floor, state.room_id) == was[:2]):
+                self.tab = "here"
             self.where_was = where
-        accent = look_of(state.theme).accent
-        head = Text(f"✦ {room.name}", style=f"bold {'#ff4b4b' if fight else accent}")
-        if fight:
-            head.append("  ⚔ a fight!", style="bold #ff4b4b")
-        self.query_one("#where", Static).update(head)
-        names = [t.name for t in things]
-        what = Text("here: ", style=DIM) + Text(", ".join(names[:4]) + (f" +{len(names) - 4}" if len(names) > 4
-                                                                       else ""), style=WORDS) \
-            if names else Text("nothing here", style=DIM)
-        self.query_one("#where-what", Static).update(what)
+        self.query_one("#ways-words", Static).update(self.ways_words())
         self.query_one("#tab-bar", Static).update(self.tab_text())
         self.draw_pane()
+
+    def ways_words(self) -> Text:
+        """The ways out beside the arrows, two to a line: where each goes, if you've been; else what you can see of it."""
+        state = self.game.state
+        parts = []
+        for direction in ("north", "east", "south", "west"):
+            exit_ = state.room.exits.get(direction)
+            if exit_ is None:
+                continue
+            there = state.rooms[exit_.to]
+            name = ("locked" + (": a shop" if there.shop else "")) if exit_.locked else there.name if there.visited \
+                else (f"a {there.fixture}" if there.fixture and not there.fixture_used else "unexplored")
+            colour = "#7a3b4c" if exit_.locked else "#5fe3ff" if there.visited else GOLD if there.fixture else DIM
+            parts.append(Text.assemble((f"{ARROWS[direction]} ", f"bold {colour}"),
+                                       (short_name(name, 18), WORDS if there.visited else DIM)))
+        text = Text()
+        for i, part in enumerate(parts):
+            if i:
+                text.append("\n" if i % 2 == 0 else "   ")
+            text.append_text(part)
+        return text
 
     def gather_things(self) -> list[Thing]:
         """What's here (ui/here.py), its buttons numbered first, as GameScreen.refresh_here numbers them."""
@@ -512,14 +537,22 @@ class TabsScreen(GameScreen):
         self.verb_owner = {a.id: thing.name for thing in things for a in thing.verbs if a.id}
         return things
 
+    def tab_colour(self, tab: str) -> str:
+        """A tab's own colour: the map's is the floor's, and Here's is red in a fight."""
+        monster = self.game.state.room.monster
+        if tab == "here" and monster and monster.hostile and monster.hp > 0:
+            return "#ff4b4b"
+        return TAB_COLOURS[tab] or look_of(self.game.state.theme).accent
+
     def tab_text(self) -> Text:
+        """The tabs, each lit in its own colour when it's the one showing, its key after its name."""
         text = Text()
         for key, label, hotkey in TABS:
-            on = key == self.tab
+            on, colour = key == self.tab, self.tab_colour(key)
             click = Style(meta={"@click": f"screen.tab('{key}')"})
-            text.append(f" {label} ", Style.parse(f"bold #10122a on {ACCENT}" if on else f"bold {WORDS} on #1c2040")
+            text.append(f" {label} ", Style.parse(f"bold #10122a on {colour}" if on else f"bold {colour} on #171a38")
                         + click)
-            text.append(f"{hotkey} ", Style.parse(f"#10122a on {ACCENT}" if on else f"{DIM} on #1c2040") + click)
+            text.append(f"{hotkey} ", Style.parse(f"#10122a on {colour}" if on else f"{DIM} on #171a38") + click)
             text.append(" ")
         return text
 
@@ -537,8 +570,9 @@ class TabsScreen(GameScreen):
         first = len(self.tile_verbs) + 1
         self.numbered = [*self.tile_verbs, *actions]
         self.query_one(DPad).show(self._choices(), game.locked_doors())
-        title = self.query_one("#decide-title", Static)
-        title.update(Text(f"✧ {scene}" if scene else "What do you do?"))
+        decide = self.query_one("#decide")
+        decide.border_title = f"✧ {scene}" if scene else "What do you do?"
+        decide.set_class(bool(scene), "scene")
         shown = (scene, game.state.over, suggesting, first, [(a.id, a.label, a.hint) for a in actions])
         if shown == self.choices_shown:
             return
@@ -574,7 +608,7 @@ class TabsScreen(GameScreen):
         return text
 
     def refresh_ways(self) -> None:
-        """(The arrows are always in the head.)"""
+        """(The arrows are always on the right page.)"""
 
     # --- the tabs ---
 
@@ -615,7 +649,7 @@ class TabsScreen(GameScreen):
     def draw_pane(self, force: bool = False) -> None:
         """Fill the pane for its tab, if what it would show has changed (a rebuild swaps it under the mouse)."""
         state = self.game.state
-        width = (self.plan.side if self.plan else 70) - 6
+        width = (self.plan.side if self.plan else 70) - 7  # (less the pane's frame, padding and scrollbar)
         key = (self.tab, width, self.plan.here_rows if self.plan else 0, state.turn, state.room_id,
                tuple(self.focus.values()), tuple((t.id, t.status, tuple((a.id, a.label) for a in t.verbs)) for t in self.things),
                state.player.hp, state.player.gold, len(state.player.inventory), self._sprites_on())
@@ -623,19 +657,25 @@ class TabsScreen(GameScreen):
             return
         self.pane_shown = key
         pane = self.query_one("#pane", VerticalScroll)
+        colour = self.tab_colour(self.tab)
+        pane.styles.border = ("round", colour)
+        pane.styles.border_title_color = colour
+        pane.border_title, pane.border_subtitle = f"✦ {TAB_LABEL[self.tab]}", ""
         parts = getattr(self, f"pane_{self.tab}")(width, self.plan.here_rows if self.plan else 24)
         with self.app.batch_update():
             pane.remove_children()
             pane.mount_all(parts)
 
-    def frame_and_strip(self, things: list[Thing], focus_id: str, buttons) -> list[Widget]:
+    def frame_and_strip(self, things: list[Thing], focus_id: str, buttons, words=None) -> list[Widget]:
         """A frame with the thing in focus at full size (its picture plays the fight's moments: class here-art) and
-        everything about it beside it, then a strip of all of them as thumbnails, the one in the frame underlined."""
+        everything about it beside it (`words`, else facts), then all of them as thumbnails in a grid that scrolls
+        down, the one in the frame underlined."""
         focus = next((t for t in things if t.id == focus_id), things[0])
         picture = Picture(focus.sprite, focus.kind, 24, pose=focus.pose, animate=focus.character, content=self.game.content,
                           loop=focus.loop, action=f"screen.lookup('{self.lookup_id(focus)}')",
                           classes="here-art focus-art")
-        side = [Static(facts(self.game.state, self.game.content, focus), classes="focus-words")]
+        about = words(focus) if words else facts(self.game.state, self.game.content, focus)
+        side = [Static(about, classes="focus-words")]
         lines = buttons(focus)
         if lines:
             side.append(Vertical(*lines, classes="focus-verbs"))
@@ -650,7 +690,9 @@ class TabsScreen(GameScreen):
                                      classes="thumb" + (" picked" if thing is focus else ""))
                 thumb.tooltip = thing.name
                 thumbs.append(thumb)
-            parts.append(HorizontalScroll(*thumbs, classes="strip"))
+            grid = Grid(*thumbs, classes="strip")
+            grid.styles.grid_size_columns = max(1, ((self.plan.side if self.plan else 70) - 7) // 13)
+            parts.append(grid)
         return parts
 
     @staticmethod
@@ -660,6 +702,9 @@ class TabsScreen(GameScreen):
                 "pack": f"item:{key}", "beast": f"monster:{key}"}.get(kind, thing.id)
 
     def pane_here(self, width: int, rows: int) -> list[Widget]:
+        """Whoever and whatever is here (the frame, the grid, what's to search), and in the rows that leaves, what's
+        worth a glance: the floor map, the quests open, and the last few things that happened, as many as fit."""
+        state = self.game.state
         pictured = [t for t in self.things if t.art and t.sprite]
         plain = [t for t in self.things if not (t.art and t.sprite)]
         side = width - 28
@@ -676,30 +721,55 @@ class TabsScreen(GameScreen):
                                     classes="plain-line here-verbs"))
         if not self.things:
             parts.append(Static(Text("Nothing here but the room itself.", style=DIM), classes="pane-text"))
-        used = (13 if pictured else 1) + (8 if len(pictured) > 1 else 0) + 2 * len(plain)
-        room_left = rows - used - 3
-        big = big_map(self.game.state, width, room_left) if room_left > 4 else None
-        if big is not None:  # a room with little in it: the map fills the rest
-            parts += [Static(rule("FLOOR", width, DIM), classes="pane-rule"), StoryLine(big, classes="small-map")]
+        columns = max(1, width // 13)
+        left = rows - (13 if pictured else 1) - (-(-len(pictured) // columns) * 7 if len(pictured) > 1 else 0) \
+            - 2 * len(plain)
+        quests = [(line, still) for _, line, still in npcs.quest_log(state, self.game.content) if still]
+        lately = [line for line in state.journal if not line.startswith("⚄ ")][-LATELY:]
+        need_quests = 3 + len(quests) if quests else 0
+        need_lately = 3 + len(lately) if lately else 0
+        big = big_map(state, width, left - need_quests - need_lately - 3)
+        if big is None:
+            big = big_map(state, width, left - 3)
+        if big is not None:
+            parts += [Static(rule("FLOOR", width, look_of(state.theme).accent), classes="pane-rule"),
+                      StoryLine(big, classes="small-map")]
+            left -= big.plain.count("\n") + 4
+        lexicon = self.lexicon()
+        if quests and left >= need_quests:
+            text = Text()
+            for line, _ in quests:
+                text.append_text(highlight("★ " + line, lexicon, f"bold {GOLD}"))
+                text.append("\n")
+            text.rstrip()
+            parts += [Static(rule("QUESTS", width), classes="pane-rule"), StoryLine(text, classes="pane-text")]
+            left -= need_quests
+        if lately and left >= need_lately:
+            text = Text()
+            for line in lately:
+                text.append_text(highlight("· " + line, lexicon, WORDS))
+                text.append("\n")
+            text.rstrip()
+            parts += [Static(rule("LATELY", width, "#6c8cff"), classes="pane-rule"), StoryLine(text, classes="pane-text")]
         return parts
 
     def pane_map(self, width: int, rows: int) -> list[Widget]:
+        """The floor drawn big (on the pane's frame its name, and at its foot how much of it you've seen), and under it
+        the goal, the quests, the tips and the key."""
         state, content = self.game.state, self.game.content
         notes = map_notes(state, content)
         lines = sum(1 + len(cell.plain) // max(1, width - 12) for cell in notes.columns[1]._cells
                     if isinstance(cell, Text))
-        room = rows - lines - 4
-        drawn = big_map(state, width - 6, room - 2) or small_map(state)
-        frame = Vertical(StoryLine(drawn, classes="pane-map"), classes="map-frame")
+        room = rows - lines - 2
+        drawn = big_map(state, width, room) or small_map(state)
+        pane = self.query_one("#pane")
         theme = content.themes[state.theme]
-        accent = look_of(state.theme).accent
-        frame.border_title = f"✦ {theme.name.upper()} · FLOOR {state.floor} OF {state.floors_total} ✦"
+        pane.border_title = f"✦ Map · {theme.name} · floor {state.floor} of {state.floors_total}"
         seen = sum(r.visited for r in state.rooms if not r.secret)
-        frame.border_subtitle = f"{seen} of {sum(not r.secret for r in state.rooms)} rooms seen"
-        frame.styles.border = ("double", accent)
-        frame.styles.border_title_color = accent
-        frame.styles.height = max(room, drawn.plain.count("\n") + 3)
-        return [frame, Static("", classes="pane-gap"), Static(notes, classes="pane-text")]
+        pane.border_subtitle = f"{seen} of {sum(not r.secret for r in state.rooms)} rooms seen"
+        holder = Center(StoryLine(drawn, classes="pane-map"), classes="map-holder")
+        holder.styles.height = max(drawn.plain.count("\n") + 1, room)
+        return [holder, Static(notes, classes="pane-text")]
 
     def pane_pack(self, width: int, rows: int) -> list[Widget]:
         state, content = self.game.state, self.game.content
@@ -792,4 +862,31 @@ class TabsScreen(GameScreen):
                                 "#ff4b4b" if here is not None and here.key == key else DIM))
         if self.focus["bestiary"] not in {t.id for t in things}:
             self.focus["bestiary"] = things[0].id
-        return [head, *self.frame_and_strip(things, self.focus["bestiary"], lambda thing: [])]
+
+        def words(thing: Thing) -> Text:  # what you know of it: more once you've beaten one
+            monster, entry = content.monster(thing.sprite), entries.get(thing.sprite, {})
+            text = Text(monster.name, style=f"bold {'#ff4b4b' if here is not None and here.key == monster.key else GOLD}")
+            if here is not None and here.key == monster.key:
+                text.append("   here now", style="bold #ff4b4b")
+            text.append(f"\nseen {entry.get('seen', 0)} · slain {entry.get('killed', 0)} · talked down "
+                        f"{entry.get('pacified', 0)}", style=DIM)
+            if entry.get("killed_you"):
+                text.append(f" · killed you {entry['killed_you']}", style="#ff4b4b")
+            weak = entry.get("weak") or []
+            text.append("\nweak to: ", style=DIM)
+            text.append(", ".join(weak) if weak else "???", style="#5fe3ff" if weak else DIM)
+            hidden = len(set(monster.weak) - set(weak))
+            if weak and hidden:
+                text.append(f"  (+{hidden} to find)", style=DIM)
+            if entry.get("killed"):
+                text.append(f"\n♥ {monster.hp}  ⛨ {monster.defense}  hits +{monster.attack}  {monster.damage} damage"
+                            f"  · tier {monster.tier}", style=WORDS)
+            else:
+                text.append("\nbeat one to learn its numbers", style=DIM)
+            if monster.desc:
+                text.append(f"\n\n{monster.desc}", style=f"italic {DIM}")
+            if entry.get("lore"):
+                text.append(f"\n\n{entry['lore']}", style=f"italic {WORDS}")
+            return text
+
+        return [head, *self.frame_and_strip(things, self.focus["bestiary"], lambda thing: [], words)]

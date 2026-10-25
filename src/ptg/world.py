@@ -220,7 +220,9 @@ def _place_monsters(rng, content, state, theme, rooms: list[Room], max_distance:
 def _place_loot(rng, content: Content, state: GameState, theme, rooms: list[Room], end_id: int, max_distance: int,
                 final: bool) -> None:
     """The floor's loot (see loot.py), spread out: one thing to a hiding place, and each room's turn before any room
-    gets a second. Potions sometimes just lie on the floor, as does anything there's no hiding place left for."""
+    gets a second, never more than loot.MOST_PER_ROOM to a room. The key and what a chest or a wall waits on go
+    first; potions sometimes just lie on the floor, as do a potion, food, a bomb or a small key there's no hiding
+    place left for. Anything else with nowhere left to go isn't there at all."""
     others = [r for r in rooms if r.id not in (0, end_id)]
     if final:
         # The key sits in a visible feature somewhere past the halfway point (never in the boss room).
@@ -229,11 +231,13 @@ def _place_loot(rng, content: Content, state: GameState, theme, rooms: list[Room
 
     found = [loot.pick(rng, content, slot) for slot in loot.FLOORS.get(state.floor, ["potion 1"])]
     found.append(loot.DUNGEON_TRINKETS.get(theme.key, "oil_flask"))
+    found = sorted(filter(None, found), key=lambda key: key not in loot.ESSENTIAL)  # (stable: the rest keep order)
     spots = _spots(rng, others)
-    for item in filter(None, found):
+    for item in found:
+        spots = [(room, feature) for room, feature in spots if held(room) < loot.MOST_PER_ROOM]
         if spots and not (loot.role(content.item(item)) == "potion" and rng.random() < 0.35):
             spots.pop(0)[1].loot.append(item)
-        else:
+        elif item in loot.ESSENTIAL or loot.role(content.item(item)) in ("potion", "food"):
             _emptiest(rng, others).items.append(item)
 
     for room in others:
@@ -241,10 +245,11 @@ def _place_loot(rng, content: Content, state: GameState, theme, rooms: list[Room
             if not feature.loot and rng.random() < 0.5:
                 feature.gold = rng.randint(2, 8) * max(1, room.distance) + 2 * state.floor
 
-    stash_room = rng.choice(others)
+    stash_room = _emptiest(rng, others)  # (never on top of a room that's full already)
+    stash = loot.STASH.get(state.floor, loot.STASH[max(loot.STASH)])
     stash_room.features.append(Feature(
         name=rng.choice(HIDDEN_FEATURES), hidden=True, gold=rng.randint(15, 30) * state.floor,
-        loot=[key for key in [loot.produce(rng, content, state.rares, loot.STASH, "stash")] if key],
+        loot=[key for key in [loot.produce(rng, content, state.rares, stash, "stash")] if key],
     ))
 
 
@@ -261,11 +266,13 @@ def _spots(rng: random.Random, rooms: list[Room]) -> list[tuple[Room, Feature]]:
             for r in order if depth < len(free[r.id])]
 
 
+def held(room: Room) -> int:
+    """How many things a room has lying about or hidden in it."""
+    return len(room.items) + sum(len(f.loot) for f in room.features)
+
+
 def _emptiest(rng: random.Random, rooms: list[Room]) -> Room:
     """One of the rooms with the least lying about or hidden in it so far."""
-    def held(room: Room) -> int:
-        return len(room.items) + sum(len(f.loot) for f in room.features)
-
     fewest = min(map(held, rooms))
     return rng.choice([r for r in rooms if held(r) == fewest])
 

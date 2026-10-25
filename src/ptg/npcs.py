@@ -108,8 +108,11 @@ def place(state: GameState, content: Content, rooms: list[Room], end_id: int) ->
 def hide_tooth(state: GameState, rooms: list[Room]) -> tuple[Room, Feature]:
     """Lenny's bad tooth, hidden in one of `rooms` (where a goblin's pan sent it flying: any but his own), the room,
     and where in it."""
+    from .world import held
+
     rng = dice.stream(state.seed, BAD_TOOTH, state.floor)
-    room = rng.choice(rooms)
+    fewest = min(map(held, rooms))
+    room = rng.choice([r for r in rooms if held(r) == fewest])  # (where there's least hidden already)
     feature = Feature(name=rng.choice(TOOTH_SPOTS), hidden=True, loot=[BAD_TOOTH])
     room.features.append(feature)
     return room, feature

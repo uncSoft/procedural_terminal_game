@@ -14,8 +14,10 @@ A slot picks a tier first, each tier it allows that has items being as likely as
 tier: five new tier-3 potions don't make tier 3 five times as likely. A slot with only one item to give gives it
 without a roll, so a seed's dungeon only changes where there's something new to choose between.
 
-Where the top tiers land (the "+" slots): the best potion on floor 3, in hidden stashes and in floor-3 chests;
-the best weapons and armor in stashes and floor-3 chests; tier 2+ food and escapes on floor 2.
+Where the top tiers land (the "+" slots): the best potion on floor 3, in its hidden stash and in floor-3 chests;
+the best weapons and armor in floor 3's stash and chests; tier 2+ food and escapes on floor 2. A floor's stash is
+its floor's best and no better (a tier-3 blade on floor 1 was too much), and no room holds more than MOST_PER_ROOM
+things in its hiding places (world._place_loot).
 
 The starting sword, the keys, bombs, small keys and the Lucky Charm (it has rules of its own) only ever turn up by
 name.
@@ -41,12 +43,18 @@ GEAR = ("weapon", "armor")
 BY_NAME_ONLY = {"lucky_charm", "bomb", "small_key"}
 
 FLOORS = {  # each floor spreads these through its rooms (see world._place_loot), with its dungeon's own trinket
-    1: ["weapon 1", "armor 1", "potion 1", "potion 1", "food 0", "bomb", "small_key"],
+    1: ["gear 1", "potion 1", "potion 1", "food 0", "bomb", "small_key"],
     2: ["gear 2", "potion 1", "escape 1+", "food 1+", "bomb", "small_key"],  # loot spread out is found more: a potion less
     3: ["potion 2+", "potion 1", "potion 1", "gear 2", "small_key"],
 }
 DUNGEON_TRINKETS = {"sunken_crypt": "holy_water", "goblin_warren": "bag_of_marbles", "overgrown_ruins": "oil_flask"}
-STASH = ["weapon 3+", "armor 3+", "potion 2+", "lucky_charm", "rare"]  # each floor's hidden stash holds one of these
+STASH = {  # each floor's hidden stash holds one of its floor's ("rare -1": a rare thing of tier 1 or less)
+    1: ["weapon 2", "armor 2", "potion 2", "lucky_charm", "rare -1"],
+    2: ["weapon 2", "armor 2", "potion 2", "lucky_charm", "rare -2"],
+    3: ["weapon 3+", "armor 3+", "potion 2+", "lucky_charm", "rare"],
+}
+MOST_PER_ROOM = 2  # things in a room's hiding places, at most (a quest's own thing aside): more is a treasure trove
+ESSENTIAL = ("small_key", "bomb")  # placed first, and always: a chest and a cracked wall wait on them
 CHESTS = {  # a chest holds one of its floor's ("rare -1": a rare thing of tier 1 or less)
     1: ["armor 1", "trinket", "escape 1", "potion 1", "rare -1"],
     2: ["armor 2", "weapon 2", "potion 2", "lucky_charm", "rare -2"],
@@ -70,7 +78,8 @@ FINDS = ["food 0", "food 0", "potion 1", "escape 1", "trinket"]  # what a stunt 
 EVERYDAY = "floor"  # the place of a floor's scattered loot, a monster's drop or a find: no rare things here
 
 PLACES = [("floor 1", FLOORS[1], EVERYDAY), ("floor 2", FLOORS[2], EVERYDAY), ("floor 3", FLOORS[3], EVERYDAY),
-          ("hidden stashes", STASH, "stash"), ("floor 1 chests", CHESTS[1], "chest"),
+          ("floor 1 stashes", STASH[1], "stash"), ("floor 2 stashes", STASH[2], "stash"),
+          ("floor 3 stashes", STASH[3], "stash"), ("floor 1 chests", CHESTS[1], "chest"),
           ("floor 2 chests", CHESTS[2], "chest"), ("floor 3 chests", CHESTS[3], "chest"),
           ("secret rooms", SECRET, "secret"), ("wardens and elites", WARDEN[3], "warden"),
           ("shops", ["potion 1+", "gear 1+", "trinket", "bomb", "small_key"] + SHINY_WARES, "shop"),

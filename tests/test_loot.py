@@ -5,7 +5,7 @@ from collections import Counter
 from dataclasses import replace
 
 from conftest import put_monster
-from ptg import loot
+from ptg import loot, npcs
 from ptg.combat import defeat
 from ptg.content import ItemDef
 from ptg.rules import heal_verb, perform
@@ -99,7 +99,7 @@ def test_the_best_potion_is_on_floor_three_or_hidden(content):
                     places[f"floor {floor}"] += 1
     assert places["floor 3"] and places["stash"]
     assert not places["floor 1"] and not places["floor 2"]
-    assert loot.where(content, "superior_healing_potion") == ["floor 3", "hidden stashes", "floor 3 chests", "shops"]
+    assert loot.where(content, "superior_healing_potion") == ["floor 3", "floor 3 stashes", "floor 3 chests", "shops"]
 
 
 def test_food_is_eaten_and_found_things_name_themselves(content):
@@ -124,3 +124,29 @@ def test_a_slain_monster_drops_what_loot_says(content):
     assert dropped.data["item"] == "healing_potion" and "healing_potion" in state.room.items
     assert (dropped.data["how"], dropped.data["to"]) == ("drop", "room")
     assert dropped.text.endswith("dropped a Healing Potion; it lies on the floor (not picked up).")  # (yet to be taken)
+
+
+def test_no_room_is_a_treasure_trove_and_a_stash_is_its_floors_best_and_no_better(content):
+    """Lucky Lenny's room had his tooth, a Silvered Blade, a Smoke Bomb and a flask of oil hidden in it: a tier-3 blade
+    on floor 1 or 2, and four things to one room."""
+    from ptg.world import build_floor, generate
+
+    for seed in range(60):
+        state = generate(seed, content=content)
+        for floor in (1, 2, 3):
+            if floor > 1:
+                state.floor = floor
+                build_floor(state, content)
+            for room in state.rooms:
+                if room.secret:
+                    continue
+                kept = [k for f in room.features for k in f.loot if k not in (npcs.BAD_TOOTH, state_key(content, state))]
+                ghost = any(f.name.endswith("'s remains") for f in room.features)
+                assert len(kept) <= loot.MOST_PER_ROOM + (2 if ghost else 0), (seed, floor, room.name, kept)
+                if floor < 3:
+                    assert not [k for f in room.features if f.hidden for k in f.loot if content.item(k).tier >= 3], \
+                        (seed, floor, room.name)
+
+
+def state_key(content, state):
+    return content.themes[state.theme].key_item

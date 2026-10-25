@@ -338,7 +338,9 @@ def test_lenny_takes_only_his_tooth(content):
     assert [e.kind for e in events] == ["info", "story"] and "hands it back" in events[0].text
     assert events[1].text.startswith("That's not my tooth!") and events[1].data["speaker"] == npcs.LENNY
     assert "cheese_wheel" in state.player.inventory and state.player.fate == 0
-    events = perform(state, content, f"give:{npcs.BAD_TOOTH}@monster:{npcs.LENNY}")
+    events = perform(state, content, f"give:{npcs.BAD_TOOTH}@monster:{npcs.LENNY}")  # (turned in: his reward waits)
+    assert lenny.mood == "owed" and npcs.GOOD_TOOTH not in state.player.inventory
+    events += perform(state, content, "lenny_reward")
     assert lenny.mood == "happy" and npcs.GOOD_TOOTH in state.player.inventory
     moves = [(e.data["item"], e.data["from"], e.data["to"]) for e in events if e.data.get("to")]
     assert moves == [(npcs.BAD_TOOTH, "pack", npcs.LENNY), (npcs.GOOD_TOOTH, npcs.LENNY, "pack")]  # (F31)
@@ -350,7 +352,7 @@ def test_his_tooth_calms_lenny_down_even_after_you_hit_him(content):
     lenny.hostile = True
     state.player.inventory.append(npcs.BAD_TOOTH)
     events = perform(state, content, f"give:{npcs.BAD_TOOTH}@monster:{npcs.LENNY}")
-    assert events[0].kind == "calm" and not lenny.hostile and lenny.mood == "happy"
+    assert events[0].kind == "calm" and not lenny.hostile and lenny.mood == "owed"  # (his reward's a choice of its own)
     assert not any(e.kind == "monster_hit" for e in events)
 
 
@@ -605,7 +607,7 @@ def test_each_thing_here_has_its_verbs(content):
     state.room_id = testrooms.target(state).id
     state.room.items = ["war_pick"]
     state.player.hp -= 5
-    assert [a.label for a in verbs(state, content, f"monster:{npcs.LENNY}")] == ["Give his tooth", "Talk", "Ask",
+    assert [a.label for a in verbs(state, content, f"monster:{npcs.LENNY}")] == ["Turn in his tooth", "Talk", "Ask",
                                                                                  "Attack"]
     assert verbs(state, content, f"monster:{npcs.LENNY}")[1].id == f"talk:{npcs.LENNY}"  # (his own words, no turn)
     tooth = verbs(state, content, f"item:{npcs.BAD_TOOTH}")[0]  # (F13: the tooth's card offers what it's for)
@@ -656,7 +658,7 @@ def test_the_interpreter_hears_of_gifts_a_character_would_take(content):
     calm(state, content, npcs.LENNY).hostile = True
     state.player.inventory.append(npcs.BAD_TOOTH)
     offered = next(a for a in available_actions(state, content) if a.id == "lenny")
-    assert offered.label == "Give Lucky Lenny his bad tooth" and offered.hint == "he'd stop fighting"
+    assert offered.label == "Turn in: give Lucky Lenny his bad tooth" and offered.hint == "he'd stop fighting"
     intent, _ = offline_interpret("give lucky lenny his bad tooth", available_actions(state, content)
                                   + unlisted(state, content))
     assert perform(state, content, intent.action_id)[0].kind == "calm"

@@ -93,8 +93,8 @@ async def test_a_characters_tile_has_buttons_numbered_first_and_typing_a_number_
         before = screen.game.state.turn
         await pilot.press("1", "enter")
         await settle(app, pilot)
-        assert any(str(w.render()).strip() == f"> {first.label}" for w in screen.query(".player-line")) or \
-            screen.game.state.turn > before
+        said = [str(w.render()).strip() for w in screen.query(".player-line")]  # ("> Turn in his tooth · Lucky Lenny")
+        assert any(line.startswith(f"> {first.label}") for line in said) or screen.game.state.turn > before
 
 
 async def test_taking_something_from_its_tile_empties_its_place_and_says_where_it_went():

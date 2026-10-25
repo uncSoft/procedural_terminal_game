@@ -63,4 +63,4 @@ def test_bad_lines_are_explained(old, new, message):
 def test_the_lines_load_one_or_a_list():
     content = build_content()
     lenny = content.dialogue["lucky_lenny"]
-    assert len(lenny["meet"]) == 1 and len(lenny["point"]) == 3 and "{feature}" in lenny["point"][0]
+    assert len(lenny["meet"]) == 1 and len(lenny["point_room"]) == 3 and "{place}" in lenny["point_room"][0]

@@ -40,6 +40,8 @@ async def test_lenny_wants_the_tooth_in_your_pack(content, profile):
     game = Game(state, Config(backend="offline"), None, content, profile)
     await do(game, f"go:{way_to(state)}")
     await do(game, "lenny")
+    assert npcs.BAD_TOOTH not in state.player.inventory and npcs.GOOD_TOOTH not in state.player.inventory
+    await do(game, "lenny_reward")  # (his reward: a choice of its own)
     assert npcs.GOOD_TOOTH in state.player.inventory
 
 
@@ -136,7 +138,12 @@ async def test_lenny_still_missing_his_tooth(content, profile):
     game = Game(state, Config(backend="offline"), None, content, profile)
     result = await do(game, f"go:{way_to(state)}")
     assert [e.data["moment"] for e in result.events if e.kind == "story"] == ["meet"]
-    result = await do(game, f"talk:{npcs.LENNY}")
+    await do(game, "lenny_quest")
+    state.player.wits = 50
+    for _ in range(5):  # (a wits roll, as often as you like: made, he names the room; a natural 1 always fails)
+        result = await do(game, "lenny_hint")
+        if any(e.kind == "tip" for e in result.events):
+            break
     assert any(e.kind == "tip" for e in result.events) and npcs.tooth_spot(state) is None  # (on your map now)
 
 

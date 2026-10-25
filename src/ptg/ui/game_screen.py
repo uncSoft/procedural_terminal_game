@@ -561,9 +561,11 @@ class GameScreen(Screen):
         return card
 
     def add_quest(self, text: str, new: bool = False) -> Widget:
-        """A quest starting or done, in a box of its own: "★ NEW QUEST · Lucky Lenny's bad tooth"."""
+        """A quest starting, moving on or done, in a box of its own: "★ NEW QUEST · Lucky Lenny's bad tooth"."""
+        done = text.startswith("Quest complete: ")
         words = text.removeprefix("New quest: ").removeprefix("Quest complete: ").rstrip(".")
-        return self.add_line(Text(f"★ {'NEW QUEST' if new else 'QUEST DONE'} · {words}"), "quest-banner")
+        label = "NEW QUEST" if new else "QUEST DONE" if done else "QUEST UPDATE"
+        return self.add_line(Text(f"★ {label} · {words}"), "quest-banner")
 
     def _show_story(self, events: list[Event]) -> None:
         """Story cards, their effects and any secret found, after the narration."""

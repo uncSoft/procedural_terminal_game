@@ -45,21 +45,35 @@ def test_lenny_turns_up_calm_with_his_tooth_hidden_nearby(content, everyone):
     assert "lenny" not in ids(state, content)  # nothing to give him yet
 
 
-def test_asking_lenny_points_to_his_tooth_and_giving_it_back_gets_his_good_one(content, everyone):
+def test_lennys_quest_goes_a_step_at_a_time_take_ask_turn_in_and_claim(content, everyone):
+    """The good tooth just turned up in your pack: now taking his quest, asking where the tooth flew, turning it in and
+    claiming his reward are each a choice of their own."""
     seed = next(s for s in range(300) if npcs.lenny_floor(s) == 1)
     state = generate(seed)
     go_to(state, with_monster(state, npcs.LENNY))
+    assert ids(state, content)[0] == "lenny_quest" and "lenny_hint" not in ids(state, content)
+    turn = state.turn
+    events = perform(state, content, "lenny_quest")
+    assert state.quests[npcs.LENNY] == "accepted" and state.turn == turn  # (free)
+    assert any(e.kind == "story_effect" and e.text.startswith("New quest") for e in events)
+    assert ids(state, content)[0] == "lenny_hint"
     state.player.wits = 50
-    events = perform(state, content, "ask")
-    assert any(e.kind == "tip" for e in events) and npcs.tooth_spot(state) is None  # it's on your map now
+    events = perform(state, content, "lenny_hint")
+    room, feature = npcs.tooth_where(state)
+    assert any(e.kind == "tip" for e in events) and npcs.tooth_spot(state) is None  # the room's on your map now
+    assert feature.told and feature.hidden  # (the room, not the spot: that's yours to search for)
     state.player.inventory.append(npcs.BAD_TOOTH)
     assert "You're carrying his bad tooth" in room_facts(state, content)
     events = perform(state, content, "lenny")
-    assert npcs.GOOD_TOOTH in state.player.inventory and npcs.BAD_TOOTH not in state.player.inventory
-    assert state.room.monster.mood == "happy" and "lenny" not in ids(state, content)
+    assert npcs.BAD_TOOTH not in state.player.inventory and npcs.GOOD_TOOTH not in state.player.inventory
+    assert state.room.monster.mood == "owed" and ids(state, content)[0] == "lenny_reward"
+    events += perform(state, content, "lenny_reward")
+    assert npcs.GOOD_TOOTH in state.player.inventory and state.quests[npcs.LENNY] == "done"
+    assert state.room.monster.mood == "happy" and not any(i.startswith("lenny") for i in ids(state, content))
     moves = [(e.data["item"], e.data["how"], e.data["from"], e.data["to"]) for e in events if e.data.get("to")]
     assert moves == [(npcs.BAD_TOOTH, "give", "pack", npcs.LENNY), (npcs.GOOD_TOOTH, "give", npcs.LENNY, "pack")]
     assert powers.has(state, content, "luck")  # +1 to every roll
+    assert all(e.data.get("quiet") for e in events if e.kind in ("lenny", "lenny_reward", "take"))  # (no narrator)
 
 
 def test_lennys_tooth_is_never_loot_and_lenny_never_roams(content):
@@ -357,14 +371,16 @@ def test_lenny_doesnt_send_you_looking_for_the_tooth_in_your_hand(content, every
     assert not state.room.monster.asked  # (what else he knows keeps till he has it back)
 
 
-def test_lenny_tells_of_his_own_tooth_in_his_own_words(content, everyone):
-    """'Lucky Lenny lets slip that a Lenny's Bad Tooth is hidden...': gossip about his own tooth."""
+def test_lenny_names_the_room_his_tooth_flew_into_in_his_own_words(content, everyone):
     seed = next(s for s in range(300) if npcs.lenny_floor(s) == 1)
     state = generate(seed)
     go_to(state, with_monster(state, npcs.LENNY))
-    events = perform(state, content, "ask")
-    assert events[0].kind == "tip" and events[0].text.startswith("Lucky Lenny points a shaky finger")
-    assert events[1].kind == "story" and events[1].text.startswith("That goblin flung my tooth away! It's in ")
+    perform(state, content, "lenny_quest")
+    state.player.wits = 50
+    events = perform(state, content, "lenny_hint")
+    room, _ = npcs.tooth_where(state)
+    said = next(e for e in events if e.kind == "story")
+    assert said.data["moment"] == "point_room" and f"in {room.name}" in said.text.replace("the ", "")
 
 
 def test_swoogy_has_only_the_one_diaper(content, everyone):
@@ -447,36 +463,43 @@ def test_meeting_lenny_he_tells_you_himself_in_his_own_words(content):
     assert cards(again) == []  # (once is enough)
 
 
-def test_lenny_points_to_his_tooth_for_nothing_as_often_as_you_ask(content):
-    """'Ask' was a wits roll that failed half the time, and gone for good after (F14): he tells you for nothing."""
+def test_asking_where_his_tooth_flew_is_a_roll_you_can_try_again(content):
+    """Asked, Lenny used to say where his tooth was for nothing. Now it's a wits roll (a turn each time) that, made,
+    names the room; failed, he can't remember, and you can ask again (F14 was a roll you lost for good)."""
     state, _ = walk_in(content, "lenny_quest")
+    perform(state, content, "lenny_quest")
     turn, (room, feature) = state.turn, npcs.tooth_where(state)
-    assert feature.hidden and next(a for a in available_actions(state, content)
-                                   if a.id.startswith("talk:")).hint == "where's his tooth?"
-    events = perform(state, content, f"talk:{npcs.LENNY}")
-    assert [e.kind for e in events] == ["tip", "story"] and not any(e.dice for e in events)
-    assert f"It's in {feature.name} " in events[1].text and events[1].data["moment"] == "point"
-    assert not feature.hidden and feature.told == "Lucky Lenny" and state.turn == turn  # on your map, no turn spent
-    again = perform(state, content, f"talk:{npcs.LENNY}")
-    assert [e.kind for e in again] == ["story"] and again[0].text != events[1].text  # (his lines take turns)
     state.player.wits = -50
-    asked = perform(state, content, "ask")  # what he knows besides: a roll, once
-    assert any(e.dice for e in asked) and state.room.monster.asked
+    events = perform(state, content, "lenny_hint")
+    assert any(e.dice for e in events) and not feature.told and state.turn == turn + 1
+    assert [c for c in cards(events)] == [(npcs.LENNY, "forgot")] and "lenny_hint" in ids(state, content)
+    state.player.wits = 50
+    events = perform(state, content, "lenny_hint")
+    assert feature.told == "Lucky Lenny" and feature.hidden and "lenny_hint" not in ids(state, content)
+    turn = state.turn
+    again = perform(state, content, f"talk:{npcs.LENNY}")  # (he says the room again, for nothing)
+    assert cards(again) == [(npcs.LENNY, "point_room")] and not any(e.dice for e in again) and state.turn == turn
 
 
-def test_asked_first_lenny_tells_of_his_tooth_and_keeps_his_gossip(content):
+def test_asking_lenny_what_he_knows_never_gives_away_his_tooth(content):
     state, _ = walk_in(content, "lenny_quest")
-    events = perform(state, content, "ask")
-    assert events[0].kind == "tip" and not state.room.monster.asked and not any(e.dice for e in events)
-    assert "ask" in ids(state, content)
+    _, feature = npcs.tooth_where(state)
+    state.player.wits = 50
+    perform(state, content, "ask")  # (his gossip: a roll, once)
+    assert state.room.monster.asked and not feature.told and feature.hidden
 
 
 def test_lenny_with_his_tooth_in_your_pack_and_his_thanks(content):
     state, events = walk_in(content, "lenny")
     assert cards(events) == [(npcs.LENNY, "has_item")] and state.quests[npcs.LENNY] == "met"
     assert ids(state, content)[:3] == ["lenny", f"talk:{npcs.LENNY}", "ask"] and ids(state, content)[-1] == "attack"
+    turn = state.turn
     events = perform(state, content, "lenny")
-    assert cards(events) == [(npcs.LENNY, "done")] and state.quests[npcs.LENNY] == "done"
+    assert cards(events) == [(npcs.LENNY, "turn_in")] and state.quests[npcs.LENNY] == "turned_in"
+    assert state.turn == turn and npcs.status(state, content, npcs.LENNY) == "has a reward for you"
+    assert cards(perform(state, content, f"talk:{npcs.LENNY}")) == [(npcs.LENNY, "owed")]
+    events = perform(state, content, "lenny_reward")
+    assert cards(events) == [(npcs.LENNY, "reward")] and state.quests[npcs.LENNY] == "done"
     assert any(e.kind == "story_effect" and e.text.startswith("Quest complete") for e in events)
     assert cards(perform(state, content, f"talk:{npcs.LENNY}")) == [(npcs.LENNY, "after")]
     refused = perform(state, content, f"give:healing_potion@monster:{npcs.LENNY}")
@@ -510,7 +533,7 @@ def test_hit_lenny_fights_back_and_his_tooth_still_calms_him(content):
     assert "fighting back" in facts and "friendly" not in facts and "You're carrying his bad tooth" in facts
     assert "lenny" in ids(state, content) and npcs.primary_actions(state, content)[0].id == "lenny"
     events = perform(state, content, "lenny")
-    assert events[0].kind == "calm" and not state.in_combat and state.quests[npcs.LENNY] == "done"
+    assert events[0].kind == "calm" and not state.in_combat and state.quests[npcs.LENNY] == "turned_in"
 
 
 def test_hit_swoogy_mid_game_and_hes_cranky_with_his_price_to_pay(content, everyone):
@@ -684,6 +707,10 @@ def test_the_map_marks_lenny_while_he_waits(content):
     perform(state, content, f"go:{way}")
     perform(state, content, "lenny")
     perform(state, content, f"go:{OPPOSITE[way]}")
+    assert map_glyph(state, room) == "☺"  # (turned in: he still has your reward waiting)
+    perform(state, content, f"go:{way}")
+    perform(state, content, "lenny_reward")
+    perform(state, content, f"go:{OPPOSITE[way]}")
     assert map_glyph(state, room) != "☺"
 
 
@@ -702,8 +729,8 @@ def test_the_glossary_colours_characters_as_friends(content):
 
 def test_every_character_has_its_lines(content):
     """What the code has each character say, the data has a line for."""
-    needs = {npcs.LENNY: ["meet", "has_item", "point", "lying", "missing", "done", "after", "refuse_gift", "keep_it",
-                          "angry", "calmed", "beaten"],
+    needs = {npcs.LENNY: ["meet", "accept", "wondering", "point_room", "forgot", "has_item", "lying", "missing",
+                          "turn_in", "owed", "reward", "after", "refuse_gift", "keep_it", "angry", "calmed", "beaten"],
              npcs.SWOOGY: ["meet", "again", "talk", "guessing", "won", "lost", "angry", "paid", "calmed", "sulk",
                            "bare", "refuse_gift", "keep_it", "beaten"],
              npcs.KING_MOUSE: ["meet", "angry", "calmed", "talk", "beaten"],
@@ -751,13 +778,14 @@ async def test_the_game_screen_shows_what_they_say_as_story_cards():
         [card] = screen.query(".say")  # his words, with who is speaking first, and no picture (it's Here's)
         assert str(card.render()).startswith("Lucky Lenny:") and not card.query(Picture)
         turn = screen.game.state.turn
-        await pilot.press("1", "enter")  # Talk to Lucky Lenny
+        talk = next(i for i, a in enumerate(screen.game.choices(), 1) if a.id.startswith("talk:"))
+        await pilot.press(*str(talk), "enter")  # Talk to Lucky Lenny
         for _ in range(50):
             await pilot.pause(0.1)
             if not screen.busy:
                 break
         assert len(screen.query(".say")) == 2 and screen.game.state.turn == turn
-        assert [e.kind for e in screen.game.state.log[-2:]] == ["narration", "card"]  # (he points; then his words)
+        assert screen.game.state.log[-1].kind == "card"  # (his words, and nothing told over them)
 
 
 def test_the_kids_monsters_bark_too(content):
@@ -790,3 +818,19 @@ def test_meeting_swoogy_again_on_a_later_floor_is_a_rematch(content, everyone):
     events = perform(state, content, f"go:{OPPOSITE[way]}") + perform(state, content, f"go:{way}")
     assert cards(events) == [(npcs.SWOOGY, "again")] and not any(e.data.get("met") for e in events)
     assert state.quests[npcs.SWOOGY] == "challenge"
+
+
+def test_lennys_tooth_is_never_in_his_own_room(content, everyone):
+    """His tooth turned up in the room he was standing in, the quest over before it began."""
+    seen = 0
+    for seed in range(80):
+        floor = npcs.lenny_floor(seed)
+        if floor != 1:
+            continue
+        state = generate(seed)
+        lenny = next((r for r in state.rooms if r.monster and r.monster.key == npcs.LENNY), None)
+        where = npcs.tooth_where(state)
+        if lenny and where:
+            seen += 1
+            assert where[0].id != lenny.id, seed
+    assert seen >= 10

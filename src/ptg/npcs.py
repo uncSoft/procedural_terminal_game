@@ -3,9 +3,12 @@ high while they're being tried out: turn them down here), what you can do with t
 narrator is told.
 
     Lucky Lenny   in some runs, calm on floor 1 or 2. A goblin knocked his bad tooth out with a pan, and it's hidden
-                  somewhere on his floor (always his: there's no going back up for it). Talk to him (or ask him) and
-                  he points you to it, for nothing, as often as you like. Give it back and he yanks out his good one
-                  for you (+1 to every roll). Hit him and he fights back, but his tooth still calms him down.
+                  in another room on his floor (always his: there's no going back up for it). His quest goes a step
+                  at a time, each its own choice: take it (free); ask him where his tooth flew (a wits roll: he
+                  names the room, and you search it); turn the tooth in (he takes it, and that's all); then claim
+                  his reward (his good one: +1 to every roll). Hit him and he fights back, but his tooth still calms
+                  him down. None of it is retold by the narrator: a plain line says what you did, and he says the
+                  rest.
     Swoogy        in some floors' secret room. Guess the number on his die and his diaper is yours. Guess wrong (or
                   hit him) and he charges up his flaps: calm him down with something (gold, a potion, anything you
                   carry), or fight him (stronger than the floor's boss, nowhere near the 100 HP his maker gave him),
@@ -39,8 +42,8 @@ from __future__ import annotations
 import random
 import re
 
-from . import dice, inventory
-from .combat import telegraph
+from . import dice, inventory, powers
+from .combat import fortune, telegraph
 from .content import Content
 from .events import Action, Event
 from .models import Feature, GameState, MonsterState, Room
@@ -55,11 +58,13 @@ PLACED = {LENNY, SWOOGY}  # (and the shopkeepers have their shops)
 SWOOGY_SIZE = {1: (40, 5, 13, -4), 2: (55, 6, 14, -3), 3: (70, 7, 15, -2)}  # more than the boss, far less than 100
 KING_MOUSE_SIZE = {2: (30, 4, 12, -5)}  # about the usual floor-2 guard: bigger, and the bot won 3 points fewer runs
 SWOOGY_PRICE = 10  # gold a floor, to calm him down
+HINT_DC = 12  # Lenny remembering which room his tooth flew into (wits)
 TOOTH_SPOTS = ["a crack between the flagstones", "a heap of old rubbish", "a dark corner"]
 # Where a character's story can get to this run (GameState.quests: "unknown" until then), and the mood each stage
 # puts it in when a story moves it there (None: as it is). Anyone else: GENERIC.
 STAGES: dict[str, dict[str, str | None]] = {
-    LENNY: {"found_item": None, "met": "tooth", "angry": None, "done": "happy", "beaten": None},
+    LENNY: {"found_item": None, "met": "tooth", "accepted": "tooth", "angry": None, "turned_in": "owed", "done": "happy",
+            "beaten": None},
     SWOOGY: {"challenge": "challenge", "guessing": "guessing", "won": "won", "angry": "angry", "paid": "paid",
              "calmed": "calmed", "beaten": None},
 }
@@ -83,8 +88,9 @@ def place(state: GameState, content: Content, rooms: list[Room], end_id: int) ->
     open_rooms = [r for r in rooms if r.id not in (0, end_id) and not (r.secret or r.shop)
                   and not (r.monster and r.monster.ghost_of)]
     if lenny_floor(seed) == floor and open_rooms:
-        hide_tooth(state, open_rooms)
-        _calm(content, _quiet_room(dice.stream(seed, LENNY, floor), open_rooms), LENNY, "tooth")
+        his = _quiet_room(dice.stream(seed, LENNY, floor), open_rooms)
+        _calm(content, his, LENNY, "tooth")
+        hide_tooth(state, [r for r in open_rooms if r is not his] or open_rooms)  # (never in his own room)
     secret = next((r for r in rooms if r.secret), None)
     if secret and floor in SWOOGY_SIZE and dice.stream(seed, SWOOGY, floor).random() < ODDS[SWOOGY] \
             and DIAPER not in state.rares:  # (once his diaper's gone, won or beaten out of him, so is he)
@@ -100,7 +106,8 @@ def place(state: GameState, content: Content, rooms: list[Room], end_id: int) ->
 
 
 def hide_tooth(state: GameState, rooms: list[Room]) -> tuple[Room, Feature]:
-    """Lenny's bad tooth, hidden in one of `rooms` (where a goblin's pan sent it flying): the room, and where in it."""
+    """Lenny's bad tooth, hidden in one of `rooms` (where a goblin's pan sent it flying: any but his own), the room,
+    and where in it."""
     rng = dice.stream(state.seed, BAD_TOOTH, state.floor)
     room = rng.choice(rooms)
     feature = Feature(name=rng.choice(TOOTH_SPOTS), hidden=True, loot=[BAD_TOOTH])
@@ -220,6 +227,12 @@ def _place(state: GameState, room: Room) -> str:
     return f"in {the(room.name)}" if room.visited else "in a room you haven't been to yet"
 
 
+def _named(state: GameState, room: Room) -> str:
+    """Where a room is, by name, been there or not ("in the Sleeping Burrow"): what Lenny remembers is a room you can
+    find on your map."""
+    return "right here" if room.id == state.room_id else f"in {the(room.name)}"
+
+
 # --- what you can do with them ------------------------------------------------
 
 def actions(state: GameState, content: Content) -> list[Action]:
@@ -230,9 +243,8 @@ def actions(state: GameState, content: Content) -> list[Action]:
     monster, player = state.room.monster, state.player
     if monster is None or monster.hp <= 0:
         return []
-    if monster.key == LENNY and monster.mood == "tooth" and BAD_TOOTH in player.inventory:
-        return [Action("lenny", f"Give {the(monster.name)} his bad tooth",
-                       "he'd stop fighting" if monster.hostile else "he wants it back")]
+    if monster.key == LENNY:
+        return _lenny_actions(state, monster)
     if monster.key != SWOOGY:
         return []
     if monster.hostile:
@@ -250,6 +262,26 @@ def actions(state: GameState, content: Content) -> list[Action]:
     return []
 
 
+def _lenny_actions(state: GameState, monster: MonsterState) -> list[Action]:
+    """Lenny's quest, a step at a time: take it, ask him where his tooth flew, turn it in, claim his reward. His tooth,
+    once you have it, even if you've hit him (it calms him down)."""
+    name = the(monster.name)
+    if monster.mood == "tooth" and BAD_TOOTH in state.player.inventory:
+        return [Action("lenny", f"Turn in: give {name} his bad tooth",
+                       "he'd stop fighting" if monster.hostile else "he wants it back")]
+    if monster.hostile:
+        return []
+    if monster.mood == "owed":
+        return [Action("lenny_reward", f"Claim {name}'s reward", "his good tooth · no turn")]
+    if monster.mood != "tooth":
+        return []
+    if stage(state, LENNY) != "accepted":
+        return [Action("lenny_quest", f"Take {name}'s quest: find his bad tooth", "no turn")]
+    if asks_where(state):
+        return [Action("lenny_hint", f"Ask {name} where his tooth flew", "wits")]
+    return []
+
+
 def talk_action(state: GameState, content: Content) -> Action | None:
     """Talking to whoever's here, if they'll talk: a character who isn't fighting you, or a shop's keeper. Free: no
     roll, no turn."""
@@ -261,8 +293,7 @@ def talk_action(state: GameState, content: Content) -> Action | None:
     monster = room.monster
     if monster is None or monster.hp <= 0 or monster.hostile or not speaks(content, monster.key):
         return None
-    return Action(f"talk:{monster.key}", f"Talk to {the(monster.name)}",
-                  "where's his tooth?" if tells_of_tooth(state) else "no turn")
+    return Action(f"talk:{monster.key}", f"Talk to {the(monster.name)}", "no turn")
 
 
 def primary_actions(state: GameState, content: Content) -> list[Action]:
@@ -322,6 +353,13 @@ def perform(state: GameState, content: Content, rng: random.Random, verb: str, a
     monster = state.room.monster
     if verb == "lenny":
         return give_tooth(state, content)
+    if verb == "lenny_quest":
+        return [Event("lenny_quest", f"You promise {the(monster.name)} you'll find his bad tooth.",
+                      data={"quiet": True})]
+    if verb == "lenny_hint":
+        return hint(state, content, rng)
+    if verb == "lenny_reward":
+        return reward(state, content)
     if verb == "swoogy":
         monster.mood, monster.secret = "guessing", rng.randint(1, 6)
         return [Event("swoogy", "Swoogy rolls a six-sided die behind his back, peeks at it, and wobbles with glee.")]
@@ -344,20 +382,52 @@ def perform(state: GameState, content: Content, rng: random.Random, verb: str, a
 
 
 def give_tooth(state: GameState, content: Content) -> list[Event]:
-    """Lenny's bad tooth back where it belongs (calming him down first, if you'd hit him), and his good one in your
-    hand for it."""
+    """Lenny's bad tooth turned in (calming him down first, if you'd hit him): he takes it, and that's all. His reward
+    is a choice of its own (reward)."""
     monster = state.room.monster
-    name = cap(the(monster.name))
+    name = the(monster.name)
     events = []
     if monster.hostile:
         monster.hostile, monster.intent = False, "strike"
-        events.append(Event("calm", f"{name} sees his tooth in your hand and stops dead."))
+        events.append(Event("calm", f"{cap(name)} sees his tooth in your hand and stops dead.", data={"quiet": True}))
     given = inventory.give(state, BAD_TOOTH, LENNY)
+    monster.mood = "owed"
+    state.room.remember(f"you gave {name} his bad tooth back")
+    events.append(Event("lenny", f"You hand {name} his bad tooth.", data={**given, "quiet": True}))
+    return events
+
+
+def reward(state: GameState, content: Content) -> list[Event]:
+    """Lenny's reward for his tooth: his good one, in your hand."""
+    monster = state.room.monster
     monster.mood = "happy"
-    state.room.remember(f"you gave {the(monster.name)} his bad tooth back")
-    events.append(Event("lenny", f"{name} snatches his bad tooth and jams it back in with a squelch. Then he yanks out "
-                                 "his good one with a *POP* and presses it into your hand.", data=given))
-    return events + inventory.gain(state, content, GOOD_TOOTH, "give", LENNY)
+    events = [Event("lenny_reward", f"{cap(the(monster.name))} yanks out his good tooth with a *POP* and presses it "
+                                    "into your hand.", data={"quiet": True})]
+    for event in inventory.gain(state, content, GOOD_TOOTH, "give", LENNY):
+        event.data["quiet"] = True
+        events.append(event)
+    return events
+
+
+def hint(state: GameState, content: Content, rng: random.Random) -> list[Event]:
+    """Asking Lenny where his tooth flew: a wits roll (a turn, and as often as you like). Made, he names the room,
+    which goes on your map; the spot in it is yours to search for."""
+    monster, player = state.room.monster, state.player
+    bonuses = [("wits", player.wits)] + powers.roll_bonuses(state, content, "ask")
+    roll = dice.check(rng, "wits (Lenny remembers)", bonuses, HINT_DC,
+                      advantage=int("silver_tongue" in player.traits))
+    events = fortune(state, roll)
+    where = tooth_spot(state)
+    if not roll.success or where is None:
+        return [Event("lenny_hint", f"{cap(the(monster.name))} screws up his face, trying to remember.", dice=roll,
+                      data={"quiet": True, "rerollable": True, "remembered": False})] + events
+    room, feature = where
+    feature.told = monster.name  # (the room goes on your map: what's hidden in it is still to be found)
+    roll.effects.append(f"the tooth is {_named(state, room)}")
+    return [Event("lenny_hint", f"{cap(the(monster.name))} remembers where it flew.", dice=roll,
+                  data={"quiet": True, "remembered": True, "place": _named(state, room)}),
+            Event("tip", f"{cap(the(room.name))} is marked on your map: search it.",
+                  data={"room": room.id, "quiet": True})] + events
 
 
 def appease(state: GameState, content: Content, what: str, amount: int = 0) -> list[Event]:
@@ -474,6 +544,8 @@ def _silent(content: Content, key: str) -> list[Event]:
 def _lenny_talks(state: GameState, content: Content, monster: MonsterState) -> list[Event]:
     if monster.mood == "happy":
         return say(state, content, LENNY, "after")
+    if monster.mood == "owed":
+        return say(state, content, LENNY, "owed")
     if monster.mood != "tooth":  # (not in his story: anyone's [npc] small talk)
         return say(state, content, LENNY, "talk")
     if BAD_TOOTH in state.player.inventory:
@@ -484,21 +556,9 @@ def _lenny_talks(state: GameState, content: Content, monster: MonsterState) -> l
     room, feature = where
     if feature is None:
         return say(state, content, LENNY, "lying", place=_place(state, room))
-    return point(state, content, room, feature)
-
-
-def point(state: GameState, content: Content, room: Room, feature: Feature) -> list[Event]:
-    """Lenny saying where his tooth went (for nothing, as often as you ask): you can see the spot from then on, and
-    it's on your map."""
-    monster = state.room.monster
-    first = not feature.told
-    feature.told, feature.hidden = monster.name, False
-    tip = []
-    if first:
-        here = room.id == state.room_id
-        tip = [Event("tip", f"{cap(the(monster.name))} points a shaky finger"
-                            + (" across the room." if here else ". It's on your map now."), data={"room": room.id})]
-    return tip + say(state, content, LENNY, "point", feature=feature.name, place=_place(state, room))
+    if feature.told:  # (he's remembered the room: he says so again, for nothing)
+        return say(state, content, LENNY, "point_room", place=_named(state, room))
+    return say(state, content, LENNY, "wondering")
 
 
 def tooth_where(state: GameState) -> tuple[Room, Feature | None] | None:
@@ -517,20 +577,18 @@ def tooth_spot(state: GameState) -> tuple[Room, Feature] | None:
                  if BAD_TOOTH in feature.loot and feature.hidden and not feature.told), None)
 
 
-def tells_of_tooth(state: GameState) -> bool:
-    """Whether Lenny, here, has yet to tell you where his tooth went (and would, for nothing: talk, or ask him)."""
-    monster = state.room.monster
-    where = tooth_where(state)
-    return bool(monster and monster.key == LENNY and monster.mood == "tooth" and not monster.hostile and where
-                and where[1] and not where[1].told and BAD_TOOTH not in state.player.inventory)
+def asks_where(state: GameState) -> bool:
+    """Whether there's any point asking Lenny where his tooth flew: it's still hidden on this floor, he's yet to
+    remember the room, and it isn't in your hand."""
+    return tooth_spot(state) is not None and BAD_TOOTH not in state.player.inventory
 
 
 def tooth_first(state: GameState) -> bool:
-    """Whether Lenny, here, has nothing on his mind but his tooth: he's yet to tell you where it went, or he can see
-    it in your hand. Asked anything then, he talks of that, for nothing (no roll, and the asking keeps for later)."""
+    """Whether Lenny, here, can see his tooth in your hand: asked anything then, he talks of that, for nothing (no
+    roll, and the asking keeps for later)."""
     monster = state.room.monster
-    return tells_of_tooth(state) or bool(monster and monster.key == LENNY and monster.mood == "tooth"
-                                         and not monster.hostile and BAD_TOOTH in state.player.inventory)
+    return bool(monster and monster.key == LENNY and monster.mood == "tooth" and not monster.hostile
+                and BAD_TOOTH in state.player.inventory)
 
 
 TALK_WORDS = {"talk", "chat", "speak", "greet", "hello", "hi", "hey", "hiya", "howdy", "converse", "chatter", "ask",
@@ -583,12 +641,27 @@ def _reaction(state: GameState, content: Content, event: Event) -> list[Event]:
     if kind == "pacify" and who and speaks(content, who):  # (Lenny's back to waiting for his tooth, or done)
         mood = monster.mood if monster else ""
         calmed = mood if who == SWOOGY and mood in STAGES[SWOOGY] else "calmed"  # (diaper won, it's still "won")
-        _advance(state, who, {"tooth": "met", "happy": "done"}.get(mood, calmed))
+        waiting_on = stage(state, LENNY) if stage(state, LENNY) in ("met", "accepted") else "met"
+        _advance(state, who, {"tooth": waiting_on, "owed": "turned_in", "happy": "done"}.get(mood, calmed))
         return say(state, content, who, "calmed")
+    if kind == "lenny_quest":
+        _advance(state, LENNY, "accepted")
+        return say(state, content, LENNY, "accept") + [
+            Event("story_effect", "New quest: Lucky Lenny's bad tooth.", data={"quest": LENNY})]
+    if kind == "lenny_hint":
+        if data.get("remembered"):
+            return say(state, content, LENNY, "point_room", place=data.get("place", ""))
+        return say(state, content, LENNY, "forgot")
     if kind == "lenny":
+        _advance(state, LENNY, "turned_in")
+        return say(state, content, LENNY, "turn_in") + [
+            Event("story_effect", "Lucky Lenny has his bad tooth back, and something for you: claim your reward.",
+                  data={"quest": LENNY})]
+    if kind == "lenny_reward":
         _advance(state, LENNY, "done")
-        return say(state, content, LENNY, "done") + [
-            Event("story_effect", "Quest complete: Lucky Lenny has his bad tooth back.", data={"quest": LENNY})]
+        return say(state, content, LENNY, "reward") + [
+            Event("story_effect", "Quest complete: Lucky Lenny's bad tooth. Your reward: Lenny's Good Tooth (+1 to "
+                                  "every roll).", data={"quest": LENNY})]
     if kind == "swoogy":
         _advance(state, SWOOGY, "guessing")
         return say(state, content, SWOOGY, "guessing")
@@ -646,8 +719,6 @@ def _walk_in(state: GameState, content: Content) -> list[Event]:
     if first:
         said = said or [Event("meet", "", data={"told_by": "silent"})]
         said[0].data["met"] = key
-        if key == LENNY and not (BAD_TOOTH in state.player.inventory):  # (a job for you, in a box of its own)
-            said.append(Event("story_effect", "New quest: Lucky Lenny's bad tooth.", data={"quest": LENNY}))
     return said
 
 
@@ -660,7 +731,7 @@ def facts(state: GameState, content: Content) -> str:
     if monster is None or monster.hp <= 0:
         return ""
     name = cap(the(monster.name))
-    if monster.key == LENNY and monster.mood in ("tooth", "happy"):
+    if monster.key == LENNY and monster.mood in ("tooth", "owed", "happy"):
         return _lenny_facts(state, monster, name)
     if monster.key == SWOOGY and (monster.mood or monster.hostile):
         return _swoogy_facts(state, monster)
@@ -681,6 +752,8 @@ def _lenny_facts(state: GameState, monster: MonsterState, name: str) -> str:
                 + (" You're carrying his bad tooth right now." if carrying else ""))
     if monster.mood == "happy":
         return f"{name} has his bad tooth back and grins a gap-toothed grin."
+    if monster.mood == "owed":
+        return f"{name} has his bad tooth back, and owes you a reward for it."
     where = tooth_where(state)
     if carrying:
         told = " You're carrying his bad tooth right now, and he's spotted it."
@@ -689,9 +762,9 @@ def _lenny_facts(state: GameState, monster: MonsterState, name: str) -> str:
     elif where[1] is None:
         told = f" It's lying {_place(state, where[0])}, found."
     elif where[1].told:
-        told = f" It's in {where[1].name} {_place(state, where[0])}: he told you so."
+        told = f" It's hidden somewhere {_named(state, where[0])}: he remembered the room."
     else:
-        told = " It flew off somewhere on this floor, and he saw where."
+        told = " It flew off somewhere on this floor; asked, he might remember where."
     return (f"{name} is a down-on-his-luck fellow with a fake gold crown pinching the gap in his teeth. A goblin's "
             f"frying pan knocked his bad tooth out, and he wants it back.{told}")
 
@@ -726,6 +799,8 @@ def status(state: GameState, content: Content, key: str) -> str:
     if here is not None and here.hostile:
         return "guards the stairs" if key == KING_MOUSE and now != "angry" else "fighting you"
     if key == LENNY:
+        if (here and here.mood == "owed") or now == "turned_in":
+            return "has a reward for you"
         return "has his bad tooth back" if (here and here.mood == "happy") or now == "done" else \
             "wants his bad tooth back"
     if key == SWOOGY:
@@ -741,7 +816,7 @@ def waiting(state: GameState, monster: MonsterState) -> bool:
     """Whether a character wants something from you: Lenny his tooth, Swoogy his game (the map marks them)."""
     if monster.hostile or monster.hp <= 0:
         return False
-    return (monster.key == LENNY and monster.mood == "tooth") or \
+    return (monster.key == LENNY and monster.mood in ("tooth", "owed")) or \
         (monster.key == SWOOGY and monster.mood in ("challenge", "guessing") and DIAPER not in state.rares)
 
 
@@ -778,6 +853,8 @@ def _lenny_log(state: GameState) -> tuple[str, bool] | None:
         return "You found a bad tooth with LENNY scratched on it. Someone will be wanting it back.", True
     if now == "done":
         return "Lucky Lenny has his bad tooth back, and you have his good one.", False
+    if now == "turned_in":
+        return "Lucky Lenny has his bad tooth back: claim your reward from him.", True
     if now == "beaten":
         return "Lucky Lenny is gone, his bad tooth never back.", False
     lenny = next((r for r in state.rooms if r.monster and r.monster.key == LENNY and r.monster.hp > 0), None)
@@ -786,6 +863,8 @@ def _lenny_log(state: GameState) -> tuple[str, bool] | None:
                 "his bad tooth."), False
     if BAD_TOOTH in state.player.inventory:
         return f"Take Lucky Lenny his bad tooth: he's {_place(state, lenny)}.", True
+    if now == "met":
+        return f"Lucky Lenny lost his bad tooth, and wants help finding it: he's {_place(state, lenny)}.", True
     where = tooth_where(state)
     if where is None:
         return "Lucky Lenny's bad tooth is gone for good.", False
@@ -793,8 +872,8 @@ def _lenny_log(state: GameState) -> tuple[str, bool] | None:
     if feature is None:
         return f"Lucky Lenny wants his bad tooth back: it's lying {_place(state, room)}.", True
     if feature.told:
-        return f"Lucky Lenny wants his bad tooth back: it's in {feature.name} {_place(state, room)}.", True
-    return "Lucky Lenny wants his bad tooth back. It flew off somewhere on this floor: he saw where.", True
+        return f"Lucky Lenny wants his bad tooth back: it's hidden somewhere {_named(state, room)}. Search there.", True
+    return "Lucky Lenny wants his bad tooth back. It flew off somewhere on this floor: ask him where.", True
 
 
 def wanted_by(state: GameState, content: Content, key: str) -> str:

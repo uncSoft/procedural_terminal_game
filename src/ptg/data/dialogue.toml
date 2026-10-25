@@ -16,9 +16,14 @@
 #   beaten       their last words
 #   refuse_gift  handed something they don't want
 #   has_item     you're carrying what they want
-#   point        telling you where what they want is
+#   accept       you've taken their quest
+#   wondering    talking to them while what they want is still lost, and they haven't remembered where
+#   point_room   remembering which room what they want is in
+#   forgot       asked where it is, and they can't remember
 #   lying        what they want is lying where you can pick it up
-#   done         you've given them what they wanted
+#   turn_in      you've handed them what they wanted
+#   owed         talking to them before you've claimed their reward
+#   reward       handing you their reward
 #   after        talking to them once that's done
 #   keep_it      handed something once that's done
 #   missing      what they want is gone for good
@@ -47,14 +52,25 @@ has_item = [
     "WOAH WOAH WOAH WOAH! Is that... that's MY TOOTH! You found my bad tooth! A goblin's frying pan knocked it clean out of my head. Give it here, give it here!",
     "My tooth! You've got my tooth! Give it here, before something else goes wrong!",
 ]
-point = [
-    "That goblin flung my tooth away! It's in {feature} {place}, I just know it! Go on, before a rat eats it.",
-    "It's in {feature} {place}! Smells like old cheese and bad luck. You can't miss it.",
-    "Still no tooth? Try {feature} {place}. I'd go myself, but I'm unlucky. I'd fall in.",
+accept = "You'll look? REALLY? Nobody ever helps Lenny! It went WHOOSH, right out of this room. Ask me where, I might remember!"
+wondering = [
+    "It flew off somewhere on this floor! Ask me where it went. Maybe it'll come to me.",
+    "Still no tooth? Ask me again, I'm thinking, I'm thinking!",
+]
+point_room = [
+    "That goblin flung my tooth away! It flew {place}, I just know it! Go on, before a rat eats it.",
+    "It's {place}! Smells like old cheese and bad luck. Have a good look around.",
+    "Try looking {place}. I'd go myself, but I'm unlucky. I'd fall in.",
+]
+forgot = [
+    "Uhh... it went WHOOSH, and then... nope. Gone. Unlucky. Ask me again?",
+    "It's on the tip of my tongue! Which is right next to where my tooth ISN'T.",
 ]
 lying = "You found it! My tooth's lying {place}! Pick it up, quick, before a goblin does!"
 missing = "My tooth's gone? Gone for good? Unlucky. Story of my life."
-done = "Ahhh, MY TOOTH! *squelch* Feels like home. Here, have my good one: *POP*! Don't need it anymore. Lucky you!"
+turn_in = "Ahhh, MY TOOTH! *squelch* Feels like home."
+owed = "Oh! Right, right, your reward! I didn't forget. I totally didn't forget."
+reward = "Here, have my good one: *POP*! Don't need it anymore. Lucky you!"
 after = [
     "Smile with me! *gap-toothed grin*",
     "That good tooth's lucky, you know. Luckier than me, anyway.",

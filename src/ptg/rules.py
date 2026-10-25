@@ -356,8 +356,10 @@ def perform(state: GameState, content: Content, action_id: str) -> list[Event]:
         events = _fixture(state, content, rng, verb)
     elif verb == "descend":
         events = _descend(state, content)
-    elif verb in ("lenny", "swoogy", "guess", "appease"):
+    elif verb in ("lenny", "lenny_quest", "lenny_hint", "lenny_reward", "swoogy", "guess", "appease"):
         events = npcs.perform(state, content, rng, verb, arg)
+        # (taking his quest or his reward costs nothing, nor does handing him his tooth, unless he's fighting you)
+        took_turn = verb not in ("lenny_quest", "lenny_reward") and (verb != "lenny" or was_in_combat)
     else:
         return [Event("info", "You can't do that right now.")]
     return finish_turn(state, content, rng, events, took_turn, was_in_combat, room_before)
@@ -1121,13 +1123,20 @@ def why_not(state: GameState, content: Content, action_id: str) -> str:
         if verb == "shrine_gold":
             return (f"The shrine wants 10 gold, and you have {player.gold}." if player.gold < 10
                     else "You're not hurt: the shrine would take your gold for nothing.")
-    if verb == "lenny":
+    if verb.startswith("lenny"):
         if not (monster and monster.key == npcs.LENNY):
             return "Lucky Lenny isn't here."
-        if monster.mood == "happy":
+        if monster.mood in ("owed", "happy") and verb != "lenny_reward":
             return "Lucky Lenny has his bad tooth back already."
-        if npcs.BAD_TOOTH not in player.inventory:
+        if verb == "lenny" and npcs.BAD_TOOTH not in player.inventory:
             return "You haven't got his tooth."
+        if verb == "lenny_reward" and monster.mood != "owed":
+            return ("You've had his reward already." if monster.mood == "happy"
+                    else "Lucky Lenny will give you something once he has his tooth back.")
+        if verb == "lenny_quest" and npcs.stage(state, npcs.LENNY) == "accepted":
+            return "You've taken his quest already."
+        if verb == "lenny_hint" and not npcs.asks_where(state):
+            return "He's told you all he remembers."
     if verb == "take":
         if state.in_combat:
             return "Not in the middle of a fight."

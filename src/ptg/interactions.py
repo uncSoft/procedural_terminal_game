@@ -391,7 +391,7 @@ def _wanted(state, content, use: Use, monster) -> Row:
     hint = {"lenny": "he wants it back!", "appease": "calms him down · no diaper"}[taker]
     what = f"{use.amount or npcs.SWOOGY_PRICE * state.floor} gold" if use.subject == "gold" else \
         _name(state, content, use)
-    label = f"Give {the(monster.name)} his bad tooth" if taker == "lenny" else f"Calm Swoogy down with {what}"
+    label = f"Turn in: give {the(monster.name)} his bad tooth" if taker == "lenny" else f"Calm Swoogy down with {what}"
     return Row(run=_npc_takes, label=label, hint=hint)
 
 
@@ -792,7 +792,8 @@ def verbs(state: GameState, content: Content, ref_id: str) -> list[Action]:
 
     kind, key = ref.kind, ref.key
     if kind == "monster":
-        named = {"lenny": "Give his tooth", "swoogy": "Play his game"}
+        named = {"lenny": "Turn in his tooth", "lenny_quest": "Take his quest", "lenny_hint": "Ask where it flew",
+                 "lenny_reward": "Claim reward", "swoogy": "Play his game"}
         if ref.state["hostile"]:
             offer("lenny", named["lenny"])  # (hit, his tooth still calms Lenny down)
             offer("attack", "Attack")

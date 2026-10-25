@@ -1115,7 +1115,10 @@ async def test_a_shop_fits_a_small_screen():
             assert box.bottom <= size[1] and shelf.bottom < box.bottom  # the counter, inside the box
             for tile in panel.query(ItemTile):
                 tile.focus()
-                await pilot.pause(0.1)
+                for _ in range(20):  # (focusing scrolls it into sight: how soon depends on how busy the machine is)
+                    await pilot.pause(0.05)
+                    if shelf.y <= tile.region.y and tile.region.bottom <= shelf.bottom:
+                        break
                 art, side = panel.query_one("#shop-art", Picture), panel.query_one("#shop-side").region
                 assert art.size.height == art.art.rows and art.region.right <= side.right, (size, tile.index)
                 assert art.art.pixels == (DEFAULT_WIDTH if size == (130, 44) else SMALL), size

@@ -157,3 +157,15 @@ async def test_settings_offer_the_game_screen_and_save_the_choice():
         app.screen.action_save()
         await pilot.pause(0.3)
         assert load_config().layout == "classic"
+
+
+async def test_the_footer_keeps_the_keys_the_tabs_dont_show():
+    from textual.widgets import Footer
+
+    assert [b.key for b in TabsScreen.BINDINGS if b.show] == ["f1", "escape"]  # (F2-F7 are on the tabs)
+    app = PTGApp(Config(backend="offline", player_name="T"), test_room=("lenny", "new", 0))
+    async with app.run_test(size=(152, 43)) as pilot:
+        screen = await walk_in(app, pilot)
+        footer = screen.query_one(Footer)
+        assert footer.display and footer.region.height == 1
+        assert screen.query_one("#command").region.bottom <= footer.region.y  # (nothing under it)

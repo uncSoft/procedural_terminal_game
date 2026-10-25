@@ -1,7 +1,8 @@
 """The game screen in tabs, the desktop layout: words on the left (the room's picture over the story, which keeps
 the whole of the lower half), and on the right where you are with the arrows beside it, one pane with tabs (Here,
 Map, Pack, Sheet, Journal, Bestiary), and under it the decision: every choice numbered, one to a line, and the
-command line. No boxes: each part is set apart by its own shade, with a row of dither where a line would be.
+command line. No boxes: each part is set apart by its own shade, with a row of dither where a line would be. The
+footer keeps the keys the tabs don't show: the help, the title, sound and the command palette.
 
 The tabs are the panels F2-F7 used to open over the game. Each key now brings its tab into the pane, and pressed
 again (or the ⤢ at the end of the tabs) opens the panel as it was, in full, for more. A room opens on Here when
@@ -18,6 +19,7 @@ from rich.style import Style
 from rich.table import Table
 from rich.text import Text
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import (
     Center,
     Horizontal,
@@ -26,7 +28,7 @@ from textual.containers import (
     VerticalScroll,
 )
 from textual.widget import Widget
-from textual.widgets import Input, Static
+from textual.widgets import Footer, Input, Static
 
 from .. import config, npcs, powers, sheet
 from ..events import Action
@@ -57,6 +59,7 @@ TABS = [("here", "Here", "F4"), ("map", "Map", "F5"), ("pack", "Pack", "F2"), ("
 PANEL_TAB = {"look": "here", "map": "map", "inventory": "pack", "character": "sheet", "journal": "journal",
              "bestiary": "bestiary"}  # the panel each key used to open, and the tab it opens now
 TAB_PANEL = {tab: panel for panel, tab in PANEL_TAB.items()}
+TAB_LABEL = {key: label for key, label, _ in TABS}
 MOST_CHOICES = 7  # the decision's rows for choices: the most a room usually has (more scroll)
 MIN_COLUMNS, MIN_ROWS = 110, 32  # smaller than this when a run begins, and it's the classic screen
 SIDE_SHARE, SIDE_MIN, SIDE_MAX = 0.5, 64, 96  # the right side's width
@@ -348,6 +351,17 @@ def rule(title: str, width: int, colour: str = PINK) -> Text:
 class TabsScreen(GameScreen):
     """The game screen in tabs (see the module's docstring): its layout and its pane; the turns are GameScreen's."""
 
+    # The footer shows what the tabs don't: F2-F7 are on the tabs themselves, so they're kept off it.
+    BINDINGS = [
+        Binding("f1", "panel('help')", "Help"),
+        *[Binding(key, f"panel('{panel}')", TAB_LABEL[tab], show=False) for key, panel, tab in (
+            ("f2", "inventory", "pack"), ("f3", "character", "sheet"), ("f4", "look", "here"), ("f5", "map", "map"),
+            ("f6", "bestiary", "bestiary"), ("f7", "journal", "journal"))],
+        Binding("escape", "leave", "Title"),
+        Binding("pageup", "story_page(-1)", "Scroll up", show=False),
+        Binding("pagedown", "story_page(1)", "Scroll down", show=False),
+    ]
+
     def __init__(self, game, fresh: bool) -> None:
         super().__init__(game, fresh)
         self.tab = "here"
@@ -388,6 +402,7 @@ class TabsScreen(GameScreen):
             yield Vertical(id="here-strip")
             yield Static(id="map")
             yield Horizontal(id="ways")
+        yield Footer()
 
     def on_mount(self) -> None:
         super().on_mount()
@@ -412,7 +427,8 @@ class TabsScreen(GameScreen):
         stage_width = left - 4
         stage_rows = min(30, round(stage_width / STAGE_SHAPE), round(STAGE_SHARE * (height - 1)))
         stage_width = min(stage_width, round(stage_rows * STAGE_SHAPE * 1.25))
-        pane = height - 1 - 3 - 1 - 1 - (MOST_CHOICES + 3)
+        pane = height - 1 - 3 - 1 - 1 - (MOST_CHOICES + 3) - 1  # (less the status bar, the head, the tabs, a
+        # dither row, the decision and the footer)
         self.plan = Plan(width, height, True, False, False, side, stage_rows, stage_width, MOST_CHOICES, 0, pane,
                          height - 1 - stage_rows - 1)
         self.query_one("#side").styles.width = side

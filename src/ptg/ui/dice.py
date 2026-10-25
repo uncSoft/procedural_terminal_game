@@ -70,9 +70,13 @@ class DiceScreen(ModalScreen[str]):
             yield Static(Text(self.summary, style="italic #c8c8e0"), id="dice-summary")
             yield Static(self._idle_faces(), id="dice-faces")
             target = "IMPOSSIBLE" if self.roll.impossible else f"needs {self.roll.dc}"
+            if self.roll.hits_for and not self.roll.impossible:  # (the d20 is to hit; the damage is its own dice)
+                target += f" to hit  ·  a hit deals {self.roll.hits_for}"
             yield Static(Text(target, style="bold #9a9cc0"), id="dice-target")
             yield Static("", id="dice-bonuses")
             yield Static("", id="dice-verdict")
+            if self.roll.hits_for:  # (its row kept from the start, so the box doesn't grow)
+                yield Static(" ", id="dice-damage")
             hint = "two dice: keep the best" if self.roll.advantage > 0 else ""
             with Center():  # (its row is kept for it: it shows when a failed roll can be rerolled)
                 yield Clickable(Text(" "), action="screen.reroll", id="dice-fate")
@@ -158,6 +162,9 @@ class DiceScreen(ModalScreen[str]):
         glows[kept_index] = effects.rgb(how)
         dice_widget.update(dice_row(list(roll.dice), glows=glows, dims=dims, size=self.die))
         effects.flash(verdict, how)
+        if roll.hurt():
+            self.query_one("#dice-damage", Static).update(
+                Text(f"→ {roll.hurt()}", style="bold #ffb000" if roll.actor == "player" else "bold #ff7b7b"))
         sound.play(how)
         if big:
             await self._shake(box)

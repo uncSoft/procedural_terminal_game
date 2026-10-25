@@ -49,6 +49,8 @@ class Roll:
     success: bool = False
     advantage: int = 0  # 1 = roll two keep high, -1 = roll two keep low
     impossible: bool = False
+    hits_for: str = ""  # a roll to hit: the damage it does if it hits ("4d6"), told before you roll
+    damage: list[tuple[str, int]] = field(default_factory=list)  # what the hit did, part by part (see hurt)
 
     @property
     def total(self) -> int:
@@ -61,6 +63,15 @@ class Roll:
     @property
     def fumble(self) -> bool:
         return self.kept == 1
+
+    def hurt(self) -> str:
+        """The damage a hit did and where it came from: "18 damage (4d6 14 + crit 4d6 4)", or "" if it did none."""
+        if not self.damage:
+            return ""
+        total = sum(v for _, v in self.damage)
+        first, *rest = self.damage
+        parts = f"{first[0]} {first[1]}" + "".join(f" {'+' if v >= 0 else '-'} {name} {abs(v)}" for name, v in rest)
+        return f"{total} damage ({parts})"
 
     def describe(self, verdict: bool = True) -> str:
         dice = f"d20 {self.kept}" if len(self.dice) == 1 else f"d20 {'/'.join(map(str, self.dice))}→{self.kept}"

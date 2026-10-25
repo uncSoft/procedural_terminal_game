@@ -275,7 +275,8 @@ class Game:
         state.log.append(LogEntry(kind="player", text=pending.shown))
         for event in pending.events:
             if event.roll:  # (with the badge's word, as shown: "- fail" read as one on a search that cost nothing)
-                said = f"{event.dice.describe(verdict=False)}  {verdict(event)}"
+                said = f"{event.dice.describe(verdict=False)}  {verdict(event)}" + \
+                    (f"  → {event.dice.hurt()}" if event.dice.hurt() else "")
                 state.log.append(LogEntry(kind="mechanic", text=said))
         if any(e.kind == "descend" for e in pending.events):
             state.log.append(self.floor_entry())

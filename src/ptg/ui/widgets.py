@@ -100,12 +100,15 @@ def hearts(hp: int, max_hp: int) -> Text:
 
 
 def roll_text(event: Event) -> Text:
-    """A finished roll for the story log: the sum, then a coloured badge saying how it went for you."""
+    """A finished roll for the story log: the sum, then a coloured badge saying how it went for you, then what a hit
+    did ("→ 18 damage (4d6 14 + crit 4d6 4)"): the narration tells the blow, this line the numbers."""
     roll, how = event.dice, tone(event)
     text = Text("  ⚄ ", style=effects.COLORS[how])
     text.append(roll.describe(verdict=False), style="#c8c8e0" if roll.actor == "player" else "#9a9cc0")
     text.append("  ")
     text.append_text(effects.badge(how, verdict(event)))
+    if roll.hurt():
+        text.append(f"  → {roll.hurt()}", style="bold #ffb000" if roll.actor == "player" else "bold #ff7b7b")
     return text
 
 

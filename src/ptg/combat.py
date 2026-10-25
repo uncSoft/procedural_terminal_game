@@ -68,27 +68,31 @@ def player_attack(state: GameState, content: Content, rng: random.Random) -> lis
     player.advantage_next = False
     bonuses = [("might", player.might), ("level", player.level)] + powers.roll_bonuses(state, content, "attack")
     roll = dice.check(rng, "attack", bonuses, monster_defense(monster, content), advantage=advantage)
+    roll.hits_for = f"{weapon.damage} + {player.might} might" if player.might else weapon.damage
     events_on_roll = fortune(state, roll)
     if not roll.success:
         guarded = " It's guarding, and your blow glances off." if monster.guarding else ""
         events.append(Event("miss", f"You swing your {weapon.name} at {the(monster.name)} and miss.{guarded}", dice=roll))
         return events + events_on_roll
 
-    damage = dice.roll(weapon.damage, rng) + (dice.roll(weapon.damage, rng) if roll.crit else 0) + player.might
+    parts = [(weapon.damage, dice.roll(weapon.damage, rng))]  # (told part by part on the roll: Roll.hurt)
+    if roll.crit:
+        parts.append((f"crit {weapon.damage}", dice.roll(weapon.damage, rng)))
+    parts.append(("might", player.might))
     extras = []
     if "brute" in player.traits:
-        damage += 1
+        parts.append(("brute", 1))
     if "glass_cannon" in player.perks:
-        damage += 3
+        parts.append(("glass cannon", 3))
     if "bully" in player.perks and monster.stunned:
-        damage += 3
+        parts.append(("bully", 3))
         extras.append("Bully")
     if "sharp_start" in player.blessings and player.weapon == "rusty_sword":
-        damage += 1
+        parts.append(("sharp start", 1))
     coating = [player.coating] if player.coated else []  # holy water or lamp oil on the blade (interactions.RECIPES)
     weak = list(dict.fromkeys(t for t in weapon.tags + coating if t in monster_def.weak))
     if weak:
-        damage += 2
+        parts.append((f"{weak[0]}!", 2))
         extras.append(f"{weak[0]}!")
     worn = ""
     if coating:
@@ -96,14 +100,16 @@ def player_attack(state: GameState, content: Content, rng: random.Random) -> lis
         if not player.coated:
             worn, player.coating = f" The {coating[0]} coating on your {weapon.name} is spent.", ""
     if "goblin_bane" in weapon.powers and powers.GOBLINS & set(monster_def.tags):
-        damage += 2
+        parts.append(("goblin-bane", 2))
         extras.append("goblin-bane")
     if "monster_scholar" in player.traits and state_known(state, monster.key):
-        damage += 1
+        parts.append(("scholar", 1))
     player.hits_landed += 1
     if "ruthless" in player.perks and player.hits_landed % 3 == 0:
-        damage *= 2
+        parts.append(("ruthless ×2", sum(v for _, v in parts)))
         extras.append("Ruthless x2")
+    roll.damage = [(name, value) for name, value in parts if value]
+    damage = sum(value for _, value in parts)
     monster.hp -= damage
     how = "land a critical hit on" if roll.crit else "hit"
     tail = f" [{', '.join(extras)}]" if extras else ""
@@ -158,12 +164,19 @@ def throw(state: GameState, content: Content, rng: random.Random, key: str) -> l
     bonuses = [("agility", player.agility)] + powers.roll_bonuses(state, content, "throw")
     roll = dice.check(rng, f"throw {the(item.name)}", bonuses, monster_defense(monster, content),
                       advantage=1 if weak else 0)
+    roll.hits_for = thrown_damage(item)
     events = fortune(state, roll)
     more = what_is_left(player, key)
     if not roll.success:
         return [Event("miss", f"You throw {the(item.name)} at {the(monster.name)} and miss. {gone}{more}",
                       dice=roll, data={"rerollable": True, **thrown})] + events
-    damage = dice.roll(thrown_damage(item), rng) + (2 if weak else 0)
+    parts = [(thrown_damage(item), dice.roll(thrown_damage(item), rng))]
+    if roll.crit:  # (a critical throw hits twice as hard, as a critical blow does)
+        parts.append((f"crit {thrown_damage(item)}", dice.roll(thrown_damage(item), rng)))
+    if weak:
+        parts.append((f"{weak[0]}!", 2))
+    roll.damage = parts
+    damage = sum(value for _, value in parts)
     monster.hp -= damage
     tail = (f" [{weak[0]}!]" if weak else "") + (f" {gone}" if item.kind == "weapon" else "")
     events.insert(0, Event("hit", f"{cap(the(item.name))} hits {the(monster.name)} for {damage} damage "
@@ -253,6 +266,7 @@ def monster_turn(state: GameState, content: Content, rng: random.Random) -> list
     attack = monster_def.attack + monster.attack_mod
     label = f"{monster.name} {'HEAVY attack' if intent == 'heavy' else 'attacks'}"
     roll = dice.check(rng, label, [("attack", attack)], player.defense(content), actor="monster")
+    roll.hits_for = f"{monster_def.damage} ×2" if intent == "heavy" else monster_def.damage
     if not roll.success:
         return [Event("monster_miss", f"{cap(the(monster.name))} attacks you and misses.", dice=roll)] + telegraph(state, content)
 
@@ -262,10 +276,18 @@ def monster_turn(state: GameState, content: Content, rng: random.Random) -> list
         return [Event("evade", f"Acrobatics! You tumble clear of {the(monster.name)}'s blow.", dice=roll)] + telegraph(state, content)
 
     rolls = 2 if intent == "heavy" else (2 if roll.crit else 1)  # heavy blows and crits don't stack
-    damage = max(1, sum(dice.roll(monster_def.damage, rng) for _ in range(rolls)) + monster.damage_mod)  # a hit hurts
+    parts = [(monster_def.damage, dice.roll(monster_def.damage, rng))]
+    if rolls == 2:
+        parts.append((f"{'heavy' if intent == 'heavy' else 'crit'} {monster_def.damage}",
+                      dice.roll(monster_def.damage, rng)))
+    parts.append(("its strength" if monster.damage_mod > 0 else "weakened", monster.damage_mod))
     reek = powers.holders(state, content, "reeks")
     if reek:  # it doesn't want to get close
-        damage = max(1, damage - 2)
+        parts.append(("kept at bay", -2))
+    if sum(value for _, value in parts) < 1:  # a hit always hurts
+        parts.append(("a hit hurts", 1 - sum(value for _, value in parts)))
+    roll.damage = [(name, value) for name, value in parts if value]
+    damage = sum(value for _, value in parts)
     player.hp = max(0, player.hp - damage)
     how = "lands a crushing heavy blow on you" if intent == "heavy" else (
         "lands a vicious critical hit on you" if roll.crit else "hits you")

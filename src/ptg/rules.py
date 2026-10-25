@@ -1310,19 +1310,26 @@ def _fixture(state: GameState, content: Content, rng: random.Random, verb: str) 
         events = fortune(state, roll)
         if roll.kept <= 5:
             damage = dice.roll("1d4+1", rng)
-            player.hp = max(1, player.hp - damage)
-            text = f"The water is bitter and burns going down (-{damage} HP)."
+            lost, player.hp = player.hp - max(1, player.hp - damage), max(1, player.hp - damage)
+            text = f"The water is bitter and burns going down (-{lost} HP)."
+            roll.effects.append(f"-{lost} HP")
         elif roll.kept <= 14:
             healed = min(6, player.max_hp - player.hp)
             player.hp += healed
             text = f"The water is cool and clean (+{healed} HP)." if healed else "The water is cool and clean."
+            roll.effects.append(f"+{healed} HP" if healed else "no effect: you're at full health")
         elif roll.kept <= 19:
             if player.fate < player.max_fate():
                 player.fate += 1
-            text = f"The water tastes like luck. You gain a Fate token ({player.fate}/{player.max_fate()})."
+                text = f"The water tastes like luck. You gain a Fate token ({player.fate}/{player.max_fate()})."
+                roll.effects.append(f"+1 Fate ({player.fate}/{player.max_fate()})")
+            else:
+                text = f"The water tastes like luck, but you can't hold any more ({player.fate}/{player.max_fate()} Fate)."
+                roll.effects.append(f"Fate already full ({player.fate}/{player.max_fate()})")
         else:
             stat = rng.choice(["might", "agility", "wits"])
             setattr(player, stat, player.stat(stat) + 1)
             text = f"The water blazes gold inside you: +1 {stat}, permanently!"
+            roll.effects.append(f"+1 {stat}, permanently")
         return [Event("fountain", text, dice=roll, data={"rerollable": roll.kept <= 14})] + events
     return []

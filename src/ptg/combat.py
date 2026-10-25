@@ -225,6 +225,7 @@ def fortune(state: GameState, roll: dice.Roll) -> list[Event]:
     earned = roll.crit or (roll.fumble and "fortunes_fool" in player.traits)
     if earned and player.fate < player.max_fate():
         player.fate += 1
+        roll.effects.append(f"+1 Fate ({player.fate}/{player.max_fate()})")
         why = "A natural 20!" if roll.crit else "Fortune's Fool: your blunder pleases the gods."
         return [Event("fate", f"{why} You gain a Fate token ({player.fate}/{player.max_fate()}).")]
     return []

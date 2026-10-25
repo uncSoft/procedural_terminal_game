@@ -107,8 +107,8 @@ def roll_text(event: Event) -> Text:
     text.append(roll.describe(verdict=False), style="#c8c8e0" if roll.actor == "player" else "#9a9cc0")
     text.append("  ")
     text.append_text(effects.badge(how, verdict(event)))
-    if roll.hurt():
-        text.append(f"  → {roll.hurt()}", style="bold #ffb000" if roll.actor == "player" else "bold #ff7b7b")
+    if roll.told():
+        text.append(f"  → {roll.told()}", style="bold #ffb000" if roll.actor == "player" else "bold #ff7b7b")
     return text
 
 

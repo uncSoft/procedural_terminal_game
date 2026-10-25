@@ -1,5 +1,6 @@
-"""What a hit did, told on its roll (Roll.damage, Roll.hurt): the story's dice line and the journal show the damage
-and where it came from, since the narration tells the blow, not the numbers."""
+"""What a roll did, told on it (Roll.hurt, Roll.told): the story's dice line and the journal show a hit's damage and
+where it came from, and anything else it won or cost (the fountain's Fate), since the narration tells the moment, not
+the numbers."""
 
 import pytest
 
@@ -72,3 +73,27 @@ def test_the_monsters_blow_says_what_it_did_to_you(content, always):
             assert roll.hurt().startswith(f"{hp - state.player.hp} damage")
             return
     pytest.fail("the troll never hit")
+
+
+def fountain_room(content, face: int, always):
+    from ptg.world import generate
+    always(face)
+    state = generate(1)
+    state.room.fixture, state.room.fixture_used = "fountain", False
+    state.room.monster = None
+    return state
+
+
+def test_the_fountain_says_on_its_roll_that_you_gained_fate(content, always):
+    state = fountain_room(content, 17, always)
+    state.player.fate = 0
+    roll = next(e for e in perform(state, content, "fountain") if e.dice).dice
+    assert state.player.fate == 1 and roll.told() == f"+1 Fate (1/{state.player.max_fate()})"
+
+
+def test_a_full_fate_is_not_told_as_a_gain(content, always):
+    state = fountain_room(content, 17, always)
+    state.player.fate = state.player.max_fate()
+    events = perform(state, content, "fountain")
+    roll = next(e for e in events if e.dice).dice
+    assert roll.told().startswith("Fate already full") and "gain" not in events[0].text

@@ -51,6 +51,7 @@ class Roll:
     impossible: bool = False
     hits_for: str = ""  # a roll to hit: the damage it does if it hits ("4d6"), told before you roll
     damage: list[tuple[str, int]] = field(default_factory=list)  # what the hit did, part by part (see hurt)
+    effects: list[str] = field(default_factory=list)  # what else came of it: "+1 Fate (2/3)", "+6 HP" (see told)
 
     @property
     def total(self) -> int:
@@ -72,6 +73,10 @@ class Roll:
         first, *rest = self.damage
         parts = f"{first[0]} {first[1]}" + "".join(f" {'+' if v >= 0 else '-'} {name} {abs(v)}" for name, v in rest)
         return f"{total} damage ({parts})"
+
+    def told(self) -> str:
+        """What came of the roll, for after its verdict: the damage, then anything it won or cost you."""
+        return " · ".join(filter(None, [self.hurt(), *self.effects]))
 
     def describe(self, verdict: bool = True) -> str:
         dice = f"d20 {self.kept}" if len(self.dice) == 1 else f"d20 {'/'.join(map(str, self.dice))}→{self.kept}"

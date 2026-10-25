@@ -32,10 +32,34 @@ from .rules import (arrival_facts, available_actions, locked_doors, perform, per
 from .story import STORY_KINDS, Library, ProfileView, StoryEngine, load_library
 from .text import the
 
-JOURNAL_SKIP = {"miss", "monster_miss", "stunned", "check", "info", "spend", "fate", "fate_spent", "story_seen",
-                "story_mark", "story_context"}
+# Kinds the journal leaves out: a roll's own line says a miss or a check (see journal_lines), and the rest is chatter.
+# One that moves something you carry is kept whatever its kind (a gift to a hobgoblin is a check that worked).
+JOURNAL_SKIP = {"miss", "monster_miss", "stunned", "check", "info", "spend", "story_seen", "story_mark", "story_context"}
+JOURNAL_KEEP = 400  # lines
 QUIET_KINDS = {"perk"}  # resolved without asking the narrator
 MECHANICS = {"fate_spent", "level", "trait"}  # the screen says these (a line, the level-up screen, a banner): not told
+
+
+def roll_said(event: Event) -> str:
+    """A roll's line, as the story shows it: the sum, the badge's word ("- fail" read as one on a search that cost
+    nothing), then what came of it ("→ 18 damage (4d6 14 + crit 4d6 4)")."""
+    said = f"{event.dice.describe(verdict=False)}  {verdict(event)}"
+    return said + (f"  → {event.dice.told()}" if event.dice.told() else "")
+
+
+def journal_lines(events: list[Event]) -> list[str]:
+    """What a turn adds to the journal, in order: each roll's line ("⚄ ...", with its bonuses and what came of it),
+    and what happened: a move, a line not the whole room (data "journal"); anything that moved something you carry,
+    whatever its kind; the rest bar JOURNAL_SKIP's chatter and the story's own (Game._record_story writes those)."""
+    lines = []
+    for event in events:
+        if event.roll:
+            lines.append("⚄ " + roll_said(event))
+        line = event.data.get("journal", event.text)
+        moved = "item" in event.data and "how" in event.data
+        if line and not event.kind.startswith("story") and (moved or event.kind not in JOURNAL_SKIP):
+            lines.append(line)
+    return lines
 
 
 def narratable(event: Event) -> bool:
@@ -274,10 +298,8 @@ class Game:
         self.pending, self._snapshot = None, None
         state.log.append(LogEntry(kind="player", text=pending.shown))
         for event in pending.events:
-            if event.roll:  # (with the badge's word, as shown: "- fail" read as one on a search that cost nothing)
-                said = f"{event.dice.describe(verdict=False)}  {verdict(event)}" + \
-                    (f"  → {event.dice.told()}" if event.dice.told() else "")
-                state.log.append(LogEntry(kind="mechanic", text=said))
+            if event.roll:
+                state.log.append(LogEntry(kind="mechanic", text=roll_said(event)))
         if any(e.kind == "descend" for e in pending.events):
             state.log.append(self.floor_entry())
         for event in pending.events:
@@ -302,9 +324,7 @@ class Game:
             if event.kind in ("enter", "descend") and event.data.get("first"):
                 there = state.rooms[event.data["room"]]
                 there.description = self.content.archetypes[there.archetype].blurb
-        state.journal += [e.data.get("journal", e.text) for e in pending.events  # moves: a line, not the whole room
-                          if e.kind not in JOURNAL_SKIP and not e.kind.startswith("story")
-                          and e.data.get("journal", e.text)]
+        state.journal += journal_lines(pending.events)
         if text:
             state.log.append(LogEntry(kind="narration", text=text))
         self._record_story(pending.events)
@@ -366,7 +386,7 @@ class Game:
             if event.kind in ("story", "story_effect") and event.text:  # (a character's words, with who said them)
                 said = f"{event.data['title']}: {event.text}" if event.data.get("speaker") else event.text
                 state.journal.append(said)
-        state.journal = state.journal[-200:]
+        state.journal = state.journal[-JOURNAL_KEEP:]
         state.marks_pending.clear()
         self.story.view = ProfileView.from_profile(profile)
 

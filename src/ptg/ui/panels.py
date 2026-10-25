@@ -31,7 +31,8 @@ from ..rules import TRAITS
 from ..text import cap, the
 from ..sprites import DEFAULT_WIDTH, SMALL, SPENT, frame_count
 from .theme import PERK_COLORS
-from .widgets import TALL, Clickable, Picture, item_note, item_words, map_text, power_lines, room_text
+from .widgets import (TALL, Clickable, Picture, StoryLine, highlight, item_note, item_words, map_text, power_lines,
+                      room_text)
 
 PANEL_KEYS = {"f1": "help", "f2": "inventory", "f3": "character", "f4": "look", "f5": "map", "f6": "bestiary",
               "f7": "journal"}  # the panels' keys, on the game screen and in every panel
@@ -142,6 +143,25 @@ class Panel(ModalScreen[str | None]):
         if self.app.screen is self:  # a second click mustn't close whatever is underneath
             sound.play("close")
             self.dismiss(None)
+
+    def lexicon(self) -> glossary.Lexicon | None:
+        """The terms worth highlighting in a panel's words, as in the story (a panel about the game has its game)."""
+        game = getattr(self, "game", None)
+        if game is None:
+            return None
+        return glossary.Lexicon(glossary.build(game.state, game.content, game.profile.bestiary()))
+
+    def action_lookup(self, term_id: str) -> None:
+        """A highlighted word in the panel clicked (StoryLine): its card over the panel. What you do from the card
+        (equip the sword) closes the panel too, and goes back to the game as that turn."""
+        if self.app.screen is not self or getattr(self, "game", None) is None or self.peek:
+            return
+
+        def done(picked) -> None:
+            if picked is not None:
+                self.dismiss(picked)
+
+        self.app.push_screen(InfoScreen(self.game, term_id), done)
 
     def action_switch(self, name: str) -> None:
         """F1-F7: that panel instead of this one (this one's own key closes it), opened by what opened this one, if it
@@ -804,7 +824,14 @@ class BestiaryScreen(Panel):
         self.query_one("#beast-body").scroll_home(animate=False)
 
 
+JOURNAL_SHOWN = 250  # the journal's last lines (it scrolls)
+
+
 class JournalScreen(Panel):
+    """What's happened this run, oldest first, scrolled to the end: the quests at the top, then each turn's events,
+    each roll's line (dimmer) with its bonuses and what came of it, and everything you gained, gave away, used or
+    lost. A name in it opens its card (Panel.action_lookup)."""
+
     panel_name = "journal"
 
     def __init__(self, game: Game) -> None:
@@ -813,17 +840,23 @@ class JournalScreen(Panel):
 
     def compose(self) -> ComposeResult:
         state = self.game.state
-        text, quests = Text(), Text()
-        for line in state.journal[-80:]:
-            text.append("· " + line + "\n", style=WORDS)
+        lexicon = self.lexicon()
+        quests = Text()
         for _, line, still in npcs.quest_log(state, self.game.content):  # who wants what of you, the open ones first
-            quests.append(("★ " if still else "✓ ") + line + "\n", style="bold #ffd166" if still else DIM)
+            quests.append_text(highlight(("★ " if still else "✓ ") + line, lexicon,
+                                         "bold #ffd166" if still else DIM))
+            quests.append("\n")
         with VerticalScroll(classes="panel-box") as box:
             box.border_title = f"Journal · turn {state.turn}"
             if quests.plain:
-                yield Static(quests)
+                yield StoryLine(quests)
                 yield Static(Text("What's happened:", style="bold"))
-            yield Static(text or Text("Nothing written yet.", style=DIM))
+            for line in state.journal[-JOURNAL_SHOWN:]:  # a roll's line dim, under what happened; names open cards
+                roll = line.startswith("⚄ ")
+                yield StoryLine(highlight(line if roll else "· " + line, lexicon, DIM if roll else WORDS),
+                                classes="journal-roll" if roll else "journal-line")
+            if not state.journal:
+                yield Static(Text("Nothing written yet.", style=DIM))
 
     def on_mount(self) -> None:
         self.query_one(VerticalScroll).scroll_end(animate=False)

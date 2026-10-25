@@ -1173,3 +1173,12 @@ LogTab .debug-detail {
     margin-top: 1;
 }
 
+
+/* The journal (ui/panels.py JournalScreen): each entry its own line, so one that wraps stays in its column. */
+.journal-line {
+    padding-left: 0;
+}
+
+.journal-roll {
+    padding-left: 4;
+}

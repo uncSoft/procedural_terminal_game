@@ -521,12 +521,15 @@ TabsScreen { background: #090a13; }
 TabsScreen #left { width: 1fr; padding: 0 1 0 1; }
 TabsScreen #story { border: double $primary-darken-2; border-title-color: $primary; padding: 0 2 0 1;
                     background: #0b0c18; }
-TabsScreen #decide { height: 1fr; border: round $secondary; border-title-color: $secondary;
+TabsScreen #decide { height: 12; border: round $secondary; border-title-color: $secondary;
                      border-title-style: bold; padding: 0 1; background: #12142a; }
 TabsScreen #decide.scene { border: round $accent; border-title-color: $accent; }
-TabsScreen #choices { height: auto; max-height: 9; border: none; padding: 0; background: #12142a; }
+TabsScreen #choices { height: 1fr; border: none; padding: 0; background: #12142a; }
 TabsScreen #choices .choice { width: 100%; margin: 0; }
-TabsScreen #command { border: none; height: 1fr; min-height: 1; background: #1c2040; padding: 0 1; }
+TabsScreen #command { border: none; height: 1; background: #1c2040; padding: 0 1; }
+TabsScreen #lately { height: 6; border: round #6c8cff; border-title-color: #6c8cff; padding: 0 1;
+                     background: #0b0c18; text-wrap: nowrap; text-overflow: ellipsis; }
+TabsScreen #lately.noted { border: round #ffd166; border-title-color: #ffd166; }
 TabsScreen #command:focus { background: #23284e; }
 TabsScreen #side { padding: 0 1 0 0; }
 TabsScreen #stage-box { height: auto; }

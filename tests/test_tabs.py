@@ -213,3 +213,17 @@ async def test_a_bare_here_is_filled_with_the_floor_and_what_happened_lately():
         await pilot.pause(0.3)
         words = " ".join(str(w.render()) for w in screen.query("#pane .pane-rule"))
         assert "FLOOR" in words or "LATELY" in words
+
+
+async def test_the_decision_is_a_fixed_twelve_rows_and_notifications_land_in_the_docked_journal():
+    app = PTGApp(Config(backend="offline", player_name="T"), test_room=("lenny", "new", 0))
+    async with app.run_test(size=(152, 43), notifications=True) as pilot:
+        screen = await walk_in(app, pilot)
+        assert screen.query_one("#decide").region.height == tabs.DECIDE_ROWS
+        assert screen.query_one("#command").region.height == 1  # (one line: it doesn't wrap)
+        lately = screen.query_one("#lately")
+        assert lately.display and screen.lately_lines >= tabs.LATELY_LEAST
+        screen.notify("The Hobgoblin is weak to shiny.", title="Bestiary")
+        await pilot.pause(0.2)
+        assert "Bestiary: The Hobgoblin is weak to shiny." in str(lately.render())
+        assert lately.has_class("noted")

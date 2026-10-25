@@ -3,8 +3,9 @@ and the pictures on the right.
 
 The left page is the story in its box (whose border lights up in the turn's colour, as it always has), ending about
 two thirds of the way down so what just happened is where the eye already is, and right under it the decision:
-every choice numbered, one to a line, and the command line taking the rows they leave. Notifications come up in
-the foot of that box, beside the choices.
+every choice numbered, one to a line, and the command line (one line: it doesn't wrap). Under that, docked, the
+last few things that happened, with the game's notifications at its head for a few seconds (its border lit),
+rather than boxes floating over the screen.
 
 The right page is the room's picture in its frame (red in a fight), the arrows beside the ways out in words, and one
 pane with tabs, each in its own colour: Here, Map, Pack, Sheet, Journal, Bestiary. They are the panels F2-F7 used to
@@ -21,6 +22,8 @@ begins, gets the classic one (see game_screen).
 """
 
 from __future__ import annotations
+
+import time
 
 from rich.style import Style
 from rich.table import Table
@@ -64,12 +67,16 @@ TAB_LABEL = {key: label for key, label, _ in TABS}
 MOST_CHOICES = 7  # the decision's rows for choices: the most a room usually has (more scroll)
 MIN_COLUMNS, MIN_ROWS = 110, 32  # smaller than this when a run begins, and it's the classic screen
 SIDE_SHARE, SIDE_MIN, SIDE_MAX = 0.48, 62, 100  # the right page's width
-STORY_SHARE = 0.64  # of the rows between the status bar and the footer: the story's, the decision has the rest
+STORY_SHARE = 0.6  # of the rows between the status bar and the footer: the story's
+DECIDE_ROWS = 12  # the decision's box: its frame, up to ten choices and the command line (one line: it doesn't wrap)
+LATELY_LEAST = 2  # lines: a docked journal shorter than this isn't worth its frame, and the story takes its rows
 STAGE_SHARE = 0.38  # of those rows: the most the room's picture takes
 STAGE_SHAPE = 4.8  # columns per row (see plan.py)
 TAB_COLOURS = {"here": "#ffb000", "map": "", "pack": "#4cff8a", "sheet": "#ff4f9a", "journal": "#6c8cff",
                "bestiary": "#ff7b39"}  # each tab's own (the map's is the floor's: see tab_colour)
-LATELY = 4  # the journal's last lines, when Here has room for them
+NOTE_SECONDS = 8  # how long a notification stays at the head of the docked journal
+NOTE_COLOURS = {"information": "#ffd166", "warning": "#ff7b39", "error": "#ff4b4b"}
+LATELY = 4  # the journal's last lines in Here, when there's no docked journal and Here has room
 JOURNAL_SHOWN = 150
 
 WORDS, DIM, FAINT, ACCENT, PINK, GOLD = "#c8c8e0", "#6c6f99", "#2a2d4a", "#ffb000", "#ff4f9a", "#ffd166"
@@ -374,6 +381,9 @@ class TabsScreen(GameScreen):
         self.focus = {"here": "", "pack": "", "bestiary": ""}  # the thing in each tab's frame, by its id
         self.pack_items: list[tuple[str, str, list[Action], bool]] = []
         self.pane_shown: tuple | None = None
+        self.notes: list[tuple[str, str, str, float]] = []  # notifications in the docked journal: (title, words,
+        # severity, until when)
+        self.lately_lines = 0
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="hud-row"):
@@ -386,6 +396,7 @@ class TabsScreen(GameScreen):
                 with Vertical(id="decide"):
                     yield VerticalScroll(id="choices")
                     yield Input(id="command", placeholder="Type a number, or anything you want to try…")
+                yield StoryLine(id="lately")
             with Vertical(id="side"):  # the pictures
                 with Center(id="stage-box"):
                     with ClickableBox(action="screen.stage_card()", id="stage"):
@@ -432,6 +443,10 @@ class TabsScreen(GameScreen):
         stage_rows = min(30, round(stage_width / STAGE_SHAPE), round(STAGE_SHARE * rows))
         stage_width = min(stage_width, round(stage_rows * STAGE_SHAPE * 1.3))
         story = round(STORY_SHARE * rows)
+        lately = rows - story - DECIDE_ROWS - 2  # (its lines, inside its frame)
+        if lately < LATELY_LEAST:
+            story, lately = rows - DECIDE_ROWS, 0
+        self.lately_lines = lately
         pane = rows - (stage_rows + 2) - 3 - 1 - 2  # (less the picture's frame, the head, the tabs, the pane's frame)
         self.plan = Plan(width, height, True, False, False, side, stage_rows, stage_width, MOST_CHOICES, 0, pane,
                          story - 2)
@@ -439,6 +454,8 @@ class TabsScreen(GameScreen):
         box = self.query_one("#story")
         box.styles.height = story
         box.border_title, box.border_subtitle = "✦ Story", ""  # (who's narrating is at the footer's end)
+        self.query_one("#decide").styles.height = DECIDE_ROWS
+        self.refresh_lately()
         self.refresh_hud()
         self.refresh_stage()
         self.refresh_here()
@@ -447,9 +464,48 @@ class TabsScreen(GameScreen):
 
     refresh_panels = relayout
 
+    def refresh_lately(self) -> None:
+        """The docked journal under the decision: the last few things that happened, newest last, a roll's line dim.
+        Hidden on a screen with no rows for it."""
+        box = self.query_one("#lately", StoryLine)
+        box.display = self.lately_lines > 0
+        if not box.display:
+            return
+        box.styles.height = self.lately_lines + 2
+        box.border_title = "✦ Lately"
+        now = time.monotonic()
+        self.notes = [note for note in self.notes if note[3] > now]
+        box.set_class(bool(self.notes), "noted")
+        lexicon = self.lexicon()
+        text = Text()
+        notes = self.notes[-self.lately_lines:]
+        for title, words, severity, _ in reversed(notes):  # (the newest first, over the journal)
+            colour = NOTE_COLOURS.get(severity, GOLD)
+            text.append(f"{title}: " if title else "", style=f"bold {colour}")
+            text.append(words + "\n", style=colour)
+        room = self.lately_lines - len(notes)
+        for line in self.game.state.journal[-room:] if room > 0 else []:
+            roll = line.startswith("⚄ ")
+            text.append_text(highlight(line if roll else "· " + line, lexicon, DIM if roll else WORDS))
+            text.append("\n")
+        text.rstrip()
+        box.update(text or Text("Nothing yet.", style=DIM))
+
+    def notify(self, message: str, *, title: str = "", severity: str = "information", timeout: float | None = None,
+               markup: bool = True) -> None:
+        """A notification from the game (a secret found, a trait earned, "Esc again for the title"): at the head of
+        the docked journal for a few seconds, its border lit, rather than a box floating over the screen. With no
+        docked journal (a short screen), a toast as ever."""
+        if not self.lately_lines:
+            return super().notify(message, title=title, severity=severity, timeout=timeout, markup=markup)
+        seconds = timeout or NOTE_SECONDS
+        self.notes.append((title, str(message), severity, time.monotonic() + seconds))
+        self.refresh_lately()
+        self.set_timer(seconds + 0.1, self.refresh_lately)
+
     def _place_toasts(self) -> None:
-        """Notifications on the left page, in the foot of the decision's box (the rows the command line has spare):
-        beside the choices, never over the story's newest lines or the pictures."""
+        """Notifications on the left page, at its foot (over the docked journal): under the choices, never over the
+        story's newest lines or the pictures."""
         for rack in self.query("ToastRack"):
             rack.styles.margin = (0, 0, 2, 0)  # (the footer and the box's frame)
             rack.styles.width = self.size.width - (self.plan.side if self.plan else 0) - 3
@@ -725,7 +781,8 @@ class TabsScreen(GameScreen):
         left = rows - (13 if pictured else 1) - (-(-len(pictured) // columns) * 7 if len(pictured) > 1 else 0) \
             - 2 * len(plain)
         quests = [(line, still) for _, line, still in npcs.quest_log(state, self.game.content) if still]
-        lately = [line for line in state.journal if not line.startswith("⚄ ")][-LATELY:]
+        lately = [line for line in state.journal if not line.startswith("⚄ ")][-LATELY:] \
+            if not getattr(self, "lately_lines", 0) else []  # (the docked journal has them)
         need_quests = 3 + len(quests) if quests else 0
         need_lately = 3 + len(lately) if lately else 0
         big = big_map(state, width, left - need_quests - need_lately - 3)

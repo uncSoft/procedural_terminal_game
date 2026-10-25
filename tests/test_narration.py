@@ -36,6 +36,19 @@ def test_arrival_tells_the_fight_not_the_room(content):
     assert "In the room" in room_facts(state, content)  # (the whole room is there for a question about it)
 
 
+def test_arrival_tells_of_someone_calm_who_is_here(content):
+    """Run 59: back in Swoogy's room after calming him, the narrator was told nothing of him and said he'd gone; two
+    turns later the player attacked him."""
+    from ptg.rules import arrival_facts
+
+    state, _ = into_the_skeleton(content)
+    state.room.monster.hostile = False
+    told = arrival_facts(state, content)
+    assert "The Skeleton is here, not hostile" in told and "A fight begins" not in told
+    state.room.monster.hp = 0
+    assert "Skeleton" not in arrival_facts(state, content)  # (gone is gone)
+
+
 async def test_the_opening_and_a_descent_are_short(content, profile):
     game = Game(generate(3), Config(backend="offline"), None, profile=profile)
     opening = await game.opening(lambda _: None)

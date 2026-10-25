@@ -607,7 +607,8 @@ def exit_notes(state: GameState) -> str:
 def arrival_facts(state: GameState, content: Content) -> str:
     """What there is to tell of a room just come into, which isn't the room: its things, who's here and the ways out are
     on the screen (the stage, Here, the choices). The narrator is told only what stands out: a secret room, a shop's
-    keeper, a ghost, a fight about to begin, and on a return what happened here since. (room_facts is the whole room,
+    keeper, a ghost, a fight about to begin, someone calm who's here (or the narrator, told nothing, says they're
+gone: run 59's Swoogy), and on a return what happened here since. (room_facts is the whole room,
     for a question about it.)"""
     room = state.room
     lines = ["A secret room, walled off until a bomb opened it."] if room.secret else []
@@ -619,6 +620,9 @@ def arrival_facts(state: GameState, content: Content) -> str:
     elif monster and monster.hostile:
         elite = " It looks unusually dangerous." if monster.elite else ""
         lines.append(f"{cap(the(monster.name))} is here and hostile. A fight begins.{elite}")
+    elif monster and monster.hp > 0 and not room.shop:  # someone calm (Lenny, Swoogy after his game): still here
+        mood = npcs.status(state, content, monster.key)
+        lines.append(f"{cap(the(monster.name))} is here, not hostile" + (f" ({mood})" if mood else "") + ".")
     if room.history:
         lines.append("Earlier here: " + "; ".join(room.history) + ".")
     return " ".join(lines)

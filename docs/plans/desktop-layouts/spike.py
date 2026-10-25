@@ -407,6 +407,9 @@ def big_map(state, width: int, height: int) -> Text | None:
     if cols > width or rows > height:
         return None
     grid = [[(" ", DIM) for _ in range(cols)] for _ in range(rows)]
+    for gy in range(0, rows, step_y):  # (faint dots where a room could be: the floor's own grid, like graph paper)
+        for gx in range(6, cols, step_x):
+            grid[gy][gx] = ("·", "#2a2d4a")
     for room in rooms:
         cx, cy = (room.x - min_x) * step_x + 6, (room.y - min_y) * step_y
         glyph = map_glyph(state, room)
@@ -466,6 +469,76 @@ def sheet_text(state, content) -> Text:
     return text
 
 
+def _steps(state, goal: int) -> int | None:
+    """How many rooms from here to `goal`, through the doors you know of; None if no way's known."""
+    mapped = state.mapped_floor == state.floor
+    seen, frontier, steps = {state.room_id}, [state.room_id], 0
+    while frontier:
+        if goal in frontier:
+            return steps
+        nxt = []
+        for room_id in frontier:
+            room = state.rooms[room_id]
+            if not (room.visited or mapped):
+                continue
+            for exit_ in room.exits.values():
+                if exit_.to not in seen:
+                    seen.add(exit_.to)
+                    nxt.append(exit_.to)
+        frontier, steps = nxt, steps + 1
+    return None
+
+
+def map_notes(state, content):
+    """Under the map: what you're after on this floor and how far it is, whose stories are open, the tips you've
+    had, and the key."""
+    from rich.table import Table
+
+    from ptg import npcs
+
+    table = Table.grid(padding=(0, 2))
+    table.add_column(style=f"bold {DIM}", no_wrap=True)
+    table.add_column(ratio=1)
+    mapped = state.mapped_floor == state.floor
+    last = state.floor >= state.floors_total
+    goal = next((r for r in state.rooms if (r.is_boss if last else r.fixture == "stairs")), None)
+    if goal and (goal.visited or mapped):
+        steps = _steps(state, goal.id)
+        away = "you're there" if steps == 0 else f"{steps} room{'s' * (steps != 1)} from here" if steps else \
+            "no way there known yet"
+        what = Text("▸ ", style=ACCENT) + Text(f"{'The boss' if last else 'The stairs down'}: ", style="bold #e8e8f4")
+        what.append(goal.name, style="#5fe3ff")
+        what.append(f" · {away}", style=DIM)
+    else:
+        what = Text("▸ ", style=ACCENT) + Text("Find the " + ("boss's lair" if last else "stairs down"),
+                                               style="bold #e8e8f4")
+        what.append("  · not found yet", style=DIM)
+    table.add_row("GOAL", what)
+    for n, (_, line, open_) in enumerate(npcs.quest_log(state, content)):
+        mark = Text("★ " if open_ else "✓ ", style=PINK if open_ else DIM)
+        table.add_row("QUESTS" if n == 0 else "", mark + Text(line, style=WORDS if open_ else DIM))
+    tips = []
+    for room in state.rooms:
+        for feature in room.features:
+            if feature.told and not feature.searched:
+                tips.append(Text("$ ", style="#ffd166") + Text(f"Something hidden in the {feature.name}, in the "
+                                                                 f"{room.name}", style=WORDS)
+                            + Text(f" · {feature.told} said", style=DIM))
+        if room.secret and room.told and not room.visited:
+            tips.append(Text("✧ ", style="#c792ea") + Text("A secret room, behind a wall that breathes",
+                                                          style=WORDS) + Text(f" · {room.told} said", style=DIM))
+        if room.draft and not room.secret:
+            tips.append(Text("≈ ", style="#5fe3ff") + Text(f"A draft through the {room.draft} wall of the "
+                                                         f"{room.name}", style=WORDS))
+    if mapped:
+        tips.append(Text("⌘ ", style=ACCENT) + Text("You have this floor's map: every room and door is on it.",
+                                                    style=WORDS))
+    for n, tip in enumerate(tips or [Text("None yet: ask around, search, listen at walls.", style=DIM)]):
+        table.add_row("TIPS" if n == 0 else "", tip)
+    table.add_row("KEY", map_key(state))
+    return table
+
+
 class Thumb(Vertical):
     """A thing in the strip: its picture small, underlined when it's the one in the frame; clicked, it's brought in."""
 
@@ -518,7 +591,7 @@ Screen { background: #0b0c18; }
 #focus { height: auto; }
 .focus-art { margin-right: 2; }
 .focus-side { height: auto; width: 1fr; }
-#strip { height: auto; margin-top: 1; }
+#strip { height: auto; margin-top: 1; scrollbar-color: #24284a; scrollbar-background: #10122a; }
 .thumb { width: 12; height: auto; margin-right: 1; }
 .thumb:hover { background: #1c2040; }
 .thumb-art { height: auto; width: 12; }
@@ -532,12 +605,16 @@ Screen.open .open-title { display: block; }
 .pane-rule { height: 1; margin: 1 0; border-top: dashed #2a2d4a; }
 #tab-bar { height: 1; }
 #pane { height: 1fr; }
-#act { height: auto; }
-#act > #decide { width: 1fr; }
-#dpad { grid-size: 3 3; grid-columns: 3 3 3; grid-rows: 1 1 1; width: 11; height: 5; margin: 1 1 0 2; }
+#pane-head { height: 3; }
+#tabs-col { width: 1fr; height: 3; }
+#where { height: 1; padding: 0 1; }
+#dpad { grid-size: 3 3; grid-columns: 3 3 3; grid-rows: 1 1 1; width: 9; height: 3; margin: 0 2 0 1; }
+#map-frame { width: 100%; align: center middle; padding: 0 2;
+             border-subtitle-color: #6c6f99; }
+#map-notes { height: auto; margin-top: 1; }
+#small-map { width: auto; height: auto; }
 #dpad .arrow { width: 3; }
-#big-map, #map-key { width: auto; height: auto; }
-#map-key { margin-top: 1; }
+#big-map { width: auto; height: auto; }
 #sheet { height: auto; }
 /* open: no borders; each part set apart by its own shade, a dither row where a line was */
 Screen.open .box { border: none; padding: 0 2; }
@@ -779,20 +856,26 @@ class Lab(App):
         """Here when there's someone or something to look at, else the map."""
         return "here" if any(t.art and t.sprite for t in things_here(self.state, self.content)) else "map"
 
-    def tab_bar(self) -> Static:
+    def tab_text(self) -> Text:
         text = Text()
         for key, label, hotkey in TABS:
             on = key == self.tab
-            style = Style.parse(f"bold #10122a on {ACCENT}" if on else f"bold {WORDS} on #1c2040")
-            text.append(f" {label} ", style + Style(meta={"@click": f"app.tab('{key}')"}))
-            text.append(f"{hotkey} ", style=Style.parse(f"{'#10122a on ' + ACCENT if on else DIM + ' on #1c2040'}")
-                        + Style(meta={"@click": f"app.tab('{key}')"}))
+            click = Style(meta={"@click": f"app.tab('{key}')"})
+            text.append(f" {label} ", Style.parse(f"bold #10122a on {ACCENT}" if on else f"bold {WORDS} on #1c2040")
+                        + click)
+            text.append(f"{hotkey} ", Style.parse(f"#10122a on {ACCENT}" if on else f"{DIM} on #1c2040") + click)
             text.append(" ")
-        return Static(text, id="tab-bar")
+        return text
+
+    def pane_head(self) -> Horizontal:
+        """Over the pane: where you are, the tabs under that; the arrows at the end, always there."""
+        where = Text(f"✦ {self.state.room.name}", style=f"bold {look_of(self.state.theme).accent}")
+        tabs = Vertical(Static(where, id="where"), Static(""), Static(self.tab_text(), id="tab-bar"), id="tabs-col")
+        return Horizontal(tabs, self.dpad(), id="pane-head")
 
     def pane_parts(self) -> list:
         """What the pane shows for its tab."""
-        width = self.size.width - round(self.size.width * 0.54) - 4
+        width = self.size.width - round(self.size.width * 0.54) - 4 - (0 if self.open else 2)
         if self.tab == "here":
             parts = self.focus_strip()
             if not self.pictured():
@@ -801,19 +884,36 @@ class Lab(App):
             used = (12 if self.pictured() else 1) + (8 if len(self.pictured()) > 1 else 0) + 2
             big = big_map(self.state, width, self.pane_rows() - used - 3)
             if big is not None:
-                parts += [Static("", classes="pane-rule"), Hover(big, id="big-map")]
+                parts += [Static("", classes="pane-rule"), Hover(big, id="small-map")]
             return parts
         if self.tab == "map":
-            big = big_map(self.state, width, self.pane_rows() - 3)
-            return [Hover(big if big is not None else hover_map(self.state), id="big-map"),
-                    Static(map_key(self.state), id="map-key")]
+            return self.map_parts(width)
         if self.tab == "pack":
             return self.focus_strip()
         return [Static(sheet_text(self.state, self.content), id="sheet")]
 
+    def map_parts(self, width: int) -> list:
+        """The map tab: the floor framed (titled with the floor, how much of it you've seen on the frame's foot), and
+        under it what you're after here, whose stories are open, the tips you've had, and the key."""
+        state = self.state
+        notes = map_notes(state, self.content)
+        lines = sum(1 + len(cell.plain) // max(1, width - 10) for row in notes.columns[1]._cells
+                    for cell in [row if isinstance(row, Text) else Text(str(row))])
+        rows = self.pane_rows() - lines - 3  # (the notes, a row over them, and a little to spare)
+        big = big_map(state, width - 6, rows - 3) or hover_map(state)
+        frame = Vertical(Hover(big, id="big-map"), id="map-frame")
+        frame.styles.height = max(rows, big.plain.count("\n") + 4)  # (the frame takes what the notes leave)
+        theme = self.content.themes[state.theme]
+        frame.border_title = f"✦ {theme.name.upper()} ✦"
+        seen = sum(r.visited for r in state.rooms if not r.secret)
+        frame.border_subtitle = f"{seen} of {sum(not r.secret for r in state.rooms)} rooms seen"
+        frame.styles.border = ("double", look_of(state.theme).accent)
+        frame.styles.border_title_color = look_of(state.theme).accent
+        return [frame, Static(notes, id="map-notes")]
+
     def pane_rows(self) -> int:
-        """The rows inside the tabbed pane: the screen bar the HUD, the tabs, the decision and the pane's frame."""
-        return self.size.height - 1 - 1 - (MOST_CHOICES + 2) - 1 - 2
+        """The rows inside the tabbed pane: the screen bar the HUD, the head, the decision and the pane's own."""
+        return self.size.height - 1 - 3 - (MOST_CHOICES + 2) - 1 - 2
 
     def dpad(self) -> Grid:
         """The arrows, always there: lit where there's a way, saying where it goes when hovered."""
@@ -823,8 +923,8 @@ class Lab(App):
                     Static(""), arrow(self.state, "south"), Static(""), id="dpad")
 
     def layout_tabs(self):
-        """The room's picture over the story on the left; on the right the tabbed pane over the decision square
-        and the arrows."""
+        """The room's picture over the story on the left; on the right where you are, the tabs and the arrows, the
+        tabbed pane, and the decision square under it."""
         if self.tab is None:
             self.tab = self.default_tab()
         self.things = things_here(self.state, self.content)
@@ -832,15 +932,21 @@ class Lab(App):
         pane = VerticalScroll(*self.pane_parts(), id="pane", classes="box")
         decide = self.decide(grouped=False)
         left = Vertical(self.stage(), Static("", classes="dither"), self.story_box(), id="text-side")
-        right = Vertical(self.tab_bar(), pane, Static("", classes="dither"),
-                         Horizontal(decide, self.dpad(), id="act"), id="picture-side")
+        right = Vertical(self.pane_head(), pane, Static("", classes="dither"), decide, id="picture-side")
         return [Horizontal(left, right, id="row")]
 
     async def action_tab(self, key: str) -> None:
-        if self.layout_name != "tabs":
+        """Another tab: only the pane (and the tabs, and the choices' numbers) change; the rest stays as it is."""
+        if self.layout_name != "tabs" or not self.query("#pane"):
             return
-        self.tab, self.in_focus = key, 0
-        await self.show()
+        self.tab, self.in_focus, self.numbers = key, 0, {}
+        pane = self.query_one("#pane")
+        with self.batch_update():
+            await pane.remove_children()
+            await pane.mount(*self.pane_parts())
+            pane.scroll_home(animate=False)
+            self.query_one("#tab-bar", Static).update(self.tab_text())
+            self.query_one("#choices", Static).update(decision(self.things, self.numbers, self.choices, False))
 
     async def action_boxes(self) -> None:
         self.open = not self.open

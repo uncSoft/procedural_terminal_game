@@ -434,6 +434,25 @@ def _mushroom(seed: int):
     return _grid_image(rows, prop_colours(DEFAULT_LOOK))
 
 
+def _trimmed(img):
+    """A sprite without the empty rows over its head and under its feet (its frame's, not its own)."""
+    box = img.getbbox()
+    return img.crop((0, box[1], img.width, box[3])) if box and (box[1] or box[3] < img.height) else img
+
+
+def _whole(img, height: int):
+    """Someone in a room, as big as they are, however far back they stand: the empty rows over their head and under
+    their feet trimmed off, and halved only if they still don't fit a picture that tall (a tiny stage). Marked whole,
+    so nothing after makes them smaller (see Picture._fit). Pixel art halved loses its faces and teeth: it's for
+    nothing but a stage too short for them."""
+    img = _trimmed(img)
+    while img.height > height and img.height >= 4:
+        img = _trimmed(sprites.halve(img))
+    img = img.copy()  # (never the sprite's own frame: that's shared, cached, and must stay as it is)
+    img.info["whole"] = True
+    return img
+
+
 def _at_scale(img, factor: float):
     """Full size, halved or quartered: pixel art only shrinks cleanly by halves."""
     if factor >= 0.75:
@@ -507,6 +526,7 @@ class Picture:
         self.centre: tuple | None = None  # the box the fixture (or a shop's stall) fills, if there's one
         self.plans: list[Placed] = []  # where the features, the fixture and the items will stand, before they're drawn
         self.standing: tuple | None = None  # the box whoever's in the room will fill, once that's settled
+        self.figure: int | None = None  # how wide they're drawn, when they're whole (see _figure)
         self.doors = self._doors()
 
     def draw(self):
@@ -881,11 +901,12 @@ class Picture:
             self.plans.append(Placed("fixture", img, self.centre, z))
             things.append((z, lambda a=a, z=z, img=img, lit=lit: self._place(img, a, z, lit=lit, framed=True,
                                                                               tag="fixture")))
+        figure = self._figure() if room.monster else None  # (how big they are, before the items: half that)
         for key, (gx, gy) in zip(room.items, layout.item_spots(room)):
             small = sprites.frames(f"item_{key}", sprites.SMALL)
             if small:
                 things.append(self._item(small[0], *view.cell(gx, gy)))
-        occupant = self._stand() if room.monster else None
+        occupant = self._stand(*figure) if figure else None
         for layer in (scenery, things):
             for _, draw in sorted(layer, key=lambda t: -t[0]):
                 draw()
@@ -919,19 +940,28 @@ class Picture:
             img = _at_scale(shop_stall(self.room.shop, self.w * (1 if factor >= 0.75 else 2)), factor)
         return img
 
-    def _stand(self) -> tuple | None:
-        """Where whoever is in the room stands, (their picture, a, z): where the room map has them (so the picture
-        agrees with what you're told) unless that's right under your nose. Rather than stand in front of the fixture
-        they step aside, as far as it takes; and a step or two, rather than hide most of a feature or an item, or much
-        of one nearer you than them, which they'd be drawn over (see _crowding). Settled before anything's drawn."""
+    def _figure(self) -> tuple | None:
+        """Whoever is in the room as they'll be drawn, and where the room map has them, (their picture, a, z): full
+        size whenever the picture's tall enough for them (see _whole) and they'd fill no more than half its width,
+        else as far off as they stand. None without a sprite."""
         room, view, lens = self.room, self.view, self.lens
         frames = sprites._strip(room.monster.key)
         if not frames:
             return None
         a, z = view.cell(*room.monster_pos)
         z = max(z, 0.3 * view.depth)
-        img = frames[0]  # in their own colours, calm or not: characters always are
-        img = self._fit(_at_scale(img, lens.scale(z) * FIGURE), a, z, framed=True)[0]
+        img = _whole(frames[0], self.h)  # in their own colours, calm or not: characters always are
+        if img.width < frames[0].width or img.width > self.w // 2:  # (a picture too small for them whole: as far
+            # off as they stand, as it always was)
+            return self._fit(_at_scale(frames[0], lens.scale(z) * FIGURE), a, z, framed=True)[0], a, z
+        self.figure = img.width  # (whole: what lies about is half that)
+        return img, a, z
+
+    def _stand(self, img, a: float, z: float) -> tuple | None:
+        """Where whoever is in the room stands, (their picture, a, z): where the room map has them (so the picture
+        agrees with what you're told) unless that's right under your nose. Rather than stand in front of the fixture
+        they step aside, as far as it takes; and a step or two, rather than hide most of a feature or an item, or much
+        of one nearer you than them, which they'd be drawn over (see _crowding). Settled before anything's drawn."""
         x0, _, x1, _ = img.getbbox() or (0, 0, img.width, 0)
         home, doors = self._fit(img, a, z, framed=True)[1], list(self.door_boxes().values())
         fixture = next((p for p in self.plans if p.tag == "fixture"), None)
@@ -1036,7 +1066,8 @@ class Picture:
         (as if it stood a little nearer), or a size smaller if it's taller than the whole picture or would have to
         come down more than a third of its height."""
         sx, sy = self.lens.at(a, z)
-        while framed and img.height >= 4 and (img.height > self.h or img.height - sy > img.height / 3):
+        while framed and img.height >= 4 and not img.info.get("whole") and (
+                img.height > self.h or img.height - sy > img.height / 3):
             img = sprites.halve(img)
         left, top = round(sx - img.width / 2), round(sy - img.height)
         if framed:
@@ -1081,10 +1112,12 @@ class Picture:
     def _item(self, img, a: float, z: float) -> tuple:
         """Something lying on the floor, in its small picture, with a glint to catch your eye: (z, how to draw it). In
         a picture as tall as the story card's (FULL) it's always that size, never a speck; in a shorter one it's halved
-        wherever whoever's in the room would be, so a potion is never as big as Lucky Lenny beside it. It's moved
+        when whoever's in the room is (or with nobody there, wherever they would be), so a potion is never as big as
+        Lucky Lenny beside it. It's moved
         aside, if it must be, rather than lie over a quarter of the fixture or lose a quarter of itself behind it, or
         under whoever's in the room."""
-        if self.h < FULL and self.lens.scale(z) * FIGURE < 0.75:
+        smaller = self.figure < sprites.DEFAULT_WIDTH if self.figure else self.lens.scale(z) * FIGURE < 0.75
+        if self.h < FULL and smaller:  # (half whoever's in the room: never as big as Lucky Lenny beside it)
             img = sprites.halve(img)
         plan = Placed("item", img, self._box(img, self._aside(img, a, z), z), z)
         self.plans.append(plan)

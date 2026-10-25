@@ -97,3 +97,19 @@ def test_a_full_fate_is_not_told_as_a_gain(content, always):
     events = perform(state, content, "fountain")
     roll = next(e for e in events if e.dice).dice
     assert roll.told().startswith("Fate already full") and "gain" not in events[0].text
+
+
+
+def test_a_natural_20_searching_a_room_always_finds_something(content, always):
+    """A critical search of a room with nothing hidden in it found nothing: now it's at least a few coins."""
+    from ptg.world import generate
+
+    always(20)
+    state = generate(1)
+    state.room.monster = None
+    state.room.features = [f for f in state.room.features if not f.hidden]
+    state.room.draft = ""
+    gold = state.player.gold
+    events = perform(state, content, "search_room")
+    roll = next(e for e in events if e.dice).dice
+    assert state.player.gold > gold and f"+{state.player.gold - gold} gold" in roll.told()

@@ -753,6 +753,12 @@ def _search_room(state: GameState, content: Content, rng: random.Random) -> list
         if beside:
             found.append(_draft(state, beside, None if hidden else roll))
         return found + events
+    if roll.crit:  # (a natural 20 always turns something up: with nothing hidden, a few coins someone dropped)
+        gold = rng.randint(2, 6) * state.floor + 3
+        player.gold += gold
+        roll.effects.append(f"+{gold} gold")
+        return [Event("search_room", f"Nothing's hidden here, but your fingers find a few coins wedged under a loose "
+                                     f"stone (+{gold} gold).", dice=roll, data={"gold": gold})] + events
     # Only worth a Fate reroll if there really was something to find.
     return [Event("search_room", "You search every corner but find nothing hidden.", dice=roll,
                   data={"rerollable": bool(hidden or beside)})] + events

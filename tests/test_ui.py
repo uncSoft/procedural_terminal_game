@@ -509,7 +509,10 @@ async def test_the_dice_box_fits_the_screen_and_keeps_its_size():
             before = box.region
             assert app.screen.die == die and app.screen.has_class(height), size  # (the app's size classes reach it)
             await pilot.press("space")
-            await pilot.pause(3.2)
+            for _ in range(80):  # (the dice tumble for about three seconds: longer, on a busy machine)
+                await pilot.pause(0.1)
+                if app.screen.stage == "done":
+                    break
             assert app.screen.stage == "done" and app.screen.query_one("#dice-fate").has_class("-shown")
             assert box.region == before and box.region.y >= 0 and box.region.bottom <= size[1], size
             prompt = app.screen.query_one("#dice-prompt").region

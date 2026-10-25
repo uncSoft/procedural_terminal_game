@@ -17,8 +17,10 @@ LISTINGS = ("In the room", "On the floor", "Exits:", "(north-east)", "(south-wes
 
 
 def into_the_skeleton(content):
-    """Seed 3: north of the start lies the Bone Gallery, with a hostile Skeleton and a Vial of Holy Water."""
+    """Seed 3: north of the start lies the Bone Gallery, with a hostile Skeleton, and a Vial of Holy Water lying there
+    (put there: where a floor's loot lands is world.py's, not this test's)."""
     state = generate(3)
+    state.rooms[state.room.exits["north"].to].items = ["holy_water"]
     events = perform(state, content, "go:north")
     assert state.room.monster and state.room.monster.hostile and state.room.items
     return state, events

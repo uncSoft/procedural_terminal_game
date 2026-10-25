@@ -1182,3 +1182,36 @@ LogTab .debug-detail {
 .journal-roll {
     padding-left: 4;
 }
+
+/* The character sheet (ui/panels.py CharacterScreen): stat boxes in a row, then two columns, like a tabletop sheet. */
+.sheet-header {
+    margin-bottom: 1;
+}
+
+#sheet-stats {
+    height: auto;
+    grid-gutter: 0 1;
+    grid-rows: auto;
+}
+
+.stat-card {
+    height: auto;
+    padding: 0 1;
+    border-title-align: center;
+    text-align: center;
+}
+
+#sheet-cols {
+    height: auto;
+    grid-gutter: 0 3;
+    grid-rows: auto;
+    margin-top: 1;
+}
+
+.sheet-section {
+    height: auto;
+}
+
+.sheet-growth {
+    margin-top: 1;
+}

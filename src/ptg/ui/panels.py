@@ -9,6 +9,7 @@ that panel instead.
 from __future__ import annotations
 
 from rich.console import Group
+from rich.style import Style
 from rich.table import Table
 from rich.text import Text
 from textual import on
@@ -20,7 +21,7 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Label, ListItem, ListView, Static
 
-from .. import config, glossary, interactions, inventory, layout, npcs, sound
+from .. import config, glossary, interactions, inventory, layout, npcs, sheet, sound
 from ..content import Content, Theme
 from ..game import Game
 from ..meta import epithet
@@ -643,8 +644,37 @@ def gear_comparison(game: Game, key: str) -> str:
 
 # --- you, the room, the floor, the creatures you've met, what's happened ----------------------------------------------
 
+SHEET_WIDTH = 116  # the widest the character sheet's box gets
+STAT_COLOURS = {"Might": "#ff7b7b", "Agility": "#4cff8a", "Wits": "#5fe3ff", "HP": "#ff4b4b", "Defense": "#6c8cff",
+                "Fate": "#ffd166"}
+LINK = "bold #4cff8a"  # a thing you carry, named on the sheet: click for its card
+CURSE = "bold #ff4b4b"
+
+
+def link(content: Content, key: str, name: str = "", style: str = LINK) -> Text:
+    """A thing's name that opens its card when clicked, with what it is on hover (as a highlighted word does)."""
+    return Text(name or content.item(key).name,
+                style=Style.parse(style) + Style(meta={"term": f"item:{key}", "tip": glossary.item_summary(content, key)}))
+
+
+def part_text(content: Content, part: sheet.Part, signed: bool = True) -> Text:
+    """One piece of a sum: "+2 A Ring, Probably Important" (a link, if it's something you carry), or "base 1"."""
+    value = f"{part.value:+d} " if signed and part.name != "base" else f"{part.value} " if part.name != "base" else ""
+    if part.name == "base":
+        return Text(f"base {part.value}", style=DIM)
+    if part.item:
+        return Text(value, style=WORDS) + link(content, part.item, part.name)
+    return Text(value + part.name, style=WORDS)
+
+
 class CharacterScreen(Panel):
+    """A character sheet, laid out like a tabletop one: who you are; your stats in boxes, each with what it's made of;
+    what you have on and carry and what it does for you (or to you); every kind of roll you make with all that adds
+    to it and where that comes from; and your perks, traits and blessings. The sums are sheet.py's. Anything you
+    carry is a link to its card (Panel.action_lookup)."""
+
     panel_name = "character"
+    size_class = "wide"
 
     def __init__(self, game: Game) -> None:
         super().__init__()
@@ -653,12 +683,117 @@ class CharacterScreen(Panel):
     def compose(self) -> ComposeResult:
         state, content = self.game.state, self.game.content
         player = state.player
-        text = Text()
-        text.append(f"{player.name} {epithet(state)}\n", style="bold #ffb000")
-        text.append(f"Level {player.level} · XP {player.xp} · HP {player.hp}/{player.max_hp} · "
-                    f"Defense {player.defense(content)} · Fate {player.fate}/{player.max_fate()}\n")
-        text.append(f"Might {player.might}   Agility {player.agility}   Wits {player.wits}\n\n", style="bold")
-        text.append("PERKS\n", style="bold #ff4f9a")
+        width = min(SHEET_WIDTH, self.app.size.width - 2)
+        inner = width - 6  # less the frame, the padding and the scrollbar
+        with VerticalScroll(classes="panel-box sheet-box") as box:
+            box.border_title = "Character Sheet"
+            box.styles.width = width
+            yield Static(self._header(state, inner), classes="sheet-header")
+            stats = Grid(*[self._stat_card(line) for line in self._stats()], id="sheet-stats")
+            stats.styles.grid_size_columns = 6 if inner >= 90 else 3 if inner >= 48 else 2
+            yield stats
+            two = inner >= 90
+            cols = Grid(StoryLine(self._gear(), classes="sheet-section"),
+                        StoryLine(self._rolls(), classes="sheet-section"),
+                        id="sheet-cols")
+            cols.styles.grid_size_columns = 2 if two else 1
+            yield cols
+            yield StoryLine(self._growth(), classes="sheet-section sheet-growth")
+
+    # --- the parts of the sheet ----------------------------------------------------------------------------------
+
+    def _header(self, state: GameState, inner: int) -> Text:
+        player = state.player
+        text = Text(player.name, style="bold #ffb000")
+        text.append(f"  {epithet(state)}", style="italic #ffd166")
+        text.append(f"\nLevel {player.level}", style="bold")
+        need = player.next_level_xp()
+        if need:
+            filled = round(16 * min(player.xp, need) / need)
+            text.append(f"   XP {player.xp}/{need} ", style=WORDS)
+            text.append("█" * filled, style="#ff4f9a")
+            text.append("░" * (16 - filled), style="#3a2a44")
+        else:
+            text.append(f"   XP {player.xp} (the most there is)", style=WORDS)
+        text.append(f"   ·   ¤ {player.gold} gold   ·   ☽ {state.souls} souls this descent", style=WORDS)
+        return text
+
+    def _stats(self) -> list[sheet.Line]:
+        state, content = self.game.state, self.game.content
+        return [*(sheet.stat_line(state, content, stat) for stat in sheet.STATS), sheet.hp_line(state, content),
+                sheet.defense_line(state, content), sheet.fate_line(state, content)]
+
+    def _stat_card(self, line: sheet.Line) -> StoryLine:
+        """One stat in its box: the number big, what it's made of under it."""
+        content, player = self.game.content, self.game.state.player
+        colour = STAT_COLOURS.get(line.label, "bold")
+        if line.label == "HP":
+            big, parts = f"{line.total}/{line.parts[0].value}", line.parts[1:]
+        elif line.label == "Fate":
+            big = "✦" * line.total + "✧" * (player.max_fate() - line.total) + f" {line.total}/{player.max_fate()}"
+            parts = line.parts
+        else:
+            big, parts = f"{line.total:+d}" if line.label in [s.capitalize() for s in sheet.STATS] else str(line.total), \
+                line.parts
+        text = Text(big, style=f"bold {colour}", justify="center")
+        for part in parts:
+            text.append("\n")
+            text.append_text(part_text(content, part))
+        card = StoryLine(text, classes="stat-card")
+        card.border_title = line.label.upper()
+        card.styles.border = ("round", colour)
+        card.styles.border_title_color = colour
+        return card
+
+    def _gear(self) -> Group:
+        """What you have on and carry that works on you, and what it does: damage, defense, powers, curses. A grid,
+        so what's said of a thing wraps under its name, not under its icon."""
+        state, content = self.game.state, self.game.content
+        damage = sheet.damage_line(state, content)
+        blow = Text("A blow: ", style="bold") + Text(damage.note, style="bold #ffb000")
+        for part in damage.parts[1:]:
+            blow.append(" + " if part.value >= 0 else " - ", style=DIM)
+            blow.append_text(part_text(content, part, signed=False) if part.value else
+                             (link(content, part.item, part.name, WORDS) if part.item else Text(part.name, style=WORDS)))
+        table = Table.grid(padding=(0, 1), expand=True)
+        table.add_column(no_wrap=True)
+        table.add_column(ratio=1)
+        icons = {"in hand": "⚔", "worn": "⛨"}
+        for effect in sheet.carried_effects(state, content):
+            words = link(content, effect.item, style=CURSE if effect.cursed else LINK)
+            if effect.worn:
+                words.append(f" ({effect.worn})", style=DIM)
+            if effect.cursed:
+                words.append("  CURSED", style="bold reverse #ff4b4b")
+            for said in effect.says:
+                words.append(f"\n{said}", style=WORDS)
+            table.add_row(Text(icons.get(effect.worn, "◆"), style="#ffb000" if effect.worn else "#c084fc"), words)
+        return Group(Text("WHAT YOU CARRY", style="bold #ff4f9a"), blow, Text(""), table)
+
+    def _rolls(self) -> Group:
+        """Every kind of roll you make: the d20 plus this, and where each bit comes from (a grid, so the sources
+        wrap in their own column)."""
+        state, content = self.game.state, self.game.content
+        table = Table.grid(padding=(0, 1), expand=True)
+        table.add_column(no_wrap=True)
+        table.add_column(justify="right", no_wrap=True)
+        table.add_column(ratio=1)
+        for line in sheet.roll_lines(state, content):
+            sources = Text()
+            for i, part in enumerate(p for p in line.parts if p.value):
+                if i:
+                    sources.append(" · ", style=DIM)
+                sources.append_text(part_text(content, part))
+            if line.note:
+                sources.append(f"{' · ' if sources.plain else ''}{line.note}", style="italic #ffd166")
+            table.add_row(Text(line.label, style="bold"), Text(f"{line.total:+d}", style="bold #ffb000"), sources)
+        return Group(Text("YOUR ROLLS ", style="bold #ff4f9a") + Text("d20 +", style=DIM), table)
+
+    def _growth(self) -> Text:
+        """Perks you chose, traits you earned by how you play, and the campfire's blessings."""
+        state, content = self.game.state, self.game.content
+        player = state.player
+        text = Text("PERKS\n", style="bold #ff4f9a")
         for key in player.perks or []:
             perk = content.perks[key]
             text.append(f"  {perk.name}", style=f"bold {PERK_COLORS.get(perk.color, '')}")
@@ -677,10 +812,7 @@ class CharacterScreen(Panel):
             for key in player.blessings:
                 unlock = content.unlocks[key]
                 text.append(f"  {unlock.icon} {unlock.name}  {unlock.desc}\n", style=WORDS)
-        text.append(f"\nSouls this descent: {state.souls}", style="#5fe3ff")
-        with VerticalScroll(classes="panel-box") as box:
-            box.border_title = "Character"
-            yield Static(text)
+        return text
 
 
 def exits_text(state: GameState, room: Room) -> Text:

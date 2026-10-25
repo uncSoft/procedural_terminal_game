@@ -65,6 +65,8 @@ SHORT = {  # a power in a few words, for an item's tile
     "distract": "distracts",
     "reveal": "shows what's hidden", "reeks": "hits do 2 less", "dazzle": "scares monsters off",
 }
+CARRYING = {"luck", "seeker", "careful", "unseen", "cook", "goblin_bane", "prophecy", "cursed", "valuable", "eloquent",
+            "reeks"}  # the powers that work while you carry the thing (the character sheet lists them)
 PICKED_UP = {"bomb": "for walls and monsters", "small_key": "opens a chest"}  # counters, not things you carry
 # Roll bonuses: power -> (bonus, the kinds of roll it helps, or None for every one of yours)
 ROLLS = {"luck": (1, None), "seeker": (1, {"search"}), "careful": (2, {"disarm"}), "unseen": (2, {"dodge", "flee"}),

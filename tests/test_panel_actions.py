@@ -17,7 +17,7 @@ async def open_card(app, pilot, screen, term_id: str) -> InfoScreen:
 
 async def test_a_card_for_one_of_several_things_lying_here_offers_to_take_it():
     """With two or more lying here the choices list only 'take everything', so the card had nothing to offer (F29)."""
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         state = screen.game.state
@@ -33,7 +33,7 @@ async def test_a_card_for_one_of_several_things_lying_here_offers_to_take_it():
 
 
 async def test_a_calm_characters_card_offers_what_they_are_after_never_a_blow():
-    app = PTGApp(Config(backend="offline", player_name="T"), test_room=("lenny", "strong", 0))
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), test_room=("lenny", "strong", 0))
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await walk_in(app, pilot)
         card = await open_card(app, pilot, screen, f"monster:{npcs.LENNY}")
@@ -48,7 +48,7 @@ async def test_a_calm_characters_card_offers_what_they_are_after_never_a_blow():
 
 
 async def test_the_inventory_has_a_button_for_everything_you_can_do_with_the_thing():
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         player = screen.game.state.player
@@ -71,7 +71,7 @@ async def test_the_inventory_has_a_button_for_everything_you_can_do_with_the_thi
 
 
 async def test_a_button_in_the_inventory_that_picks_a_target_opens_the_list():
-    app = PTGApp(Config(backend="offline", player_name="T"), test_room=("swamp_bottoms", "new", 0))
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), test_room=("swamp_bottoms", "new", 0))
     async with app.run_test(size=(130, 46)) as pilot:
         screen = await walk_in(app, pilot)
         screen.game.state.player.inventory += ["holy_water"]
@@ -89,7 +89,7 @@ async def test_a_button_in_the_inventory_that_picks_a_target_opens_the_list():
 
 
 async def test_the_shop_compares_gear_warns_of_a_spare_and_sells():
-    app = PTGApp(Config(backend="offline", player_name="T"), test_room=("shop", "strong", 0))
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), test_room=("shop", "strong", 0))
     async with app.run_test(size=(130, 46)) as pilot:
         screen = await walk_in(app, pilot)
         state = screen.game.state
@@ -113,7 +113,7 @@ async def test_the_shop_compares_gear_warns_of_a_spare_and_sells():
 
 async def test_a_weapon_lying_here_can_be_equipped_from_its_card():
     """The card offered only its first action (Take), so a sword you found could only be put on from the choices."""
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(120, 36)) as pilot:
         screen = await into_a_run(app, pilot)
         state = screen.game.state

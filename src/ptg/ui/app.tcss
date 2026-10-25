@@ -514,6 +514,70 @@ GameScreen.touch .verb:hover, GameScreen.touch .choice:hover {
     text-style: none;
 }
 
+/* --- the game screen in tabs (ui/tabs.py): no boxes, each part its own shade, dither where a line was --- */
+
+TabsScreen { background: #090a13; }
+TabsScreen #left { width: 1fr; }
+TabsScreen #stage { border: none; padding: 0; }
+TabsScreen #stage.combat { border: none; }
+TabsScreen .dither { height: 1; width: 100%; color: #23264a; text-wrap: nowrap; text-overflow: clip; }
+TabsScreen.combat #stage-rule { color: #5a2030; }
+TabsScreen #story { border: none; padding: 0 2 0 2; background: #090a13; }
+TabsScreen #side { background: #10122a; }
+TabsScreen #pane-head { height: 3; padding: 0 1 0 2; background: #0d0f22; }
+TabsScreen #where-col { width: 1fr; height: 3; }
+TabsScreen #where, TabsScreen #where-what { height: 1; text-wrap: nowrap; text-overflow: ellipsis; }
+TabsScreen #dpad { width: 11; height: 3; margin: 0 1 0 1; border: none; }
+TabsScreen .dpad-key, TabsScreen .dpad-gap { width: 3; }
+TabsScreen #tab-row { height: 1; padding: 0 1 0 2; background: #0d0f22; }
+TabsScreen #tab-bar { width: 1fr; height: 1; }
+TabsScreen #tab-expand { width: 5; height: 1; color: #6c6f99; text-align: right; }
+TabsScreen #tab-expand:hover { color: #ffb000; background: #1c2040; }
+TabsScreen #pane { height: 1fr; padding: 1 2 0 2; background: #10122a; scrollbar-size-vertical: 1;
+                   scrollbar-background: #10122a; scrollbar-color: #2a2d4a; }
+TabsScreen #pane-rule { background: #10122a; }
+TabsScreen #decide { height: 11; background: #14173a; border-left: outer #ffb000; padding: 0 1 0 1; }
+TabsScreen #decide-title { height: 1; color: #ffb000; text-style: bold; }
+TabsScreen #choices { height: auto; max-height: 7; border: none; padding: 0; background: #14173a; }
+TabsScreen #choices .choice { width: 100%; margin: 0; }
+TabsScreen #command { border: none; height: 1fr; min-height: 1; background: #1c2040; padding: 0 1; margin-bottom: 1; }
+TabsScreen #command:focus { background: #23284e; }
+TabsScreen #shims { display: none; }
+TabsScreen .focus { height: auto; }
+TabsScreen .focus-art { margin-right: 2; width: auto; }
+TabsScreen .focus-side { height: auto; width: 1fr; }
+TabsScreen .focus-words { height: auto; }
+TabsScreen .focus-verbs { height: auto; margin-top: 1; }
+TabsScreen .here-verbs { height: 1; width: auto; }
+TabsScreen .here-verbs .verb { width: auto; margin-right: 1; }
+TabsScreen .strip { height: auto; margin-top: 1; scrollbar-size-horizontal: 1; scrollbar-color: #24284a;
+                    scrollbar-background: #10122a; }
+TabsScreen .thumb { width: 12; height: auto; margin-right: 1; }
+TabsScreen .thumb:hover { background: #1c2040; }
+TabsScreen .thumb-art { width: 12; height: auto; }
+TabsScreen .thumb-mark { height: 1; width: 12; color: #10122a; }
+TabsScreen .thumb.picked .thumb-mark { color: #ffb000; }
+TabsScreen .plain-line { height: 1; width: auto; margin-top: 1; }
+TabsScreen .plain-name { width: auto; margin-right: 1; }
+TabsScreen .pane-rule { height: 1; margin: 1 0 1 0; }
+TabsScreen .map-frame { width: 100%; height: auto; align: center middle; padding: 0 2;
+                        border-subtitle-color: #6c6f99; }
+TabsScreen .pane-map, TabsScreen .small-map { width: auto; height: auto; }
+TabsScreen .pane-text { height: auto; }
+TabsScreen .pane-gap { height: 1; }
+TabsScreen.combat #pane-head, TabsScreen.combat #tab-row { background: #1c0c1a; }
+
+/* the story without its box: a bar down the side of what you did, the dice dimmed behind a faint one, the floor's
+   banner and a quest's as bands of colour rather than lines */
+TabsScreen .player-line { border-left: outer #ffb000; padding-left: 1; margin-top: 1; }
+TabsScreen .mechanic { border-left: outer #23264a; padding-left: 1; }
+TabsScreen .narration, TabsScreen .pickup-line, TabsScreen .system-line { padding-left: 2; }
+TabsScreen .floor-header { border-top: none; border-bottom: none; background: #2a1030; padding: 1 0; margin: 1 0; }
+TabsScreen .quest-banner { border: none; background: #2e2408; padding: 0 2; margin-top: 1; }
+TabsScreen .secret-banner { border-top: none; border-bottom: none; background: #2e2408; padding: 1 0; }
+TabsScreen .secret-banner.shop { border-top: none; border-bottom: none; background: #0c2a18; }
+TabsScreen .continued { border-top: none; border-bottom: none; background: #141a3c; padding: 0; }
+
 .player-line {
     margin-top: 1;
     color: $secondary;

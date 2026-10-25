@@ -159,6 +159,9 @@ class SetupScreen(Screen):
                 yield Label("Art")
                 yield Select([("Pixel sprites", "sprites"), ("ASCII art", "ascii")], value=config.art,
                              allow_blank=False, id="art", compact=True)
+                yield Label("Game screen")
+                yield Select([("Tabs beside the story", "tabs"), ("Classic", "classic")], value=config.layout,
+                             allow_blank=False, id="layout", compact=True)
                 yield Label("Dice")
                 yield Select([("Press Space to roll (dramatic)", "manual"), ("Roll automatically", "auto")],
                              value="auto" if config.auto_roll else "manual", allow_blank=False, id="dice",
@@ -249,6 +252,7 @@ class SetupScreen(Screen):
             **narrator,
             "auto_roll": self.query_one("#dice", Select).value == "auto",
             "art": self.query_one("#art", Select).value,
+            "layout": self.query_one("#layout", Select).value,
             "sound": self.query_one("#sound", Select).value == "on",
             "volume": self.query_one("#volume", Select).value,
         })
@@ -291,6 +295,6 @@ class IntroScreen(Screen):
         widget.update(Text(final))
 
     def action_begin(self) -> None:
-        from .game_screen import GameScreen
+        from .tabs import game_screen
 
-        self.app.switch_screen(GameScreen(self.game, fresh=True))
+        self.app.switch_screen(game_screen(self.game, True, *self.app.size))

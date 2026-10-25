@@ -78,7 +78,7 @@ def test_highlight_adds_click_and_tooltip_meta(content):
 
 
 async def test_clicking_a_term_opens_its_card(profile):
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         await pilot.pause()
         state = generate(1)

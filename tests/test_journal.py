@@ -25,7 +25,7 @@ def test_a_gift_that_worked_is_written_down_with_its_roll(content, monkeypatch):
 
 
 async def test_a_name_in_the_journal_opens_its_card_and_what_you_do_there_is_your_turn():
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", player_name="T", layout="classic"), seed=1)  # (the panel, in full)
     async with app.run_test(size=(120, 36)) as pilot:
         screen = await into_a_run(app, pilot)
         state = screen.game.state

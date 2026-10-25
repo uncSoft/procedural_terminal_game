@@ -18,6 +18,7 @@ from ..meta import abandon, start_run
 from ..profile import Profile
 from .debug import DebugScreen
 from .game_screen import GameScreen
+from .tabs import game_screen
 from .hub import EndScreen, HubScreen
 from .screens import AbandonScreen, IntroScreen, SetupScreen, TitleScreen, describe_backend
 from .theme import CRT
@@ -165,7 +166,7 @@ class PTGApp(App):
         game = Game(state, self.config, llm, profile=self.profile)
         game.force_event, self.event = self.event, None
         first_time = self.profile.totals()["runs"] == 0
-        screen = IntroScreen(game) if first_time else GameScreen(game, fresh=True)
+        screen = IntroScreen(game) if first_time else game_screen(game, True, *self.size)
         if isinstance(self.screen, HubScreen):
             self.switch_screen(screen)
         else:
@@ -191,7 +192,7 @@ class PTGApp(App):
                 self.run_worker(screen.game.aclose())
         while len(self.screen_stack) > max(1, keep):
             self.pop_screen()
-        self.push_screen(GameScreen(Game(state, self.config, llm, content, self.profile), fresh=True))
+        self.push_screen(game_screen(Game(state, self.config, llm, content, self.profile), True, *self.size))
         self.notify("Nothing here counts: no save, no souls, nothing remembered. Esc twice to leave.",
                     title="A test room", timeout=6)
 
@@ -201,7 +202,7 @@ class PTGApp(App):
         if state is None:
             return
         llm = await self.connect()
-        self.push_screen(GameScreen(Game(state, self.config, llm, profile=self.profile), fresh=False))
+        self.push_screen(game_screen(Game(state, self.config, llm, profile=self.profile), False, *self.size))
 
     def end_run(self, screen: GameScreen) -> None:
         self.switch_screen(EndScreen(screen.game.state))

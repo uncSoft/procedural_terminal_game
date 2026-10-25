@@ -760,7 +760,7 @@ async def test_the_game_screen_shows_what_they_say_as_story_cards():
     from ptg.ui.game_screen import GameScreen
     from ptg.ui.widgets import Picture
 
-    app = PTGApp(Config(backend="offline", player_name="Tester"), test_room=("lenny_quest", "new", 0, 4))
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="Tester"), test_room=("lenny_quest", "new", 0, 4))
     async with app.run_test(size=(150, 46)) as pilot:
         for _ in range(50):
             await pilot.pause(0.1)

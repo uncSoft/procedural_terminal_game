@@ -54,7 +54,7 @@ async def test_the_sheet_links_the_ring_on_the_rolls_it_helps():
     from ptg.ui.panels import CharacterScreen, InfoScreen
     from ptg.ui.widgets import StoryLine
 
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", player_name="T", layout="classic"), seed=1)  # (the panel, in full)
     async with app.run_test(size=(140, 40)) as pilot:
         screen = await into_a_run(app, pilot)
         screen.game.state.player.inventory.append("a_ring_probably_importan")

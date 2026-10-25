@@ -252,7 +252,7 @@ def test_profile_view_counts_deaths(profile):
 # --- UI ------------------------------------------------------------------------
 
 async def test_scene_in_the_ui_and_the_book_of_secrets():
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1, event="mirror_trial")
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1, event="mirror_trial")
     async with app.run_test(size=(130, 44)) as pilot:
         await pilot.pause()
         app.show_campfire()

@@ -46,7 +46,7 @@ async def until(pilot, check, limit: float = 3.0) -> bool:
 
 async def test_f12_opens_every_tab_and_closes_again():
     content = load_content()
-    app = PTGApp(Config(backend="offline"))
+    app = PTGApp(Config(backend="offline", layout="classic"))
     async with app.run_test(size=(140, 44)) as pilot:
         await pilot.pause()
         await pilot.press("f12")
@@ -73,7 +73,7 @@ async def test_f12_opens_every_tab_and_closes_again():
 
 
 async def test_the_art_tab_animates_any_pose():
-    app = PTGApp(Config(backend="offline"))
+    app = PTGApp(Config(backend="offline", layout="classic"))
     async with app.run_test(size=(140, 44)) as pilot:
         await pilot.pause()
         app.push_screen(DebugScreen("art"))
@@ -89,7 +89,7 @@ async def test_the_art_tab_animates_any_pose():
 
 async def test_the_art_tab_points_out_art_drawn_small_and_custom_colours():
     """Art in under half its frame looks tiny in the game; colours off the maker's palette are one more to draw."""
-    app = PTGApp(Config(backend="offline"))
+    app = PTGApp(Config(backend="offline", layout="classic"))
     async with app.run_test(size=(140, 44)) as pilot:
         await pilot.pause()
         app.push_screen(DebugScreen("art"))
@@ -106,14 +106,14 @@ async def test_the_art_tab_points_out_art_drawn_small_and_custom_colours():
 
 
 async def test_ptg_debug_opens_it_straight_away():
-    app = PTGApp(Config(backend="offline"), debug=True)
+    app = PTGApp(Config(backend="offline", layout="classic"), debug=True)
     async with app.run_test(size=(140, 44)) as pilot:
         await pilot.pause(0.3)
         assert isinstance(app.screen, DebugScreen)
 
 
 async def test_sounds_play_on_a_click_or_enter(speakers):
-    app = PTGApp(Config(backend="offline"))
+    app = PTGApp(Config(backend="offline", layout="classic"))
     async with app.run_test(size=(140, 44)) as pilot:
         await pilot.pause()
         app.push_screen(DebugScreen("sounds"))
@@ -150,7 +150,7 @@ def test_sound_preview_respects_ptg_sound_0():
 
 
 async def test_state_shows_the_run_its_flags_and_the_profile():
-    app = PTGApp(Config(backend="offline", player_name="Tester"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="Tester"), seed=1)
     async with app.run_test(size=(140, 44)) as pilot:
         await pilot.pause()
         app.show_campfire()
@@ -171,7 +171,7 @@ async def test_state_shows_the_run_its_flags_and_the_profile():
 
 
 async def test_story_events_fire_on_the_next_descent_and_reload():
-    app = PTGApp(Config(backend="offline"))
+    app = PTGApp(Config(backend="offline", layout="classic"))
     async with app.run_test(size=(140, 44)) as pilot:
         await pilot.pause()
         app.push_screen(DebugScreen("story"))
@@ -191,7 +191,7 @@ async def test_story_events_fire_on_the_next_descent_and_reload():
 async def test_the_model_check_runs_in_the_app_and_is_kept(monkeypatch, fake_llm):
     model = fake_llm(reply={"kind": "flavor", "action_id": "", "difficulty": "trivial"}, text="You hum. Nothing.")
     monkeypatch.setattr(debug, "make_llm", lambda config: model)
-    app = PTGApp(Config(backend="offline"))
+    app = PTGApp(Config(backend="offline", layout="classic"))
     async with app.run_test(size=(140, 44)) as pilot:
         await pilot.pause()
         app.push_screen(DebugScreen("models"))
@@ -210,7 +210,7 @@ async def test_the_model_check_runs_in_the_app_and_is_kept(monkeypatch, fake_llm
 
 
 async def test_a_model_that_isnt_loaded_comes_with_a_warning():
-    app = PTGApp(Config(backend="offline"))
+    app = PTGApp(Config(backend="offline", layout="classic"))
     async with app.run_test(size=(140, 44)) as pilot:
         await pilot.pause()
         app.push_screen(DebugScreen("models"))
@@ -224,7 +224,7 @@ async def test_a_model_that_isnt_loaded_comes_with_a_warning():
 
 
 async def test_use_for_the_narrator_saves_the_model():
-    app = PTGApp(Config(backend="offline"))
+    app = PTGApp(Config(backend="offline", layout="classic"))
     async with app.run_test(size=(140, 44)) as pilot:
         await pilot.pause()
         app.push_screen(DebugScreen("models"))
@@ -239,7 +239,7 @@ async def test_the_log_tab_reads_the_model_log():
     log_exchange("json", {"model": "m", "messages": [{"role": "user", "content": "PLAYER TYPED: kick the door"}]},
                  '{"kind": "creative"}')
     log_exchange("guard", ["exit claim: You see a door to the east."], "The room is quiet.")
-    app = PTGApp(Config(backend="offline"))
+    app = PTGApp(Config(backend="offline", layout="classic"))
     async with app.run_test(size=(140, 44)) as pilot:
         await pilot.pause()
         app.push_screen(DebugScreen("log"))

@@ -26,6 +26,7 @@ class Config(BaseModel):
     temperature: float = 0.8
     auto_roll: bool = False
     art: Literal["sprites", "ascii"] = "sprites"
+    layout: Literal["tabs", "classic"] = "tabs"  # the game screen: tabs beside the story (ui/tabs.py), or the classic
     sound: bool = True
     volume: int = 70  # percent
     tone: str = "darkly funny, vivid and fair, like a game master who loves the players"

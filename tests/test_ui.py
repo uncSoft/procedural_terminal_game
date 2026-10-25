@@ -37,7 +37,7 @@ async def settle(app, pilot, limit: float = 10.0) -> None:
 
 
 async def test_campfire_descent_panels_and_continue():
-    app = PTGApp(Config(backend="offline", player_name="Tester"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="Tester"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         await pilot.pause()
         assert isinstance(app.screen, TitleScreen)
@@ -79,7 +79,7 @@ async def test_campfire_descent_panels_and_continue():
 
 
 async def test_a_run_in_progress_comes_first_and_picks_up_where_it_was():
-    app = PTGApp(Config(backend="offline", player_name="T"))
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"))
     state = start_run(app.profile, load_content(), "T", seed=5)
     state.room.monster, state.room.items = None, ["healing_potion"]
     save_game(state)
@@ -111,7 +111,7 @@ async def test_a_run_in_progress_comes_first_and_picks_up_where_it_was():
 
 
 async def test_abandoning_a_run_from_the_title_ends_it_as_a_death():
-    app = PTGApp(Config(backend="offline", player_name="T"))
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"))
     state = start_run(app.profile, load_content(), "T", seed=5)
     state.souls = 9
     save_game(state)
@@ -130,7 +130,7 @@ async def test_abandoning_a_run_from_the_title_ends_it_as_a_death():
 
 
 async def test_a_daily_from_the_command_line_asks_about_a_run_in_progress():
-    app = PTGApp(Config(backend="offline", player_name="T"), daily=True)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), daily=True)
     save_game(start_run(app.profile, load_content(), "T", seed=5))
     async with app.run_test(size=(130, 44)) as pilot:
         await pilot.pause(0.3)
@@ -139,7 +139,7 @@ async def test_a_daily_from_the_command_line_asks_about_a_run_in_progress():
 
 async def test_a_run_that_cant_be_continued_says_why():
     save_path().write_text('{"version": 1, "status": "playing"}')
-    app = PTGApp(Config(backend="offline", player_name="T"))
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"))
     async with app.run_test(size=(130, 44)) as pilot:
         await pilot.pause(0.3)
         info = app.screen.query_one("#run-info")
@@ -150,7 +150,7 @@ async def test_a_run_that_cant_be_continued_says_why():
 async def test_a_press_on_a_choice_just_replaced_is_dropped(monkeypatch):
     """Run 44 crashed here: a click on a choice in the instant it was replaced, which Textual took for the start of a
     text selection in a widget no longer on the screen."""
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         gone = screen.query(ChoiceItem).first()
@@ -164,7 +164,7 @@ async def test_a_press_on_a_choice_just_replaced_is_dropped(monkeypatch):
 
 
 async def test_a_click_on_a_choice_is_that_choice_wherever_it_is_now():
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         first = screen.query(ChoiceItem).first()
@@ -207,7 +207,7 @@ async def test_a_room_is_the_stage_and_what_lies_in_it_is_heres(monkeypatch):
 
     seed = next(s for s in range(500) if any(not e.locked and generate(s).rooms[e.to].fixture == "chest"
                                              for e in generate(s).room.exits.values()))
-    app = PTGApp(Config(backend="offline", player_name="T", auto_roll=True), seed=seed)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T", auto_roll=True), seed=seed)
     async with app.run_test(size=(130, 46)) as pilot:
         screen = await into_a_run(app, pilot)
         state, story = screen.game.state, screen.query_one("#story")
@@ -246,7 +246,7 @@ async def test_a_hosted_game_keeps_its_narrator_and_debug_screen_to_itself(monke
     from ptg.ui.debug import DebugScreen
 
     monkeypatch.setenv("PTG_HOSTED", "1")
-    app = PTGApp(Config(backend="anthropic", model="claude-haiku-5-5", player_name="Ava"), debug=True)
+    app = PTGApp(Config(backend="anthropic", layout="classic", model="claude-haiku-5-5", player_name="Ava"), debug=True)
     async with app.run_test(size=(130, 44)) as pilot:
         await pilot.pause(0.3)
         await pilot.press("f12")
@@ -263,7 +263,7 @@ async def test_a_hosted_game_keeps_its_narrator_and_debug_screen_to_itself(monke
 
 
 async def test_death_goes_to_the_tombstone_then_the_campfire():
-    app = PTGApp(Config(backend="offline", player_name="Doomed"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="Doomed"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         await pilot.pause()
         app.show_campfire()
@@ -295,7 +295,7 @@ async def test_death_goes_to_the_tombstone_then_the_campfire():
 
 
 async def test_a_test_room_from_the_command_line_counts_for_nothing():
-    app = PTGApp(Config(backend="offline", player_name="Tester"), test_room=("swoogy", "strong", 0))
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="Tester"), test_room=("swoogy", "strong", 0))
     async with app.run_test(size=(130, 44)) as pilot:
         await pilot.pause(0.5)
         await settle(app, pilot)
@@ -312,7 +312,7 @@ async def test_a_test_room_from_f12_mid_run_leaves_that_run_as_it_was():
 
     from ptg.ui.debug import DebugScreen, TestRoomsTab
 
-    app = PTGApp(Config(backend="offline", player_name="Tester"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="Tester"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         await into_a_run(app, pilot)
         await pilot.press("f12")
@@ -357,7 +357,7 @@ async def test_fights_flash_lunge_and_dissolve():
     """A fight plays on the foe's tile in Here (a test room puts a foe in the first room, so it's there to see)."""
     from conftest import put_monster
 
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         game = screen.game
@@ -390,7 +390,7 @@ async def test_fights_flash_lunge_and_dissolve():
 async def test_fixtures_come_alive():
     """A fixture is a tile Here: its picture glints while there is something to do with it, plays the moment you use
     it, and rests (a chest open and emptied, a shrine snuffed) after."""
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         game = screen.game
@@ -433,7 +433,7 @@ def close_on_border(screen) -> bool:
 
 
 async def test_panels_close_with_the_mouse():
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         screen.game.state.player.inventory += ["oil_flask", "stale_bread", "holy_water"]
@@ -464,7 +464,7 @@ async def test_panels_close_with_the_mouse():
 
 
 async def test_dice_roll_and_reroll_with_the_mouse():
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         await into_a_run(app, pilot)
         results = []
@@ -499,7 +499,7 @@ async def test_the_dice_box_fits_the_screen_and_keeps_its_size():
     from ptg.dice_art import SIZE, SMALL_SIZE
 
     for size, die, height in (((130, 44), SIZE, "-tall"), ((100, 30), SIZE, "-short"), ((80, 24), SMALL_SIZE, "-tiny")):
-        app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+        app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
         async with app.run_test(size=size) as pilot:
             await pilot.pause()
             failed = Roll("might", "player", [4], 4, [("Might", 1)], dc=14, success=False)
@@ -531,7 +531,7 @@ async def test_each_reroll_line_counts_the_fate_left_from_before_the_roll(monkey
         return combat.fortune(state, roll)
 
     monkeypatch.setattr("ptg.rules.fortune", lucky)
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         state = screen.game.state
@@ -563,7 +563,7 @@ async def test_each_reroll_line_counts_the_fate_left_from_before_the_roll(monkey
 
 
 async def test_rolls_light_up_the_story():
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         game = screen.game
@@ -584,7 +584,7 @@ async def test_rolls_light_up_the_story():
 
 
 async def test_a_new_floor_waits_for_you():
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         game = screen.game
@@ -610,7 +610,7 @@ async def test_a_new_floor_waits_for_you():
 
 
 async def test_the_mouse_can_begin_and_end_a_run():
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         await pilot.pause()
         app.show_campfire()
@@ -635,7 +635,7 @@ async def test_the_end_of_a_run_is_drawn_in_pixels():
     from ptg.world import generate
 
     for art in ("sprites", "ascii"):
-        app = PTGApp(Config(backend="offline", player_name="T", art=art), seed=1)
+        app = PTGApp(Config(backend="offline", layout="classic", player_name="T", art=art), seed=1)
         async with app.run_test(size=(110, 44)) as pilot:
             await pilot.pause()
             state = generate(1, "Pip the Brave", load_content())
@@ -673,7 +673,7 @@ async def test_the_end_of_a_run_fits_the_screen():
                 ("ascii", "dead", False): (8, 8), ("ascii", "dead", True): (0, 8),
                 ("ascii", "won", False): (3, 3), ("ascii", "won", True): (3, 3)}
     for (art, status, long), (small, big) in expected.items():
-        app = PTGApp(Config(backend="offline", player_name="T", art=art), seed=1)
+        app = PTGApp(Config(backend="offline", layout="classic", player_name="T", art=art), seed=1)
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
             state = generate(1, "Sir Reginald Pumpernickel", load_content())
@@ -696,7 +696,7 @@ async def test_the_end_of_a_run_fits_the_screen():
 
 
 async def test_the_moments_make_sounds(monkeypatch):
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         from conftest import Recorder, put_monster
@@ -721,7 +721,7 @@ async def test_items_drawn_in_the_maker_show_their_art():
     """The same picture wherever it's shown, and animated: its card, the inventory's tile and its detail."""
     from ptg.ui.panels import ItemTile
 
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         key = screen.game.state.player.inventory[0]
@@ -747,7 +747,7 @@ async def test_the_inventory_is_tiles_and_enter_uses_the_one_picked(monkeypatch)
 
     drawn = widgets.frames  # pretend nobody has drawn the oil yet
     monkeypatch.setattr(widgets, "frames", lambda key, *args: None if key == "item_oil_flask" else drawn(key, *args))
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         player = screen.game.state.player
@@ -775,7 +775,7 @@ async def test_the_inventory_is_tiles_and_enter_uses_the_one_picked(monkeypatch)
 
 async def test_found_loot_is_a_tile_to_take_or_leave():
     """What a search turns up lies there: a tile Here, with its art, to take, or leave. Taking it empties its place."""
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=4)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=4)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         state = screen.game.state
@@ -802,7 +802,7 @@ async def test_found_loot_is_a_tile_to_take_or_leave():
         assert not any(t.id == "floor:superior_healing_potion" for t in screen.things)  # (Here is drawn again)
 
 async def test_the_stage_always_shows_the_room_you_are_in():
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         state = screen.game.state
@@ -823,7 +823,7 @@ async def test_the_stage_always_shows_the_room_you_are_in():
         assert str(stage.border_title) == f"✦ {came_from}"  # been here before: it's still the room you're in
 
 async def test_the_pad_lights_the_ways_out_and_takes_you_there():
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=57)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=57)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         state = screen.game.state
@@ -866,7 +866,7 @@ async def test_the_pad_lights_the_ways_out_and_takes_you_there():
 async def test_the_choices_strip_pages_when_there_are_more_than_its_lines():
     """A strip of chips as tall as it needs, up to its plan's lines; past that, a chip says how many more, and taps
     to the next page. The numbers carry on from the buttons on the tiles."""
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=57)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=57)
     async with app.run_test(size=(80, 24)) as pilot:
         screen = await into_a_run(app, pilot)
         state = screen.game.state
@@ -885,7 +885,7 @@ async def test_the_choices_strip_pages_when_there_are_more_than_its_lines():
             assert [c.index for c in screen.query(ChoiceItem)][0] > shown[0]
 
 async def test_pictures_open_their_cards():
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=57)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=57)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         await pilot.click("#stage")  # the room you're in: look around
@@ -900,7 +900,7 @@ async def test_pictures_open_their_cards():
         assert str(app.screen.query_one(".panel-box").border_title) == "Shrine"
 
 async def test_look_shows_the_room_as_a_picture():
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         await into_a_run(app, pilot)
         await pilot.press("f4")
@@ -912,7 +912,7 @@ async def test_look_shows_the_room_as_a_picture():
 
 
 async def test_no_room_pictures_in_ascii_mode():
-    app = PTGApp(Config(backend="offline", player_name="T", art="ascii"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T", art="ascii"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         assert not screen.query(".room-card")
@@ -924,7 +924,7 @@ async def test_no_room_pictures_in_ascii_mode():
 async def test_ctrl_l_wipes_the_terminal_and_draws_everything_again(monkeypatch):
     from textual.drivers.headless_driver import HeadlessDriver
 
-    app = PTGApp(Config(backend="offline"))
+    app = PTGApp(Config(backend="offline", layout="classic"))
     async with app.run_test(size=(100, 30)) as pilot:
         await pilot.pause()
         written: list[str] = []
@@ -937,7 +937,7 @@ async def test_ctrl_l_wipes_the_terminal_and_draws_everything_again(monkeypatch)
 
 
 async def test_the_game_redraws_itself_every_few_turns(monkeypatch):
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         redraws = []
@@ -955,7 +955,7 @@ async def test_a_secret_room_is_a_celebration(monkeypatch):
 
     from ptg.rules import hidden_room_beside
 
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=11)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=11)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         monkeypatch.delenv("PTG_SOUND", raising=False)
@@ -983,7 +983,7 @@ async def test_monsters_move_on_their_tiles_the_bestiary_and_on_their_cards():
     """Their frames take turns: Here's tiles beat on the app's one clock."""
     from conftest import put_monster
 
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=3)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=3)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         game = screen.game
@@ -1025,7 +1025,7 @@ async def test_a_shop_from_its_door_to_its_counter(monkeypatch):
     from ptg.world import generate
 
     seed = next(s for s in range(300) if any(r.shop for r in generate(s).rooms))
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=seed)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=seed)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         monkeypatch.delenv("PTG_SOUND", raising=False)
@@ -1067,7 +1067,7 @@ async def test_what_a_monster_dropped_is_a_tile_to_take(monkeypatch):
 
     from ptg import combat
 
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=3)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=3)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         state = screen.game.state
@@ -1099,7 +1099,7 @@ async def test_a_shop_fits_a_small_screen():
 
     seed = next(s for s in range(300) if any(r.shop for r in generate(s).rooms))
     for size, keeper in (((100, 30), SMALL), ((80, 24), 0), ((130, 44), DEFAULT_WIDTH)):
-        app = PTGApp(Config(backend="offline", player_name="T"), seed=seed)
+        app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=seed)
         async with app.run_test(size=size) as pilot:
             screen = await into_a_run(app, pilot)
             state = screen.game.state
@@ -1138,7 +1138,7 @@ async def test_the_inventory_draws_things_full_size_when_there_is_room():
     from ptg.ui.panels import ItemTile
 
     for size, pixels in (((130, 44), DEFAULT_WIDTH), ((100, 30), SMALL)):
-        app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+        app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
         async with app.run_test(size=size) as pilot:
             screen = await into_a_run(app, pilot)
             screen.game.state.player.inventory += ["holy_water", "stale_bread", "rubber_duck"]
@@ -1151,7 +1151,7 @@ async def test_the_inventory_draws_things_full_size_when_there_is_room():
             detail = inventory.query_one("#inv-art", Picture)
             assert detail.art.pixels == pixels and detail.key == inventory.items[0][0], size
             assert inventory.query_one(".inventory-box").region.right <= size[0]
-    app = PTGApp(Config(backend="offline", player_name="T", art="ascii"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T", art="ascii"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:  # ASCII art: a glyph each, on small tiles
         await into_a_run(app, pilot)
         await pilot.press("f2")
@@ -1166,7 +1166,7 @@ async def test_a_friendly_character_is_met_in_colour():
     he wants in words. Click him for his card, which offers what he's there for (not a blow)."""
     from ptg import testrooms
 
-    app = PTGApp(Config(backend="offline", player_name="T"), test_room=("lenny", "strong", 0))
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), test_room=("lenny", "strong", 0))
     async with app.run_test(size=(130, 44)) as pilot:
         await pilot.pause(0.5)
         await settle(app, pilot)
@@ -1191,7 +1191,7 @@ async def test_a_fight_on_its_tile_never_moves_it_or_runs_off_the_screen():
     from conftest import put_monster
 
     for size in ((130, 44), (100, 30), (80, 24), (60, 34)):
-        app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+        app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
         async with app.run_test(size=size) as pilot:
             screen = await into_a_run(app, pilot)
             game = screen.game
@@ -1228,7 +1228,7 @@ async def test_a_card_is_titled_with_what_it_is_and_says_where_it_is():
     features were "Fixture", "Room" and "In the room". Their pictures stood still, though a monster's moved."""
     from ptg import powers
 
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         state, content = screen.game.state, screen.game.content
@@ -1276,7 +1276,7 @@ async def test_panels_keep_their_size_whatever_you_pick():
     from ptg.ui.panels import ItemTile
 
     for size in ((130, 44), (100, 30), (80, 24)):
-        app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+        app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
         async with app.run_test(size=size) as pilot:
             screen = await into_a_run(app, pilot)
             screen.game.state.player.inventory += LONG_AND_SHORT
@@ -1316,7 +1316,7 @@ async def test_f1_to_f7_work_inside_every_panel():
     that panel (its own key closes it), from a card too; a level-up stays put under the one you look at."""
     from ptg.rules import check_level
 
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(100, 30), notifications=True) as pilot:
         screen = await into_a_run(app, pilot)
         depth = len(app.screen_stack)
@@ -1368,7 +1368,7 @@ async def test_a_level_up_can_wait():
     puts the choice off: the perks wait as the choices, and picking one there is a turn like any other."""
     from ptg.rules import check_level
 
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(80, 24)) as pilot:
         screen = await into_a_run(app, pilot)
         game = screen.game
@@ -1440,7 +1440,7 @@ async def test_the_campfire_fits_a_short_screen():
     button in under it. Now the fire's smaller on a short screen, the legends keep some lines, a card is as tall as its
     name and price, and what a card does shows in a pane that keeps its size."""
     for size in ((100, 30), (80, 24)):
-        app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+        app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
         async with app.run_test(size=size) as pilot:
             await pilot.pause()
             for i in range(5):
@@ -1470,7 +1470,7 @@ async def test_look_says_how_the_room_is_now():
     opened, and its own Exits line after the narration's. Now what's said comes from the game as it is."""
     from conftest import put_monster
 
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         state = screen.game.state
@@ -1500,7 +1500,7 @@ async def test_look_says_how_the_room_is_now():
 async def test_toasts_and_the_hud_keep_out_of_the_way():
     """Toasts stacked over the right of the choices and the arrow pad; now they sit at the top right. And on a
     100-column screen the status bar lost its end mid-word: now the least of it goes first."""
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(100, 30), notifications=True) as pilot:
         screen = await into_a_run(app, pilot)
         app.notify("Something happened.", title="A toast", timeout=10)

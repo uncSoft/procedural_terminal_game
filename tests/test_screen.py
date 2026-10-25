@@ -30,7 +30,7 @@ async def walk_in(app, pilot):
 
 
 async def test_a_wide_screen_has_a_stage_here_beside_it_and_a_strip_of_choices():
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=3)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=3)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         plan = screen.plan
@@ -44,7 +44,7 @@ async def test_a_wide_screen_has_a_stage_here_beside_it_and_a_strip_of_choices()
 
 
 async def test_a_narrow_screen_is_one_column_with_a_strip_a_ways_bar_and_a_short_status():
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=3)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=3)
     async with app.run_test(size=(60, 34)) as pilot:
         screen = await into_a_run(app, pilot)
         assert not screen.plan.two_columns and screen.has_class("one") and screen.has_class("compact")
@@ -56,7 +56,7 @@ async def test_a_narrow_screen_is_one_column_with_a_strip_a_ways_bar_and_a_short
 
 
 async def test_the_screen_is_laid_out_again_when_the_window_changes():
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=3)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=3)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         assert shown(screen, "#side") and not screen.has_class("one")
@@ -70,7 +70,7 @@ async def test_the_screen_is_laid_out_again_when_the_window_changes():
 
 async def test_the_story_holds_words_only():
     """No picture, loot card or sprite in the story any more: they are the stage's and Here's."""
-    app = PTGApp(Config(backend="offline", player_name="T", auto_roll=True), seed=3)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T", auto_roll=True), seed=3)
     async with app.run_test(size=(130, 46)) as pilot:
         screen = await into_a_run(app, pilot)
         state, story = screen.game.state, screen.query_one("#story")
@@ -81,7 +81,7 @@ async def test_the_story_holds_words_only():
 
 
 async def test_a_characters_tile_has_buttons_numbered_first_and_typing_a_number_presses_one():
-    app = PTGApp(Config(backend="offline", player_name="T"), test_room=("lenny", "new", 0))
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), test_room=("lenny", "new", 0))
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await walk_in(app, pilot)
         lenny = screen.things[0]
@@ -98,7 +98,7 @@ async def test_a_characters_tile_has_buttons_numbered_first_and_typing_a_number_
 
 
 async def test_taking_something_from_its_tile_empties_its_place_and_says_where_it_went():
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         state = screen.game.state
@@ -113,7 +113,7 @@ async def test_taking_something_from_its_tile_empties_its_place_and_says_where_i
 
 
 async def test_a_foe_is_a_tile_with_its_health_and_attacking_it_is_a_button():
-    app = PTGApp(Config(backend="offline", player_name="T", auto_roll=True), test_room=("swamp_bottoms", "new", 0))
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T", auto_roll=True), test_room=("swamp_bottoms", "new", 0))
     async with app.run_test(size=(130, 46)) as pilot:
         screen = await walk_in(app, pilot)
         foe = screen.things[0]
@@ -128,7 +128,7 @@ async def test_a_foe_is_a_tile_with_its_health_and_attacking_it_is_a_button():
 
 
 async def test_a_picker_button_opens_a_list_of_what_could_be_used_on_the_foe():
-    app = PTGApp(Config(backend="offline", player_name="T"), test_room=("swamp_bottoms", "new", 0))
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), test_room=("swamp_bottoms", "new", 0))
     async with app.run_test(size=(130, 46)) as pilot:
         screen = await walk_in(app, pilot)
         screen.game.state.player.inventory += ["holy_water", "rubber_duck"]
@@ -144,7 +144,7 @@ async def test_a_picker_button_opens_a_list_of_what_could_be_used_on_the_foe():
 
 
 async def test_typing_look_around_opens_the_look_panel_not_a_turn():
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=3)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=3)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         turn = screen.game.state.turn
@@ -154,7 +154,7 @@ async def test_typing_look_around_opens_the_look_panel_not_a_turn():
 
 
 async def test_the_menu_on_a_short_screen_opens_the_panels():
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=3)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=3)
     async with app.run_test(size=(60, 34)) as pilot:
         screen = await into_a_run(app, pilot)
         screen.action_menu()
@@ -166,7 +166,7 @@ async def test_the_menu_on_a_short_screen_opens_the_panels():
 
 
 async def test_the_stage_shows_the_room_and_a_click_on_it_looks_around():
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=3)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=3)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         stage = screen.query_one("#stage")
@@ -191,7 +191,7 @@ def test_what_changes_hands_with_a_character_is_a_line_each(content):
 
 
 async def test_a_foes_use_button_stands_in_for_a_row_a_thing_in_the_strip():
-    app = PTGApp(Config(backend="offline", player_name="T"), test_room=("swamp_bottoms", "new", 0))
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), test_room=("swamp_bottoms", "new", 0))
     async with app.run_test(size=(130, 46)) as pilot:
         screen = await walk_in(app, pilot)
         screen.game.state.player.inventory += ["holy_water", "rubber_duck"]
@@ -203,7 +203,7 @@ async def test_a_foes_use_button_stands_in_for_a_row_a_thing_in_the_strip():
 
 
 async def test_many_things_to_use_are_one_chip_that_opens_them():
-    app = PTGApp(Config(backend="offline", player_name="T"), seed=1)
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(130, 44)) as pilot:
         screen = await into_a_run(app, pilot)
         state = screen.game.state

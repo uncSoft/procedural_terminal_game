@@ -150,3 +150,14 @@ def test_no_room_is_a_treasure_trove_and_a_stash_is_its_floors_best_and_no_bette
 
 def state_key(content, state):
     return content.themes[state.theme].key_item
+
+
+def test_a_chest_doesnt_hand_you_gear_you_already_have(content):
+    """Run 59 found a second Iron Helm while wearing one: gear you have isn't given again if anything else fits."""
+    state = generate(1)
+    state.player.armor = "iron_helm" if "iron_helm" in content.items else state.player.armor
+    have = loot.owned(state, content)
+    assert state.player.weapon in have
+    given = {loot.produce(random.Random(seed), content, [], [f"gear {state.floor}"], "chest", have)
+             for seed in range(200)}
+    assert given and None not in given and not given & set(have)

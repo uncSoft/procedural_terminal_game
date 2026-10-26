@@ -144,3 +144,28 @@ def test_the_warden_always_drops_something_good(content):
     assert first.key == "small_key"  # nothing rare of tier 1 or less for a warden: a key for a chest instead
     second, state = warden_drop(2)
     assert loot.rare(second) and second.tier <= 2 and second.key in state.rares
+
+
+def test_something_heavy_breaks_through_a_wall_worth_a_bomb_without_one(content):
+    """"I smash through the wall with my axe" (run 59): might, harder than a chest, and no bomb spent."""
+    from ptg.intent import Intent
+    from ptg.interactions import from_intent
+
+    state, secret = beside_the_secret_room()
+    direction = hidden_room_beside(state)
+    said = Intent(kind="creative", summary=f"smash through the {direction} wall with my sword", difficulty="hard",
+                  success_effects=["nothing"])
+    use = from_intent(state, content, said)
+    assert use == f"smash:rusty_sword@wall:{direction}"
+    state.player.might, hp, bombs = -50, state.player.hp, state.player.bombs
+    events = perform(state, content, use)
+    assert events[0].kind == "breach" and state.player.hp < hp and direction not in state.room.exits
+    state.player.might = 50
+    events = perform(state, content, f"breach:{direction}")
+    assert events[0].kind == "secret_room" and state.room.exits[direction].to == secret.id
+    assert state.player.bombs == bombs and events[0].data["rerollable"]
+
+    state, wrong = decoy_wall()  # nothing behind it: earth
+    state.player.might = 50
+    events = perform(state, content, f"breach:{wrong}")
+    assert "earth" in events[0].text and wrong not in state.room.exits

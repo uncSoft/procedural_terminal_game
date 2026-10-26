@@ -10,7 +10,7 @@ from textual.containers import Center, Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Input, Label, Select, Static
 
-from ..config import DEFAULT_CLAUDE_MODEL, DEFAULT_URLS, Config, hosted, load_game, read_save
+from ..config import APPLE_HELP, DEFAULT_CLAUDE_MODEL, DEFAULT_URLS, Config, hosted, load_game, read_save
 from ..content import load_content
 from ..llm import LLMError
 from ..llm.narrator import intro
@@ -147,6 +147,7 @@ class SetupScreen(Screen):
                 yield Input(config.player_name, id="name", compact=True)
                 yield Label("Narrator", classes="local")
                 yield Select([("LM Studio (local)", "lmstudio"), ("Ollama (local)", "ollama"),
+                              ("Apple Intelligence (on this Mac, via apfel)", "apple"),
                               ("Other OpenAI-compatible server", "openai"), ("Claude API", "anthropic"),
                               ("Offline (no AI)", "offline")], value=preset, allow_blank=False, id="backend",
                              compact=True, classes="local")
@@ -217,7 +218,8 @@ class SetupScreen(Screen):
         try:
             models = await llm.list_models()
         except LLMError as e:
-            status.update(Text(f"Can't reach the server: {e}"))
+            apple = self.query_one("#backend", Select).value == "apple"
+            status.update(Text(f"Can't reach the server: {e}" + (f"\n{APPLE_HELP}." if apple else "")))
             return
         finally:
             await llm.aclose()
@@ -242,7 +244,7 @@ class SetupScreen(Screen):
         preset = self.query_one("#backend", Select).value
         model = self.query_one("#model", Select).value
         narrator = {} if hosted() else {
-            "backend": "openai" if preset in ("lmstudio", "ollama", "openai") else preset,
+            "backend": "openai" if preset in ("lmstudio", "ollama", "apple", "openai") else preset,
             "url": self.query_one("#url", Input).value.strip() or DEFAULT_URLS["lmstudio"],
             "model": "" if model is Select.BLANK else str(model),
             "api_key": self.query_one("#api_key", Input).value.strip(),

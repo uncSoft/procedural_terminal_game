@@ -53,9 +53,11 @@ async def test_using_the_fixture_keeps_the_command_in_the_turn_log():
 
 async def test_the_command_stays_in_view_on_a_first_visit():
     """A turn taller than a small story used to end scrolled to the narration, with the command gone (run 44, and the
-    audit at 100x30 and 150x46). The room's picture is the stage's now, above the story, never scrolled away."""
+    audit at 100x30 and 150x46). The room's picture is the stage's now, above the story, never scrolled away. (The
+    classic screen's: the tabs screen puts it beside the story.)"""
     for size in [(100, 30), (150, 46)]:
-        app = PTGApp(Config(backend="offline", player_name="T", auto_roll=True), seed=chest_room_seed())
+        app = PTGApp(Config(backend="offline", player_name="T", auto_roll=True, layout="classic"),
+                     seed=chest_room_seed())
         async with app.run_test(size=size) as pilot:
             screen, state, story = await walk_into_the_chest_room(app, pilot)
             await pilot.pause(0.5)

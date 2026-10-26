@@ -92,8 +92,8 @@ def player_attack(state: GameState, content: Content, rng: random.Random) -> lis
     coating = [player.coating] if player.coated else []  # holy water or lamp oil on the blade (interactions.RECIPES)
     weak = list(dict.fromkeys(t for t in weapon.tags + coating if t in monster_def.weak))
     if weak:
-        parts.append((f"{weak[0]}!", 2))
-        extras.append(f"{weak[0]}!")
+        parts.append((f"{' + '.join(weak)}!", 2))
+        extras.append(f"{' + '.join(weak)}!")
     worn = ""
     if coating:
         player.coated -= 1
@@ -174,11 +174,11 @@ def throw(state: GameState, content: Content, rng: random.Random, key: str) -> l
     if roll.crit:  # (a critical throw hits twice as hard, as a critical blow does)
         parts.append((f"crit {thrown_damage(item)}", dice.roll(thrown_damage(item), rng)))
     if weak:
-        parts.append((f"{weak[0]}!", 2))
+        parts.append((f"{' + '.join(weak)}!", 2))
     roll.damage = parts
     damage = sum(value for _, value in parts)
     monster.hp -= damage
-    tail = (f" [{weak[0]}!]" if weak else "") + (f" {gone}" if item.kind == "weapon" else "")
+    tail = (f" [{' + '.join(weak)}!]" if weak else "") + (f" {gone}" if item.kind == "weapon" else "")
     events.insert(0, Event("hit", f"{cap(the(item.name))} hits {the(monster.name)} for {damage} damage "
                                   f"({max(monster.hp, 0)}/{monster.max_hp} HP left).{tail}{more}", dice=roll,
                            data={"damage": damage, "rerollable": True, **thrown}))
@@ -206,7 +206,7 @@ def bomb_monster(state: GameState, content: Content, rng: random.Random) -> list
     weak = [t for t in ("fire", "loud") if t in content.monster(monster.key).weak]
     damage = dice.roll("2d6", rng) + 2 * state.floor + (3 if weak else 0)
     monster.hp -= damage
-    tail = f" [{weak[0]}!]" if weak else ""
+    tail = f" [{' + '.join(weak)}!]" if weak else ""
     events = [Event("hit", f"Your bomb goes off at {the(monster.name)}'s feet for {damage} damage "
                            f"({max(monster.hp, 0)}/{monster.max_hp} HP left).{tail}",
                     data={"damage": damage, "bomb": True})]
@@ -505,6 +505,7 @@ def _kept(state: GameState, content: Content, rng: random.Random, monster: Monst
         state.rares.append(own[0])
         return own[:1]
     if (warden or monster.elite) and rng.random() < (loot.WARDEN_DROP if warden else loot.ELITE_DROP):
-        kept = loot.produce(rng, content, state.rares, loot.WARDEN[min(state.floor, 3)], "warden")
+        kept = loot.produce(rng, content, state.rares, loot.WARDEN[min(state.floor, 3)], "warden",
+                            loot.owned(state, content))
         return [kept] if kept else []
     return []

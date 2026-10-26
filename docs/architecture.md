@@ -117,8 +117,8 @@ rewind. Tests rely on this (`tests/bot.py` games are compared run to run).
 ## Language models
 
 - `llm/base.py` is the interface: **structured JSON** (for the interpreter and extras) and **streamed prose** (for
-  the narrator). Backends: any OpenAI-compatible server (`openai_compat.py`: LM Studio, Ollama, llama.cpp, vLLM,
-  OpenRouter), Claude (`anthropic_backend.py`, the `claude` extra), or none (offline).
+  the narrator). Backends: any OpenAI-compatible server (`openai_compat.py`: LM Studio, Ollama, Apple Intelligence
+  through apfel, llama.cpp, vLLM, OpenRouter), Claude (`anthropic_backend.py`, the `claude` extra), or none (offline).
 - **Interpreter** (`interpreter.py`): matches obvious commands locally; otherwise asks the model for an `Intent`
   naming only things in the room's `RoomView` (`scene.py`), so "the rat" is never a guess. Falls back to keywords.
 - **Narrator** (`narrator.py`) with **guard** (`guard.py`): prose is checked against the facts a sentence at a time

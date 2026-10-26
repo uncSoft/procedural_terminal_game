@@ -13,7 +13,11 @@ from .models import GameState
 
 Backend = Literal["openai", "anthropic", "offline"]
 
-DEFAULT_URLS = {"lmstudio": "http://localhost:1234/v1", "ollama": "http://localhost:11434/v1"}
+# Apple Intelligence's on-device model, through apfel (brew install apfel; apfel --serve), an OpenAI-compatible server
+# on Ollama's port: written 127.0.0.1 so Settings can tell the two apart by their URL.
+DEFAULT_URLS = {"lmstudio": "http://localhost:1234/v1", "ollama": "http://localhost:11434/v1",
+                "apple": "http://127.0.0.1:11434/v1"}
+APPLE_HELP = "Needs macOS 26 or later with Apple Intelligence on, and apfel: brew install apfel, then apfel --serve"
 DEFAULT_CLAUDE_MODEL = "claude-opus-5-5"
 
 

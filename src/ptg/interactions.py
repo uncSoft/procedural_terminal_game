@@ -527,7 +527,9 @@ def _on_exit(state, content, use: Use, target: Ref) -> Row | None:
     key, direction = use.subject, target.key
     what = _name(state, content, use)
     if target.kind == "wall":
-        return Row(alias=f"bomb:{direction}", label=f"Bomb the {direction} wall") if key == "bomb" else \
+        if key == "bomb":
+            return Row(alias=f"bomb:{direction}", label=f"Bomb the {direction} wall")
+        return _breach_row(state, content, direction, key) or \
             Row(refusal=f"Nothing comes of {what} against the {direction} wall.")
     exit_ = state.room.exits[direction]
     if not exit_.locked:
@@ -599,9 +601,26 @@ def _plan_open(state, content, view, use, target) -> Row | None:
     return None
 
 
+def _breach_row(state, content, direction: str, key: str = "") -> Row | None:
+    """Breaking through a wall worth a bomb, without one: with something to swing (the tool named, else your weapon)."""
+    if key and key not in content.items:
+        return None
+    item = content.item(key or state.player.weapon) if (key or state.player.weapon) in content.items else None
+    if key and not (item.kind == "weapon" or {"heavy", "metal", "sharp"} & set(item.tags)):
+        return None
+    if state.room.monster and state.room.monster.hostile:
+        return Row(refusal=f"Not with {the(state.room.monster.name)} at you.")
+    swing = f" with {the(item.name)}" if item else ""
+    return Row(alias=f"breach:{direction}" + (f":{key}" if key else ""),
+               label=f"Smash through the {direction} wall{swing}", hint="might · hard · no bomb")
+
+
 def _plan_smash(state, content, view, use, target) -> Row | None:
     if target is None:
         return None
+    if target.kind == "wall" and use.subject != "bomb":
+        return _breach_row(state, content, target.key, use.subject) or \
+            Row(refusal=f"Nothing comes of {_name(state, content, use)} against the {target.key} wall.")
     if target.kind == "fixture" and target.key == "chest":
         if use.subject in ("bomb", "small_key"):
             return _on_fixture(state, content, use, target)
@@ -835,6 +854,8 @@ def verbs(state: GameState, content: Content, ref_id: str) -> list[Action]:
         offer(f"bomb:{key}", "Bomb it")
     elif kind == "wall":
         offer(f"bomb:{key}", "Bomb it")
+        if ref.state["draft"]:  # (a cracked wall: something heavy might do what a bomb would)
+            offer(f"breach:{key}", "Smash through it")
     elif kind in ("item", "gear"):
         item = content.item(key)
         waiting = view.monster if kind == "item" and view.monster and view.monster.state["npc"] else None

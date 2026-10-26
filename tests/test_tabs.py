@@ -227,3 +227,46 @@ async def test_the_decision_is_a_fixed_twelve_rows_and_notifications_land_in_the
         await pilot.pause(0.2)
         assert "Bestiary: The Hobgoblin is weak to shiny." in str(lately.render())
         assert lately.has_class("noted")
+
+
+def test_gold_bombs_and_keys_found_say_so_in_chips_with_how_many_you_have_now():
+    from ptg.ui.game_screen import purse_chips
+
+    before = {"gold": 15, "bombs": 1, "keys": 0}
+    chips = purse_chips(before, {"gold": 21, "bombs": 2, "keys": 0})
+    assert chips is not None and "+6 ¤ gold" in chips.plain and "(21)" in chips.plain and "+1 ● bomb" in chips.plain
+    assert "key" not in chips.plain
+    assert purse_chips(before, {"gold": 5, "bombs": 1, "keys": 0}) is None  # (spending isn't news)
+
+
+async def test_gold_found_lights_its_counter():
+    from ptg.ui.game_screen import purse
+
+    app = PTGApp(Config(backend="offline", player_name="T"), test_room=("lenny", "new", 0))
+    async with app.run_test(size=(152, 43)) as pilot:
+        screen = await walk_in(app, pilot)
+        before = purse(screen.game.state)
+        screen.game.state.player.gold += 7
+        await screen._purse_feedback(before)
+        hud = screen.query_one("#hud")
+        assert hud.lit == {"gold"} and "gold" in hud.at
+
+
+async def test_settings_offer_apple_intelligence_through_apfel():
+    """Apple's on-device model, served OpenAI-style by apfel on Ollama's port: told apart by its 127.0.0.1."""
+    from textual.widgets import Input, Select
+
+    from ptg.config import DEFAULT_URLS, load_config
+    from ptg.ui.screens import SetupScreen
+
+    app = PTGApp(None)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        assert isinstance(app.screen, SetupScreen)
+        app.screen.query_one("#backend", Select).value = "apple"
+        await pilot.pause(0.3)
+        assert app.screen.query_one("#url", Input).value == DEFAULT_URLS["apple"]
+        app.screen.action_save()
+        await pilot.pause(0.3)
+        config = load_config()
+        assert config.backend == "openai" and config.url == DEFAULT_URLS["apple"]

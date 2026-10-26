@@ -228,9 +228,10 @@ runs could pick a fixed set.
 The repo already has the start of this: `tests/bot.py` and the win-rate guard in `tests/test_rules.py`
 (`test_bot_games_finish_without_errors`). The next step builds on them rather than starting over:
 
-- **`tools/simulate.py`** (or `ptg simulate`): plays N seeds with the bot through `rules.perform` (no model) and
-  prints a report like the table in section 1, **per floor**: deaths, HP at each staircase, damage taken per fight,
-  rounds to kill by tier, potions drunk, gold earned and spent, level reached, causes of death.
+- **`tools/simulate.py`** (built: `uv run --frozen python tools/simulate.py 300`, about 5 seconds): plays N seeds
+  with the bot through `rules.perform` (no model) and prints, **per floor**, runs that reached it and died on it, and
+  HP, level, gold, potions and turns at its stairs; then what killed them, by floor, and the run as a whole. Still
+  to add: damage taken per fight, rounds to kill by tier, gold spent; and floor counts past 3, once the floors exist.
 - **A smarter bot as well as the plain one**: today's picks the first perk and never improvises, so it plays weaker
   than a person; a second policy that picks perks sensibly, uses keys on shops and buys potions brackets the real
   player from above. The target win rate is for the plain bot; the smart one shows the ceiling.

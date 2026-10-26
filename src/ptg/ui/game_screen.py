@@ -117,6 +117,29 @@ def exchange_lines(events: list[Event], content) -> list[str]:
     return out
 
 
+PURSE = (("gold", "¤", "#ffb000", "gold", "gold"), ("bombs", "●", "#ff7b39", "bomb", "bombs"),
+         ("keys", "⚷", "#c0cbdc", "small key", "small keys"))  # (what the HUD counts, its mark, its colour, its names)
+
+
+def purse(state) -> dict[str, int]:
+    """What you'd want told when it goes up: gold, bombs and small keys."""
+    return {"gold": state.player.gold, "bombs": state.player.bombs, "keys": state.player.keys}
+
+
+def purse_chips(before: dict[str, int], after: dict[str, int]) -> Text | None:
+    """What a turn added to your purse, as chips in a line: "+6 ¤ gold (21)   +1 ● bomb (2)". None if nothing."""
+    text = Text("  ")
+    for name, mark, colour, one, many in PURSE:
+        gained = after[name] - before[name]
+        if gained <= 0:
+            continue
+        if text.plain.strip():
+            text.append("   ")
+        text.append(f" +{gained} {mark} {one if gained == 1 else many} ", style=f"bold #10122a on {colour}")
+        text.append(f" ({after[name]})", style="#6c6f99")
+    return text if text.plain.strip() else None
+
+
 def shown(widget: Widget) -> str:
     """A piece of the story in a line, for the run's turn log: its words, or what the picture, sprite or cards were
     (a row of them is named for it as it's made: its cards may not be in it yet)."""
@@ -731,6 +754,7 @@ class GameScreen(Screen):
             self.add_line(f"> {shown}", "player-line")
         sound.play("select")
         hp_before, gold_before = game.state.player.hp, game.state.player.gold
+        purse_before = purse(game.state)
         monster = game.state.room.monster
         before = (monster.key, monster.name) if monster else None
         room_before = game.state.room_id
@@ -765,7 +789,8 @@ class GameScreen(Screen):
         self.query_one("#hud", Hud).show(game.state, game.content)
         for moment in dict.fromkeys(filter(None, map(effects.event_sound, pending.events))):
             sound.play(moment)
-        await self._roll_feedback(pending.events, hp_before, gold_before)
+        await self._roll_feedback(pending.events, hp_before)
+        await self._purse_feedback(purse_before)
         await self._fight_animations(pending.events, before, room_before)
         await self._fixture_moment(pending.events)
         # Then, from the top, all above what's said of it: a new floor's header and a moment's banner. (The room, who
@@ -780,8 +805,8 @@ class GameScreen(Screen):
         self.refresh_panels()
 
         result = await game.finish(on_text)
+        line = pickup_line(result.events, game.content) if result.narration else None
         if result.narration:
-            line = pickup_line(result.events, game.content)
             if line:  # (the card said what it was; this says where it went)
                 narration.update(Text(line))
                 narration.set_classes("pickup-line")
@@ -792,8 +817,11 @@ class GameScreen(Screen):
             await narration.remove()  # an authored moment speaks for itself
         for error in result.errors:
             self.add_line(f"  ({error})", "system-line")
-        for line in exchange_lines(result.events, game.content):  # (what changed hands, in a line each)
-            self.add_line(Text(line), "pickup-line")
+        for exchange in exchange_lines(result.events, game.content):  # (what changed hands, in a line each)
+            self.add_line(Text(exchange), "pickup-line")
+        chips = purse_chips(purse_before, purse(game.state))
+        if chips and not line:  # (gold, bombs and keys found say so, with how many you have now)
+            self.add_line(chips, "purse-line")
         self._show_story(result.events)
         self.since_redraw += 1
         if self.since_redraw >= self.app.REDRAW_EVERY:  # keeps a struggling terminal's picture from drifting
@@ -932,6 +960,24 @@ class GameScreen(Screen):
             sound.play("coin")
         if how in (GREAT, AWFUL):
             await self._shake(story)
+
+    async def _purse_feedback(self, before: dict[str, int]) -> None:
+        """Gold, bombs or keys gained: their counters light up on the status bar, the gain rises off them, and it
+        clinks (gold) or clicks (the rest)."""
+        after = purse(self.game.state)
+        gained = {name: after[name] - before[name] for name, *_ in PURSE if after[name] > before[name]}
+        if not gained:
+            return
+        hud = self.query_one("#hud", Hud)
+        hud.light(set(gained))
+        sound.play("coin" if "gold" in gained else "item")
+        marks = {name: (mark, colour) for name, mark, colour, *_ in PURSE}
+        for name, amount in gained.items():
+            if name in hud.at and hud.region.width:
+                mark, colour = marks[name]
+                x = hud.region.x + 1 + hud.at[name]
+                await effects.popup(self, f" +{amount} {mark} ", f"bold #10122a on {colour}", x, hud.region.y + 1,
+                                    dx=0, dy=1)
 
     async def _pop_over_scene(self, text: str, style: str) -> None:
         """A popup rising off the foe's tile (or the stage, with no tile to show it on)."""

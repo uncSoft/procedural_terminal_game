@@ -152,9 +152,18 @@ def one_of(rng: random.Random, content: Content, slots: list[str], place: str = 
     return pick(rng, content, rng.choice(slots), place, taken)
 
 
-def produce(rng: random.Random, content: Content, rares: list[str], slots: list[str], place: str) -> str | None:
-    """One of a special place's slots, filled; a rare thing it gives is noted in `rares` so it never comes twice."""
-    key = one_of(rng, content, slots, place, rares)
+def owned(state, content: Content) -> list[str]:
+    """The gear you have already, worn or carried: no use finding a second of it (run 59's two Iron Helms)."""
+    keys = [state.player.weapon, state.player.armor, *state.player.inventory]
+    return [k for k in dict.fromkeys(keys) if k in content.items and role(content.item(k)) in GEAR]
+
+
+def produce(rng: random.Random, content: Content, rares: list[str], slots: list[str], place: str,
+            have: list[str] = ()) -> str | None:
+    """One of a special place's slots, filled; a rare thing it gives is noted in `rares` so it never comes twice, and
+    gear you `have` already isn't given again if anything else fits."""
+    key = one_of(rng, content, slots, place, [*rares, *have]) if have else None
+    key = key or one_of(rng, content, slots, place, rares)
     if key is None and any(s.startswith("rare") for s in slots):  # no rare thing left for here
         key = pick(rng, content, INSTEAD.get(place, INSTEAD_OF_RARE), place, rares)
     if key and rare(content.item(key)):

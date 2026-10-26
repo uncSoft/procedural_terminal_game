@@ -249,7 +249,8 @@ def _place_loot(rng, content: Content, state: GameState, theme, rooms: list[Room
     stash = loot.STASH.get(state.floor, loot.STASH[max(loot.STASH)])
     stash_room.features.append(Feature(
         name=rng.choice(HIDDEN_FEATURES), hidden=True, gold=rng.randint(15, 30) * state.floor,
-        loot=[key for key in [loot.produce(rng, content, state.rares, stash, "stash")] if key],
+        loot=[key for key in [loot.produce(rng, content, state.rares, stash, "stash", loot.owned(state, content))]
+              if key],
     ))
 
 
@@ -301,7 +302,7 @@ def _secret_room(rng: random.Random, content: Content, state: GameState, theme, 
     room = Room(id=len(rooms), x=x, y=y, name=f"Hidden {rng.choice(names)}", archetype=archetype.key,
                 distance=min(r.distance for r in near) + 1, secret=True,
                 features=[Feature(name=rng.choice(archetype.features), gold=rng.randint(10, 20) * state.floor)])
-    prize = loot.produce(rng, content, state.rares, loot.SECRET, "secret")
+    prize = loot.produce(rng, content, state.rares, loot.SECRET, "secret", loot.owned(state, content))
     if prize:
         room.items.append(prize)
     if rng.random() < 0.3:  # something got here first, and won't share

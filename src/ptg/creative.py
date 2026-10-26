@@ -245,10 +245,12 @@ def perform_creative(state: GameState, content: Content, intent: Intent, rng: ra
                         data={"success": roll.success, "rerollable": could_change(state, intent),
                               "props": [p.name for p in props]}))
     if weak_hits and monster:
-        tag = weak_hits[0][1]
+        tags = list(dict.fromkeys(t for _, t in weak_hits))  # (every one it plays on, not just the first: run 59)
         if roll.success:  # (told after a miss, it read as if the miss had worked: run 44)
-            events.append(Event("exploit", f"That's {the(monster.name)}'s weakness: {tag}!"))
-        events += discover(state, monster, tag)
+            said = " and ".join(tags)
+            events.append(Event("exploit", f"That's {the(monster.name)}'s weakness{'es' * (len(tags) > 1)}: {said}!"))
+        for tag in tags:
+            events += discover(state, monster, tag)
     events += fortune(state, roll)
 
     outcome: list[Event] = []

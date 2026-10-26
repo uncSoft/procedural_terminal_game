@@ -576,7 +576,7 @@ TabsScreen #footer-narrator { width: auto; height: 1; padding: 0 1; color: $text
    banners as bands of colour */
 TabsScreen .player-line { border-left: outer #ffb000; padding-left: 1; margin-top: 1; }
 TabsScreen .mechanic { border-left: outer #23264a; padding-left: 1; }
-TabsScreen .narration, TabsScreen .pickup-line, TabsScreen .system-line { padding-left: 2; }
+TabsScreen .narration, TabsScreen .pickup-line, TabsScreen .purse-line, TabsScreen .system-line { padding-left: 2; }
 TabsScreen .floor-header { border-top: none; border-bottom: none; background: #2a1030; padding: 1 0; margin: 1 0; }
 TabsScreen .quest-banner { border: none; background: #2e2408; padding: 0 2; margin-top: 1; }
 TabsScreen .secret-banner { border-top: none; border-bottom: none; background: #2e2408; padding: 1 0; }
@@ -585,7 +585,7 @@ TabsScreen .continued { border-top: none; border-bottom: none; background: #141a
 
 .player-line { border-left: outer #ffb000; padding-left: 1; margin-top: 1; }
 TabsScreen .mechanic { border-left: outer #23264a; padding-left: 1; }
-TabsScreen .narration, TabsScreen .pickup-line, TabsScreen .system-line { padding-left: 2; }
+TabsScreen .narration, TabsScreen .pickup-line, TabsScreen .purse-line, TabsScreen .system-line { padding-left: 2; }
 TabsScreen .floor-header { border-top: none; border-bottom: none; background: #2a1030; padding: 1 0; margin: 1 0; }
 TabsScreen .quest-banner { border: none; background: #2e2408; padding: 0 2; margin-top: 1; }
 TabsScreen .secret-banner { border-top: none; border-bottom: none; background: #2e2408; padding: 1 0; }
@@ -615,6 +615,10 @@ TabsScreen .continued { border-top: none; border-bottom: none; background: #141a
 .pickup-line {
     color: $success;
     text-style: bold;
+}
+
+.purse-line {
+    height: auto;
 }
 
 .system-line {

@@ -1,6 +1,6 @@
 # Procedural Terminal Game
 
-A roguelite dungeon crawl in your terminal, narrated by a language model running on your own machine (LM Studio, Ollama) or through an API (Claude, or any OpenAI-compatible server). It looks like a DOS game and listens like a game master.
+A roguelite dungeon crawl in your terminal, narrated by a language model running on your own machine (LM Studio, Ollama, Apple Intelligence) or through an API (Claude, or any OpenAI-compatible server). It looks like a DOS game and listens like a game master.
 
 Every turn you can pick a numbered choice, or type whatever you want to try:
 
@@ -333,17 +333,19 @@ Needs Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 uv run ptg
 ```
 
-The first launch opens Settings: pick LM Studio, Ollama, another OpenAI-compatible server, Claude, or Offline, pixel sprites or ASCII art, and whether dice roll on Space or automatically. Settings, saves and the profile database live in `~/.ptg` (set `PTG_HOME` to move them). The game autosaves every turn; **Continue** on the title screen picks up where you left off, with a line where the story so far stops, the room as you'd see it walking in (anything lying there ready to take) and where you are. While a run is unfinished, Continue comes first, with the run shown under it. Starting a new one instead asks first, and abandoning a run counts as a death: you keep its souls, it goes in the Hall of Legends, and your ghost stays on the floor where you left it.
+The first launch opens Settings: pick LM Studio, Ollama, Apple Intelligence, another OpenAI-compatible server, Claude, or Offline, pixel sprites or ASCII art, and whether dice roll on Space or automatically. Settings, saves and the profile database live in `~/.ptg` (set `PTG_HOME` to move them). The game autosaves every turn; **Continue** on the title screen picks up where you left off, with a line where the story so far stops, the room as you'd see it walking in (anything lying there ready to take) and where you are. While a run is unfinished, Continue comes first, with the run shown under it. Starting a new one instead asks first, and abandoning a run counts as a death: you keep its souls, it goes in the Hall of Legends, and your ghost stays on the floor where you left it.
 
 On a screen at least 110x32 the game plays in **tabs** (Settings, Game screen; Classic is the other choice, and a
-touch screen or a smaller terminal always gets it): the room's picture over the story on the left, and on the
-right where you are with the arrows beside it, one pane with tabs, and the choices under it, one to a line. The
-tabs are Here (whoever and whatever is in the room: the one in focus at full size with everything about it beside
-it, the rest as thumbnails to click), Map (the floor drawn big, rooms named, with the goal and how far, the quests
-open, the tips you've had and the key), Pack, Sheet (every number the status bar shortens, said in full, then your
-stats and rolls), Journal and Bestiary. Their keys bring them into the pane; pressed again, or the ⤢ at the end of
-the tabs, they open in full as the panels below. A room opens on Here when there's anything in it to see, else on
-the map, and a fight brings Here back.
+touch screen or a smaller terminal always gets it), laid out like an illustrated storybook: the words on the left
+(the story, the choices under it, one to a line, and a few lines of what happened lately, notifications included),
+and everything else on the right (the room's picture, the arrows, and one pane with tabs). The tabs are Here
+(whoever and whatever is in the room: the one in focus at full size with everything about it beside it, the rest as
+thumbnails to click; a bare room fills it with the floor and the quests), Map (the floor drawn big, rooms named, with
+the goal and how far, the quests open, the tips you've had and the key), Pack, Sheet (every number the status bar
+shortens, said in full, then your stats and rolls), Journal and Bestiary. Their keys bring them into the pane;
+pressed again, or the ⤢ at the end of the tabs, they open in full as the panels below. A tab stays where you put it
+from room to room, and a fight brings Here back. Gold, bombs and small keys you find say so in the story ("+6 ¤
+gold (21)") and light up their counter on the status bar.
 
 | Key | Typed | Opens |
 | --- | --- | --- |

@@ -331,6 +331,8 @@ def perform(state: GameState, content: Content, action_id: str) -> list[Event]:
         events, took_turn = _use(state, content, rng, arg)
     elif verb == "bomb":
         events = _bomb_wall(state, content, arg) if arg else bomb_monster(state, content, rng)
+    elif verb == "breach":
+        events = _breach(state, content, rng, *arg.partition(":")[::2])
     elif verb == "throw":
         events = throw(state, content, rng, arg)
     elif verb == "distract":
@@ -763,9 +765,13 @@ def _search_room(state: GameState, content: Content, rng: random.Random) -> list
         roll.effects.append(f"+{gold} gold")
         return [Event("search_room", f"Nothing's hidden here, but your fingers find a few coins wedged under a loose "
                                      f"stone (+{gold} gold).", dice=roll, data={"gold": gold})] + events
-    # Only worth a Fate reroll if there really was something to find.
-    return [Event("search_room", "You search every corner but find nothing hidden.", dice=roll,
-                  data={"rerollable": bool(hidden or beside)})] + events
+    # Only worth a Fate reroll if there really was something to find. A search that worked and found nothing is sure
+    # of it; one that didn't only came up empty (a "SUCCESS" over "you find nothing" read as a contradiction: run 59).
+    text = "You search every corner and come up empty." if not roll.success else \
+        "You search every corner carefully. You're sure of it now: nothing's hidden here."
+    if roll.success:
+        roll.effects.append("nothing hidden here")
+    return [Event("search_room", text, dice=roll, data={"rerollable": bool(hidden or beside)})] + events
 
 
 def _draft(state: GameState, direction: str, roll: dice.Roll | None = None) -> Event:
@@ -912,18 +918,61 @@ def _bomb_wall(state: GameState, content: Content, direction: str) -> list[Event
     if door and door.locked and door.key == "small_key":
         return _bomb_door(state, door, direction)
     player.bombs -= 1
-    dx, dy = DELTA[direction]
-    secret = next((r for r in state.rooms if r.secret and not r.exits and (r.x, r.y) == (room.x + dx, room.y + dy)),
-                  None)
+    secret = _open_wall(state, direction)
     if secret is None:
         return [Event("bomb", f"The bomb goes off against the {direction} wall. Dust rains down, but the wall holds: "
                               f"there's only earth behind it. ({player.bombs} bomb{'s' if player.bombs != 1 else ''} "
                               "left.)")]
-    room.exits[direction] = Exit(to=secret.id)
-    secret.exits[OPPOSITE[direction]] = Exit(to=room.id)
     room.remember(f"you blew open the {direction} wall")
     return [Event("secret_room", f"The bomb blows the {direction} wall apart. Behind it is a hidden room, sealed off "
                                  "until now!", data={"room": secret.id})]
+
+
+def _open_wall(state: GameState, direction: str) -> Room | None:
+    """A doorway through the wall, if the floor's sealed secret room is behind it: that room, or None."""
+    room = state.room
+    dx, dy = DELTA[direction]
+    secret = next((r for r in state.rooms if r.secret and not r.exits and (r.x, r.y) == (room.x + dx, room.y + dy)),
+                  None)
+    if secret is not None:
+        room.exits[direction] = Exit(to=secret.id)
+        secret.exits[OPPOSITE[direction]] = Exit(to=room.id)
+    return secret
+
+
+BREACH_DC = {True: 12, False: 15}  # (a cracked wall, one you've felt a draft through, gives sooner)
+
+
+def _breach(state: GameState, content: Content, rng: random.Random, direction: str, tool: str = "") -> list[Event]:
+    """Smash through a wall worth a bomb without one: might, harder than a chest, helped by something heavy to swing
+    (the tool named, else the weapon in your hand). A miss jars your arms; a hit with nothing behind finds earth."""
+    room, player = state.room, state.player
+    tool = tool if tool in player.inventory or tool == player.weapon else player.weapon
+    item = content.item(tool) if tool in content.items else None
+    bonuses = [("might", player.might)] + powers.roll_bonuses(state, content, "smash")
+    if item and "heavy" in item.tags:
+        bonuses.append((f"✦ {item.name}", 2))
+    elif item and (item.kind == "weapon" or {"metal", "sharp"} & set(item.tags)):
+        bonuses.append((f"✦ {item.name}", 1))
+    cracked = room.draft == direction
+    roll = dice.check(rng, "might (break the wall)", bonuses, BREACH_DC[cracked] + state.floor)
+    events = fortune(state, roll)
+    with_what = f" with {the(item.name)}" if item else ""
+    if not roll.success:
+        damage = dice.roll("1d4", rng)
+        player.hp = max(1, player.hp - damage)
+        return [Event("breach", f"You lay into the {direction} wall{with_what}. Stone chips fly, but it holds, and the "
+                                f"jolt runs up your arms (-{damage} HP, {player.hp}/{player.max_hp}).", dice=roll,
+                      data={"rerollable": True})] + events
+    secret = _open_wall(state, direction)
+    if secret is None:
+        return [Event("breach", f"You hammer through the {direction} wall{with_what}, and find only packed earth "
+                                "behind it.", dice=roll, data={"rerollable": True})] + events
+    room.remember(f"you smashed through the {direction} wall")
+    player.bump("creative_win")
+    return [Event("secret_room", f"You hammer at the {direction} wall{with_what} until it gives. Stone tumbles "
+                                 "inward: behind it is a hidden room, sealed off until now!", dice=roll,
+                  data={"room": secret.id, "rerollable": True})] + events
 
 
 def _bomb_door(state: GameState, door: Exit, direction: str) -> list[Event]:
@@ -962,6 +1011,8 @@ def off_the_list(state: GameState, content: Content, action_id: str) -> bool:
         return action_id in {a.id for a in locked_doors(state, content)}
     if verb == "appease":  # anything of yours, to calm Swoogy down
         return action_id in {a.id for a in npcs.unlisted(state, content)}
+    if verb == "breach":  # (a wall worth a bomb, with no bomb: the interaction grid's)
+        return arg.partition(":")[0] in bombable_walls(state) and not state.in_combat and not state.room.shop
     if verb == "chest_bomb":
         room = state.room
         return room.fixture == "chest" and not room.fixture_used and state.player.bombs > 0 and not state.in_combat
@@ -1259,7 +1310,8 @@ def _open_chest(state: GameState, content: Content, rng: random.Random, how: str
         text = ("You bring your weight down on the lid and the chest splinters open, trap and all." if roll.success
                 else "The chest bursts open under your blows, and something inside cracks.")
         events.insert(0, Event("chest", text, dice=roll, data={"rerollable": True}))
-    key = loot.produce(rng, content, state.rares, loot.CHESTS.get(state.floor, loot.CHESTS[3]), "chest")
+    key = loot.produce(rng, content, state.rares, loot.CHESTS.get(state.floor, loot.CHESTS[3]), "chest",
+                       loot.owned(state, content))
     gold = rng.randint(5, 15) * state.floor
     player.gold += gold
     if key is None:

@@ -117,6 +117,22 @@ class Hud(Static):
     screen too narrow for all of it, the least of it goes first (see HUD_DROPS), never cut off mid-word."""
 
     shown: tuple[GameState, Content] | None = None
+    lit: frozenset[str] = frozenset()  # counters lit up for a moment: gold, bombs or keys just gained (light)
+    at: dict[str, int] = {}  # where each part starts, in cells from the bar's left edge, as last shown
+
+    def light(self, names: set[str], seconds: float = 1.4) -> None:
+        """Light up the counters that just went up, for a moment."""
+        self.lit = frozenset(names)
+        if self.shown:
+            self.show(*self.shown)
+
+        def out() -> None:
+            if self.lit == frozenset(names):
+                self.lit = frozenset()
+                if self.shown:
+                    self.show(*self.shown)
+
+        self.set_timer(seconds, out)
 
     def show(self, state: GameState, content: Content) -> None:
         self.shown = (state, content)
@@ -148,11 +164,15 @@ class Hud(Static):
             if self._width(parts) <= room:
                 break
             parts.pop(name, None)
-        text = Text()
+        text, at = Text(), {}
         for name, part in parts.items():
             if text:
                 text.append(" " if name in ("xp", "theme") else "   ")
+            at[name] = text.cell_len
+            if name in self.lit:
+                part = Text(part.plain, style="bold #10122a on #ffd166")  # (as wide as ever: nothing shifts)
             text.append_text(part)
+        self.at = at
         self.update(text)
 
     @staticmethod

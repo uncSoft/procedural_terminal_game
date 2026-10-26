@@ -1,6 +1,7 @@
 # kind: weapon | armor | consumable | key | trinket
 # Weapons roll `damage` and add the player's might. Armor adds `defense`.
-# Consumables restore `heal` HP, or let you escape a fight if `escape = true`.
+# Consumables restore `heal` HP, let you escape a fight if `escape = true`, or cure what ails you (`cures`, with
+# `guards` against the next of it: see statuses.toml).
 # `tags` matter for creative actions: using a tagged thing earns a flair bonus,
 # and a tag a monster is weak to gives advantage and bigger effects.
 
@@ -110,6 +111,16 @@ escape = true
 tier = 1
 tags = ["smoke", "throwable"]
 desc = "Throw it, then leave dramatically. Guaranteed escape."
+
+# an antidote, by its Final Fantasy name (a recolour of jptjptjpt's Healing Potion)
+[item.pure]
+name = "Pure"
+kind = "consumable"
+tier = 1
+tags = ["glass", "liquid", "throwable"]
+desc = "A little blue bottle labelled PURE in very serious letters. Cures poison, and what stays in your blood stops the next two poisonings taking hold. Tastes like licking a battery."
+cures = ["poison"]
+guards = {poison = 2}
 
 # drawn by JT (2026-10-23)
 [item.oil_flask]

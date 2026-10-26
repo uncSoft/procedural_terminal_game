@@ -517,5 +517,6 @@ xp = 50
 tier = 4
 tags = ["beast", "serpent", "venomous", "named"]
 weak = ["holy", "water"]
+tricks = ["venom"]
 tell = "SSSSSSSSSSSSSsssssss"
 desc = "Serpentis was around in about the first billionth year of the cosmos and fought in the war of the third billionth year. It has not forgotten. It is still a bit cranky about it."

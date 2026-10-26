@@ -16,7 +16,7 @@ from textual.screen import Screen
 from textual.widget import Widget
 from textual.widgets import Footer, Input, Static
 
-from .. import config, glossary, interactions, inventory, loot, sound
+from .. import config, glossary, interactions, inventory, loot, sound, statuses
 from ..events import Action, Event
 from ..glossary import Lexicon
 from ..game import Game
@@ -887,6 +887,9 @@ class GameScreen(Screen):
             self.add_line(Text(exchange), "pickup-line")
         for warning in (e for e in result.events if e.kind == "warning"):  # (said as it is, never by the narrator)
             self.add_line(Text("  ⚠ " + warning.text, style="bold #ff7b39"), "system-line")
+        for burn in (e for e in result.events if e.kind == "status_tick"):  # (poison's: in its own colour)
+            status = statuses.DEFS.get(burn.data.get("status", ""))
+            self.add_line(Text("  " + burn.text, style=f"bold {status.colour if status else '#b55088'}"), "system-line")
         chips = purse_chips(purse_before, purse(game.state))
         if chips and not line:  # (gold, bombs and keys found say so, with how many you have now)
             self.add_line(chips, "purse-line")

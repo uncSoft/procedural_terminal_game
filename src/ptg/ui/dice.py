@@ -41,6 +41,17 @@ def dice_row(values: list[int | None], turn: int | None = None, bounce: int = 0,
     return side_by_side([d20(v, t, bounce, g, d, size) for v, t, g, d in zip(values, turns, glows, dims)], gap=2)
 
 
+def advantage_hint(roll) -> str:
+    """What the two dice mean, said by the prompt: keep the best, keep the worst (and why, if a status did it: poison),
+    or an advantage a status took away."""
+    why = f" ({roll.hindered})" if roll.hindered else ""
+    if roll.advantage > 0:
+        return "two dice: keep the best"
+    if roll.advantage < 0:
+        return f"two dice: keep the worst{why}"
+    return f"{roll.hindered}: your advantage is lost" if roll.hindered else ""
+
+
 class DiceScreen(ModalScreen[str]):
     """Returns "reroll" or "accept". On a mouse: click anywhere to roll, and again to carry on."""
 
@@ -77,7 +88,7 @@ class DiceScreen(ModalScreen[str]):
             yield Static("", id="dice-verdict")
             if self.roll.hits_for or self.roll.effects:  # (its row kept from the start, so the box doesn't grow)
                 yield Static(" ", id="dice-damage")
-            hint = "two dice: keep the best" if self.roll.advantage > 0 else ""
+            hint = advantage_hint(self.roll)
             with Center():  # (its row is kept for it: it shows when a failed roll can be rerolled)
                 yield Clickable(Text(" "), action="screen.reroll", id="dice-fate")
             yield Static(Text(f"[space] or click to roll the dice   {hint}", style="#ffb000"), id="dice-prompt")

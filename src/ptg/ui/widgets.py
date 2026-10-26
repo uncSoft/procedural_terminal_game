@@ -23,7 +23,7 @@ from textual.timer import Timer
 from textual.types import NoActiveAppError
 from textual.widgets import Static
 
-from .. import layout, loot, powers, sound
+from .. import layout, loot, powers, sound, statuses
 from ..content import Content
 from ..events import Action, Event
 from ..glossary import Lexicon
@@ -85,15 +85,15 @@ def bar(value: int, maximum: int, width: int = 14) -> str:
     return "█" * filled + "░" * (width - filled)
 
 
-def hearts(hp: int, max_hp: int) -> Text:
-    """Tiny Rogues style: a heart per 5 HP."""
+def hearts(hp: int, max_hp: int, tint: str = "") -> Text:
+    """Tiny Rogues style: a heart per 5 HP (in a status's colour while it's in your blood: poison's purple)."""
     text = Text()
     for i in range(0, max_hp, 5):
         chunk = hp - i
         if chunk >= 5:
-            text.append("♥", style="bold #ff4b4b")
+            text.append("♥", style=f"bold {tint or '#ff4b4b'}")
         elif chunk > 0:
-            text.append("♥", style="#8a2a3a")
+            text.append("♥", style="dim " + tint if tint else "#8a2a3a")
         else:
             text.append("♡", style="#4a3040")
     return text
@@ -113,8 +113,9 @@ def roll_text(event: Event) -> Text:
 
 
 class Hud(Static):
-    """The top status bar: hearts, defense, Fate, gold, souls, bombs and small keys, the boss key, XP and floor. On a
-    screen too narrow for all of it, the least of it goes first (see HUD_DROPS), never cut off mid-word."""
+    """The top status bar: hearts (and what ails you: ☠ Poisoned), defense, Fate, gold, souls, bombs and small keys,
+    the boss key, XP and floor. On a screen too narrow for all of it, the least of it goes first (see HUD_DROPS), never
+    cut off mid-word."""
 
     shown: tuple[GameState, Content] | None = None
     lit: frozenset[str] = frozenset()  # counters lit up for a moment: gold, bombs or keys just gained (light)
@@ -138,8 +139,11 @@ class Hud(Static):
         self.shown = (state, content)
         player = state.player
         parts: dict[str, Text] = {}
-        parts["hp"] = hearts(player.hp, player.max_hp)
+        ailing = [statuses.DEFS[k] for k in player.statuses if k in statuses.DEFS]
+        parts["hp"] = hearts(player.hp, player.max_hp, ailing[0].colour if ailing else "")
         parts["hp"].append(f" {player.hp}/{player.max_hp}", style="bold")
+        if ailing:  # (right by your health: it's what it's eating)
+            parts["status"] = Text.assemble(*[(f"{d.icon} {d.name}", f"bold {d.colour}") for d in ailing])
         parts["defense"] = Text.assemble(("⛨ ", "#6c8cff"), str(player.defense(content)))
         parts["fate"] = Text.assemble(*[("✦", "bold #ffd166") if i < player.fate else ("✧", "#5a5030")
                                         for i in range(player.max_fate())])

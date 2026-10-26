@@ -13,12 +13,15 @@ from typing import Callable, Literal
 
 from . import text
 from .powers import POWERS
+from .statuses import DEFS as STATUSES
 
 # Where an item with `found` may turn up (see loot.py): a chest, a hidden stash, a floor's secret room, or the warden
 # by the stairs (or any elite). An item can also name the monster that drops it.
 FOUND_IN = ("chest", "stash", "secret", "warden", "shop", "quest")
 TRICKS = {"steal": "grabs your food (or gold) and runs off with it next turn, unless you stop it",
-          "tangle": "its hits tangle you up: no running away until its next go"}
+          "tangle": "its hits tangle you up: no running away until its next go",
+          "venom": "its bite can poison you (a quarter of its hits)",
+          "deadly_venom": "every bite of its poisons you"}
 STATS = ("might", "agility", "wits", "max_hp", "fate")  # what a carried item's `stats` can change (fate: tokens held)
 # When a character says each of its lines (dialogue.toml; npcs.say), and the blanks a line can have filled in.
 MOMENTS = {
@@ -96,6 +99,8 @@ class ItemDef:
     powers: list[str] = field(default_factory=list)  # what it does beyond its numbers (see powers.py)
     found: list[str] = field(default_factory=list)  # the only places it turns up, if it's that rare (see loot.py)
     stats: dict[str, int] = field(default_factory=dict)  # what carrying it does to your stats: {might = 1, wits = -1}
+    cures: list[str] = field(default_factory=list)  # statuses it ends, used up (statuses.py): ["poison"]
+    guards: dict[str, int] = field(default_factory=dict)  # ...and the next ones it stops taking hold: {poison = 2}
 
 
 @dataclass(frozen=True)
@@ -214,7 +219,8 @@ SCHEMAS: dict[str, dict[str, tuple[str, bool]]] = {
     "item": {"name": ("text", True), "kind": ("item_kind", True), "damage": ("dice", False),
              "defense": ("count", False), "heal": ("count", False), "escape": ("bool", False),
              "tier": ("count", False), "tags": ("names", False), "desc": ("text", False),
-             "powers": ("powers", False), "found": ("names", False), "stats": ("stats", False)},
+             "powers": ("powers", False), "found": ("names", False), "stats": ("stats", False),
+             "cures": ("statuses", False), "guards": ("guards", False)},
     "monster": {"name": ("text", True), "hp": ("positive", True), "defense": ("count", True),
                 "attack": ("int", True), "damage": ("dice", True), "xp": ("count", True), "tier": ("tier", True),
                 "tags": ("names", False), "intelligent": ("bool", False), "boss": ("bool", False),
@@ -232,6 +238,9 @@ _DICE = re.compile(r"^\s*\d+d\d+\s*([+-]\s*\d+)?\s*$")
 def _value_error(kind: str, value: object) -> str:
     """Why a value doesn't fit its kind ("" if it does)."""
     is_int = isinstance(value, int) and not isinstance(value, bool)
+
+    def is_count(v) -> bool:
+        return isinstance(v, int) and not isinstance(v, bool) and v >= 0
     checks = {
         "text": (isinstance(value, str) and value.strip(), "must be some text in quotes"),
         "texts": (isinstance(value, list) and value and all(isinstance(v, str) and v.strip() for v in value),
@@ -255,6 +264,10 @@ def _value_error(kind: str, value: object) -> str:
                   f"must be stats and whole numbers, like {{might = 1, wits = -1}} (stats: {', '.join(STATS)})"),
         "tricks": (isinstance(value, list) and all(v in TRICKS for v in value),
                    f"must be a list of tricks the game knows: {', '.join(TRICKS)}"),
+        "statuses": (isinstance(value, list) and all(v in STATUSES for v in value),
+                     f"must be a list of statuses the game knows: {', '.join(STATUSES)}"),
+        "guards": (isinstance(value, dict) and all(k in STATUSES and is_count(v) for k, v in value.items()),
+                   f"must be statuses and how many, like {{poison = 2}} (statuses: {', '.join(STATUSES)})"),
     }
     ok, message = checks[kind]
     return "" if ok else message
@@ -426,8 +439,8 @@ def _cross_check(content: Content) -> list[str]:
             problems.append(f"items.toml [item.{item.key}]: a weapon needs damage, like \"1d6\"")
         if item.kind == "armor" and item.defense <= 0:
             problems.append(f"items.toml [item.{item.key}]: armor needs defense above 0")
-        if item.kind == "consumable" and not (item.heal or item.escape):
-            problems.append(f"items.toml [item.{item.key}]: a consumable needs heal or escape = true")
+        if item.kind == "consumable" and not (item.heal or item.escape or item.cures):
+            problems.append(f"items.toml [item.{item.key}]: a consumable needs heal, cures or escape = true")
         if "throw" in item.powers and not item.damage:
             problems.append(f"items.toml [item.{item.key}]: something to throw needs damage, like \"2d4\"")
         for place in item.found:

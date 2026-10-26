@@ -158,6 +158,8 @@ class Player(BaseModel):
     lifted: list[str] = Field(default_factory=list)  # cursed things whose curse a shrine has lifted (inventory.py)
     coating: str = ""  # what your weapon's coated in, as a tag its hits count as: "holy", "fire" (interactions.RECIPES)
     coated: int = 0  # hits the coating has left
+    statuses: dict[str, int] = Field(default_factory=dict)  # what's afflicting you, and how strongly (statuses.py)
+    guards: dict[str, int] = Field(default_factory=dict)  # charges against a status: the next ones don't take
 
     @property
     def attack_bonus(self) -> int:

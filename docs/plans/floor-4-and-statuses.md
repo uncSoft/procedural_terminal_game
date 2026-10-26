@@ -1,7 +1,8 @@
 # Floor 4 and statuses
 
-Status: **second draft, with your first round of answers in.** Marked **✅** where it's decided, **❓** where it's still
-a choice for you. One new floor and one new status at a time: this is floor 4 and poison.
+Status: **second draft, with your first round of answers in; step 1 (the system and poison) built.** Marked **✅**
+where it's decided, **❓** where it's still a choice for you. One new floor and one new status at a time: this is floor 4
+and poison.
 
 What this covers: a status system in the spirit of Final Fantasy 1 (poison first), what cures and wards it, and the
 floor it's made for: a fourth floor with Serpentis as its boss, a purple poison cavern after Metroid's Norfair. The
@@ -93,8 +94,10 @@ inflicts = { poison = 1 }   # its hits poison what they hit (its maker wrote tha
 
 ### 3.1 How you get it
 
-- ✅ **Bites**: monsters tagged `venomous` sometimes poison you on a hit (a trick, like `steal` and `tangle` are now).
-  Serpentis always does.
+- ✅ **Bites** (built): a monster with the `venom` trick poisons you on a quarter of its hits; `deadly_venom`, on every
+  hit (a trick, like `steal` and `tangle`: `tricks = ["venom"]` in monsters.toml). Serpentis has `venom` for now:
+  `deadly_venom` took its floor-3 lair from 19% of fights lost to 50%, plain `venom` to 32% (20% with a Pure in your
+  pack). `deadly_venom` waits for its floor-4 self (§4.6).
 - ✅ **Gas vent traps**: a vent in a room's floor, seen or found by searching. **Disarm** it (a wits roll; the ten-foot
   pole's +2 careful counts) or walk wide of it. A failed disarm, or stepping on one unseen, poisons you.
 - ✅ **Poison puddles across doorways**: some passages between rooms have one. **Jump it** (an agility roll) or wade
@@ -107,19 +110,19 @@ inflicts = { poison = 1 }   # its hits poison what they hit (its maker wrote tha
 - ✅ **It never kills you**: it stops at 1 HP ("the poison leaves you barely standing").
 - ✅ **Your rolls are at a disadvantage** while you're poisoned (two d20s, the lower kept). That's the real threat:
   every attack, dodge, jump and disarm gets harder.
-- **1 HP a step** (rooms walked into, and each room passed on quick travel). ❓ And 1 a round in a fight? The
-  disadvantage may be enough there.
-- **It doesn't wear off**: a cure ends it.
+- ✅ **1 HP a step** (rooms walked into, and each room passed on quick travel, told as one line). Not a round in a
+  fight: the disadvantage is plenty there (§3.6).
+- ✅ **It doesn't wear off**: a cure ends it. Resting while poisoned does half the good.
 
-❓ If the bot says a disadvantage on *every* roll is too much, a softer version: -2 to your rolls instead. We'll sim
-both (§3.6).
+❓ If the bot says a disadvantage on *every* roll is too much, a softer version: -2 to your rolls instead (§3.6 says
+the disadvantage is what bites).
 
 ### 3.3 Cures
 
 | Cure | How | |
 |---|---|---|
 | ✅ **Shrine** | pray: cures poison, as often as you like | the walk there ticks; quick travel ticks too, room by room |
-| ✅ **Pure** (the antidote: FF1's own name for it) | drink it: cured, and **guarded against the next 2 poisonings** | ~15 gold; floor 4's shop always has 2-3; venomous monsters drop one 25% of the time |
+| ✅ **Pure** (the antidote: FF1's own name for it; built) | drink it: cured, and **guarded against the next 2 poisonings**; drunk ahead of time, just the guard (they don't pile up) | 20 gold on floor 4 (15 base); floor 4's shop always has 2-3; venomous monsters drop one 25% of the time |
 | **Bitterroot** (food) | eat it: cured, no guard | found by searching on floor 4 |
 | **Holy water**, drunk | cured (and your throw's gone) | a choice: your weapon against undead, or your cure |
 | **Superior healing potion** | heals and cures | |
@@ -156,6 +159,13 @@ lost to the disadvantage, cures used, and deaths with poison in the mix.
 
 Targets (to argue with): poisoned **2-4 times** on floor 4; poison costs **10-25%** of your HP over the floor; deaths
 with poison in the mix are **under a third** of floor 4's deaths.
+
+**First numbers** (phase 1, `tools/simulate.py --venom all`: every roaming monster on floors 1-3 given a venomous
+bite, a what-if far past anything we'd ship). The plain bot's wins fell from **44% to 25%**, floor 1's deaths from
+18% to 42%; the average player's from 19%. Only **2% of the HP lost** was the poison's own burn: the **disadvantage is
+what kills**, and 60% of deaths had poison in them. So floor 4 should have fewer venomous monsters than "most", or
+the -2 instead of a disadvantage, or longer walks for the burn to matter. The 10-25% HP target needs the burn to be
+bigger, or the target smaller. Floor 4 will tell.
 
 ---
 
@@ -239,9 +249,11 @@ things before you went down?
 
 ## 5. Build order
 
-1. **The system and poison**: `statuses.toml`, statuses on the player and on monsters, ticks, the disadvantage, never
-   lethal, the HUD, dice, sheet, story chips and the narrator's facts. Pure and its guards, the shrine's cure.
-   `venomous` monsters (Serpentis is one already). The bot learns to cure; the simulator reports poison. Tests.
+1. ✅ **The system and poison** (built): `statuses.toml` and `statuses.py`, statuses on the player, the step's burn,
+   the disadvantage (the dice say why), never lethal, purple hearts and ☠ Poisoned by your health, the Sheet's rows,
+   the story's burn lines and the narrator's facts. Pure (its own pale-blue bottle) and its guards, the shrine's
+   cure. The `venom` trick (Serpentis has it). The bot cures itself; the simulator reports poison (and `--venom` to
+   try it on anything). A test room: `ptg --test-room poison`. Statuses on monsters wait for Bloodbath (step 3).
 2. **Floor 4**: four-floor runs (floor 3's boss opens the stairs), Norfell's theme and look, 10 rooms, a guaranteed
    shrine, the shop's Pure, vents, puddles and rivers.
 3. **Monsters and the boss**: the roster (from the Maker, or stand-ins), Serpentis's rule, Bloodbath poisoning
@@ -255,7 +267,7 @@ Each step ships on its own, and the game stays playable in between.
 
 ## 6. Still open
 
-1. Poison's HP: a step only, or a step and a fight's round too? (§3.2)
+1. Poison's HP: a step only (built), or a fight's round too? And the disadvantage, or -2? (§3.2, §3.6)
 2. Pure's guard: 1 poisoning or 2? (§3.4)
 3. The floor's name: Norfell? (§4)
 4. Serpentis's rule: "smells the venom", or another? (§4.6)

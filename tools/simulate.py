@@ -4,6 +4,7 @@
     uv run --frozen python tools/simulate.py 1000 --start 5000
     uv run --frozen python tools/simulate.py --player average   # a bot with a person's habits (tests/bot.py PLAYERS)
     uv run --frozen python tools/simulate.py --compare          # every player, a line each
+    uv run --frozen python tools/simulate.py --venom dire_wolf,orc  # as if they bit with venom: what poison does
 
 Per floor: how many runs reached it, died on it, and what they took down the stairs (HP, level, gold, potions). Then
 what killed them, and the run as a whole. The plain bot is thorough and never misses a warning, but never improvises,
@@ -14,6 +15,7 @@ difficulty.md has the baseline)."""
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import statistics
 import sys
 from collections import Counter, defaultdict
@@ -39,11 +41,25 @@ def run(seed: int, content, player: str = "bot", max_turns: int = 900) -> dict:
     left: dict[int, dict] = {}
     turns_in: Counter = Counter()
     killer = ""
+    poison = Counter()  # what poison did: times, the HP it took (and all the HP hits took), cures, guards spent
     for _ in range(max_turns):
         if state.over:
             break
         floor, monster = state.floor, state.room.monster
-        perform(state, content, choose(state, content, who))
+        action = choose(state, content, who)
+        events = perform(state, content, action)
+        for e in events:
+            if e.kind == "status" and e.data.get("on"):
+                poison["poisoned"] += 1
+                poison[f"poisoned F{state.floor}"] += 1
+            elif e.kind == "status_tick":
+                poison["hp"] += e.data.get("damage", 0)
+            elif e.kind == "monster_hit":
+                poison["hits"] += e.data.get("damage", 0)
+            elif e.kind == "cured":
+                poison["shrine" if action == "shrine_pray" else "pure"] += 1
+            elif e.kind == "guarded" and e.data.get("spent"):
+                poison["guarded"] += 1
         turns_in[floor] += 1
         if state.floor != floor:  # down the stairs: how you went
             player = state.player
@@ -53,7 +69,8 @@ def run(seed: int, content, player: str = "bot", max_turns: int = 900) -> dict:
             killer = monster.name
     return {"seed": seed, "status": state.status, "floor": state.floor, "level": state.player.level,
             "turns": state.turn, "left": left, "killer": killer, "gold": state.player.gold,
-            "potions": potions(state), "kills": state.player.kills}
+            "potions": potions(state), "kills": state.player.kills, "poison": poison,
+            "died_poisoned": state.status == "dead" and bool(state.player.statuses)}
 
 
 def median(values: list[float]) -> float:
@@ -95,7 +112,28 @@ def report(results: list[dict], floors: int) -> str:
                  f"median kills {median([r['kills'] for r in results]):.0f} · "
                  f"median gold unspent {median([r['gold'] for r in results]):.0f} · "
                  f"median potions left {median([r['potions'] for r in results]):.1f}")
+    lines += poison_lines(results, floors)
     return "\n".join(lines)
+
+
+def poison_lines(results: list[dict], floors: int) -> list[str]:
+    """How poison went (docs/plans/floor-4-and-statuses.md's targets: poisoned 2-4 times a run where there's venom,
+    10-25% of the HP lost lost to it, under a third of deaths with it in you)."""
+    total = Counter()
+    for r in results:
+        total.update(r["poison"])
+    if not total["poisoned"]:
+        return []
+    hit = [r for r in results if r["poison"]["poisoned"]]
+    dead = [r for r in results if r["status"] == "dead"]
+    share = 100 * total["hp"] / max(1, total["hp"] + total["hits"])
+    where = ", ".join(f"F{f}×{total[f'poisoned F{f}']}" for f in range(1, floors + 1) if total[f"poisoned F{f}"])
+    line = (f"poison: {len(hit)} runs poisoned ({100 * len(hit) / len(results):.0f}%), "
+            f"median {median([r['poison']['poisoned'] for r in hit]):.0f} times ({where}) · "
+            f"{share:.0f}% of the HP lost lost to it · "
+            f"cured by Pure {total['pure']}, a shrine {total['shrine']} · guards spent {total['guarded']} · "
+            f"died poisoned {sum(r['died_poisoned'] for r in dead)} of {len(dead)} deaths")
+    return ["", line]
 
 
 def compare(by_player: dict[str, list[dict]], floors: int) -> str:
@@ -120,8 +158,15 @@ def main() -> None:
     parser.add_argument("--start", type=int, default=0, help="the first seed")
     parser.add_argument("--player", choices=sorted(PLAYERS), default="bot", help="whose habits (tests/bot.py)")
     parser.add_argument("--compare", action="store_true", help="every player, a line each")
+    parser.add_argument("--venom", default="", help="monsters (keys, comma separated) to give a venomous bite, to "
+                                                    "see what poison would do (\"all\": every roaming one)")
     args = parser.parse_args()
     content = load_content()
+    venomous = [k for k, m in content.monsters.items() if m.roams] if args.venom == "all" else \
+        [k for k in args.venom.split(",") if k]
+    for key in venomous:  # (this run's content only: nothing's saved)
+        monster = content.monster(key)
+        content.monsters[key] = dataclasses.replace(monster, tricks=[*monster.tricks, "venom"])
     seeds = range(args.start, args.start + args.seeds)
     floors = generate(0, content=content).floors_total
     if args.compare:

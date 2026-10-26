@@ -87,14 +87,15 @@ PLACES = [("floor 1", FLOORS[1], EVERYDAY), ("floor 2", FLOORS[2], EVERYDAY), ("
 
 
 def role(item: ItemDef) -> str:
-    """The part an item plays in loot: weapon, armor, potion, food, escape, trinket or key."""
+    """The part an item plays in loot: weapon, armor, potion, food, escape, cure (Pure: a slain venomous monster's,
+    and floor 4's shops), trinket or key."""
     if item.kind != "consumable":
         return item.kind
     if item.escape:
         return "escape"
     if "food" in item.tags:
         return "food"
-    return "potion" if item.heal else "other"
+    return "potion" if item.heal else "cure" if item.cures else "other"
 
 
 def _tiers(text: str) -> tuple[int, float]:
@@ -191,7 +192,7 @@ def price(item: ItemDef, floor: int, shiny: bool = False) -> int:
     a quarter more again at Granny Kamultruk's. In fives, rounded up (she's a shopkeeper)."""
     base = {"bomb": 12, "small_key": 15}.get(item.key)
     if base is None:
-        base = {"potion": 15 + 20 * (item.tier - 1), "food": 6 + 6 * item.tier, "escape": 20,
+        base = {"potion": 15 + 20 * (item.tier - 1), "food": 6 + 6 * item.tier, "escape": 20, "cure": 15,
                 "weapon": 5 + 20 * item.tier, "armor": 5 + 20 * item.tier}.get(role(item), 20 + 10 * item.tier)
         base *= 1.6 if rare(item) else 1
     cost = base * (1 + 0.1 * (floor - 1)) * (1.25 if shiny else 1)

@@ -1,8 +1,9 @@
 """A simple player that only uses the listed actions. Used to fuzz the rules and sanity-check balance.
 
 The plain bot is thorough and steady: it picks up everything, searches every feature and opens every chest, explores
-every room before the stairs, dodges every heavy blow it's warned of, and drinks a potion at a third of its health. It
-never improvises, shops, bombs a wall or flees. Habits make it more like a person (see PLAYERS): it misses some
+every room before the stairs, dodges every heavy blow it's warned of, and drinks a potion at a third of its health.
+Poisoned, it drinks a Pure if it has one, or else prays at the nearest shrine it's seen (walking there). It never
+improvises, shops, bombs a wall or flees. Habits make it more like a person (see PLAYERS): it misses some
 warnings, forgets or hoards its potions, leaves things behind and heads for the stairs once it's seen them."""
 
 from __future__ import annotations
@@ -61,6 +62,12 @@ def _route_to(state: GameState, target: int) -> str | None:
     return None
 
 
+def _cure(state: GameState, content: Content, actions) -> str | None:
+    """A Pure (or anything that cures) to drink, while something ails it that it cures."""
+    return next((a for a in actions if a.startswith("use:") and a[4:] in content.items
+                 and set(content.item(a[4:]).cures) & set(state.player.statuses)), None)
+
+
 @dataclass(frozen=True)
 class Habits:
     """How a player plays, as chances: 1.0 everywhere is the plain bot."""
@@ -109,7 +116,13 @@ def choose(state: GameState, content: Content, who: Player | None = None) -> str
             return heal
         if state.room.monster.intent == "heavy" and (not who or who.does(habits.reads_tells)):
             return "dodge"
+        cure = _cure(state, content, actions)
+        if cure and (not who or who.does(habits.drinks)):
+            return cure
         return "attack"
+    cure = _cure(state, content, actions) or ("shrine_pray" if player.statuses and "shrine_pray" in actions else None)
+    if cure and (not who or who.does(habits.drinks)):  # poisoned, first (its rolls are at a disadvantage)
+        return cure
     key = content.themes[state.theme].key_item
     # Missing the boss's key with the whole floor seen: back to look properly where it walked past things.
     hunting = bool(who) and state.final_floor and key not in player.inventory \
@@ -120,12 +133,17 @@ def choose(state: GameState, content: Content, who: Player | None = None) -> str
                        or who.once((state.floor, state.room_id, a), habits.thorough))), None)
         if found:
             return found
+    if player.statuses:  # still poisoned, with no Pure: the way to the nearest shrine it's seen
+        shrines = [r.id for r in state.rooms if r.fixture == "shrine" and r.visited and r.id != state.room_id]
+        steps = [step for step in (_route_to(state, s) for s in shrines) if step]
+        if steps and f"go:{steps[0]}" in actions and (not who or who.once(("shrine", state.turn // 20), 0.8)):
+            return f"go:{steps[0]}"
     if "shrine_gold" in actions and player.hp < player.max_hp * 0.6:
         return "shrine_gold"
     if "shrine_blood" in actions and player.hp > player.max_hp * 0.8:
         return "shrine_blood"
     if player.hp < player.max_hp * 0.6:
-        heal = next((a for a in actions if a.startswith("use:")), None)
+        heal = next((a for a in actions if a.startswith("use:") and content.item(a[4:]).heal), None)
         if heal and (not who or who.does(habits.drinks)):
             return heal
         if "rest" in actions:

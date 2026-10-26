@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import random
 import re
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 
 _DICE = re.compile(r"^\s*(\d+)d(\d+)\s*([+-]\s*\d+)?\s*$")
@@ -52,6 +53,7 @@ class Roll:
     hits_for: str = ""  # a roll to hit: the damage it does if it hits ("4d6"), told before you roll
     damage: list[tuple[str, int]] = field(default_factory=list)  # what the hit did, part by part (see hurt)
     effects: list[str] = field(default_factory=list)  # what else came of it: "+1 Fate (2/3)", "+6 HP" (see told)
+    hindered: str = ""  # why it was at a disadvantage, if a status put it there: "poisoned"
 
     @property
     def total(self) -> int:
@@ -82,18 +84,28 @@ class Roll:
         dice = f"d20 {self.kept}" if len(self.dice) == 1 else f"d20 {'/'.join(map(str, self.dice))}→{self.kept}"
         parts = "".join(f" {'+' if v >= 0 else '-'} {abs(v)} {name}" for name, v in self.bonuses if v)
         target = "impossible" if self.impossible else str(self.dc)
-        sum_ = f"{self.label}: {dice}{parts} = {self.total} vs {target}"
+        label = f"{self.label}, {self.hindered}" if self.hindered else self.label
+        sum_ = f"{label}: {dice}{parts} = {self.total} vs {target}"
         if not verdict:
             return sum_
         return f"{sum_} - " + ("CRIT" if self.crit else "FUMBLE" if self.fumble else
                                "success" if self.success else "fail")
 
 
+# Why the player's rolls are at a disadvantage this turn, if a status puts them there ("poisoned"): set by the turn
+# (rules.perform), so every roll of the player's takes it in without each one asking.
+HINDERED: ContextVar[str] = ContextVar("hindered", default="")
+
+
 def check(rng: random.Random, label: str, bonuses: list[tuple[str, int]], dc: int, actor: str = "player",
           advantage: int = 0, impossible: bool = False) -> Roll:
+    hindered = HINDERED.get() if actor == "player" else ""
+    if hindered:
+        advantage -= 1  # (an advantage and a disadvantage cancel out: one die)
     dice = [d20(rng)] if advantage == 0 else [d20(rng), d20(rng)]
     kept = max(dice) if advantage > 0 else min(dice)
-    result = Roll(label, actor, dice, kept, [b for b in bonuses if b[1]], dc, False, advantage, impossible)
+    result = Roll(label, actor, dice, kept, [b for b in bonuses if b[1]], dc, False, advantage, impossible,
+                  hindered=hindered)
     if impossible:
         result.success = False
     else:

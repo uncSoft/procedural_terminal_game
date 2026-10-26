@@ -14,7 +14,7 @@ from __future__ import annotations
 import random
 from collections import deque
 
-from . import dice, interactions, inventory, layout, loot, npcs, powers
+from . import dice, interactions, inventory, layout, loot, npcs, powers, statuses
 from .combat import (bomb_monster, discover, distract, dodge, flee, flee_direction, fortune, holds_its_ground,
                      monster_turn, player_attack, stand_firm_warning, telegraph, throw, what_is_left)
 from .content import Content, ItemDef
@@ -52,6 +52,12 @@ def heal_verb(item: ItemDef) -> str:
     return "Eat" if "food" in item.tags else "Drink"
 
 
+def _cures(state: GameState, item: ItemDef) -> str:
+    """What a thing would cure you of now, as its hint ("cures poison"), or "" if nothing it cures ails you."""
+    ailing = [statuses.WORDS.get(k, (k, k))[1].removeprefix("the ") for k in item.cures if k in state.player.statuses]
+    return f"cures {' and '.join(ailing)}" if ailing else ""
+
+
 FIXTURE_FACTS = {
     "stairs": "A staircase leads down into the dark.",
     "shrine": "A small shrine stands in the middle of the room, hungry for an offering.",
@@ -87,9 +93,10 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
         firm = holds_its_ground(state, content, monster)  # (no scaring it off, no smoke hiding you: a warning says)
         for item in consumables:
             glows = "dazzle" in item.powers and not firm
-            if item.escape or player.hp < player.max_hp or glows:
+            cures = _cures(state, item)
+            if item.escape or (item.heal and player.hp < player.max_hp) or glows or cures:
                 verb = "Throw" if item.escape else heal_verb(item)
-                hints = [how_many(player, item.key), "it glows!" if glows else "",
+                hints = [how_many(player, item.key), "it glows!" if glows else "", cures,
                          "no sure escape: a run for it" if item.escape and firm else ""]
                 actions.append(Action(f"use:{item.key}", f"{verb} {the(item.name)}", " · ".join(filter(None, hints))))
         for item in (content.item(k) for k in _distinct(player.inventory)):
@@ -139,11 +146,11 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
             hint = "danger"
         where = f" to {the(dest.name)}" if dest.visited else ""
         actions.append(Action(f"go:{direction}", f"Go {direction}{where}", hint))
-    if player.hp < player.max_hp:
-        for item in consumables:
-            if item.heal:
-                actions.append(Action(f"use:{item.key}", f"{heal_verb(item)} {the(item.name)}",
-                                      how_many(player, item.key)))
+    for item in consumables:
+        cures = _cures(state, item)
+        if (item.heal and player.hp < player.max_hp) or cures:
+            actions.append(Action(f"use:{item.key}", f"{heal_verb(item)} {the(item.name)}",
+                                  " · ".join(filter(None, [how_many(player, item.key), cures]))))
     if not room.room_searched and not room.shop:  # (her shop is hers: nothing hidden for you to find)
         actions.append(Action("search_room", "Search the room for secrets"))
         for item in (content.item(k) for k in _distinct(player.inventory)):
@@ -265,15 +272,18 @@ def _fixture_actions(state: GameState, content: Content) -> list[Action]:
     if not room.fixture or (room.monster and room.monster.hostile):
         return []
     cursed = [content.item(k).name for k in inventory.carried_keys(state) if inventory.sticky(state, content, k)]
-    pray = [Action("shrine_pray", f"Pray at the shrine to lift your curse{'s' * (len(cursed) > 1)}", ", ".join(cursed))]
+    ailing = [statuses.DEFS[k].name.lower() for k in player.statuses if statuses.DEFS[k].shrine]
+    why = " and ".join(([f"lift your curse{'s' * (len(cursed) > 1)}"] if cursed else []) +
+                       ([f"cure you ({', '.join(ailing)})"] if ailing else []))
+    pray = [Action("shrine_pray", f"Pray at the shrine to {why}", ", ".join(cursed) or "free")] if why else []
     if room.fixture_used:  # (a shrine you've bled or paid at still hears a prayer: it isn't one of its uses)
-        return pray if room.fixture == "shrine" and cursed else []
+        return pray if room.fixture == "shrine" else []
     if room.fixture == "shop":  # (her wares are hers to offer: _character_actions)
         return []
     if room.fixture == "stairs":
         return [Action("descend", f"Descend the stairs to floor {state.floor + 1}", "no way back")]
     if room.fixture == "shrine":
-        actions = pray if cursed else []
+        actions = list(pray)
         if player.hp > 6:
             actions.append(Action("shrine_blood", "Offer blood at the shrine", "-6 HP, +1 Fate"))
         if player.gold >= 10 and player.hp < player.max_hp:  # (at full health it would take your gold for nothing)
@@ -295,7 +305,16 @@ def _fixture_actions(state: GameState, content: Content) -> list[Action]:
 # --- resolving actions -----------------------------------------------------
 
 def perform(state: GameState, content: Content, action_id: str) -> list[Event]:
-    """Resolve one engine action. Unknown or impossible actions return an info event saying why, and cost nothing."""
+    """Resolve one engine action. Unknown or impossible actions return an info event saying why, and cost nothing.
+    A status that hinders you (poison) puts every roll of yours this turn at a disadvantage (dice.HINDERED)."""
+    token = dice.HINDERED.set(statuses.hindered(state))
+    try:
+        return _perform(state, content, action_id)
+    finally:
+        dice.HINDERED.reset(token)
+
+
+def _perform(state: GameState, content: Content, action_id: str) -> list[Event]:
     if state.over:
         return []
     use = interactions.parse(action_id)
@@ -410,6 +429,14 @@ def perform_creative(state: GameState, content: Content, intent: Intent) -> tupl
     not, it's a stunt (creative.py), which wastes nothing."""
     if state.over:
         return intent, []
+    token = dice.HINDERED.set(statuses.hindered(state))
+    try:
+        return _perform_creative(state, content, intent)
+    finally:
+        dice.HINDERED.reset(token)
+
+
+def _perform_creative(state: GameState, content: Content, intent: Intent) -> tuple[Intent, list[Event]]:
     action = interactions.from_intent(state, content, intent)
     talk = npcs.talk_action(state, content)  # (talking down someone who isn't fighting you is just talking to them)
     if not action and talk and intent.success_effects and set(intent.success_effects) <= {"pacify"}:
@@ -591,7 +618,7 @@ def travel(state: GameState, content: Content, direction: str, to: int) -> list[
                           "journal": journal, "direction": direction})]
     if room.monster and room.monster.hostile:
         events += telegraph(state, content) + stand_firm_warning(state, content)
-    return events
+    return events + statuses.tick(state, "step")
 
 
 # Quick travel: back to a room you've been in, from the map. Now and then something's wandered into a room on the way
@@ -636,8 +663,10 @@ def _journey(state: GameState, content: Content, rng: random.Random, target: int
     floor = str(state.floor)
     meet = len(steps) > 1 and state.wandered.get(floor, 0) < TRAVEL_MEETINGS and rng.random() < TRAVEL_ODDS
     stop = rng.randrange(len(steps) - 1) if meet else len(steps) - 1
+    ticks = []  # (poison burns all the way: each room passed is a step)
     for direction, to in steps[:stop + 1]:
-        travel(state, content, direction, to)
+        ticks += [e for e in travel(state, content, direction, to) if e.kind == "status_tick"]
+    ticks = statuses.summed(ticks)
     room, goal = state.room, state.rooms[target]
     if meet:
         state.wandered[floor] = state.wandered.get(floor, 0) + 1
@@ -648,12 +677,12 @@ def _journey(state: GameState, content: Content, rng: random.Random, target: int
         return [Event("ambush", f"You set off for {the(goal.name)}, but in {the(room.name)} {who} blocks the way!",
                       data={"monster": room.monster.key, "room": room.id,
                             "journal": f"On the way to {the(goal.name)}, {who} stopped you in {the(room.name)}."})] \
-            + telegraph(state, content) + stand_firm_warning(state, content)
+            + telegraph(state, content) + stand_firm_warning(state, content) + ticks
     through = [the(state.rooms[to].name) for _, to in steps[:-1]]
     via = f", through {inventory.listing(through, 'and')}" if through else ""
     told = f"You make your way back to {the(goal.name)}{via}."
     return [Event("travel", f"{told} {arrival_facts(state, content, history=False)}".strip(),
-                  data={"quiet": True, "room": goal.id, "journal": told})]
+                  data={"quiet": True, "room": goal.id, "journal": told})] + ticks
 
 
 def exit_notes(state: GameState) -> str:
@@ -1069,7 +1098,8 @@ def off_the_list(state: GameState, content: Content, action_id: str) -> bool:
     """What may be done now that isn't one of the numbered choices: picking up any one thing lying here (by its card
     in the story, or by saying so), equipping, taking off, leaving or selling what you carry (inventory.moves),
     trying a door that's locked, buying or haggling at a shop's counter (its own screen does those), handing an
-    angry Swoogy anything you carry, and blowing a chest open with a bomb (the interaction grid's)."""
+    angry Swoogy anything you carry, blowing a chest open with a bomb (the interaction grid's), and drinking a Pure
+    with nothing to cure, for the guard it leaves."""
     verb, _, arg = action_id.partition(":")
     if verb == "take":
         return arg in state.room.items and not state.in_combat
@@ -1083,6 +1113,9 @@ def off_the_list(state: GameState, content: Content, action_id: str) -> bool:
         return arg.isdigit() and journey(state, int(arg)) is not None
     if verb == "breach":  # (a wall worth a bomb, with no bomb: the interaction grid's)
         return arg.partition(":")[0] in bombable_walls(state) and not state.in_combat and not state.room.shop
+    if verb == "use" and arg in state.player.inventory and arg in content.items:  # Pure ahead of time, for its guard
+        item = content.item(arg)
+        return bool(item.cures) and not item.heal and not _guarded(state, item)
     if verb == "chest_bomb":
         room = state.room
         return room.fixture == "chest" and not room.fixture_used and state.player.bombs > 0 and not state.in_combat
@@ -1160,7 +1193,9 @@ def why_not(state: GameState, content: Content, action_id: str) -> str:
     if verb == "use" and item:
         if item.escape and not state.in_combat:
             return f"You decide to save {the(item.name)} for an emergency."
-        if item.heal and player.hp >= player.max_hp:
+        if item.cures and not item.heal and not _cures(state, item) and _guarded(state, item):
+            return f"Nothing ails you, and what's in your blood still guards you, so you keep {the(item.name)}."
+        if item.heal and player.hp >= player.max_hp and not _cures(state, item):
             return f"You're not hurt, so you keep {the(item.name)}."
         if item.kind != "consumable":
             return f"{cap(the(item.name))} is no use on its own: try it on something."
@@ -1241,7 +1276,7 @@ def why_not(state: GameState, content: Content, action_id: str) -> str:
         if monster and monster.hostile:
             return f"{name} stands in your way." if verb == "descend" else f"Not with {the(monster.name)} at you."
         if verb == "shrine_pray":
-            return "You carry nothing cursed: there's no curse here to lift."
+            return "You carry nothing cursed and nothing ails you: there's nothing here to lift."
         if room.fixture_used:
             return {"chest": "The chest is open already.", "fountain": "You've drunk from the fountain already.",
                     "shrine": "The shrine has given all it will."}.get(fixture, "")
@@ -1322,7 +1357,9 @@ def _use(state: GameState, content: Content, rng: random.Random, key: str) -> tu
     if glows and player.hp >= player.max_hp and holds_its_ground(state, content, state.room.monster):
         return [Event("info", f"{cap(the(state.room.monster.name))} won't be scared off by a glow, so you keep "
                               f"{the(item.name)}.")], False
-    if player.hp >= player.max_hp and not glows:
+    if item.cures and not item.heal:
+        return _drink_cure(state, content, item)
+    if player.hp >= player.max_hp and not glows and not _cures(state, item):
         return [Event("info", f"You're not hurt, so you keep {the(item.name)}.")], False
     heal = round(item.heal * (1.5 if "alchemist" in player.perks else 1))
     healed = min(heal, player.max_hp - player.hp)
@@ -1331,7 +1368,35 @@ def _use(state: GameState, content: Content, rng: random.Random, key: str) -> tu
     verb = heal_verb(item).lower()
     recover = f" and recover {healed} HP ({player.hp}/{player.max_hp})" if healed else ""  # (eaten for its glow)
     events = [Event("heal", f"You {verb} {the(item.name)}{recover}.{what_is_left(player, key)}", data=used)]
+    for status in item.cures:
+        events += statuses.cure(state, status, "It burns going down")
     return events + (_dazzle(state, content) if glows else []), True
+
+
+def _guarded(state: GameState, item: ItemDef) -> bool:
+    """Whether what a thing guards against is guarded against as well already (its guards don't stack)."""
+    return all(state.player.guards.get(k, 0) >= n for k, n in item.guards.items())
+
+
+def _drink_cure(state: GameState, content: Content, item: ItemDef) -> tuple[list[Event], bool]:
+    """Pure: what ails you of what it cures is gone, and it guards you against the next of it (its guards topping
+    yours up, not piling on). With nothing to cure and your guard as good, it's kept."""
+    player, key = state.player, item.key
+    ailing = [k for k in item.cures if k in player.statuses]
+    if not ailing and _guarded(state, item):
+        return [Event("info", f"Nothing ails you, and what's in your blood still guards you, so you keep "
+                              f"{the(item.name)}.")], False
+    used = inventory.consume(state, key, "use")
+    events = [Event("use", f"You {heal_verb(item).lower()} {the(item.name)}.{what_is_left(player, key)}", data=used)]
+    for status in ailing:
+        events += statuses.cure(state, status, "It burns going down, then your hands stop shaking")
+    for status, charges in item.guards.items():
+        if player.guards.get(status, 0) < charges:
+            player.guards[status] = charges
+            word = statuses.WORDS.get(status, (status,))[0]
+            events.append(Event("guarded", f"What's left of it in your blood will stop the next {charges} times "
+                                           f"you'd be {word}.", data={"status": status, "guards": charges}))
+    return events, True
 
 
 def _dazzle(state: GameState, content: Content) -> list[Event]:
@@ -1416,15 +1481,21 @@ def _rest(state: GameState, content: Content, rng: random.Random) -> list[Event]
         events += monster_turn(state, content, rng)
         return events
     cook = powers.holders(state, content, "cook")
-    healed = min(dice.roll("1d6", rng) + player.wits + state.floor + 4 * bool(cook), player.max_hp - player.hp)
+    rested = dice.roll("1d6", rng) + player.wits + state.floor + 4 * bool(cook)
+    sick = statuses.hindered(state)
+    if sick:  # (it's hard to rest with venom in you)
+        rested //= 2
+    healed = min(rested, player.max_hp - player.hp)
     player.hp += healed
     meal = f" A hot meal cooked in your {cook[0].name} helps." if cook else ""
-    return [Event("rest", f"You rest for a while and recover {healed} HP ({player.hp}/{player.max_hp}).{meal}")]
+    uneasy = f" Being {sick}, you barely sleep: it does you half the good." if sick else ""
+    return [Event("rest", f"You rest for a while and recover {healed} HP ({player.hp}/{player.max_hp}).{meal}"
+                          f"{uneasy}")]
 
 
 def _fixture(state: GameState, content: Content, rng: random.Random, verb: str) -> list[Event]:
-    """A fixture's use. Each is the fixture's one use, but a prayer: a shrine lifts a curse whenever you ask, used or
-    not (so blood or gold first never leaves you stuck with one)."""
+    """A fixture's use. Each is the fixture's one use, but a prayer: a shrine lifts a curse and cures poison whenever
+    you ask, used or not (so blood or gold first never leaves you stuck with one)."""
     room, player = state.room, state.player
     room.fixture_used = room.fixture_used or verb != "shrine_pray"
     room.remember({"shrine_blood": "you bled on the shrine", "shrine_gold": "you gave gold to the shrine",
@@ -1444,9 +1515,16 @@ def _fixture(state: GameState, content: Content, rng: random.Random, verb: str) 
         return [Event("shrine", "You bleed on the shrine. Your Fate is already full, so it gives you 8 souls instead.")]
     if verb == "shrine_pray":
         lifted = inventory.lift_curses(state, content)
-        names, its = " and ".join(the(name) for name in lifted), "it's" if len(lifted) == 1 else "they're"
-        return [Event("shrine", f"You kneel at the shrine and pray. Its light washes over {names}, and the curse "
-                                f"lifts: {its} yours to keep or leave now.")]
+        events = []
+        if lifted:
+            names, its = " and ".join(the(name) for name in lifted), "it's" if len(lifted) == 1 else "they're"
+            events.append(Event("shrine", f"You kneel at the shrine and pray. Its light washes over {names}, and the "
+                                          f"curse lifts: {its} yours to keep or leave now."))
+        how = "Its light runs through you too" if lifted else \
+            "You kneel at the shrine and pray, and its light runs through you"
+        for key in [k for k in player.statuses if statuses.DEFS[k].shrine]:  # (as often as you like)
+            events += statuses.cure(state, key, how)
+        return events
     if verb == "shrine_gold":
         player.gold -= 10
         healed = player.max_hp - player.hp

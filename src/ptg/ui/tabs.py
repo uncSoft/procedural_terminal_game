@@ -34,7 +34,7 @@ from textual.containers import Center, Grid, Horizontal, Vertical, VerticalScrol
 from textual.widget import Widget
 from textual.widgets import Footer, Input, Static
 
-from .. import config, npcs, powers, sheet
+from .. import config, npcs, powers, sheet, statuses
 from ..events import Action
 from ..room_picture import look_of
 from ..world import map_glyph, render_map
@@ -314,8 +314,9 @@ def map_notes(state, content) -> Table:
 
 
 def status_lines(state, content) -> Table:
-    """Everything the status bar shows in a glyph, said in full: health, defense, Fate, gold, souls, bombs, keys,
-    the boss's key, your level and how far to the next, where you are and the turn."""
+    """Everything the status bar shows in a glyph, said in full: health (what ails you, and what guards you against
+    it), defense, Fate, gold, souls, bombs, keys, the boss's key, your level and how far to the next, where you are
+    and the turn."""
     player = state.player
     theme = content.themes[state.theme]
     table = Table.grid(padding=(0, 2))
@@ -327,6 +328,12 @@ def status_lines(state, content) -> Table:
         table.add_row(Text.assemble((f"{glyph} ", colour), (label, WORDS)), value, note)
 
     row("♥", "#ff4b4b", "Health", f"{player.hp}/{player.max_hp}", "at 0 the run ends")
+    for key in player.statuses:
+        status = statuses.DEFS[key]
+        row(status.icon, status.colour, status.name, "yes", statuses.effects(status))
+    for key, charges in player.guards.items():
+        row("✚", "#5fe3ff", f"Guard against {statuses.WORDS.get(key, (key, key))[1].removeprefix('the ')}",
+            str(charges), "the next times it would take hold, it doesn't")
     row("⛨", "#6c8cff", "Defense", str(player.defense(content)), "what a blow must roll to hit you")
     row("✦", GOLD, "Fate", f"{player.fate}/{player.max_fate()}", "spend one to roll a die again")
     row("¤", ACCENT, "Gold", str(player.gold), "for shops, and to calm some")

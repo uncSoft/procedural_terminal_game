@@ -29,6 +29,7 @@ SPECIAL = {"lenny": ("Lucky Lenny, with his bad tooth in your pack", 1),
            "swoogy": ("Swoogy, behind a wall for you to bomb", 1),
            "king_mouse": ("King Mouse, guarding the floor-2 stairs", 2),
            "serpentis": ("Serpentis in its lair, floor 3's secret room, behind a wall to bomb", 3),
+           "poison": ("Poisoned already, with a Pure in your pack and a shrine next door", 1),
            "shop": ("Granny Gristle's shop, at its door, with gold to spend", 1),
            "shiny_shop": ("Granny Kamultruk's shop, at its door, with gold to spend", 1)}
 LENNYS = {"lenny": npcs.LENNY, "lenny_quest": npcs.LENNY}  # the rooms with Lucky Lenny next door
@@ -90,6 +91,8 @@ def build(content: Content, who: str, loadout: str = "random", floor: int = 0, n
         state, start = _king_mouse(content, seed)
     elif who == "serpentis":
         state, start = _lair(content, seed)
+    elif who == "poison":
+        state, start = _shrine_floor(content, seed, floor)
     else:
         state, start = _next_door(content, seed, floor, LENNYS.get(who, who))
     state.test_room, state.run_id, state.daily, state.ghost = who, None, "", None
@@ -107,6 +110,9 @@ def build(content: Content, who: str, loadout: str = "random", floor: int = 0, n
                         or [lenny])
     elif who in ("swoogy", "serpentis"):
         player.bombs = max(player.bombs, 1)
+    elif who == "poison":
+        player.statuses["poison"] = 1
+        player.inventory.append("pure")
     elif who in ("shop", "shiny_shop"):
         player.keys, player.bombs, player.gold = max(player.keys, 1), max(player.bombs, 2), max(player.gold, SHOP_GOLD)
     elif boss_of:
@@ -174,11 +180,12 @@ def custom(spec: str) -> dict:
 
 
 def target(state: GameState) -> Room:
-    """The room whoever you're testing is in (a shop, for a shop)."""
+    """The room whoever you're testing is in (a shop, for a shop; the shrine, poisoned)."""
     who = {**LENNYS, "swoogy": npcs.SWOOGY}.get(state.test_room, state.test_room)
     keeper = {"shop": loot.SHOPKEEPER, "shiny_shop": loot.SHINY}.get(who)
     here = state.room
-    return min((r for r in state.rooms if (r.shop.keeper == keeper if keeper and r.shop else
+    return min((r for r in state.rooms if (r.fixture == "shrine" if who == "poison" else
+                                          r.shop.keeper == keeper if keeper and r.shop else
                                           r.monster is not None and r.monster.key == who)),
                key=lambda r: abs(r.x - here.x) + abs(r.y - here.y))
 
@@ -187,7 +194,8 @@ def describe(content: Content, state: GameState) -> list[tuple[str, str]]:
     """What a test run is, in a few lines: who's where, and your kit."""
     room, player = target(state), state.player
     way = next((d for d, (dx, dy) in DELTA.items() if (state.room.x + dx, state.room.y + dy) == (room.x, room.y)), "")
-    name = content.monster(room.shop.keeper).name + "'s shop" if room.shop else room.monster.name
+    name = content.monster(room.shop.keeper).name + "'s shop" if room.shop else \
+        "A shrine" if state.test_room == "poison" else room.monster.name
     gear = [content.item(k).name for k in (player.weapon, player.armor) if k]
     pack = {}
     for key in player.inventory:
@@ -264,6 +272,16 @@ def _lair(content: Content, seed: int):
     beside = next(r for r in state.rooms
                   if not r.secret and not r.shop and abs(r.x - secret.x) + abs(r.y - secret.y) == 1)
     return state, beside.id
+
+
+def _shrine_floor(content: Content, seed: int, floor: int):
+    """A floor with a shrine on it: you start next door (the step in burns)."""
+    def beside(s):
+        shrine = next((r for r in s.rooms if r.fixture == "shrine"), None)
+        return next((s.rooms[e.to] for e in shrine.exits.values() if not e.locked and not s.rooms[e.to].secret
+                     and not s.rooms[e.to].shop), None) if shrine else None
+    state, start = _first(content, seed, floor, beside)
+    return state, start.id
 
 
 def _shop(content: Content, seed: int, floor: int, keeper: str):

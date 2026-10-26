@@ -8,7 +8,6 @@ from conftest import put_monster
 
 from ptg import combat, dice, rules, statuses, testrooms
 from ptg.content import ContentError, _read, build_content, load_content
-from ptg.dice import Roll
 from ptg.llm.prompts import player_status
 from ptg.rules import available_actions, perform
 from ptg.ui.dice import advantage_hint
@@ -36,7 +35,7 @@ def test_poison_takes_hold_once_and_a_guard_stops_it():
     events = statuses.inflict(state, "poison", "The snake's bite")
     assert state.player.statuses == {"poison": 1} and [e.kind for e in events] == ["status", "warning"]
     assert events[0].text == "The snake's bite has poisoned you."
-    assert "disadvantage" in events[1].text and "shrine" in events[1].text
+    assert "-2 to your rolls" in events[1].text and "shrine" in events[1].text
     assert statuses.inflict(state, "poison") == []  # (poisoned already: no worse)
     state.player.statuses.clear()
     statuses.guard(state, "poison", 1)
@@ -45,14 +44,22 @@ def test_poison_takes_hold_once_and_a_guard_stops_it():
     assert not state.player.statuses and "poison" not in state.player.guards
 
 
-def test_poison_burns_a_step_at_a_time_but_never_kills():
+def test_poison_burns_a_step_or_a_fights_turn_at_a_time_but_never_kills():
     state = quiet()
     statuses.inflict(state, "poison")
-    state.player.hp = 3
-    burns = [statuses.tick(state, "step")[0] for _ in range(4)]
-    assert state.player.hp == 1 and [e.data["damage"] for e in burns] == [1, 1, 0, 0]
+    state.player.hp = 6
+    burns = [statuses.tick(state, when)[0] for when in ("step", "round", "step", "round")]
+    assert state.player.hp == 1 and [e.data["damage"] for e in burns] == [2, 2, 1, 0]
     assert "won't finish you" in burns[-1].text and not state.over
-    assert statuses.tick(state, "round") == []  # (poison burns as you walk, not as you fight)
+
+
+def test_each_turn_of_a_fight_burns(content):
+    state = quiet()
+    put_monster(state, content, key="goblin")
+    state.player.max_hp = state.player.hp = 200  # (the goblin's blows aren't what's counted)
+    statuses.inflict(state, "poison")
+    events = perform(state, content, "dodge")
+    assert [e.data["damage"] for e in events if e.kind == "status_tick"] == [2]
 
 
 def test_walking_burns_and_quick_travel_burns_all_the_way(content):
@@ -61,34 +68,36 @@ def test_walking_burns_and_quick_travel_burns_all_the_way(content):
     hp = state.player.hp
     direction = next(d for d, e in state.room.exits.items() if not e.locked)
     events = perform(state, content, f"go:{direction}")
-    burn = f"☠ The poison burns: -1 HP ({hp - 1}/{state.player.max_hp})."
+    burn = f"☠ The poison burns: -2 HP ({hp - 2}/{state.player.max_hp})."
     assert [e.text for e in events if e.kind == "status_tick"] == [burn]
     burns = statuses.summed([e for _ in range(3) for e in statuses.tick(state, "step")])
-    assert len(burns) == 1 and burns[0].data["damage"] == 3 and "all the way: -3 HP" in burns[0].text
+    assert len(burns) == 1 and burns[0].data["damage"] == 6 and "all the way: -6 HP" in burns[0].text
 
 
-def test_poisoned_every_roll_of_yours_is_at_a_disadvantage(content):
+def test_poisoned_every_roll_of_yours_is_two_worse(content):
     state = quiet()
     statuses.inflict(state, "poison")
     events = perform(state, content, "search_room")
     roll = next(e.dice for e in events if e.dice)
-    assert roll.hindered == "poisoned" and roll.advantage == -1 and len(roll.dice) == 2
-    assert roll.kept == min(roll.dice) and "wits (search), poisoned:" in roll.describe()
-    assert dice.HINDERED.get() == ""  # (only for the turn)
+    assert ("poisoned", -2) in roll.bonuses and len(roll.dice) == 1 and not roll.hindered
+    assert "- 2 poisoned" in roll.describe()
+    assert dice.HINDERED.get() == dice.Hindrance()  # (only for the turn)
     monster_roll = dice.check(random.Random(1), "bite", [], 10, actor="monster")
-    assert not monster_roll.hindered and len(monster_roll.dice) == 1
+    assert not monster_roll.bonuses and len(monster_roll.dice) == 1
 
 
-def test_an_advantage_and_poison_cancel_out():
-    token = dice.HINDERED.set("poisoned")
+def test_a_status_could_put_your_rolls_at_a_disadvantage_instead():
+    """(Poison was, at first: -2 is kinder. Another status may want it.)"""
+    token = dice.HINDERED.set(dice.Hindrance("blinded", disadvantage=True))
     try:
         roll = dice.check(random.Random(2), "attack", [], 10, advantage=1)
+        worse = dice.check(random.Random(2), "attack", [], 10)
     finally:
         dice.HINDERED.reset(token)
-    assert len(roll.dice) == 1 and roll.hindered == "poisoned"
-    assert advantage_hint(roll) == "poisoned: your advantage is lost"
-    worst = Roll("x", "player", [3, 15], 3, [], 10, False, -1, hindered="poisoned")
-    assert advantage_hint(worst) == "two dice: keep the worst (poisoned)"
+    assert len(roll.dice) == 1 and roll.hindered == "blinded" and len(worse.dice) == 2
+    assert advantage_hint(roll) == "blinded: your advantage is lost"
+    worst = dice.Roll("x", "player", [3, 15], 3, [], 10, False, -1, hindered="blinded")
+    assert advantage_hint(worst) == "two dice: keep the worst (blinded)"
 
 
 def test_a_shrine_cures_poison_again_and_again(content):
@@ -107,7 +116,7 @@ def test_a_shrine_cures_poison_again_and_again(content):
     assert "shrine_pray" in ids(state, content)  # (bled on, it still hears a prayer)
 
 
-def test_pure_cures_poison_and_guards_against_the_next_two(content):
+def test_pure_cures_poison_and_guards_against_the_next_one(content):
     state = quiet()
     state.player.inventory.append("pure")
     assert "use:pure" not in ids(state, content)
@@ -115,9 +124,8 @@ def test_pure_cures_poison_and_guards_against_the_next_two(content):
     drink = next(a for a in available_actions(state, content) if a.id == "use:pure")
     assert drink.label == "Drink the Pure" and drink.hint == "cures poison"
     events = perform(state, content, "use:pure")
-    assert not state.player.statuses and state.player.guards == {"poison": 2} and "pure" not in state.player.inventory
+    assert not state.player.statuses and state.player.guards == {"poison": 1} and "pure" not in state.player.inventory
     assert [e.kind for e in events][:3] == ["use", "cured", "guarded"]
-    assert statuses.inflict(state, "poison")[0].kind == "guarded"
     assert statuses.inflict(state, "poison")[0].kind == "guarded"
     assert statuses.inflict(state, "poison")[0].kind == "status"
 
@@ -126,7 +134,7 @@ def test_pure_drunk_ahead_of_time_guards_but_doesnt_pile_up(content):
     state = quiet()
     state.player.inventory += ["pure", "pure"]
     events = perform(state, content, "use:pure")  # (said, not listed: no poison to cure yet)
-    assert state.player.guards == {"poison": 2} and events[0].kind == "use"
+    assert state.player.guards == {"poison": 1} and events[0].kind == "use"
     events = perform(state, content, "use:pure")
     assert state.player.inventory.count("pure") == 1 and "still guards you" in events[0].text
 
@@ -191,7 +199,7 @@ def test_the_poison_test_room_starts_you_poisoned_with_a_pure_and_a_shrine(conte
 def test_what_cures_and_guards_must_be_statuses_the_game_knows():
     def read(name: str) -> str:
         text = _read(name)
-        return text.replace('cures = ["poison"]\nguards = {poison = 2}', 'cures = ["hiccups"]\nguards = {poison = -1}')
+        return text.replace('cures = ["poison"]\nguards = {poison = 1}', 'cures = ["hiccups"]\nguards = {poison = -1}')
     with pytest.raises(ContentError) as error:
         build_content(read)
     assert "statuses the game knows: poison" in str(error.value) and "like {poison = 2}" in str(error.value)
@@ -212,10 +220,11 @@ def test_the_bot_cures_itself():
 
 def test_poison_says_what_it_does(content):
     said = statuses.effects(statuses.DEFS["poison"])
-    assert said == "your rolls at a disadvantage · -1 HP a step, never the last · cure: pray at a shrine, or drink Pure"
+    assert said == ("-2 to your rolls · -2 HP a step and a fight's turn, never the last · cure: pray at a shrine, "
+                    "or drink Pure")
     state = quiet()
     state.player.inventory.append("pure")
-    statuses.guard(state, "poison", 2)
+    statuses.guard(state, "poison", 1)
     assert "still guards you" in rules.why_not(state, content, "use:pure")
 
 
@@ -242,7 +251,7 @@ async def test_poison_shows_by_your_health_on_the_sheet_and_in_the_story():
         direction = next(d for d, e in state.room.exits.items() if not e.locked and not state.rooms[e.to].monster)
         await take_choice(app, pilot, screen, f"go:{direction}")
         said = " ".join(str(w.render()) for w in screen.query("#story .system-line"))
-        assert "☠ The poison burns: -1 HP" in said
+        assert "☠ The poison burns: -2 HP" in said
         await take_choice(app, pilot, screen, "use:pure")
         assert not state.player.statuses and "☠" not in str(screen.query_one("#hud").render())
         assert "Guard against poison" in plain(status_lines(state, screen.game.content), 160)

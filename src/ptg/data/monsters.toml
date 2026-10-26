@@ -187,7 +187,7 @@ ghost = true
 
 [monster.drowned_abbot]
 name = "The Drowned Abbot"
-hp = 34
+hp = 68
 defense = 13
 attack = 5
 damage = "1d10"
@@ -201,7 +201,7 @@ tell = "raises a censer that drips black water, chanting backwards"
 
 [monster.goblin_king]
 name = "The Goblin King"
-hp = 34
+hp = 68
 defense = 13
 attack = 5
 damage = "1d10"
@@ -215,7 +215,7 @@ tell = "stands on his throne and hefts a sceptre made from a frying pan"
 
 [monster.thornmother]
 name = "The Thornmother"
-hp = 34
+hp = 68
 defense = 13
 attack = 5
 damage = "1d10"

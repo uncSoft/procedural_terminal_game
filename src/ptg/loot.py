@@ -73,6 +73,7 @@ DROP = "potion 1"  # what a slain monster sometimes leaves
 SHOPKEEPER, SHINY = "granny_gristle", "granny_kamultruk"  # the shiny one: rarer, dearer, better stocked
 SHOP_CHANCE, SHINY_CHANCE = 0.25, 0.15  # a floor has a shop; of the shops, how many are Granny Kamultruk's
 GRISTLE_RARE = 1 / 3  # how often Granny Gristle has something rare where her trinket would be
+STOCK = {"potion": 2, "cure": 2}  # how many of a ware she has: one of anything else
 SHINY_WARES = ["potion 2+", "gear 3+", "rare", "rare"]
 FINDS = ["food 0", "food 0", "potion 1", "escape 1", "trinket"]  # what a stunt that pays off can turn up
 EVERYDAY = "floor"  # the place of a floor's scattered loot, a monster's drop or a find: no rare things here
@@ -172,18 +173,24 @@ def produce(rng: random.Random, content: Content, rares: list[str], slots: list[
     return key
 
 
-def wares(rng: random.Random, content: Content, rares: list[str], keeper: str, floor: int) -> list[tuple[str, int]]:
-    """What a shopkeeper lays out on her counter (rare things noted in `rares`, as anywhere), with their prices."""
+def wares(rng: random.Random, content: Content, rares: list[str], keeper: str, floor: int,
+          cure_for: str = "") -> list[tuple[str, int, int]]:
+    """What a shopkeeper lays out on her counter (rare things noted in `rares`, as anywhere), with their prices and
+    how many: potions come in twos (STOCK). On a floor with a status of its own (`cure_for`: floor 4's poison), she
+    always has its cure, two of it."""
     if keeper == SHINY:
         slots = SHINY_WARES
     else:
         slots = [f"potion -{floor}", f"gear {min(floor, 3)}", rng.choice(["bomb", "small_key"]),
                  f"rare -{floor}" if rng.random() < GRISTLE_RARE else "trinket"]
-    out: list[tuple[str, int]] = []
+    out: list[tuple[str, int, int]] = []
     for slot in slots:
         key = produce(rng, content, rares, [slot], "shop")
-        if key and key not in [k for k, _ in out]:
-            out.append((key, price(content.item(key), floor, keeper == SHINY)))
+        if key and key not in [k for k, _, _ in out]:
+            out.append((key, price(content.item(key), floor, keeper == SHINY), STOCK.get(role(content.item(key)), 1)))
+    for item in sorted(content.items.values(), key=lambda i: i.key):
+        if cure_for and cure_for in item.cures and not item.heal:
+            out.append((item.key, price(item, floor, keeper == SHINY), STOCK["cure"]))
     return out
 
 
@@ -192,7 +199,7 @@ def price(item: ItemDef, floor: int, shiny: bool = False) -> int:
     a quarter more again at Granny Kamultruk's. In fives, rounded up (she's a shopkeeper)."""
     base = {"bomb": 12, "small_key": 15}.get(item.key)
     if base is None:
-        base = {"potion": 15 + 20 * (item.tier - 1), "food": 6 + 6 * item.tier, "escape": 20, "cure": 15,
+        base = {"potion": 15 + 20 * (item.tier - 1), "food": 6 + 6 * item.tier, "escape": 20, "cure": 45,
                 "weapon": 5 + 20 * item.tier, "armor": 5 + 20 * item.tier}.get(role(item), 20 + 10 * item.tier)
         base *= 1.6 if rare(item) else 1
     cost = base * (1 + 0.1 * (floor - 1)) * (1.25 if shiny else 1)

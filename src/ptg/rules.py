@@ -306,8 +306,8 @@ def _fixture_actions(state: GameState, content: Content) -> list[Action]:
 
 def perform(state: GameState, content: Content, action_id: str) -> list[Event]:
     """Resolve one engine action. Unknown or impossible actions return an info event saying why, and cost nothing.
-    A status that hinders you (poison) puts every roll of yours this turn at a disadvantage (dice.HINDERED)."""
-    token = dice.HINDERED.set(statuses.hindered(state))
+    A status that hinders you (poison) is off every roll of yours this turn (dice.HINDERED)."""
+    token = dice.HINDERED.set(statuses.hindrance(state))
     try:
         return _perform(state, content, action_id)
     finally:
@@ -429,7 +429,7 @@ def perform_creative(state: GameState, content: Content, intent: Intent) -> tupl
     not, it's a stunt (creative.py), which wastes nothing."""
     if state.over:
         return intent, []
-    token = dice.HINDERED.set(statuses.hindered(state))
+    token = dice.HINDERED.set(statuses.hindrance(state))
     try:
         return _perform_creative(state, content, intent)
     finally:
@@ -471,6 +471,8 @@ def finish_turn(state, content, rng, events, took_turn, was_in_combat, room_befo
         state.reroll = 0
         if was_in_combat and state.room_id == room_before and state.in_combat and not state.over:
             events += monster_turn(state, content, rng)
+        if was_in_combat and state.room_id == room_before and not state.over:  # (a fight's turn: poison burns)
+            events += statuses.tick(state, "round")
     if not state.in_combat:  # the fight's over: no vines left to hold you, nothing to dodge
         state.player.tangled = state.player.dodging = False
     events = npcs.react(state, content, events)  # what the characters say to it all, each right after what it's about
@@ -1319,7 +1321,9 @@ def _buy(state: GameState, content: Content, index: int) -> list[Event]:
         return [Event("info", f"{cap(the(item.name))} is {ware.price} gold, and you have {player.gold}.",
                       data={"quiet": True})]
     player.gold -= ware.price
-    shop.wares.pop(index)
+    ware.count -= 1
+    if ware.count <= 0:
+        shop.wares.pop(index)
     says = f"You buy {the(item.name)} for {ware.price} gold ({player.gold} left)"
     return quietly(inventory.gain(state, content, ware.item, "buy", "shop", says=says, kind="buy"))
 

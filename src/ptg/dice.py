@@ -53,7 +53,7 @@ class Roll:
     hits_for: str = ""  # a roll to hit: the damage it does if it hits ("4d6"), told before you roll
     damage: list[tuple[str, int]] = field(default_factory=list)  # what the hit did, part by part (see hurt)
     effects: list[str] = field(default_factory=list)  # what else came of it: "+1 Fate (2/3)", "+6 HP" (see told)
-    hindered: str = ""  # why it was at a disadvantage, if a status put it there: "poisoned"
+    hindered: str = ""  # why it was at a disadvantage, if a status put it there (a penalty is one of its bonuses)
 
     @property
     def total(self) -> int:
@@ -92,20 +92,31 @@ class Roll:
                                "success" if self.success else "fail")
 
 
-# Why the player's rolls are at a disadvantage this turn, if a status puts them there ("poisoned"): set by the turn
-# (rules.perform), so every roll of the player's takes it in without each one asking.
-HINDERED: ContextVar[str] = ContextVar("hindered", default="")
+@dataclass(frozen=True)
+class Hindrance:
+    """What a status does to the player's rolls (statuses.hindrance): why ("poisoned"), a penalty off each, or a
+    disadvantage."""
+    why: str = ""
+    penalty: int = 0
+    disadvantage: bool = False
+
+
+# What a status does to the player's rolls this turn: set by the turn (rules.perform), so every roll of the player's
+# takes it in without each one asking.
+HINDERED: ContextVar[Hindrance] = ContextVar("hindered", default=Hindrance())  # noqa: B039 (frozen: never changes)
 
 
 def check(rng: random.Random, label: str, bonuses: list[tuple[str, int]], dc: int, actor: str = "player",
           advantage: int = 0, impossible: bool = False) -> Roll:
-    hindered = HINDERED.get() if actor == "player" else ""
-    if hindered:
+    hindrance = HINDERED.get() if actor == "player" else Hindrance()
+    if hindrance.penalty:  # (said as a bonus of its own: "- 2 poisoned")
+        bonuses = [*bonuses, (hindrance.why, -hindrance.penalty)]
+    if hindrance.disadvantage:
         advantage -= 1  # (an advantage and a disadvantage cancel out: one die)
     dice = [d20(rng)] if advantage == 0 else [d20(rng), d20(rng)]
     kept = max(dice) if advantage > 0 else min(dice)
     result = Roll(label, actor, dice, kept, [b for b in bonuses if b[1]], dc, False, advantage, impossible,
-                  hindered=hindered)
+                  hindered=hindrance.why if hindrance.disadvantage else "")
     if impossible:
         result.success = False
     else:

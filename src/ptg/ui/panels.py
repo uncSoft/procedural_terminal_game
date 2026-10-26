@@ -544,7 +544,8 @@ class ShopScreen(Panel):
         text = Text()
         text.append(item.name + "\n", style="bold #4cff8a")
         text.append(item_note(content, ware.item) + "\n", style=WORDS)
-        text.append(f"\n¤ {ware.price} gold", style="bold #ffd166")
+        text.append(f"\n¤ {ware.price} gold" + (f" each · {ware.count} left" if ware.count > 1 else ""),
+                    style="bold #ffd166")
         text.append({"down": "  talked down", "up": "  dearer since you haggled"}.get(ware.haggled, ""), style=SOFT)
         if item.kind in inventory.GEAR:  # against what you have on, and whether it'd only be a spare
             state = self.game.state
@@ -608,8 +609,9 @@ class ShopScreen(Panel):
 
 
 def price_note(ware) -> str:
-    """A ware's price on its tile: talked down (↓), or dearer since you haggled (↑)."""
-    return f"¤ {ware.price}" + {"down": " ↓", "up": " ↑"}.get(ware.haggled, "")
+    """A ware's price on its tile: talked down (↓), or dearer since you haggled (↑), and how many she has (×2)."""
+    return f"¤ {ware.price}" + {"down": " ↓", "up": " ↑"}.get(ware.haggled, "") + \
+        (f" ×{ware.count}" if ware.count > 1 else "")
 
 
 def whereabouts(game: Game, key: str) -> list[str]:

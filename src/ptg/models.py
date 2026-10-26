@@ -69,8 +69,9 @@ class Exit(BaseModel):
 
 class Ware(BaseModel):
     item: str
-    price: int
+    price: int  # each
     haggled: str = ""  # "down" or "up" once you've bartered over it (once a ware)
+    count: int = 1  # how many she has of it (potions and Pure come in twos)
 
 
 class Shop(BaseModel):

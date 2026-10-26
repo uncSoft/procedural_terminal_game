@@ -338,7 +338,7 @@ def _shop(state: GameState, content: Content, rooms: list[Room], end_id: int) ->
     door = next(d for d, (dx, dy) in DELTA.items() if (rooms[by].x + dx, rooms[by].y + dy) == (x, y))
     room = Room(id=len(rooms), x=x, y=y, name=f"{content.monster(keeper).name}'s Shop", archetype="shop",
                 distance=rooms[by].distance + 1, fixture="shop",
-                shop=Shop(keeper=keeper, wares=[Ware(item=k, price=p) for k, p in
+                shop=Shop(keeper=keeper, wares=[Ware(item=k, price=p, count=n) for k, p, n in
                                                 loot.wares(rng, content, state.rares, keeper, state.floor)]))
     rooms[by].exits[door] = Exit(to=room.id, locked=True, key="small_key")
     room.exits[OPPOSITE[door]] = Exit(to=by)

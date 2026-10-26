@@ -3,12 +3,13 @@ docs/plans/floor-4-and-statuses.md). Each one is a row in data/statuses.toml: wh
 it can kill you, whether it puts your rolls at a disadvantage, and whether a shrine cures it.
 
     inflict(state, "poison", by)    a bite, a vent, a puddle: poisoned, unless a guard stops it (one guard spent)
-    tick(state, "step")             a room walked into (or passed on quick travel): each status that ticks then
+    tick(state, "step")             a room walked into (or passed on quick travel), or a fight's turn ("round"):
+                                    each status that ticks then
     cure(state, "poison")           a shrine's prayer, Pure: it's gone
-    hindered(state)                 why your rolls are at a disadvantage now ("poisoned"), or ""
+    hindrance(state)                what's off your rolls now (-2, poisoned), for dice.HINDERED
 
-A guard (Player.guards) is a charge against a status: Pure cures poison and leaves two, so the next two poisonings
-don't take. Statuses are kept on the player as {status: strength} (Player.statuses).
+A guard (Player.guards) is a charge against a status: Pure cures poison and leaves one, so the next poisoning doesn't
+take. Statuses are kept on the player as {status: strength} (Player.statuses).
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from dataclasses import dataclass
 from importlib import resources
 from typing import TYPE_CHECKING
 
+from .dice import Hindrance
 from .events import Event
 
 if TYPE_CHECKING:  # models imports content, and content checks its items' statuses against DEFS
@@ -33,6 +35,7 @@ class StatusDef:
     ticks: tuple[str, ...] = ()
     damage: int = 0
     lethal: bool = True
+    penalty: int = 0
     disadvantage: bool = False
     shrine: bool = False
     cured_by: str = ""
@@ -50,10 +53,11 @@ WORDS = {"poison": ("poisoned", "the poison")}  # how a status is said: as a sta
 
 
 def effects(status: StatusDef) -> str:
-    """What a status does, in a line: "your rolls at a disadvantage · -1 HP a step · cure: pray at a shrine, or drink
-    Pure"."""
-    when = {"step": "a step", "round": "a round"}
-    parts = ["your rolls at a disadvantage"] if status.disadvantage else []
+    """What a status does, in a line: "-2 to your rolls · -2 HP a step and a fight's turn, never the last · cure: pray
+    at a shrine, or drink Pure"."""
+    when = {"step": "a step", "round": "a fight's turn"}
+    parts = [f"-{status.penalty} to your rolls"] if status.penalty else []
+    parts += ["your rolls at a disadvantage"] if status.disadvantage else []
     if status.damage and status.ticks:
         parts.append(f"-{status.damage} HP {' and '.join(when.get(t, t) for t in status.ticks)}"
                      + ("" if status.lethal else ", never the last"))
@@ -65,9 +69,15 @@ def has(state: GameState, key: str) -> bool:
 
 
 def hindered(state: GameState) -> str:
-    """Why your rolls are at a disadvantage now (the first status that does it, as a word: "poisoned"), or ""."""
+    """Why your rolls are worse now (the first status that makes them so, as a word: "poisoned"), or ""."""
     return next((WORDS.get(key, (key,))[0] for key in state.player.statuses
-                 if key in DEFS and DEFS[key].disadvantage), "")
+                 if key in DEFS and (DEFS[key].penalty or DEFS[key].disadvantage)), "")
+
+
+def hindrance(state: GameState) -> Hindrance:
+    """What's off your rolls now, all your statuses' together (dice.HINDERED)."""
+    ailing = [DEFS[key] for key in state.player.statuses if key in DEFS]
+    return Hindrance(hindered(state), sum(s.penalty for s in ailing), any(s.disadvantage for s in ailing))
 
 
 def inflict(state: GameState, key: str, by: str = "") -> list[Event]:

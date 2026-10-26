@@ -191,19 +191,25 @@ def test_serpentis_leaves_its_old_sword(content):
     assert _kept(state, content, random.Random(0), serpent) == []  # (once a run, like any rare thing)
 
 
-def test_a_floor_4_monster_waits_for_floor_4_but_has_its_test_room(content):
-    """Serpentis came with its maker's numbers for a deeper floor (tier 4): none of floors 1-3 have it, but it can be
-    tried in a test room."""
-    from ptg import testrooms
+def test_a_floor_4_monster_waits_for_floor_4_but_lairs_now_and_then_on_floor_3(content):
+    """Serpentis came with its maker's numbers for a deeper floor (tier 4): it never roams floors 1-3, but now and
+    then lairs in floor 3's secret room, cut down to that floor's size (npcs.SERPENTIS_SIZE), its sword with it."""
+    from ptg import npcs, testrooms
 
     deep = {m.key for m in content.monsters.values() if m.roams and m.tier > 3}
     assert "serpentis" in deep
-    for seed in range(30):
+    lairs = 0
+    for seed in range(60):
         state = generate(seed, content=content)
         for floor in range(1, state.floors_total + 1):
             if floor > 1:
                 state.floor = floor
                 build_floor(state, content)
-            assert not {r.monster.key for r in state.rooms if r.monster} & deep
+            for room in state.rooms:
+                if room.monster and room.monster.key in deep:
+                    assert room.secret and floor == 3 and room.monster.max_hp == npcs.SERPENTIS_SIZE[3][0]
+                    lairs += 1
+    assert 0 < lairs < 30  # (a rare find: a quarter of the runs, about)
     state = testrooms.build(content, "serpentis", "strong", seed=3)
-    assert any(r.monster and r.monster.key == "serpentis" for r in state.rooms)
+    lair = testrooms.target(state)
+    assert lair.secret and state.floor == 3 and state.player.bombs >= 1

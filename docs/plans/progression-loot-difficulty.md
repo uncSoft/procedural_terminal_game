@@ -124,10 +124,15 @@ teaches and the climb comes after. Bosses get the same depth bonus plus their ow
 numbers, not code.
 
 **Waiting for floor 4.** Some of the kids' creations are made for deeper floors, with numbers from there, and are
-kept as made: tier 4, so floors 1–3 never draw them, but each has its test room (`ptg --test-room serpentis`).
-- **Serpentis** (BelleDaBest): 75 HP, defense 15, 2d8, weak to holy and water; one of a kind. Drops **Bloodbath**
-  (2d7+2, its old sword, tier 4). When floor 4 comes, check its numbers against the depth bonus above before it
-  roams: it's about three tier-3 monsters' worth of HP.
+kept as made: tier 4, so floors 1–3 never draw them as ordinary monsters.
+- **Serpentis** (BelleDaBest): 75 HP, defense 15, 2d8, weak to holy and water; one of a kind; meant as a floor
+  boss. Drops **Bloodbath** (2d7+2, its old sword, tier 4). Until floor 4 exists it's floor 3's *hidden boss*: a
+  quarter of runs, it lairs in floor 3's secret room, cut down to 52 HP, +6 to hit, defense 15, 2d8−1
+  (`npcs.SERPENTIS_SIZE`; the bot with a floor-3 kit wins 81%, in about 8 rounds, keeping 56% of its HP). Its test
+  room is that lair (`ptg --test-room serpentis`). When the deeper floors come, it becomes a theme's boss at its
+  maker's numbers.
+- **The floor-3 bosses are soft** by the same measure: the Goblin King, the Drowned Abbot and the Thornmother go
+  down in 5–6 rounds, the bot keeping three quarters of its HP and almost never dying (target: 8–12 rounds).
 
 ### 3.3 The player grows more by choices, less by raw numbers
 

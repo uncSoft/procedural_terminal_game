@@ -20,7 +20,8 @@ def ids(state, content):
 @pytest.fixture
 def everyone(monkeypatch):
     """Every character turns up wherever it can."""
-    monkeypatch.setattr(npcs, "ODDS", {npcs.LENNY: 1.0, npcs.SWOOGY: 1.0, npcs.KING_MOUSE: 1.0, "npc": 0.0})
+    monkeypatch.setattr(npcs, "ODDS", {npcs.LENNY: 1.0, npcs.SWOOGY: 1.0, npcs.KING_MOUSE: 1.0, npcs.SERPENTIS: 0.0,
+                                       "npc": 0.0})
 
 
 def go_to(state, room):
@@ -168,13 +169,15 @@ def test_king_mouse_guards_the_stairs_now_and_then_cut_down_to_size(content, eve
 
 
 def test_nobody_turns_up_when_the_odds_are_nil(content, monkeypatch):
-    monkeypatch.setattr(npcs, "ODDS", {npcs.LENNY: 0.0, npcs.SWOOGY: 0.0, npcs.KING_MOUSE: 0.0, "npc": 0.0})
+    monkeypatch.setattr(npcs, "ODDS", {npcs.LENNY: 0.0, npcs.SWOOGY: 0.0, npcs.KING_MOUSE: 0.0, npcs.SERPENTIS: 0.0,
+                                       "npc": 0.0})
     keys = {r.monster.key for s in map(generate, range(40)) for r in s.rooms if r.monster}
     assert not keys & {npcs.LENNY, npcs.SWOOGY, npcs.KING_MOUSE}
 
 
 def test_a_kid_made_npc_turns_up_calm_to_talk_to(content, monkeypatch):
-    monkeypatch.setattr(npcs, "ODDS", {npcs.LENNY: 0.0, npcs.SWOOGY: 0.0, npcs.KING_MOUSE: 0.0, "npc": 1.0})
+    monkeypatch.setattr(npcs, "ODDS", {npcs.LENNY: 0.0, npcs.SWOOGY: 0.0, npcs.KING_MOUSE: 0.0, npcs.SERPENTIS: 0.0,
+                                       "npc": 1.0})
     monkeypatch.setattr(npcs, "PLACED", set())  # as if Lenny and Swoogy were anyone's
     state = generate(3)
     room = next(r for r in state.rooms if r.monster and content.monster(r.monster.key).npc)

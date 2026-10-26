@@ -28,6 +28,7 @@ SPECIAL = {"lenny": ("Lucky Lenny, with his bad tooth in your pack", 1),
            "lenny_quest": ("Lucky Lenny, still missing his bad tooth: it's hidden on his floor", 1),
            "swoogy": ("Swoogy, behind a wall for you to bomb", 1),
            "king_mouse": ("King Mouse, guarding the floor-2 stairs", 2),
+           "serpentis": ("Serpentis in its lair, floor 3's secret room, behind a wall to bomb", 3),
            "shop": ("Granny Gristle's shop, at its door, with gold to spend", 1),
            "shiny_shop": ("Granny Kamultruk's shop, at its door, with gold to spend", 1)}
 LENNYS = {"lenny": npcs.LENNY, "lenny_quest": npcs.LENNY}  # the rooms with Lucky Lenny next door
@@ -66,7 +67,8 @@ def floor_for(content: Content, who: str) -> int:
 
 def fixed_floor(content: Content, who: str) -> int:
     """The one floor `who` can be on, or 0 if it's up to you."""
-    return floor_for(content, who) if who == "king_mouse" or any(t.boss == who for t in content.themes.values()) else 0
+    return floor_for(content, who) if who in ("king_mouse", "serpentis") or \
+        any(t.boss == who for t in content.themes.values()) else 0
 
 
 def build(content: Content, who: str, loadout: str = "random", floor: int = 0, name: str = "Tester",
@@ -86,6 +88,8 @@ def build(content: Content, who: str, loadout: str = "random", floor: int = 0, n
         state, start = _shop(content, seed, floor, loot.SHINY if who == "shiny_shop" else loot.SHOPKEEPER)
     elif who == "king_mouse":
         state, start = _king_mouse(content, seed)
+    elif who == "serpentis":
+        state, start = _lair(content, seed)
     else:
         state, start = _next_door(content, seed, floor, LENNYS.get(who, who))
     state.test_room, state.run_id, state.daily, state.ghost = who, None, "", None
@@ -101,7 +105,7 @@ def build(content: Content, who: str, loadout: str = "random", floor: int = 0, n
         lenny = target(state)
         npcs.hide_tooth(state, [r for r in state.rooms if r.id not in (start, lenny.id) and not (r.secret or r.shop)]
                         or [lenny])
-    elif who == "swoogy":
+    elif who in ("swoogy", "serpentis"):
         player.bombs = max(player.bombs, 1)
     elif who in ("shop", "shiny_shop"):
         player.keys, player.bombs, player.gold = max(player.keys, 1), max(player.bombs, 2), max(player.gold, SHOP_GOLD)
@@ -248,6 +252,15 @@ def _next_door(content: Content, seed: int, floor: int, key: str):
 def _swoogy(content: Content, seed: int, floor: int):
     state, secret = _first(content, seed, floor, lambda s: next((r for r in s.rooms if r.secret), None))
     secret.monster = npcs.sized(content, npcs.SWOOGY, floor, npcs.SWOOGY_SIZE, hostile=False, mood="challenge")
+    beside = next(r for r in state.rooms
+                  if not r.secret and not r.shop and abs(r.x - secret.x) + abs(r.y - secret.y) == 1)
+    return state, beside.id
+
+
+def _lair(content: Content, seed: int):
+    """Serpentis, at its lair's size, in floor 3's secret room: you start beside its wall."""
+    state, secret = _first(content, seed, 3, lambda s: next((r for r in s.rooms if r.secret), None))
+    secret.monster = npcs.sized(content, npcs.SERPENTIS, 3, npcs.SERPENTIS_SIZE)
     beside = next(r for r in state.rooms
                   if not r.secret and not r.shop and abs(r.x - secret.x) + abs(r.y - secret.y) == 1)
     return state, beside.id

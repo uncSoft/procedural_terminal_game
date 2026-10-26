@@ -978,7 +978,7 @@ class GameScreen(Screen):
         game = self.game
         state = game.state
         self.add_floor_header(f"Floor {state.floor} of {state.floors_total}", game.theme.name, before=narration)
-        self.app.push_screen(FloorScreen(state.floor, state.floors_total, game.theme, state.final_floor))
+        self.app.push_screen(FloorScreen(state.floor, state.floors_total, game.theme, state.boss_floor))
 
     def _toasts(self, events: list[Event]) -> None:
         for event in events:

@@ -187,7 +187,8 @@ RULES = (
     ("⚠", "HEAVY", "When a monster winds up a heavy blow, Dodge (or stun it) to turn the tables."),
     ("✦", "FATE", "Spend Fate to reroll a failed check. Earn it with flair, perfect dodges and natural 20s."),
     ("♥", "WEAK", "Monsters have weaknesses (fire, holy, shiny, food...). Find them, and the bestiary remembers."),
-    ("↓", "FLOORS", "Three floors, each a different dungeon. Find the stairs, then the key, then the boss."),
+    ("↓", "FLOORS", "Three dungeons, then Norfell. Find the stairs; on the third, the key and its boss, who "
+                    "guards the way down; at the bottom, Serpentis."),
     ("☽", "SOULS", "Souls carry over when you die. Spend them at the campfire on blessings and gifts."),
     ("●", "BOMBS", "Every floor hides a sealed secret room, in a gap that touches two rooms or more: bomb the wall to "
                    "it (search next to it for a draft). ⚷ Small keys open chests; or pick the lock, or smash it."),

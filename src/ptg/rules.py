@@ -674,7 +674,7 @@ def _journey(state: GameState, content: Content, rng: random.Random, target: int
         state.wandered[floor] = state.wandered.get(floor, 0) + 1
         deepest = max(r.distance for r in state.rooms)
         room.monster = monster_for(rng, content, state.theme, tier_for(room.distance, deepest, state.floor),
-                                   met=state.met)
+                                   met=state.met, floor=state.floor)
         who = room.monster.name if content.monster(room.monster.key).named else a(room.monster.name)
         return [Event("ambush", f"You set off for {the(goal.name)}, but in {the(room.name)} {who} blocks the way!",
                       data={"monster": room.monster.key, "room": room.id,
@@ -797,7 +797,7 @@ def _descend(state: GameState, content: Content) -> list[Event]:
     build_floor(state, content)
     theme = content.themes[state.theme]
     room = state.room
-    goal = f"Your goal: {theme.goal}" if state.final_floor else ""
+    goal = f"Your goal: {theme.goal}" if state.boss_floor else ""
     told = [f"You go down the stairs to floor {state.floor}, {theme.name}, and arrive in {the(room.name)}.",
             arrival_facts(state, content), goal]  # (the floor's header has its blurb, the HUD its souls)
     text = " ".join(part for part in told if part)
@@ -1478,7 +1478,7 @@ def _rest(state: GameState, content: Content, rng: random.Random) -> list[Event]
     if not safe_to_rest(state) and rng.random() < 0.25:
         max_distance = max(r.distance for r in state.rooms)
         room.monster = monster_for(rng, content, state.theme, tier_for(room.distance, max_distance, state.floor),
-                                   met=state.met)
+                                   met=state.met, floor=state.floor)
         who = room.monster.name if content.monster(room.monster.key).named else a(room.monster.name)
         events = [Event("ambush", f"While you rest, {who} creeps up on you!",
                         data={"monster": room.monster.key})] + stand_firm_warning(state, content)

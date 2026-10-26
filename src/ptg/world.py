@@ -1,5 +1,6 @@
-"""Seeded dungeon generation. A run is three floors, each a different theme; the same seed always builds
-the same run. Floors are built one at a time as you descend."""
+"""Seeded dungeon generation. A run is four floors: three dungeons, each a different theme (the third's boss guards
+the stairs down), then Norfell, always the fourth, with Serpentis at its bottom. The same seed always builds the same
+run. Floors are built one at a time as you descend."""
 
 from __future__ import annotations
 
@@ -8,8 +9,8 @@ from collections import deque
 
 from . import dice, layout, loot, npcs
 from .content import Content, load_content
-from .models import (DELTA, DIRECTIONS, FLOORS, OPPOSITE, Exit, Feature, GameState, MonsterState, Player, Room, Shop,
-                     Ware)
+from .models import (DELTA, DIRECTIONS, DUNGEONS, FLOORS, OPPOSITE, Exit, Feature, GameState, MonsterState, Player,
+                     Room, Shop, Ware)
 
 HIDDEN_FEATURES = ["a loose flagstone", "a hollow-sounding wall", "a hidden alcove", "a false-bottomed niche"]
 ELITES = {
@@ -18,15 +19,20 @@ ELITES = {
     "Hulking": {"hp_mult": 1.5, "damage_mod": 1},
     "Cursed": {"reward_mult": 2.0},
 }
+ROOMS = {1: 7, 2: 7, 3: 8, 4: 10}  # rooms on each floor (and a secret one, and maybe a shop)
+# Below the dungeons, the same monsters are stronger (docs/plans/progression-loot-difficulty.md §3.2: depth 3).
+DEPTH = {4: {"hp_mult": 1.6, "attack_mod": 1, "defense_mod": 1, "damage_mod": 1}}
+VENOMOUS = 0.5  # on a floor with poison of its own, how many of its monsters bite with venom (combat.VENOM)
 
 def generate(seed: int, player_name: str = "Adventurer", content: Content | None = None,
              player: Player | None = None, ghost: dict | None = None) -> GameState:
     """Start a new run on floor 1."""
     content = content or load_content()
     rng = dice.stream(seed, "run")
-    themes = sorted(content.themes)
+    themes = sorted(k for k, t in content.themes.items() if not t.floor)  # (the dungeons, shuffled)
     rng.shuffle(themes)
-    themes = (themes * FLOORS)[:FLOORS]
+    fixed = {t.floor: t.key for t in content.themes.values() if t.floor}  # (Norfell, always the fourth)
+    themes = [fixed.get(floor) or themes[(floor - 1) % len(themes)] for floor in range(1, FLOORS + 1)]
     state = GameState(seed=seed, theme=themes[0], themes=themes, rooms=[],
                       player=player or Player(name=player_name), ghost=ghost)
     build_floor(state, content)
@@ -39,8 +45,8 @@ def build_floor(state: GameState, content: Content) -> None:
     rng = dice.stream(state.seed, "floor", state.floor)
     theme = content.themes[state.themes[state.floor - 1]]
     state.theme = theme.key
-    final = state.floor >= state.floors_total
-    size = 8 if final else 7
+    final, boss = state.final_floor, state.boss_floor
+    size = ROOMS.get(state.floor, 8)
 
     coords, edges = _layout(rng, size)
     neighbors = _adjacency(len(coords), edges)
@@ -52,21 +58,25 @@ def build_floor(state: GameState, content: Content) -> None:
     distance = _bfs(neighbors, 0)
     max_distance = max(distance.values())
 
-    rooms = _build_rooms(rng, content, theme, coords, neighbors, distance, end_id, final)
-    if final:
+    rooms = _build_rooms(rng, content, theme, coords, neighbors, distance, end_id, boss)
+    if boss:
         gate = next(iter(neighbors[end_id]))
         for exit_ in rooms[gate].exits.values():
             if exit_.to == end_id:
                 exit_.locked = True
-    else:
+    if not final:  # (on the last dungeon's floor, behind its boss)
         rooms[end_id].fixture = "stairs"
 
     others = [r for r in rooms if r.id not in (0, end_id)]
-    for room, fixture in zip(rng.sample(others, min(2, len(others))), rng.sample(["shrine", "chest", "fountain"], 2)):
+    spots = rng.sample(others, min(2, len(others)))  # (drawn first, as ever: the same seed, the same floors 1-3)
+    # A floor with poison of its own always has a shrine (its free cure); any other, two of the three.
+    fixtures = ["shrine", rng.choice(["chest", "fountain"])] if theme.status else \
+        rng.sample(["shrine", "chest", "fountain"], 2)
+    for room, fixture in zip(spots, fixtures):
         room.fixture = fixture
 
-    _place_monsters(rng, content, state, theme, rooms, max_distance, end_id, final)
-    _place_loot(rng, content, state, theme, rooms, end_id, max_distance, final)
+    _place_monsters(rng, content, state, theme, rooms, max_distance, end_id, boss)
+    _place_loot(rng, content, state, theme, rooms, end_id, max_distance, boss)
     if ghost and ghost.get("floor", 1) == state.floor:
         _place_ghost(rng, content, state, rooms, end_id, ghost)
     secret = _secret_room(rng, content, state, theme, rooms)
@@ -137,12 +147,12 @@ def _bfs(neighbors: dict[int, set[int]], start: int) -> dict[int, int]:
     return distance
 
 
-def _build_rooms(rng, content, theme, coords, neighbors, distance, end_id, final) -> list[Room]:
+def _build_rooms(rng, content, theme, coords, neighbors, distance, end_id, boss) -> list[Room]:
     pool: list[str] = []
     used_names: set[str] = set()
     rooms = []
     for i, (x, y) in enumerate(coords):
-        boss_room = final and i == end_id
+        boss_room = boss and i == end_id
         if boss_room:
             archetype = content.archetypes[theme.boss_room]
         else:
@@ -169,9 +179,10 @@ def _build_rooms(rng, content, theme, coords, neighbors, distance, end_id, final
 
 
 def monster_for(rng: random.Random, content: Content, theme_key: str, tier: int, elite: str = "",
-                met: list[str] | None = None) -> MonsterState:
+                met: list[str] | None = None, floor: int = 1) -> MonsterState:
     """A monster of the theme's for a tier. One of a kind (MonsterDef.once) that's in `met` already isn't picked
-    again, and one picked now is noted there."""
+    again, and one picked now is noted there. Below the dungeons it's stronger (DEPTH), and on a floor with poison of
+    its own, it may bite with venom (VENOMOUS)."""
     theme = content.themes[theme_key]
     pool = [m for m in content.monsters.values()
             if m.roams and set(m.tags) & set(theme.monster_tags) and not (m.once and m.key in (met or ()))]
@@ -180,14 +191,22 @@ def monster_for(rng: random.Random, content: Content, theme_key: str, tier: int,
     if chosen.once and met is not None:
         met.append(chosen.key)
     monster = MonsterState(key=chosen.key, name=chosen.name, hp=chosen.hp, max_hp=chosen.hp)
+    if theme.status == "poison" and "venom" not in chosen.tricks and rng.random() < VENOMOUS:
+        monster.tricks.append("venom")
+        monster.name = f"Venomous {chosen.name}"
+    deep = DEPTH.get(floor, {})
+    if deep:
+        monster.max_hp = monster.hp = round(chosen.hp * deep["hp_mult"])
+        monster.attack_mod, monster.defense_mod, monster.damage_mod = \
+            deep["attack_mod"], deep["defense_mod"], deep["damage_mod"]
     if elite:
         mods = ELITES[elite]
         monster.elite = elite
-        monster.name = f"{elite} {chosen.name}"
-        monster.max_hp = monster.hp = round(chosen.hp * mods.get("hp_mult", 1.0))
-        monster.attack_mod = mods.get("attack_mod", 0)
-        monster.defense_mod = mods.get("defense_mod", 0)
-        monster.damage_mod = mods.get("damage_mod", 0)
+        monster.name = f"{elite} {monster.name}"
+        monster.max_hp = monster.hp = round(monster.max_hp * mods.get("hp_mult", 1.0))
+        monster.attack_mod += mods.get("attack_mod", 0)
+        monster.defense_mod += mods.get("defense_mod", 0)
+        monster.damage_mod += mods.get("damage_mod", 0)
         monster.reward_mult = mods.get("reward_mult", 1.5)
     return monster
 
@@ -204,15 +223,15 @@ def warden_tier(floor: int) -> int:
     return min(3, floor + 1)
 
 
-def _place_monsters(rng, content, state, theme, rooms: list[Room], max_distance: int, end_id: int, final: bool) -> None:
-    if final:
+def _place_monsters(rng, content, state, theme, rooms: list[Room], max_distance: int, end_id: int, boss: bool) -> None:
+    if boss:
         boss = content.monster(theme.boss)
         rooms[end_id].monster = MonsterState(key=boss.key, name=boss.name, hp=boss.hp, max_hp=boss.hp)
     else:
         # Every staircase has a warden; from floor 2 on, it's an elite.
         elite = rng.choice(sorted(ELITES)) if state.floor > 1 else ""
         rooms[end_id].monster = monster_for(rng, content, theme.key, warden_tier(state.floor), elite=elite,
-                                             met=state.met)
+                                             met=state.met, floor=state.floor)
         rooms[end_id].monster.warden = True
 
     candidates = [r for r in rooms if r.id not in (0, end_id) and r.fixture != "shrine"]
@@ -221,17 +240,17 @@ def _place_monsters(rng, content, state, theme, rooms: list[Room], max_distance:
     for room in candidates[:max(2, round(len(candidates) * 0.5))]:
         elite = rng.choice(sorted(ELITES)) if rng.random() < elite_chance else ""
         room.monster = monster_for(rng, content, theme.key, tier_for(room.distance, max_distance, state.floor), elite,
-                                   met=state.met)
+                                   met=state.met, floor=state.floor)
 
 
 def _place_loot(rng, content: Content, state: GameState, theme, rooms: list[Room], end_id: int, max_distance: int,
-                final: bool) -> None:
+                boss: bool) -> None:
     """The floor's loot (see loot.py), spread out: one thing to a hiding place, and each room's turn before any room
     gets a second, never more than loot.MOST_PER_ROOM to a room. The key and what a chest or a wall waits on go
     first; potions sometimes just lie on the floor, as do a potion, food, a bomb or a small key there's no hiding
     place left for. Anything else with nowhere left to go isn't there at all."""
     others = [r for r in rooms if r.id not in (0, end_id)]
-    if final:
+    if boss:
         # The key sits in a visible feature somewhere past the halfway point (never in the boss room).
         deep = [r for r in others if r.distance >= max(1, max_distance // 2)] or others
         rng.choice(rng.choice(deep).features).loot.append(theme.key_item)
@@ -314,7 +333,7 @@ def _secret_room(rng: random.Random, content: Content, state: GameState, theme, 
         room.items.append(prize)
     if rng.random() < 0.3:  # something got here first, and won't share
         room.monster = monster_for(rng, content, theme.key, warden_tier(state.floor), elite=rng.choice(sorted(ELITES)),
-                                   met=state.met)
+                                   met=state.met, floor=state.floor)
     return room
 
 
@@ -324,7 +343,8 @@ def _shop(state: GameState, content: Content, rooms: list[Room], end_id: int) ->
     there's a shop changes nothing else about the floor."""
     rng = dice.stream(state.seed, "shop", state.floor)
     keepers = [k for k in (loot.SHOPKEEPER, loot.SHINY) if k in content.monsters]
-    if not keepers or rng.random() >= loot.SHOP_CHANCE:
+    status = content.themes[state.theme].status  # (a floor with poison of its own: a shop more often, with the cure)
+    if not keepers or rng.random() >= (loot.STATUS_SHOP_CHANCE if status else loot.SHOP_CHANCE):
         return None
     keeper = keepers[-1] if len(keepers) > 1 and rng.random() < loot.SHINY_CHANCE else keepers[0]
     taken = {(r.x, r.y) for r in rooms}
@@ -339,7 +359,8 @@ def _shop(state: GameState, content: Content, rooms: list[Room], end_id: int) ->
     room = Room(id=len(rooms), x=x, y=y, name=f"{content.monster(keeper).name}'s Shop", archetype="shop",
                 distance=rooms[by].distance + 1, fixture="shop",
                 shop=Shop(keeper=keeper, wares=[Ware(item=k, price=p, count=n) for k, p, n in
-                                                loot.wares(rng, content, state.rares, keeper, state.floor)]))
+                                                loot.wares(rng, content, state.rares, keeper, state.floor,
+                                                           cure_for=status)]))
     rooms[by].exits[door] = Exit(to=room.id, locked=True, key="small_key")
     room.exits[OPPOSITE[door]] = Exit(to=by)
     return room

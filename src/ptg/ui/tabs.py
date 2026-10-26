@@ -274,8 +274,7 @@ def map_notes(state, content) -> Table:
     table.add_column(style=f"bold {DIM}", no_wrap=True)
     table.add_column(ratio=1)
     mapped = state.mapped_floor == state.floor
-    last = state.floor >= state.floors_total
-    goal = next((r for r in state.rooms if (r.is_boss if last else r.fixture == "stairs")), None)
+    goal = next((r for r in state.rooms if (r.is_boss if state.boss_floor else r.fixture == "stairs")), None)
     what = Text("▸ ", style=ACCENT)
     if goal and (goal.visited or mapped):
         steps = steps_to(state, goal.id)

@@ -165,8 +165,8 @@ def test_a_venomous_bite_poisons_you_and_its_owner_may_carry_pure():
     assert 30 < sum("pure" in d for d in drops) < 70  # (a quarter of the time)
 
 
-def test_serpentis_is_venomous(content):
-    assert "venom" in content.monster("serpentis").tricks
+def test_serpentis_poisons_with_every_bite(content):
+    assert "deadly_venom" in content.monster("serpentis").tricks and content.monster("serpentis").boss
 
 
 def test_resting_poisoned_does_half_the_good(content):

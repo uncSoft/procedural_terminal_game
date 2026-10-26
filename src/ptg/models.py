@@ -14,7 +14,8 @@ OPPOSITE: dict[str, Direction] = {"north": "south", "south": "north", "east": "w
 DELTA: dict[str, tuple[int, int]] = {"north": (0, -1), "south": (0, 1), "east": (1, 0), "west": (-1, 0)}
 
 LEVEL_XP = [0, 20, 55, 110, 200, 320, 480, 700]
-FLOORS = 3
+FLOORS = 4  # a run: three dungeons, then Norfell (themes.toml)
+DUNGEONS = 3  # the run's first floors, a dungeon each: the last of them has its boss, and the way down behind it
 MAX_FATE = 3
 
 Intent = Literal["strike", "heavy", "guard"]
@@ -46,6 +47,7 @@ class MonsterState(BaseModel):
     stolen_gold: int = 0
     tier: int = 0  # its tier here, if not its maker's: a character cut down to size for its floor (npcs.sized)
     warden: bool = False  # the one guarding the stairs (or standing in for it): it always leaves something
+    tricks: list[str] = Field(default_factory=list)  # tricks it has here beyond its maker's (Norfell's venom)
     rewarded: bool = False  # talked down already, and paid for it: killing it now pays nothing more
 
 
@@ -256,3 +258,9 @@ class GameState(BaseModel):
     @property
     def final_floor(self) -> bool:
         return self.floor >= self.floors_total
+
+    @property
+    def boss_floor(self) -> bool:
+        """A floor with a boss behind a locked door: the last dungeon's (floor 3: beaten, its stairs go down), and
+        every floor after it (Norfell, the last)."""
+        return self.floor >= min(DUNGEONS, self.floors_total)

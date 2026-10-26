@@ -89,7 +89,7 @@ async def test_a_run_in_progress_comes_first_and_picks_up_where_it_was():
         assert [w.id for w in title.query_one("#menu").children][:2] == ["continue", "new"]
         assert title.query_one("#run-info").display
         assert app.focused.id == "continue" and str(title.query_one("#new").label) == "New run"
-        assert "Floor 1/3" in str(title.query_one("#run-info").render())
+        assert "Floor 1/4" in str(title.query_one("#run-info").render())
         await pilot.press("n")  # a new run, not without asking
         await pilot.pause(0.3)
         assert isinstance(app.screen, AbandonScreen)
@@ -1511,7 +1511,7 @@ async def test_toasts_and_the_hud_keep_out_of_the_way():
         toast = screen.query_one("Toast").region
         assert toast.y <= 2 and toast.right >= 98 and not toast.overlaps(screen.query_one("#choices").region)
         hud = str(screen.query_one("#hud").render())
-        assert "Floor 1/3 · " in hud and "turn" not in hud and len(hud) <= 98
+        assert "Floor 1/4 · " in hud and "turn" not in hud and len(hud) <= 98
 
 
 async def test_the_title_is_a_castle_in_a_storm_with_its_own_music(speakers):

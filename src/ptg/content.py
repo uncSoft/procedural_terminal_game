@@ -73,6 +73,8 @@ class Theme:
     boss: str
     boss_room: str
     key_item: str
+    floor: int = 0  # the one floor it's always on (Norfell: 4), or 0: one of a run's first three, shuffled
+    status: str = ""  # its own status (Norfell's poison): its shops sell the cure, and it always has a shrine
 
 
 @dataclass(frozen=True)
@@ -213,7 +215,8 @@ def _parse_art(text: str) -> dict[str, str]:
 SCHEMAS: dict[str, dict[str, tuple[str, bool]]] = {
     "theme": {"key": ("name", True), "name": ("text", True), "blurb": ("text", True), "goal": ("text", True),
               "archetypes": ("names", True), "monster_tags": ("names", True), "boss": ("name", True),
-              "boss_room": ("name", True), "key_item": ("name", True)},
+              "boss_room": ("name", True), "key_item": ("name", True), "floor": ("count", False),
+              "status": ("status", False)},
     "archetype": {"names": ("texts", True), "blurb": ("text", True), "features": ("texts", True),
                   "decor": ("text", False)},
     "item": {"name": ("text", True), "kind": ("item_kind", True), "damage": ("dice", False),
@@ -264,6 +267,7 @@ def _value_error(kind: str, value: object) -> str:
                   f"must be stats and whole numbers, like {{might = 1, wits = -1}} (stats: {', '.join(STATS)})"),
         "tricks": (isinstance(value, list) and all(v in TRICKS for v in value),
                    f"must be a list of tricks the game knows: {', '.join(TRICKS)}"),
+        "status": (isinstance(value, str) and value in STATUSES, f"must be a status the game knows: {', '.join(STATUSES)}"),
         "statuses": (isinstance(value, list) and all(v in STATUSES for v in value),
                      f"must be a list of statuses the game knows: {', '.join(STATUSES)}"),
         "guards": (isinstance(value, dict) and all(k in STATUSES and is_count(v) for k, v in value.items()),

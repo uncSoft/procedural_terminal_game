@@ -180,3 +180,47 @@ decor = "shelves"
 names = ["Shop"]
 blurb = "A shopkeeper has set up in a nook of the dungeon: a counter of old planks, and everything she owns behind it."
 features = ["the counter"]
+
+# --- Norfell (floor 4: Metroid's Norfair, poisoned) ------------------------
+
+[archetype.bubbling_cavern]
+decor = "pool"
+names = ["Bubbling Cavern", "Boiling Grotto"]
+blurb = "The purple rock here is all bubbles, round cells inside round cells, and some of them are still popping. A pool of glowing magenta poison steams in the middle."
+features = ["a cluster of rock bubbles", "the pool's crusted edge", "a cracked bubble the size of a door"]
+
+[archetype.river_crossing]
+decor = "water"
+names = ["River Crossing", "Poison Ford"]
+blurb = "A river of thick, glowing poison cuts the cave in two. Stepping stones poke out of it, slick and purple."
+features = ["a stepping stone", "a heap of washed-up junk", "the far bank"]
+
+[archetype.vent_field]
+decor = "rubble embers"
+names = ["Vent Field", "Hissing Flats"]
+blurb = "The floor is cracked with vents that hiss yellow-green gas in slow puffs. Your eyes water before you're three steps in."
+features = ["a dead vent", "a crust of yellow crystals", "a skeleton that didn't hold its breath"]
+
+[archetype.pillar_hall]
+decor = "pillars"
+names = ["Pillar Hall", "Hall of Grey Columns"]
+blurb = "Grey stone pillars with pale caps hold up the purple rock, too regular to be natural. Somebody built this, a long time ago, and left in a hurry."
+features = ["a pillar's hollow cap", "carvings of a bird-headed people", "a toppled column"]
+
+[archetype.egg_chamber]
+decor = "fungus"
+names = ["Egg Chamber", "The Clutch"]
+blurb = "Leathery eggs as big as barrels sit in a soft nest of shed skin. Most of them are broken, from the inside."
+features = ["a broken egg", "an unbroken egg (careful)", "a nest of old skins"]
+
+[archetype.statue_alcove]
+decor = "pillars"
+names = ["Statue Alcove", "The Old Watcher"]
+blurb = "A bird-headed statue sits on its heels in an alcove, palms held out, as if it has been waiting a very long time to hand someone something."
+features = ["the statue's open hands", "a ring of old offerings"]
+
+[archetype.serpents_lair]
+decor = "pool embers"
+names = ["Serpentis's Lair"]
+blurb = "A round cavern ringed with stone fangs that hang from the ceiling like a jaw about to close. The floor is pocked with round red cells that glow and pulse, and coils of shed skin lie everywhere, each bigger than the last."
+features = ["a heap of shed skins", "a glowing red floor cell"]

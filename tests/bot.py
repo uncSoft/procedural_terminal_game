@@ -125,7 +125,7 @@ def choose(state: GameState, content: Content, who: Player | None = None) -> str
         return cure
     key = content.themes[state.theme].key_item
     # Missing the boss's key with the whole floor seen: back to look properly where it walked past things.
-    hunting = bool(who) and state.final_floor and key not in player.inventory \
+    hunting = bool(who) and state.boss_floor and key not in player.inventory \
         and _route_to_unexplored(state, content) is None
     for prefix in ("take", "equip:", "search:", "chest", "fountain"):  # (take: one thing, take_all: the lot)
         found = next((a for a in actions if a.startswith(prefix) and

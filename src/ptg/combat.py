@@ -23,6 +23,11 @@ def monster_defense(monster: MonsterState, content: Content) -> int:
     return content.monster(monster.key).defense + monster.defense_mod + (4 if monster.guarding else 0)
 
 
+def tricks_of(monster: MonsterState, content: Content) -> set[str]:
+    """Its maker's tricks, and any it has here (Norfell's venom)."""
+    return {*content.monster(monster.key).tricks, *monster.tricks}
+
+
 def tier_of(monster: MonsterState, content: Content) -> int:
     """How tough it counts as, for dodging, fleeing and what it pays: its maker's tier, or the floor's for a character
     cut down to size there (npcs.sized)."""
@@ -349,7 +354,8 @@ def _tricks(state: GameState, content: Content, rng: random.Random, monster: Mon
         player.tangled = True
         events.append(Event("tangle", f"{cap(the(monster.name))}'s vines wrap round your legs: no running away "
                                       "until it's had its next go."))
-    if "deadly_venom" in monster_def.tricks or ("venom" in monster_def.tricks and rng.random() < VENOM):
+    tricks = tricks_of(monster, content)
+    if "deadly_venom" in tricks or ("venom" in tricks and rng.random() < VENOM):
         events += statuses.inflict(state, "poison", cap(the(monster.name)) + "'s bite")
     return events
 
@@ -476,12 +482,17 @@ def defeat(state: GameState, content: Content, rng: random.Random, how: str = "s
         state.souls += 15
         events.append(Event("ghost_rest", f"The ghost of {monster.ghost_of}, your own earlier life, finally rests. "
                                           "Their belongings are yours to take. +15 souls.", data=data))
-    if monster_def.boss:
+    if monster_def.boss and state.final_floor:
         theme = content.themes[state.theme]
         state.status = "won"
         state.cause = f"conquered {theme.name}"
         events.append(Event("victory", f"You have conquered {theme.name}. {theme.goal} Done.", data=data))
         return events
+    if monster_def.boss:  # the last dungeon's: behind it, the way down (its room's stairs)
+        theme = content.themes[state.theme]
+        events.append(Event("conquered", f"You have conquered {theme.name}. {theme.goal} Done. But it isn't over: "
+                                         "behind where it stood, stairs lead further down, and the air coming up "
+                                         "them stings your throat.", data=data))
     if "vampiric" in player.perks and player.hp < player.max_hp:
         healed = min(3, player.max_hp - player.hp)
         player.hp += healed
@@ -525,7 +536,7 @@ def _drops(state: GameState, content: Content, rng: random.Random, monster: Mons
         drops.append("small_key")
     if rng.random() < (0.25 if monster.elite else 0.12):
         drops.append("bomb")
-    tricks = content.monster(monster.key).tricks
+    tricks = tricks_of(monster, content)
     if ("venom" in tricks or "deadly_venom" in tricks) and "pure" in content.items and rng.random() < PURE_DROP:
         drops.append("pure")  # (what it bit you with, it carries the cure for)
     return [d for d in drops if d]

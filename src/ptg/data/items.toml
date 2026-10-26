@@ -167,6 +167,13 @@ kind = "key"
 tags = ["metal"]
 desc = "Opens the Abbot's sanctum. Crusted with things that used to be alive."
 
+# Norfell's key (a Metroid nod: a Chozo statue's item ball)
+[item.chozo_orb]
+name = "Chozo Orb"
+kind = "key"
+tags = ["stone"]
+desc = "An orb from an old bird-headed statue's hands, as if it had been waiting just for you. It hums near Serpentis's lair, and opens it."
+
 # drawn by JT (2026-10-23)
 [item.warren_key]
 name = "Greasy Throne-Room Key"

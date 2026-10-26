@@ -312,7 +312,7 @@ async def test_a_move_made_while_the_narrator_talks_cuts_it_short_and_is_made(mo
 
     from ptg.ui import app as app_module
 
-    llm = SlowLLM(pause=0.6)  # (a narration takes nearly two seconds)
+    llm = SlowLLM(pause=0.05)  # (a quick opening...)
     monkeypatch.setattr(app_module, "make_llm", lambda config: llm)
     app = PTGApp(Config(backend="openai", player_name="T"), test_room=("lenny", "new", 0))
     async with app.run_test(size=(152, 43)) as pilot:
@@ -322,16 +322,17 @@ async def test_a_move_made_while_the_narrator_talks_cuts_it_short_and_is_made(mo
         start = state.room_id
         way = next(d for d, e in state.room.exits.items() if not e.locked)
         back = {"north": "south", "south": "north", "east": "west", "west": "east"}[way]
+        llm.pause = 2.0  # (...then a narration of six seconds, if it's let finish)
         screen.action_go(way)
         await pilot.pause(0.3)
         assert screen.busy and screen.narration_stop is not None  # (somewhere new: the narrator's talking)
         began = time.monotonic()
         screen.action_go(back)  # (on the way back already)
-        for _ in range(30):  # (made as soon as the first move's done)
+        for _ in range(60):  # (made as soon as the first move's done)
             await pilot.pause(0.1)
             if state.room_id == start and not screen.busy:
                 break
-        assert state.room_id == start and time.monotonic() - began < 1.5
+        assert state.room_id == start and time.monotonic() - began < 4.0  # (well short of the six)
 
 
 async def test_here_wears_a_dot_while_another_tab_shows_and_the_room_has_something():

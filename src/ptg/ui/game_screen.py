@@ -314,20 +314,31 @@ class GameScreen(Screen):
 
     def stage_step(self) -> None:
         """A beat of the stage's idle animation: the other frame, while this screen's in front and nothing else is
-        moving on it (a turn, a blow, a chest opening). Its second frame is drawn the first time it's wanted, and
-        a room with nothing that moves stops asking."""
+        moving on it (a turn, a blow, a chest opening). Its second frame is drawn the first time it's wanted, off the
+        screen's thread (a room takes a tenth of a second or so: a click then shouldn't wait on it), and a room with
+        nothing that moves stops asking."""
         frames = self.stage_frames
         if len(frames) != 2 or self.busy or self.animating or self.app.screen is not self:
             return
         if frames[1] is None:
-            state, content = self.game.state, self.game.content
-            second = picture_text(state, content, *self.stage_size, frame=1)
-            if second is None or second.plain == frames[0].plain and second.spans == frames[0].spans:
-                self.stage_frames = []  # (nothing here moves)
-                return
-            frames[1] = second
+            snapshot = self.game.state.model_copy(deep=True)  # (what it draws can't change under it mid-turn)
+            self.run_worker(lambda: self._second_frame(frames, snapshot), thread=True, group="stage", exclusive=True)
+            return
         self.stage_beat += 1
         self.query_one("#stage-art", Static).update(frames[self.stage_beat % 2])
+
+    def _second_frame(self, frames: list, state) -> None:
+        """The stage's second frame, drawn in a worker thread, then kept, if the stage still shows the same room."""
+        second = picture_text(state, self.game.content, *self.stage_size, frame=1)
+
+        def keep() -> None:
+            if frames is not self.stage_frames:
+                return  # (another room's on the stage by now)
+            if second is None or (second.plain, second.spans) == (frames[0].plain, frames[0].spans):
+                self.stage_frames = []  # (nothing here moves)
+            else:
+                frames[1] = second
+        self.app.call_from_thread(keep)
 
     def refresh_here(self) -> None:
         """Who and what is here, as tiles (ui/here.py), in the box the plan gives them: Here beside the story, or a

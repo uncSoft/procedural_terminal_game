@@ -295,6 +295,10 @@ async def test_everything_pictured_animates_items_and_thumbnails_too_and_the_sta
         pictures = list(screen.query("#pane").first().query(Picture))
         assert pictures and all(p in clock.pictures for p in pictures)
         assert screen.query(".thumb-art") and all(p in clock.pictures for p in screen.query(".thumb-art"))
+        screen.stage_step()  # (its second frame, drawn off the screen's thread...)
+        await app.workers.wait_for_complete()
+        await pilot.pause(0.1)
+        assert len(screen.stage_frames) == 2 and screen.stage_frames[1] is not None
         beat = screen.stage_beat
-        screen.stage_step()
-        assert screen.stage_beat == beat + 1 and len(screen.stage_frames) == 2
+        screen.stage_step()  # (...then the swap)
+        assert screen.stage_beat == beat + 1

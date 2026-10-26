@@ -168,12 +168,17 @@ def _build_rooms(rng, content, theme, coords, neighbors, distance, end_id, final
     return rooms
 
 
-def monster_for(rng: random.Random, content: Content, theme_key: str, tier: int, elite: str = "") -> MonsterState:
+def monster_for(rng: random.Random, content: Content, theme_key: str, tier: int, elite: str = "",
+                met: list[str] | None = None) -> MonsterState:
+    """A monster of the theme's for a tier. One of a kind (MonsterDef.once) that's in `met` already isn't picked
+    again, and one picked now is noted there."""
     theme = content.themes[theme_key]
     pool = [m for m in content.monsters.values()
-            if m.roams and set(m.tags) & set(theme.monster_tags)]
+            if m.roams and set(m.tags) & set(theme.monster_tags) and not (m.once and m.key in (met or ()))]
     exact = [m for m in pool if m.tier == tier] or [m for m in pool if m.tier <= tier] or pool
     chosen = rng.choice(sorted(exact, key=lambda m: m.key))
+    if chosen.once and met is not None:
+        met.append(chosen.key)
     monster = MonsterState(key=chosen.key, name=chosen.name, hp=chosen.hp, max_hp=chosen.hp)
     if elite:
         mods = ELITES[elite]
@@ -206,7 +211,8 @@ def _place_monsters(rng, content, state, theme, rooms: list[Room], max_distance:
     else:
         # Every staircase has a warden; from floor 2 on, it's an elite.
         elite = rng.choice(sorted(ELITES)) if state.floor > 1 else ""
-        rooms[end_id].monster = monster_for(rng, content, theme.key, warden_tier(state.floor), elite=elite)
+        rooms[end_id].monster = monster_for(rng, content, theme.key, warden_tier(state.floor), elite=elite,
+                                             met=state.met)
         rooms[end_id].monster.warden = True
 
     candidates = [r for r in rooms if r.id not in (0, end_id) and r.fixture != "shrine"]
@@ -214,7 +220,8 @@ def _place_monsters(rng, content, state, theme, rooms: list[Room], max_distance:
     elite_chance = {1: 0.0, 2: 0.25, 3: 0.4}.get(state.floor, 0.4)
     for room in candidates[:max(2, round(len(candidates) * 0.5))]:
         elite = rng.choice(sorted(ELITES)) if rng.random() < elite_chance else ""
-        room.monster = monster_for(rng, content, theme.key, tier_for(room.distance, max_distance, state.floor), elite)
+        room.monster = monster_for(rng, content, theme.key, tier_for(room.distance, max_distance, state.floor), elite,
+                                   met=state.met)
 
 
 def _place_loot(rng, content: Content, state: GameState, theme, rooms: list[Room], end_id: int, max_distance: int,
@@ -306,7 +313,8 @@ def _secret_room(rng: random.Random, content: Content, state: GameState, theme, 
     if prize:
         room.items.append(prize)
     if rng.random() < 0.3:  # something got here first, and won't share
-        room.monster = monster_for(rng, content, theme.key, warden_tier(state.floor), elite=rng.choice(sorted(ELITES)))
+        room.monster = monster_for(rng, content, theme.key, warden_tier(state.floor), elite=rng.choice(sorted(ELITES)),
+                                   met=state.met)
     return room
 
 

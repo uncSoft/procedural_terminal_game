@@ -1,11 +1,14 @@
 """A balance report: the action-only bot (tests/bot.py) plays many seeds, and this says how each floor went.
 
-    uv run --frozen python tools/simulate.py              # 300 seeds
+    uv run --frozen python tools/simulate.py              # 300 seeds, the plain bot
     uv run --frozen python tools/simulate.py 1000 --start 5000
+    uv run --frozen python tools/simulate.py --player average   # a bot with a person's habits (tests/bot.py PLAYERS)
+    uv run --frozen python tools/simulate.py --compare          # every player, a line each
 
 Per floor: how many runs reached it, died on it, and what they took down the stairs (HP, level, gold, potions). Then
-what killed them, and the run as a whole. The bot never improvises, shops or bombs a wall, so its numbers are a floor
-under a person's, not a forecast: compare a change's report with the last one (docs/plans/progression-loot-
+what killed them, and the run as a whole. The plain bot is thorough and never misses a warning, but never improvises,
+shops or bombs a wall; the players with habits miss warnings, hoard potions, walk past things and rush the stairs.
+Between them they bracket a person, they don't forecast one: compare a change's report with the last one (docs/plans/progression-loot-
 difficulty.md has the baseline)."""
 
 from __future__ import annotations
@@ -18,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
 
-from bot import choose
+from bot import PLAYERS, Player, choose
 
 from ptg.content import load_content
 from ptg.rules import perform
@@ -29,9 +32,10 @@ def potions(state) -> int:
     return sum(1 for key in state.player.inventory if "potion" in key)
 
 
-def run(seed: int, content, max_turns: int = 900) -> dict:
+def run(seed: int, content, player: str = "bot", max_turns: int = 900) -> dict:
     """One bot run: where it ended, and a row for each floor it left by the stairs."""
     state = generate(seed, content=content)
+    who = Player(PLAYERS[player], seed) if player != "bot" else None
     left: dict[int, dict] = {}
     turns_in: Counter = Counter()
     killer = ""
@@ -39,7 +43,7 @@ def run(seed: int, content, max_turns: int = 900) -> dict:
         if state.over:
             break
         floor, monster = state.floor, state.room.monster
-        perform(state, content, choose(state, content))
+        perform(state, content, choose(state, content, who))
         turns_in[floor] += 1
         if state.floor != floor:  # down the stairs: how you went
             player = state.player
@@ -94,14 +98,36 @@ def report(results: list[dict], floors: int) -> str:
     return "\n".join(lines)
 
 
+def compare(by_player: dict[str, list[dict]], floors: int) -> str:
+    """A line for each player: how often it won, where it died, and what it left unused."""
+    head = f"{'player':>8} {'won':>5} " + " ".join(f"{'F' + str(f) + ' death%':>10}" for f in range(1, floors + 1))
+    lines = [head + f" {'potions left':>13} {'gold left':>10}"]
+    for name, results in by_player.items():
+        won = 100 * sum(r["status"] == "won" for r in results) / len(results)
+        deaths = []
+        for floor in range(1, floors + 1):
+            reached = [r for r in results if r["floor"] >= floor]
+            died = sum(r["status"] == "dead" and r["floor"] == floor for r in reached)
+            deaths.append(f"{100 * died / len(reached) if reached else 0:>9.0f}%")
+        lines.append(f"{name:>8} {won:>4.0f}% " + " ".join(deaths) +
+                     f" {median([r['potions'] for r in results]):>13.1f} {median([r['gold'] for r in results]):>10.0f}")
+    return "\n".join(lines)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("seeds", nargs="?", type=int, default=300)
     parser.add_argument("--start", type=int, default=0, help="the first seed")
+    parser.add_argument("--player", choices=sorted(PLAYERS), default="bot", help="whose habits (tests/bot.py)")
+    parser.add_argument("--compare", action="store_true", help="every player, a line each")
     args = parser.parse_args()
     content = load_content()
-    results = [run(seed, content) for seed in range(args.start, args.start + args.seeds)]
-    print(report(results, generate(0, content=content).floors_total))
+    seeds = range(args.start, args.start + args.seeds)
+    floors = generate(0, content=content).floors_total
+    if args.compare:
+        print(compare({name: [run(seed, content, name) for seed in seeds] for name in PLAYERS}, floors))
+        return
+    print(report([run(seed, content, args.player) for seed in seeds], floors))
 
 
 if __name__ == "__main__":

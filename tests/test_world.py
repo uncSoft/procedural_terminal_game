@@ -1,3 +1,4 @@
+import random
 from collections import deque
 
 import pytest
@@ -155,3 +156,54 @@ def test_a_room_finds_a_spot_for_every_item(content):
     assert sum(style == "item" for row in rows for _, style in row) == 9
     room.items = ["healing_potion"] * 300  # more than the floor holds: they pile up
     assert len(layout.item_spots(room)) == 300
+
+
+def test_one_of_a_kind_creatures_turn_up_once_a_run(content):
+    """A creature with a name of its own (Serpentis, Baby Joey) or tagged unique (the Rat King) is met once a run at
+    most, however many floors and rooms there are (run 59 met the Rat King on two floors)."""
+    from collections import Counter
+
+    once = {m.key for m in content.monsters.values() if m.once and m.roams}
+    assert {"serpentis", "rat_king", "baby_joey"} <= once
+    for seed in range(40):
+        state = generate(seed, content=content)
+        seen = Counter()
+        for floor in range(2, state.floors_total + 1):
+            for room in state.rooms:
+                if room.monster and room.monster.key in once:
+                    seen[room.monster.key] += 1
+            state.floor = floor
+            build_floor(state, content)
+        for room in state.rooms:
+            if room.monster and room.monster.key in once:
+                seen[room.monster.key] += 1
+        assert all(n == 1 for n in seen.values()), (seed, seen)
+        assert set(seen) <= set(state.met)
+
+
+def test_serpentis_leaves_its_old_sword(content):
+    from ptg.combat import _kept
+    from ptg.models import MonsterState
+
+    state = generate(1)
+    serpent = MonsterState(key="serpentis", name="Serpentis", hp=0, max_hp=32)
+    assert _kept(state, content, random.Random(0), serpent) == ["bloodbath"]
+    assert _kept(state, content, random.Random(0), serpent) == []  # (once a run, like any rare thing)
+
+
+def test_a_floor_4_monster_waits_for_floor_4_but_has_its_test_room(content):
+    """Serpentis came with its maker's numbers for a deeper floor (tier 4): none of floors 1-3 have it, but it can be
+    tried in a test room."""
+    from ptg import testrooms
+
+    deep = {m.key for m in content.monsters.values() if m.roams and m.tier > 3}
+    assert "serpentis" in deep
+    for seed in range(30):
+        state = generate(seed, content=content)
+        for floor in range(1, state.floors_total + 1):
+            if floor > 1:
+                state.floor = floor
+                build_floor(state, content)
+            assert not {r.monster.key for r in state.rooms if r.monster} & deep
+    state = testrooms.build(content, "serpentis", "strong", seed=3)
+    assert any(r.monster and r.monster.key == "serpentis" for r in state.rooms)

@@ -173,3 +173,31 @@ def test_putting_a_thing_down_and_taking_it_back_does_not_heal_you(content):
     assert (player.hp, player.max_hp) == (10, most + 10)
     restored = GameState.model_validate_json(state.model_dump_json())
     assert restored.player.hp_given == ["unusual_butter", "hearty_vest"]  # a save keeps track
+
+
+def test_the_bomb_fairy_makes_every_bomb_found_two(content):
+    """The kids' Bomb Fairy (a run ran out of bombs before the secret room): each bomb picked up counts twice."""
+    state = generate(1)
+    before = state.player.bombs
+    gain(state, content, "bomb")
+    assert state.player.bombs == before + 1
+    gain(state, content, "bomb_fairy")
+    events = gain(state, content, "bomb")
+    assert state.player.bombs == before + 3 and "makes it two" in events[0].text
+    assert "bombs count double" in powers.SHORT["twin_bombs"]
+
+
+def test_the_magical_cards_hold_one_more_fate_and_deal_one_once(content):
+    state = generate(1)
+    player = state.player
+    room, fate = player.max_fate(), player.fate
+    gain(state, content, "magical_cards")
+    powers.settle_stats(state, content)
+    assert player.max_fate() == room + 1 and player.fate == fate + 1
+    player.inventory.remove("magical_cards")  # put down...
+    powers.settle_stats(state, content)
+    assert player.max_fate() == room and player.fate <= room
+    gain(state, content, "magical_cards")  # ...and picked up again: the room comes back, not another token
+    powers.settle_stats(state, content)
+    assert player.max_fate() == room + 1 and player.fate <= fate + 1
+    assert "+1 Fate held" in powers.describe(content.item("magical_cards"))[-1]

@@ -153,7 +153,7 @@ class Player(BaseModel):
     second_wind_floor: int = 0
     last_breath_used: bool = False
     item_stats: dict[str, int] = Field(default_factory=dict)  # what carried things add to your stats now (powers.py)
-    hp_given: list[str] = Field(default_factory=list)  # things whose extra max HP came with as much HP: once a run
+    hp_given: list[str] = Field(default_factory=list)  # things whose extra max HP (or Fate) came with as much: once a run
     tangled: bool = False  # caught in a monster's vines: no running until it's had its next go (a tangle trick)
     lifted: list[str] = Field(default_factory=list)  # cursed things whose curse a shrine has lifted (inventory.py)
     coating: str = ""  # what your weapon's coated in, as a tag its hits count as: "holy", "fire" (interactions.RECIPES)
@@ -174,7 +174,7 @@ class Player(BaseModel):
         return LEVEL_XP[self.level] if self.level < len(LEVEL_XP) else None
 
     def max_fate(self) -> int:
-        return MAX_FATE + ("lucky" in self.perks) + ("lucky_charm" in self.inventory)
+        return MAX_FATE + ("lucky" in self.perks) + ("lucky_charm" in self.inventory) + self.item_stats.get("fate", 0)
 
     def bump(self, counter: str, amount: int = 1) -> int:
         self.style[counter] = self.style.get(counter, 0) + amount
@@ -231,6 +231,7 @@ class GameState(BaseModel):
     scene: SceneState | None = None
     mapped_floor: int = 0  # a floor whose whole map you've been handed
     rares: list[str] = Field(default_factory=list)  # rare items this run has turned up: each comes once
+    met: list[str] = Field(default_factory=list)  # one-of-a-kind creatures this run has turned up (MonsterDef.once)
     warned: list[str] = Field(default_factory=list)  # cursed things you've been warned of: taking one now takes it
     quests: dict[str, str] = Field(default_factory=dict)  # each character's stage this run, by its key (npcs.STAGES)
     said: dict[str, int] = Field(default_factory=dict)  # how often each character's said each thing (they take turns)

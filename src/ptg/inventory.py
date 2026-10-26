@@ -132,9 +132,12 @@ def gain(state: GameState, content: Content, key: str, how: str = "take", source
     player, item = state.player, content.item(key)
     lead = says or f"You take {the(item.name)}"
     if key in PICKUPS:
-        count = getattr(player, PICKUPS[key]) + 1
+        fairy = powers.holders(state, content, "twin_bombs") if key == "bomb" else []
+        count = getattr(player, PICKUPS[key]) + 1 + bool(fairy)
         setattr(player, PICKUPS[key], count)
         tally = f", and have {count} now." if says else f" ({count} now)."  # (a price says "(88 left)" already)
+        if fairy:  # (a bomb found, bought or won)
+            tally = f". {cap(the(fairy[0].name))} cackles and makes it two" + tally.replace(", and have", ": you have")
         return [Event(kind or "take", lead + tally, data=moved(key, how, source, "counter"))]
     if item.kind in GEAR and worn(state, item.kind) is None and not sticky(state, content, key):
         gives = versus(state, content, key)

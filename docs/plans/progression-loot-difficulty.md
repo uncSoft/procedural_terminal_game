@@ -123,6 +123,12 @@ the Dire Wolf are the bot's top killers there). Floor 1 should stay tier 1 bar i
 teaches and the climb comes after. Bosses get the same depth bonus plus their own. All of this is data (a table in `world.py`), so it's tuned by
 numbers, not code.
 
+**Waiting for floor 4.** Some of the kids' creations are made for deeper floors, with numbers from there, and are
+kept as made: tier 4, so floors 1–3 never draw them, but each has its test room (`ptg --test-room serpentis`).
+- **Serpentis** (BelleDaBest): 75 HP, defense 15, 2d8, weak to holy and water; one of a kind. Drops **Bloodbath**
+  (2d7+2, its old sword, tier 4). When floor 4 comes, check its numbers against the depth bonus above before it
+  roams: it's about three tier-3 monsters' worth of HP.
+
 ### 3.3 The player grows more by choices, less by raw numbers
 
 - **To-hit:** might + a *proficiency* that grows slowly: +2 at level 1, +3 at 4, +4 at 7, +5 at 10 (`2 + ⌊(level−1)/3⌋`),
@@ -232,9 +238,13 @@ The repo already has the start of this: `tests/bot.py` and the win-rate guard in
   with the bot through `rules.perform` (no model) and prints, **per floor**, runs that reached it and died on it, and
   HP, level, gold, potions and turns at its stairs; then what killed them, by floor, and the run as a whole. Still
   to add: damage taken per fight, rounds to kill by tier, gold spent; and floor counts past 3, once the floors exist.
-- **A smarter bot as well as the plain one**: today's picks the first perk and never improvises, so it plays weaker
-  than a person; a second policy that picks perks sensibly, uses keys on shops and buys potions brackets the real
-  player from above. The target win rate is for the plain bot; the smart one shows the ceiling.
+- **Players with a person's habits** (built: `tests/bot.py` PLAYERS, `tools/simulate.py --compare`): the plain bot
+  is thorough and never misses a warning; "careful", "average" and "sloppy" miss some heavy-blow warnings, forget or
+  hoard potions (run 59 drank none of eight), walk past things and head for the stairs once they've seen them.
+  First numbers, 300 seeds: bot 44% wins, careful 36%, average 19%, sloppy 11%; floor 2 is the wall for all of them.
+- **A smarter bot as well**: today's never improvises; a policy that picks perks sensibly, uses keys on shops and
+  buys potions brackets the real player from above. The target win rate is for the plain bot; the smart one shows
+  the ceiling.
 - **The guard grows with it**: a test per floor count (3, 6, 10) that keeps the plain bot's win rate in a band, and a
   test that deaths are spread over the floors (no floor taking more than about half of them), so the curve can't
   quietly flip upside down again.

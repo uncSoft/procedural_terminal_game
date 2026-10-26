@@ -2,7 +2,7 @@ from collections import Counter
 
 import pytest
 
-from bot import play
+from bot import PLAYERS, play
 from conftest import put_monster
 from ptg.creative import available_props, clamp_intent, match_props, spends
 from ptg.intent import Intent
@@ -416,6 +416,18 @@ def test_bot_games_finish_without_errors(content):
     assert results["playing"] == 0
     # Balance guard: an action-only bot that never improvises should win some and lose some.
     assert 0.2 <= results["won"] / 100 <= 0.75, results
+
+
+def test_bots_with_a_persons_habits_finish_and_win_less(content):
+    """The players with habits (tests/bot.py PLAYERS: missed warnings, hoarded potions, things walked past) finish
+    their runs like the plain bot, and win less: the plain bot is the steadiest player there is, not a person."""
+    wins = {}
+    for name in ("bot", "average"):
+        results = Counter(play(generate(seed), content, max_turns=900, habits=PLAYERS[name]).status
+                          for seed in range(80))
+        assert results["playing"] == 0, name
+        wins[name] = results["won"]
+    assert 0 < wins["average"] < wins["bot"], wins
 
 
 @pytest.mark.parametrize("seed", [1, 2, 3])

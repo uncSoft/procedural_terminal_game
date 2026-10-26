@@ -1334,8 +1334,10 @@ def _rest(state: GameState, content: Content, rng: random.Random) -> list[Event]
     room.rested = True
     if not safe_to_rest(state) and rng.random() < 0.25:
         max_distance = max(r.distance for r in state.rooms)
-        room.monster = monster_for(rng, content, state.theme, tier_for(room.distance, max_distance, state.floor))
-        events = [Event("ambush", f"While you rest, {a(room.monster.name)} creeps up on you!",
+        room.monster = monster_for(rng, content, state.theme, tier_for(room.distance, max_distance, state.floor),
+                                   met=state.met)
+        who = room.monster.name if content.monster(room.monster.key).named else a(room.monster.name)
+        events = [Event("ambush", f"While you rest, {who} creeps up on you!",
                         data={"monster": room.monster.key})]
         events += monster_turn(state, content, rng)
         return events

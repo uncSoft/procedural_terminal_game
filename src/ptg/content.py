@@ -19,7 +19,7 @@ from .powers import POWERS
 FOUND_IN = ("chest", "stash", "secret", "warden", "shop", "quest")
 TRICKS = {"steal": "grabs your food (or gold) and runs off with it next turn, unless you stop it",
           "tangle": "its hits tangle you up: no running away until its next go"}
-STATS = ("might", "agility", "wits", "max_hp")  # what a carried item's `stats` can change
+STATS = ("might", "agility", "wits", "max_hp", "fate")  # what a carried item's `stats` can change (fate: tokens held)
 # When a character says each of its lines (dialogue.toml; npcs.say), and the blanks a line can have filled in.
 MOMENTS = {
     "meet": "the first time you walk in on them",
@@ -127,6 +127,12 @@ class MonsterDef:
     def named(self) -> bool:
         """A character with a name of its own, which takes no article: "Lucky Lenny", "Granny Gristle"."""
         return self.npc or "named" in self.tags
+
+    @property
+    def once(self) -> bool:
+        """One of a kind: a creature with a name of its own, or tagged `unique` (the Rat King), turns up once a run
+        at most."""
+        return self.named or "unique" in self.tags
 
     @property
     def roams(self) -> bool:

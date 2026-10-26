@@ -620,7 +620,9 @@ def saved_creations(url: str, get=None) -> list[dict]:
 
 
 def _folded(text) -> str:
-    return str(text or "").strip().lower()
+    """A name or a maker's handle as it's compared: "King Mouses Vest" is the game's "King Mouse's Vest" (cleaned up
+    when it came in), whatever the punctuation and spacing."""
+    return re.sub(r"[^a-z0-9]+", "", str(text or "").lower())
 
 
 def in_the_game(folder: Path | None = None) -> set[tuple[str, str, str]]:

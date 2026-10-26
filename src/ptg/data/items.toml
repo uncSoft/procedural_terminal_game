@@ -491,7 +491,7 @@ kind = "armor"
 defense = 2
 tier = 1
 tags = ["cloth", "rare"]
-desc = "Deafeted King Mouse clothing.  YOU ARE INEVITABLE!!!"
+desc = "Defeated King Mouse's clothing. YOU ARE INEVITABLE!!!"
 found = ["king_mouse"]
 
 # drawn by ItsmeCermm (2026-10-24)
@@ -503,3 +503,54 @@ tags = ["sticky", "smelly", "lucky", "heavy", "throwable"]
 desc = "Fully loaded.\n\n-2 Health Per Floor when held\n-2 damage per from enemy hits - this thing reeks and they don't want to be that close to you."
 powers = ["cursed", "reeks"]
 found = ["swoogy_the_gooey"]
+
+# drawn by ItsmeCermm (2026-10-24)
+[item.bottle_o_baby]
+name = "Bottle o' Baby"
+kind = "trinket"
+tier = 2
+tags = ["smelly", "sticky", "loud", "throwable"]
+powers = ["distract"]
+desc = "A peculiar little fellow in a bottle, perhaps the heir to a certain someone. Uncork him and he wails loud enough to stop a monster mid-swing."
+found = ["stash", "chest"]
+
+# drawn by BelleDaBest (2026-10-24)
+[item.lava_rubies]
+name = "Lava Rubies"
+kind = "trinket"
+damage = "3d6"
+tier = 3
+tags = ["fire", "shiny", "glass", "throwable", "rare"]
+powers = ["throw"]
+desc = "Mmmmm, lava rubies. Not for eating: hurl them and the lava inside completely ANNIHILATES whatever they hit."
+found = ["chest", "warden", "secret"]
+
+# drawn by BelleDaBest (2026-10-24)
+[item.magical_cards]
+name = "Magical Cards"
+kind = "trinket"
+tier = 2
+tags = ["paper", "sharp", "lucky", "rare"]
+stats = {fate = 1}
+desc = "Ancient cards from 620 AD, an old blacksmith's new invention for bending chance itself. While you carry them you can hold one more Fate token, and they deal you one when you pick them up."
+found = ["chest", "stash", "shop"]
+
+# drawn by BelleDaBest (2026-10-25)
+[item.bloodbath]
+name = "Bloodbath"
+kind = "weapon"
+damage = "2d7+2"
+tier = 4
+tags = ["sharp", "heavy", "fire", "rare"]
+desc = "Serpentis's old sword, from way back before Zeus, possessed by Typhon in the apocalyptic war of the third billionth year. It still remembers obliterating everything it touched."
+found = ["serpentis"]
+
+# drawn by BelleDaBest (2026-10-26)
+[item.bomb_fairy]
+name = "Bomb Fairy"
+kind = "trinket"
+tier = 2
+tags = ["fire", "loud", "shiny", "rare"]
+powers = ["twin_bombs"]
+desc = "A sassy fairy who loves chaos. Find a bomb? Now it's two bombs!"
+found = ["chest", "secret", "shop"]

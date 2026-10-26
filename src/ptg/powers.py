@@ -13,6 +13,7 @@
         valuable     30 more souls when your run ends, if you still have it
         eloquent     +1 when you talk: talking a monster down, asking what it knows, bartering
         reeks        monsters' hits do 2 less damage (they don't want to get close)
+        twin_bombs   every bomb you pick up counts as two (the Bomb Fairy)
     when you pick it up
         mapper       the whole floor's map is yours
     a choice it gives you
@@ -24,8 +25,9 @@
                      stairs' warden, a ghost or a character)
 
 An item can also change your stats while you carry it, with `stats` (Lenny's Bad Tooth: {might = 1, wits = -1}; max_hp
-too). settle_stats applies the difference each turn, so dropping or using it up takes it back. (Extra max HP comes
-with as much HP only the first time a thing gives it.)
+too, and fate: room for that many more Fate tokens). settle_stats applies the difference each turn, so dropping or
+using it up takes it back. (Extra max HP comes with as much HP, and extra Fate with a token, only the first time a
+thing gives it.)
 
 Carrying means in your pack, but a weapon or armor works only while it's on: in your hand or on your back, not as a
 spare in your pack. Two of the same item count once. A curse a shrine has lifted is gone (see inventory.py). (The Lucky
@@ -52,6 +54,7 @@ POWERS = {
     "valuable": "30 more souls when your run ends, if you still have it",
     "eloquent": "+1 when you talk: talking monsters down, asking, bartering",
     "reeks": "monsters' hits do 2 less damage: they don't want to get close",
+    "twin_bombs": "every bomb you pick up counts as two",
     "mapper": "maps the whole floor when you pick it up",
     "throw": "throw it in a fight (it's gone after)",
     "distract": "distracts a monster once a fight: it loses its next attack",
@@ -64,9 +67,10 @@ SHORT = {  # a power in a few words, for an item's tile
     "valuable": "valuable", "eloquent": "+1 talking", "mapper": "maps the floor", "throw": "throw it",
     "distract": "distracts",
     "reveal": "shows what's hidden", "reeks": "hits do 2 less", "dazzle": "scares monsters off",
+    "twin_bombs": "bombs count double",
 }
 CARRYING = {"luck", "seeker", "careful", "unseen", "cook", "goblin_bane", "prophecy", "cursed", "valuable", "eloquent",
-            "reeks"}  # the powers that work while you carry the thing (the character sheet lists them)
+            "reeks", "twin_bombs"}  # the powers that work while you carry the thing (the character sheet lists them)
 PICKED_UP = {"bomb": "for walls and monsters", "small_key": "opens a chest"}  # counters, not things you carry
 # Roll bonuses: power -> (bonus, the kinds of roll it helps, or None for every one of yours)
 ROLLS = {"luck": (1, None), "seeker": (1, {"search"}), "careful": (2, {"disarm"}), "unseen": (2, {"dodge", "flee"}),
@@ -119,7 +123,8 @@ def describe(item: ItemDef) -> list[str]:
 
 def stat_words(stats: dict[str, int]) -> str:
     """{might: 1, wits: -1} as "+1 might, -1 wits"."""
-    return ", ".join(f"{change:+d} {'max HP' if stat == 'max_hp' else stat}" for stat, change in stats.items())
+    names = {"max_hp": "max HP", "fate": "Fate held"}
+    return ", ".join(f"{change:+d} {names.get(stat, stat)}" for stat, change in stats.items())
 
 
 def stat_changes(state: GameState, content: Content) -> dict[str, int]:
@@ -140,15 +145,15 @@ def settle_stats(state: GameState, content: Content) -> None:
     player = state.player
     wanted = stat_changes(state, content)
     fresh = [item for item in carried(state, content)
-             if item.stats.get("max_hp", 0) > 0 and item.key not in player.hp_given]
+             if (item.stats.get("max_hp", 0) > 0 or item.stats.get("fate", 0) > 0) and item.key not in player.hp_given]
     player.hp_given += [item.key for item in fresh]
     for stat in set(wanted) | set(player.item_stats):
         change = wanted.get(stat, 0) - player.item_stats.get(stat, 0)
-        if not change:
+        if not change or stat == "fate":  # (Fate's room is max_fate's to count: item_stats holds it)
             continue
         setattr(player, stat, getattr(player, stat) + change)
         if stat == "max_hp":
-            given = sum(item.stats["max_hp"] for item in fresh)
+            given = sum(item.stats.get("max_hp", 0) for item in fresh)
             player.hp = max(1, min(player.max_hp, player.hp + given))
     player.item_stats = wanted
-    player.fate = min(player.fate, player.max_fate())
+    player.fate = min(player.max_fate(), player.fate + sum(item.stats.get("fate", 0) for item in fresh))

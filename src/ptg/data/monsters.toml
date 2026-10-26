@@ -394,7 +394,7 @@ attack = 4
 damage = "1d8"
 xp = 30
 tier = 2
-tags = ["vermin", "beast", "rat", "swarm"]
+tags = ["vermin", "beast", "rat", "swarm", "unique"]
 weak = ["food", "loud"]
 tell = "turns every one of its heads toward you at once, screeching"
 desc = "Six rats whose tails knotted together in the dark. They can't agree on which way to go, but they all agree about you."
@@ -505,3 +505,17 @@ weak = ["heavy", "sharp", "sticky", "fire", "food", "pants", "socks"]
 tricks = ["tangle"]
 tell = "Somethings Comin'!!!!"
 desc = "Shorts found in the jungle and swamps.  If you get to close to his swamp you might get tangled in his jungle vines..."
+
+# drawn by BelleDaBest (2026-10-25)
+[monster.serpentis]
+name = "Serpentis"
+hp = 75
+defense = 15
+attack = 3
+damage = "2d8"
+xp = 50
+tier = 4
+tags = ["beast", "serpent", "venomous", "named"]
+weak = ["holy", "water"]
+tell = "SSSSSSSSSSSSSsssssss"
+desc = "Serpentis was around in about the first billionth year of the cosmos and fought in the war of the third billionth year. It has not forgotten. It is still a bit cranky about it."

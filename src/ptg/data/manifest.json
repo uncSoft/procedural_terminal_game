@@ -1,10 +1,10 @@
 {
  "note": "Fingerprints of the shipped data. Editing the data is allowed, and noticed.",
  "files": {
-  "art.txt": "5c9c1ba8ec3aa2c2a9095c4123848848c5a2550b6d9adad1112c545f1304f137",
+  "art.txt": "441d853d50f2f5e6a10920d529f5d2efec5c47b5d9e4f9381701eea7ad6fad85",
   "dialogue.toml": "1cfbcc61bc9ea937fc6d8a078b532f9cb792a5fd91a18934978093768edfe38c",
-  "items.toml": "184f5cdfc25f9d78866e1260d9e04e2fafed255a64ce30cbd7307cef9d182ca9",
-  "monsters.toml": "ad3d9a582a7155a51c648934d4c24108eb94c93688afd199f38fe5be5f70c9c0",
+  "items.toml": "169bbf6c4b1aa18d88e495fc752ae861f87b7b0c13c5e3a290e2c5d5f7ff0f47",
+  "monsters.toml": "e289612b169dc563eacedf113e0b7fc88c8684446ac5b11eeb5a5addd98b9e8b",
   "perks.toml": "0c2ad492ea8a516bc5a7721caed62e60d08b8bf2a80cd12abdbec3bfed44b641",
   "rooms.toml": "ca447c6fda05e00b93505d5c878b76a39bd5d31a6cad1009e8a921476e0f4a60",
   "splash.txt": "601a034c5bb5954ad20d2e210866b8665bacb8c99cf85df5b0d09ed09b794493",

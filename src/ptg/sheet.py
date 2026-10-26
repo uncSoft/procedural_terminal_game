@@ -106,6 +106,8 @@ def fate_line(state: GameState, content: Content) -> Line:
         parts.append(Part("Lucky", 1))
     if "lucky_charm" in player.inventory:
         parts.append(Part(content.item("lucky_charm").name, 1, "lucky_charm"))
+    parts += [Part(item.name, item.stats["fate"], item.key) for item in powers.carried(state, content)
+              if item.stats.get("fate")]
     return Line("Fate", player.fate, parts, note=f"of {player.max_fate()}")
 
 

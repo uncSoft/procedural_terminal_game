@@ -1,8 +1,15 @@
-"""A simple player that only uses the listed actions. Used to fuzz the rules and sanity-check balance."""
+"""A simple player that only uses the listed actions. Used to fuzz the rules and sanity-check balance.
+
+The plain bot is thorough and steady: it picks up everything, searches every feature and opens every chest, explores
+every room before the stairs, dodges every heavy blow it's warned of, and drinks a potion at a third of its health. It
+never improvises, shops, bombs a wall or flees. Habits make it more like a person (see PLAYERS): it misses some
+warnings, forgets or hoards its potions, leaves things behind and heads for the stairs once it's seen them."""
 
 from __future__ import annotations
 
+import random
 from collections import deque
+from dataclasses import dataclass
 
 from ptg.content import Content
 from ptg.models import GameState
@@ -30,6 +37,16 @@ def _route_to_unexplored(state: GameState, content: Content) -> str | None:
     return None
 
 
+def _route_to_unsearched(state: GameState) -> str | None:
+    """First step toward the nearest room with something in it not yet searched or picked up (where a bot that
+    walked past things goes back to, when it's missing the boss's key)."""
+    def left(room) -> bool:
+        return bool(room.items) or any(not f.searched and not f.hidden for f in room.features)
+    targets = [r.id for r in state.rooms if r.visited and left(r) and r.id != state.room_id]
+    steps = [step for step in (_route_to(state, t) for t in targets) if step]
+    return steps[0] if steps else None
+
+
 def _route_to(state: GameState, target: int) -> str | None:
     queue = deque([(state.room_id, None)])
     seen = {state.room_id}
@@ -44,20 +61,63 @@ def _route_to(state: GameState, target: int) -> str | None:
     return None
 
 
-def choose(state: GameState, content: Content) -> str:
+@dataclass(frozen=True)
+class Habits:
+    """How a player plays, as chances: 1.0 everywhere is the plain bot."""
+    reads_tells: float = 1.0  # dodges a heavy blow it's warned of
+    heals_at: float = 0.35  # drinks a potion in a fight below this much of its health...
+    drinks: float = 1.0  # ...if it remembers to (run 59 drank none of its eight)
+    thorough: float = 1.0  # picks up, searches and opens what it finds rather than walking past
+    explores: float = 1.0  # sees the whole floor before going down, rather than heading for the stairs once seen
+
+
+PLAYERS = {
+    "bot": Habits(),
+    "careful": Habits(reads_tells=0.85, heals_at=0.4, drinks=0.9, thorough=0.95, explores=0.9),
+    "average": Habits(reads_tells=0.6, heals_at=0.3, drinks=0.6, thorough=0.8, explores=0.6),
+    "sloppy": Habits(reads_tells=0.35, heals_at=0.25, drinks=0.35, thorough=0.6, explores=0.3),
+}
+
+
+class Player:
+    """A bot with habits: its own dice for them (seeded by the run, so a run plays the same every time), and what it
+    has made up its mind about (whether to explore this floor, what it's walked past)."""
+
+    def __init__(self, habits: Habits, seed: int) -> None:
+        self.habits, self.rng = habits, random.Random(seed * 7919 + 17)
+        self.minds: dict = {}
+
+    def does(self, chance: float) -> bool:
+        return chance >= 1.0 or self.rng.random() < chance
+
+    def once(self, key, chance: float) -> bool:
+        """A decision made once and kept: what it walked past stays walked past."""
+        if key not in self.minds:
+            self.minds[key] = self.does(chance)
+        return self.minds[key]
+
+
+def choose(state: GameState, content: Content, who: Player | None = None) -> str:
     actions = {a.id: a for a in available_actions(state, content)}
     player = state.player
+    habits = who.habits if who else PLAYERS["bot"]
     if state.pending_perks:
-        return next(iter(actions))
+        return who.rng.choice(list(actions)) if who else next(iter(actions))
     if state.in_combat:
         heal = next((a for a in actions if a.startswith("use:") and "potion" in a), None)
-        if player.hp <= player.max_hp * 0.35 and heal:
+        if player.hp <= player.max_hp * habits.heals_at and heal and (not who or who.does(habits.drinks)):
             return heal
-        if state.room.monster.intent == "heavy":
+        if state.room.monster.intent == "heavy" and (not who or who.does(habits.reads_tells)):
             return "dodge"
         return "attack"
+    key = content.themes[state.theme].key_item
+    # Missing the boss's key with the whole floor seen: back to look properly where it walked past things.
+    hunting = bool(who) and state.final_floor and key not in player.inventory \
+        and _route_to_unexplored(state, content) is None
     for prefix in ("take", "equip:", "search:", "chest", "fountain"):  # (take: one thing, take_all: the lot)
-        found = next((a for a in actions if a.startswith(prefix)), None)
+        found = next((a for a in actions if a.startswith(prefix) and
+                      (not who or hunting or a == f"take:{key}"
+                       or who.once((state.floor, state.room_id, a), habits.thorough))), None)
         if found:
             return found
     if "shrine_gold" in actions and player.hp < player.max_hp * 0.6:
@@ -66,11 +126,13 @@ def choose(state: GameState, content: Content) -> str:
         return "shrine_blood"
     if player.hp < player.max_hp * 0.6:
         heal = next((a for a in actions if a.startswith("use:")), None)
-        if heal:
+        if heal and (not who or who.does(habits.drinks)):
             return heal
         if "rest" in actions:
             return "rest"
-    direction = _route_to_unexplored(state, content)
+    stairs_seen = any(r.fixture == "stairs" and r.visited for r in state.rooms)
+    explore = not (who and stairs_seen) or who.once(("explore", state.floor), habits.explores)
+    direction = _route_to_unexplored(state, content) if explore else None
     if direction and f"go:{direction}" in actions:
         return f"go:{direction}"
     if "descend" in actions:
@@ -80,14 +142,18 @@ def choose(state: GameState, content: Content) -> str:
         step = _route_to(state, stairs)
         if step:
             return f"go:{step}"
+    step = _route_to_unsearched(state) if hunting else None
+    if step and f"go:{step}" in actions:
+        return f"go:{step}"
     if "search_room" in actions:
         return "search_room"
     return next(a for a in actions if a.startswith("go:"))
 
 
-def play(state: GameState, content: Content, max_turns: int = 600) -> GameState:
+def play(state: GameState, content: Content, max_turns: int = 600, habits: Habits | None = None) -> GameState:
+    player = Player(habits, state.seed) if habits and habits != PLAYERS["bot"] else None  # (the plain bot's are none)
     for _ in range(max_turns):
         if state.over:
             break
-        perform(state, content, choose(state, content))
+        perform(state, content, choose(state, content, player))
     return state

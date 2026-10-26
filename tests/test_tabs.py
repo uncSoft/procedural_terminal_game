@@ -302,3 +302,64 @@ async def test_everything_pictured_animates_items_and_thumbnails_too_and_the_sta
         beat = screen.stage_beat
         screen.stage_step()  # (...then the swap)
         assert screen.stage_beat == beat + 1
+
+
+async def test_a_move_made_while_the_narrator_talks_cuts_it_short_and_is_made(monkeypatch):
+    """The screen used to wait for the whole narration (and the suggested trick after it) before the next move."""
+    import time
+
+    from test_narration import SlowLLM
+
+    from ptg.ui import app as app_module
+
+    llm = SlowLLM(pause=0.6)  # (a narration takes nearly two seconds)
+    monkeypatch.setattr(app_module, "make_llm", lambda config: llm)
+    app = PTGApp(Config(backend="openai", player_name="T"), test_room=("lenny", "new", 0))
+    async with app.run_test(size=(152, 43)) as pilot:
+        await settle(app, pilot, limit=15)
+        screen = app.screen
+        state = screen.game.state
+        start = state.room_id
+        way = next(d for d, e in state.room.exits.items() if not e.locked)
+        back = {"north": "south", "south": "north", "east": "west", "west": "east"}[way]
+        screen.action_go(way)
+        await pilot.pause(0.3)
+        assert screen.busy and screen.narration_stop is not None  # (somewhere new: the narrator's talking)
+        began = time.monotonic()
+        screen.action_go(back)  # (on the way back already)
+        for _ in range(30):  # (made as soon as the first move's done)
+            await pilot.pause(0.1)
+            if state.room_id == start and not screen.busy:
+                break
+        assert state.room_id == start and time.monotonic() - began < 1.5
+
+
+async def test_here_wears_a_dot_while_another_tab_shows_and_the_room_has_something():
+    app = PTGApp(Config(backend="offline", player_name="T"), test_room=("lenny", "new", 0))
+    async with app.run_test(size=(152, 43)) as pilot:
+        screen = await walk_in(app, pilot)  # (Lenny's here)
+        assert "●" not in screen.tab_text().plain  # (Here's showing: nothing to point at)
+        await pilot.press("f5")
+        await pilot.pause(0.3)
+        assert screen.waiting_here() and "Here ●" in screen.tab_text().plain
+        screen.things = []  # (an empty room)
+        assert not screen.waiting_here() and "●" not in screen.tab_text().plain
+
+
+async def test_a_room_on_the_map_you_can_get_back_to_is_a_click_away():
+    app = PTGApp(Config(backend="offline", player_name="T"), test_room=("lenny", "strong", 0))
+    async with app.run_test(size=(152, 43)) as pilot:
+        await pilot.pause(0.5)
+        await settle(app, pilot)
+        state = app.screen.game.state
+        start = state.room_id
+        screen = await walk_in(app, pilot)  # (next door, to Lenny: calm)
+        assert state.room_id != start
+        drawn = big_map(state, 200, 60)
+        clicks = {span.style.meta.get("@click") for span in drawn.spans if not isinstance(span.style, str)}
+        assert f"screen.travel({start})" in clicks
+        state.wandered[str(state.floor)] = 99  # (nothing on the way, this time)
+        screen.action_travel(start)
+        await settle(app, pilot)
+        assert state.room_id == start
+        assert "make your way back" in " ".join(str(w.render()) for w in screen.query("#story .narration"))

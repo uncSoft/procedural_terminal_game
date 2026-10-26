@@ -25,7 +25,7 @@ INK = "#10122a"
 
 # What happens (that isn't a roll) and the sound it makes. Rolls go by roll_sound().
 EVENT_SOUNDS = {
-    "enter": "step", "flee": "step", "locked": "locked", "unlock": "unlock", "telegraph": "windup", "stun": "stun",
+    "enter": "step", "flee": "step", "travel": "step", "ambush": "windup", "locked": "locked", "unlock": "unlock", "telegraph": "windup", "stun": "stun",
     "find": "item", "take": "item", "loot": "item", "equip": "item", "key": "item", "fate": "fate", "trait": "fate",
     "pacify": "good", "exploit": "good", "bomb": "bomb", "secret_room": "bomb", "tip": "secret", "buy": "coin",
 }

@@ -293,7 +293,8 @@ class Game:
         pending.intent = intent
         pending.events = events
 
-    async def finish(self, on_text: Callable[[str], None]) -> TurnResult:
+    async def finish(self, on_text: Callable[[str], None], stop: asyncio.Event | None = None) -> TurnResult:
+        """The turn told (the narrator, cut short if `stop` is set: see narrate), logged and saved."""
         pending, state = self.pending, self.state
         self.pending, self._snapshot = None, None
         state.log.append(LogEntry(kind="player", text=pending.shown))
@@ -312,12 +313,15 @@ class Game:
         if told and all(e.kind in QUIET_KINDS or e.data.get("quiet") for e in told):  # (cards beside it say theirs)
             text = " ".join(e.text for e in told)
             on_text(text)
+        elif self._going_back(pending, told):  # (no waiting on the narrator to walk back through the floor)
+            text = " ".join([*(e.text for e in told), arrival_facts(state, self.content, history=False)]).strip()
+            on_text(text)
         elif pending.events and not told:
             text = ""  # an authored moment (or a character's own words): its cards say it all
         else:
             words = pending.shown if pending.intent.kind != "action" else f"(chose) {pending.shown}"
             text, error = await narrate(self.llm, state, self.content, words, told, self.config.tone,
-                                        on_text, question=pending.intent.kind == "question")
+                                        on_text, question=pending.intent.kind == "question", stop=stop)
             if error:
                 errors.append(error)
         for event in pending.events:
@@ -340,6 +344,17 @@ class Game:
         self._save()
         return TurnResult(text, pending.events, pending.intent, errors)
 
+    def _going_back(self, pending: Pending, told: list[Event]) -> bool:
+        """A move picked (not words typed) back into a room you've been in, with nothing waiting there: no fight, no
+        ghost, no shop. With a model narrating, the engine says it in a line instead, and who's here if anyone calm
+        is (offline, the narration's as quick); a new room, a fight, or anything said in your own words is the
+        narrator's."""
+        room = self.state.room
+        monster = room.monster if room.monster and room.monster.hp > 0 else None
+        return (self.llm is not None and pending.intent.kind == "action" and bool(told)
+                and all(e.kind == "enter" and not e.data.get("first") for e in told)
+                and not room.shop and not (monster and (monster.hostile or monster.ghost_of)))
+
     async def act(self, raw: str, on_text: Callable[[str], None],
                   on_resolved: Callable[[list[Event]], None] | None = None, action: Action | None = None) -> TurnResult:
         """One whole turn with no rerolls (plain mode, tests)."""
@@ -356,8 +371,8 @@ class Game:
         key = self.scene_key()
         if self.state.over or key == self._suggested_for:
             return self.state.suggestion
-        self._suggested_for = key
         idea = await extras.suggestion(self.llm, self.state, self.content)
+        self._suggested_for = key  # (only once it's in: one cut short by the next turn is asked for again)
         self.state.suggestion, self.state.suggestion_id = (idea.label, idea.id) if idea else ("", "")
         return self.state.suggestion
 

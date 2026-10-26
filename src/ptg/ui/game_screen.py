@@ -171,6 +171,8 @@ class GameScreen(Screen):
         self.game = game
         self.fresh = fresh
         self.busy = False
+        self.narration_stop: asyncio.Event | None = None  # set to cut the narrator short (later)
+        self.queued = None  # what to do once the turn's done: a move made while the narrator was still talking
         self.turn_marker: Widget | None = None  # where the turn now being shown began (see _mark_turn)
         self.animating = False  # a fight's flashes, lunges or death are playing on its tile
         self.counter_open = False  # the shop's own screen sent the turn now coming: it opens again after it
@@ -533,7 +535,10 @@ class GameScreen(Screen):
 
     def press(self, action: Action) -> None:
         """A button or a choice pressed: its action goes through the turn as it is (a picker opens its choices first)."""
-        if self.busy or self.game.state.over or not action.id:
+        if self.busy:
+            self.later(lambda: self.press(action))
+            return
+        if self.game.state.over or not action.id:
             return
         owner = self.verb_owner.get(action.id) if any(action is a for a in self.tile_verbs) else ""
         if owner:  # a button's words are bare ("Search"): the story says what it was done to
@@ -695,7 +700,7 @@ class GameScreen(Screen):
                 self.game.profile.log(state.run_id, state.turn, [("shown", shown(line))])
         finally:
             self.busy = False
-        await self.update_suggestion()
+        await self.suggest_later()
 
     def _whereabouts(self) -> Text:
         """Where you are, in a line: "You're in the Robing Room, on floor 1 of the Sunken Crypt, with 37/44 HP"."""
@@ -713,6 +718,9 @@ class GameScreen(Screen):
     def submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
         if self.busy:
+            if text and self.narration_stop is not None and self.queued is None:
+                event.input.value = ""
+                self.later(lambda: self.take_input(text))
             return
         if self.game.state.over:
             self.app.end_run(self)
@@ -720,6 +728,12 @@ class GameScreen(Screen):
         if not text:
             return
         event.input.value = ""
+        self.take_input(text)
+
+    def take_input(self, text: str) -> None:
+        """What was typed: a panel's word, a look around, a number (the same as pressing it), or a turn."""
+        if self.busy or self.game.state.over:
+            return
         if text.lower() in COMMANDS:
             self.action_panel(COMMANDS[text.lower()])
             return
@@ -737,7 +751,10 @@ class GameScreen(Screen):
     def chosen(self, event: ChoiceItem.Chosen) -> None:
         """A click on a choice: that action, wherever it is in the list now (a click on one just replaced must not
         pick whatever took its number), or nothing if it's gone."""
-        if self.busy or self.game.state.over:
+        if self.busy:
+            self.later(lambda: self.chosen(event))
+            return
+        if self.game.state.over:
             return
         action = next((a for a in self._choices() if a.id == event.action_id), None)
         if action is not None:
@@ -752,6 +769,7 @@ class GameScreen(Screen):
         Enter waits while it runs (see submitted). The box isn't disabled meanwhile: that moved focus twice a turn,
         and every move had Textual's footer rebuild itself, a fifth of a served game's work."""
         self.busy = True
+        self.workers.cancel_group(self, "suggest")  # (the model's needed for this turn now)
         try:
             if text is None:
                 await self._opening()
@@ -760,6 +778,9 @@ class GameScreen(Screen):
         finally:
             self.busy = False
             self.query_one("#command", Input).focus()
+            queued, self.queued = self.queued, None
+            if queued is not None:
+                self.call_later(queued)  # (once this turn's worker is done: it's the same group)
 
     def _record_shown(self, since: Widget | None) -> None:
         """What the story has shown since the turn began (after its marker), top to bottom, in the run's turn log
@@ -782,7 +803,7 @@ class GameScreen(Screen):
         self._show_story(result.events)
         self._record_shown(marker)
         self.refresh_panels()
-        await self.update_suggestion()
+        await self.suggest_later()
 
     async def _turn(self, text: str, action: Action | None = None) -> None:
         game = self.game
@@ -845,7 +866,11 @@ class GameScreen(Screen):
             effects.pulse(self.query_one("#map"), GREAT, blinks=2)
         self.refresh_panels()
 
-        result = await game.finish(on_text)
+        self.narration_stop = asyncio.Event()
+        try:
+            result = await game.finish(on_text, self.narration_stop)
+        finally:
+            self.narration_stop = None
         line = pickup_line(result.events, game.content) if result.narration else None
         if result.narration:
             if line:  # (the card said what it was; this says where it went)
@@ -885,7 +910,7 @@ class GameScreen(Screen):
         if shopping and game.state.room.shop:  # the counter again, after a purchase, a haggle or a sale there
             arg = action.id.partition(":")[2] if action else ""
             self.open_shop(int(arg) if arg.isdigit() else 0)
-        await self.update_suggestion()
+        await self.suggest_later()
 
     def action_shop_counter(self) -> None:
         """Clicked the shopkeeper: her shop, if you're in it."""
@@ -1132,6 +1157,21 @@ class GameScreen(Screen):
             await self.game.refresh_suggestion()
         self.refresh_choices()
 
+    async def suggest_later(self) -> None:
+        """The suggested trick for the scene now. With a model to ask, it's asked in the background (the next move
+        needn't wait for it, and cuts it short: see run_turn); offline, it's there at once."""
+        if self.game.llm is None:
+            await self.update_suggestion()
+        else:
+            self.run_worker(self.update_suggestion(), group="suggest", exclusive=True)
+
+    def later(self, call) -> None:
+        """A move made mid-turn: while the narrator's still talking, it cuts the narration short (whole sentences
+        told so far stand) and is made as soon as the turn's done. Otherwise, mid-turn, it waits for nothing."""
+        if self.narration_stop is not None and self.queued is None:
+            self.queued = call
+            self.narration_stop.set()
+
     # --- panels ---
 
     def panel(self, name: str) -> Panel:
@@ -1173,7 +1213,10 @@ class GameScreen(Screen):
     def action_go(self, direction: str) -> None:
         """Clicked an arrow on the pad: go that way, as if you'd picked its choice. A locked door (no choice of its own)
         says it's locked and what would open it, costing nothing."""
-        if self.busy or self.game.state.over:
+        if self.busy:
+            self.later(lambda: self.action_go(direction))
+            return
+        if self.game.state.over:
             return
         index = next((i for i, a in enumerate(self.game.choices(), 1) if a.id == f"go:{direction}"), None)
         locked = next((a for a in self.game.locked_doors() if a.id == f"go:{direction}"), None)
@@ -1181,6 +1224,17 @@ class GameScreen(Screen):
             self.run_turn(str(index))
         elif locked:
             self.run_turn(locked.label, locked)
+
+    def action_travel(self, room_id: int) -> None:
+        """Clicked a room on the map: quick travel back to it (rules.journey), as a turn of its own."""
+        if self.busy:
+            self.later(lambda: self.action_travel(room_id))
+            return
+        state = self.game.state
+        if state.over or not 0 <= room_id < len(state.rooms):
+            return
+        self.run_turn(f"Travel to {state.rooms[room_id].name}",
+                      Action(f"travel:{room_id}", f"Travel to {state.rooms[room_id].name}"))
 
     def action_leave(self) -> None:
         """Esc twice: to the title (the game's saved). Once only asks, so an Esc meant for a panel or the command

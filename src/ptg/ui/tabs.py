@@ -160,7 +160,10 @@ STEP_X, STEP_Y, NAME_WIDTH = 14, 4, 12  # a room's place on the big map, and its
 
 def big_map(state, width: int, height: int) -> Text | None:
     """The floor drawn big: each room's mark with its name under it, the passages long, faint dots where a room could
-    be (like graph paper). Each room says where it is when hovered. None if the floor's too big for the room it has."""
+    be (like graph paper). Each room says where it is when hovered, and one you can get back to takes you there when
+    clicked (quick travel: rules.journey). None if the floor's too big for the room it has."""
+    from ..rules import journey
+
     rooms = known_rooms(state)
     mapped = state.mapped_floor == state.floor
     min_x, max_x = min(r.x for r in rooms), max(r.x for r in rooms)
@@ -177,7 +180,9 @@ def big_map(state, width: int, height: int) -> Text | None:
         here = room.id == state.room_id
         glyph = map_glyph(state, room)
         name = room.name if room.visited else "unexplored" + (f": a {room.fixture}" if room.fixture else "")
-        tip = Style(meta={"tip": name + (" (you're here)" if here else "")})
+        reachable = not here and journey(state, room.id) is not None
+        tip = Style(meta={"tip": name + (" (you're here)" if here else " (click to travel there)" if reachable else ""),
+                          **({"@click": f"screen.travel({room.id})"} if reachable else {})})
         left, right = "{}" if room.secret else "[]"
         for dx, ch in ((-1, left), (0, glyph), (1, right)):
             grid[cy][cx + dx] = (ch, Style.parse(f"bold {ACCENT}" if here else MAP_STYLES.get(ch, DIM)) + tip)
@@ -208,7 +213,10 @@ def big_map(state, width: int, height: int) -> Text | None:
 
 
 def small_map(state) -> Text:
-    """The floor map as world.render_map draws it, each room saying where it is when hovered."""
+    """The floor map as world.render_map draws it, each room saying where it is when hovered (and taking you there
+    when clicked, if you can get back to it: rules.journey)."""
+    from ..rules import journey
+
     text = Text()
     for line in render_map(state):
         for ch in line:
@@ -224,7 +232,11 @@ def small_map(state) -> Text:
         cx, cy = (room.x - min_x) * 4 + 1, (room.y - min_y) * 2
         name = room.name if room.visited else "unexplored" + (f": a {room.fixture}" if room.fixture else "")
         at = starts[cy] + cx - 1
-        text.stylize(Style(meta={"tip": name + (" (you're here)" if room.id == state.room_id else "")}), at, at + 3)
+        here = room.id == state.room_id
+        reachable = not here and journey(state, room.id) is not None
+        text.stylize(Style(meta={"tip": name + (" (you're here)" if here else " (click to travel there)" if reachable
+                                                 else ""),
+                                 **({"@click": f"screen.travel({room.id})"} if reachable else {})}), at, at + 3)
     return text
 
 
@@ -598,12 +610,24 @@ class TabsScreen(GameScreen):
             return "#ff4b4b"
         return TAB_COLOURS[tab] or look_of(self.game.state.theme).accent
 
+    def waiting_here(self) -> bool:
+        """Whether Here has something for you while another tab's showing: someone, or something to do (a thing to
+        take, a place to search, a chest), so its tab says so."""
+        return self.tab != "here" and any(t.character or t.verbs for t in self.things)
+
     def tab_text(self) -> Text:
-        """The tabs, each lit in its own colour when it's the one showing, its key after its name."""
+        """The tabs, each lit in its own colour when it's the one showing, its key after its name. Here, not showing,
+        wears a ● when the room has something for you (waiting_here)."""
         text = Text()
         for key, label, hotkey in TABS:
             on, colour = key == self.tab, self.tab_colour(key)
             click = Style(meta={"@click": f"screen.tab('{key}')"})
+            if key == "here" and self.waiting_here():  # (not the one showing: its own look, and a dot)
+                text.append(f" {label} ", Style.parse(f"bold {colour} on #3a2a08") + click)
+                text.append("● ", Style.parse("bold #ffd166 on #3a2a08") + click)
+                text.append(f"{hotkey} ", Style.parse(f"{colour} on #3a2a08") + click)
+                text.append(" ")
+                continue
             text.append(f" {label} ", Style.parse(f"bold #10122a on {colour}" if on else f"bold {colour} on #171a38")
                         + click)
             text.append(f"{hotkey} ", Style.parse(f"#10122a on {colour}" if on else f"{DIM} on #171a38") + click)

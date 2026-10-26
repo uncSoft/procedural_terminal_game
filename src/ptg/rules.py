@@ -12,6 +12,7 @@ says why (why_not), costing nothing: "You're not hurt, so you keep the Healing P
 from __future__ import annotations
 
 import random
+from collections import deque
 
 from . import dice, interactions, inventory, layout, loot, npcs, powers
 from .combat import (bomb_monster, discover, distract, dodge, flee, flee_direction, fortune, monster_turn,
@@ -331,6 +332,8 @@ def perform(state: GameState, content: Content, action_id: str) -> list[Event]:
         events, took_turn = _use(state, content, rng, arg)
     elif verb == "bomb":
         events = _bomb_wall(state, content, arg) if arg else bomb_monster(state, content, rng)
+    elif verb == "travel":
+        events = _journey(state, content, rng, int(arg))
     elif verb == "breach":
         events = _breach(state, content, rng, *arg.partition(":")[::2])
     elif verb == "throw":
@@ -588,6 +591,68 @@ def travel(state: GameState, content: Content, direction: str, to: int) -> list[
     return events
 
 
+# Quick travel: back to a room you've been in, from the map. Now and then something's wandered into a room on the way
+# (TRAVEL_ODDS a trip), but no more than TRAVEL_MEETINGS times a floor, so it's no way to farm a floor for XP.
+TRAVEL_ODDS, TRAVEL_MEETINGS = 0.2, 2
+
+
+def journey(state: GameState, target: int) -> list[tuple[str, int]] | None:
+    """The way to `target` as (direction, room) steps, through rooms you've been in, by doors standing open, past
+    nothing hostile (nor into it). None if there's no such way, or you can't set off now (a fight, a scene, a perk to
+    pick)."""
+    if state.in_combat or state.scene or state.pending_perks or state.over:
+        return None
+    if not 0 <= target < len(state.rooms) or target == state.room_id or not state.rooms[target].visited:
+        return None
+
+    def clear(room: Room) -> bool:
+        return room.visited and not (room.monster and room.monster.hp > 0 and room.monster.hostile)
+
+    came: dict[int, tuple[str, int] | None] = {state.room_id: None}
+    queue = deque([state.room_id])
+    while queue:
+        room_id = queue.popleft()
+        if room_id == target:
+            steps = []
+            while came[room_id] is not None:
+                direction, back = came[room_id]
+                steps.append((direction, room_id))
+                room_id = back
+            return steps[::-1]
+        for direction, exit_ in state.rooms[room_id].exits.items():
+            if not exit_.locked and exit_.to not in came and clear(state.rooms[exit_.to]):
+                came[exit_.to] = (direction, room_id)
+                queue.append(exit_.to)
+    return None
+
+
+def _journey(state: GameState, content: Content, rng: random.Random, target: int) -> list[Event]:
+    """Quick travel: room by room (each one entered as a step would be), told in a line, no narrator. Or, now and
+    then, something that's wandered into a room on the way stops you there, and the fight's on."""
+    steps = journey(state, target)
+    floor = str(state.floor)
+    meet = len(steps) > 1 and state.wandered.get(floor, 0) < TRAVEL_MEETINGS and rng.random() < TRAVEL_ODDS
+    stop = rng.randrange(len(steps) - 1) if meet else len(steps) - 1
+    for direction, to in steps[:stop + 1]:
+        travel(state, content, direction, to)
+    room, goal = state.room, state.rooms[target]
+    if meet:
+        state.wandered[floor] = state.wandered.get(floor, 0) + 1
+        deepest = max(r.distance for r in state.rooms)
+        room.monster = monster_for(rng, content, state.theme, tier_for(room.distance, deepest, state.floor),
+                                   met=state.met)
+        who = room.monster.name if content.monster(room.monster.key).named else a(room.monster.name)
+        return [Event("ambush", f"You set off for {the(goal.name)}, but in {the(room.name)} {who} blocks the way!",
+                      data={"monster": room.monster.key, "room": room.id,
+                            "journal": f"On the way to {the(goal.name)}, {who} stopped you in {the(room.name)}."})] \
+            + telegraph(state, content)
+    through = [the(state.rooms[to].name) for _, to in steps[:-1]]
+    via = f", through {inventory.listing(through, 'and')}" if through else ""
+    told = f"You make your way back to {the(goal.name)}{via}."
+    return [Event("travel", f"{told} {arrival_facts(state, content, history=False)}".strip(),
+                  data={"quiet": True, "room": goal.id, "journal": told})]
+
+
 def exit_notes(state: GameState) -> str:
     """Each exit with what the player knows lies beyond it: "east (the Ossuary, where you came from)"."""
     room = state.room
@@ -606,7 +671,7 @@ def exit_notes(state: GameState) -> str:
     return ", ".join(notes)
 
 
-def arrival_facts(state: GameState, content: Content) -> str:
+def arrival_facts(state: GameState, content: Content, history: bool = True) -> str:
     """What there is to tell of a room just come into, which isn't the room: its things, who's here and the ways out are
     on the screen (the stage, Here, the choices). The narrator is told only what stands out: a secret room, a shop's
     keeper, a ghost, a fight about to begin, someone calm who's here (or the narrator, told nothing, says they're
@@ -625,7 +690,7 @@ gone: run 59's Swoogy), and on a return what happened here since. (room_facts is
     elif monster and monster.hp > 0 and not room.shop:  # someone calm (Lenny, Swoogy after his game): still here
         mood = npcs.status(state, content, monster.key)
         lines.append(f"{cap(the(monster.name))} is here, not hostile" + (f" ({mood})" if mood else "") + ".")
-    if room.history:
+    if room.history and history:
         lines.append("Earlier here: " + "; ".join(room.history) + ".")
     return " ".join(lines)
 
@@ -1011,6 +1076,8 @@ def off_the_list(state: GameState, content: Content, action_id: str) -> bool:
         return action_id in {a.id for a in locked_doors(state, content)}
     if verb == "appease":  # anything of yours, to calm Swoogy down
         return action_id in {a.id for a in npcs.unlisted(state, content)}
+    if verb == "travel":  # (a room on the map, clicked: see journey)
+        return arg.isdigit() and journey(state, int(arg)) is not None
     if verb == "breach":  # (a wall worth a bomb, with no bomb: the interaction grid's)
         return arg.partition(":")[0] in bombable_walls(state) and not state.in_combat and not state.room.shop
     if verb == "chest_bomb":

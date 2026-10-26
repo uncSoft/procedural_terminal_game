@@ -345,7 +345,13 @@ the goal and how far, the quests open, the tips you've had and the key), Pack, S
 shortens, said in full, then your stats and rolls), Journal and Bestiary. Their keys bring them into the pane;
 pressed again, or the ⤢ at the end of the tabs, they open in full as the panels below. A tab stays where you put it
 from room to room, and a fight brings Here back. Gold, bombs and small keys you find say so in the story ("+6 ¤
-gold (21)") and light up their counter on the status bar.
+gold (21)") and light up their counter on the status bar. Here wears a ● while another tab is showing and the room
+has someone or something in it. Click a room on the map you've been in to **travel** back to it, past nothing hostile;
+now and then something that's wandered in stops you on the way (twice a floor at most).
+
+With a model narrating, you needn't wait for it: a move made while it's still talking cuts it short (what it has
+said whole stays) and is made at once, and walking back into a room you've been in, with nothing waiting there, is
+told in the game's own line rather than the narrator's.
 
 | Key | Typed | Opens |
 | --- | --- | --- |

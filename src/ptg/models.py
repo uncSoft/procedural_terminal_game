@@ -232,6 +232,7 @@ class GameState(BaseModel):
     mapped_floor: int = 0  # a floor whose whole map you've been handed
     rares: list[str] = Field(default_factory=list)  # rare items this run has turned up: each comes once
     met: list[str] = Field(default_factory=list)  # one-of-a-kind creatures this run has turned up (MonsterDef.once)
+    wandered: dict[str, int] = Field(default_factory=dict)  # quick travel's run-ins, by floor (rules.TRAVEL_MEETINGS)
     warned: list[str] = Field(default_factory=list)  # cursed things you've been warned of: taking one now takes it
     quests: dict[str, str] = Field(default_factory=dict)  # each character's stage this run, by its key (npcs.STAGES)
     said: dict[str, int] = Field(default_factory=dict)  # how often each character's said each thing (they take turns)

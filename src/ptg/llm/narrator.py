@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections import Counter
 from typing import Callable
@@ -56,9 +57,11 @@ def offline_narration(state: GameState, content: Content, events: list[Event], r
 
 
 async def narrate(llm: LLM | None, state: GameState, content: Content, raw: str, events: list[Event],
-                  tone: str, on_text: TextSink, question: bool = False, opening: bool = False) -> tuple[str, str | None]:
+                  tone: str, on_text: TextSink, question: bool = False, opening: bool = False,
+                  stop: asyncio.Event | None = None) -> tuple[str, str | None]:
     """Streams narration to on_text a sentence at a time, each checked against the facts first (see guard.py),
-    and returns (final text, error or None)."""
+    and returns (final text, error or None). Set `stop` to cut it short (the player's moved on): what's been told so
+    far, whole sentences only, stands, or the engine's own words if nothing had been yet."""
     if llm is None:
         text = offline_narration(state, content, events, raw, question, opening)
         on_text(text)
@@ -67,13 +70,29 @@ async def narrate(llm: LLM | None, state: GameState, content: Content, raw: str,
     rules = Rules.for_turn(state, content, events, opening, question)
     gate = Gate(rules, sentence_limit(rules.first_visit, state.in_combat))
     error = None
-    try:
+
+    async def tell() -> None:
         async for chunk in llm.stream_text(system, user, max_tokens=500):
             for sentence in gate.feed(chunk):
                 on_text(sentence + " ")
+
+    cut = False
+    try:
+        if stop is None:
+            await tell()
+        else:
+            telling, stopped = asyncio.ensure_future(tell()), asyncio.ensure_future(stop.wait())
+            await asyncio.wait({telling, stopped}, return_when=asyncio.FIRST_COMPLETED)
+            stopped.cancel()
+            if not telling.done():  # (cut short: the stream's dropped, which stops the model too)
+                cut = True
+                telling.cancel()
+                await asyncio.gather(telling, return_exceptions=True)
+            else:
+                telling.result()
     except LLMError as e:
         error = f"narrator: {e}"
-    for sentence in gate.finish():
+    for sentence in [] if cut else gate.finish():  # (cut, a sentence half told is left out)
         on_text(sentence + " ")
     if gate.dropped:
         log_exchange("guard", [f"{why}: {sentence}" for sentence, why in gate.dropped], gate.text)

@@ -216,3 +216,69 @@ def test_a_draft_stays_a_cracked_wall(content):
     assert cracked.name == f"cracked {walls[0]} wall" and cracked.state["draft"]
     for other in walls[1:]:
         assert view.get(f"wall:{other}").name == f"{other} wall"
+
+
+class SlowLLM:
+    """A model that takes its time: a sentence every `pause` seconds, and it counts what it was asked."""
+
+    name = "slow"
+
+    def __init__(self, sentences=("The room is cold.", "Water drips somewhere.", "You feel watched."), pause=0.2):
+        self.sentences, self.pause, self.streams, self.json_calls = list(sentences), pause, 0, 0
+
+    async def prepare(self):
+        pass
+
+    async def complete_json(self, system, user, schema, max_tokens=500):
+        self.json_calls += 1
+        return {}
+
+    async def stream_text(self, system, user, max_tokens=600):
+        import asyncio
+
+        self.streams += 1
+        for sentence in self.sentences:
+            await asyncio.sleep(self.pause)
+            for word in sentence.split(" "):
+                yield word + " "
+
+    async def aclose(self):
+        pass
+
+
+async def test_the_narrator_cut_short_keeps_its_whole_sentences(content):
+    """A move made while the narrator talks cuts it short: what it's said whole stands, nothing half said."""
+    import asyncio
+
+    from ptg.llm.narrator import narrate
+
+    state = generate(1)
+    events = perform(state, content, next(a.id for a in available_actions(state, content) if a.id.startswith("go:")))
+    stop, shown = asyncio.Event(), []
+    llm = SlowLLM(("The room is cold and very quiet.", "Water drips somewhere far away.", "You feel watched."),
+                  pause=0.3)
+
+    async def cut():
+        await asyncio.sleep(0.45)  # (the first sentence told, the second on its way)
+        stop.set()
+
+    asyncio.ensure_future(cut())
+    text, error = await narrate(llm, state, content, "go", events, "", shown.append, stop=stop)
+    assert error is None and text.startswith("The room is cold") and "Water" not in text
+
+
+async def test_going_back_through_the_floor_waits_on_no_narrator(content):
+    """With a model narrating, a move back into a room you've been in, with nothing waiting there, is told in the
+    engine's line: no stream to wait for. A new room is the narrator's."""
+    state = generate(5, content=content)
+    for room in state.rooms:
+        room.monster = None
+    llm = SlowLLM(pause=0.0)
+    game = Game(state, Config(backend="openai"), llm, content)
+    way = next(a.id for a in available_actions(state, content) if a.id.startswith("go:"))
+    back = {"go:north": "go:south", "go:south": "go:north", "go:east": "go:west", "go:west": "go:east"}[way]
+    numbered = lambda action_id: str(next(i for i, a in enumerate(game.choices(), 1) if a.id == action_id))  # noqa: E731
+    await game.act(numbered(way), lambda _: None)
+    assert llm.streams == 1  # (somewhere new)
+    result = await game.act(numbered(back), lambda _: None)
+    assert llm.streams == 1 and "where you've been before" in result.narration

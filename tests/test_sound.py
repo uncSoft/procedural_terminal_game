@@ -5,6 +5,7 @@ import wave
 from array import array
 
 from conftest import Recorder
+
 from ptg import sound
 from ptg.sound import MOMENTS, Sound, decode, load_bank, resample
 

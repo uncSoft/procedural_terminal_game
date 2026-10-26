@@ -6,7 +6,8 @@ the volume works. If sounddevice can't load, the system's player is used instead
 or aplay on Linux, winsound on Windows), which is slower to start. With no player, with sound off in Settings, or
 with PTG_SOUND=0, the game is simply quiet. A sound can never crash or stall it.
 
-The game plays sounds by moment (MOMENTS below). The built-in ones are synthesized by tools/build_sounds.py into
+The game plays sounds by moment (MOMENTS below), and a moment's sound can also be music: looped until it's stopped,
+fading out (music, stop_music: the title screen's). The built-in ones are synthesized by tools/build_sounds.py into
 ptg/data/sounds. To use your own, put WAV files (8- or 16-bit PCM, any rate) in ~/.ptg/sounds:
 
     great.wav, great_2.wav    replace the sound for a natural 20 (with several, one is picked at random)
@@ -85,7 +86,10 @@ MOMENTS = {
     "level_up": "you level up",
     "death": "you die",
     "victory": "you win",
+    "thunder": "lightning strikes, on the title screen",
+    "title_music": "the title screen's music (it loops while the title shows)",
 }
+MUSIC_LEVEL = 0.6  # music sits under the sounds
 
 BUILTIN_CREDIT = "made for ptg (tools/build_sounds.py)"
 VARIANT = re.compile(r"^(.+?)(?:_(\d+))?$")
@@ -229,25 +233,45 @@ class Mixer:
         self.rate = int(sd.query_devices(kind="output")["default_samplerate"])
         self.stream = sd.RawOutputStream(samplerate=self.rate, channels=1, dtype="int16", latency="low")
         self.voices: list[list] = []  # [samples, position, gain]
+        self.music: list | None = None  # [samples, position, gain, fade]: looped until it fades out
         self.cache: dict[str, array] = {}
         self.lock = threading.Lock()
         self.wake = threading.Event()
         self.closed = False
         threading.Thread(target=self._run, name="ptg-sound", daemon=True).start()
 
-    def play(self, clip: Clip, gain: float) -> None:
+    def _samples(self, clip: Clip) -> array:
         key = str(clip.source)
         if key not in self.cache:
             self.cache[key] = resample(*decode(clip.source), self.rate)
+        return self.cache[key]
+
+    def play(self, clip: Clip, gain: float) -> None:
+        samples = self._samples(clip)
         with self.lock:
             if len(self.voices) >= self.VOICES:
                 self.voices.pop(0)
-            self.voices.append([self.cache[key], 0, gain])
+            self.voices.append([samples, 0, gain])
         self.wake.set()
+
+    def loop(self, clip: Clip, gain: float) -> None:
+        """Music: the clip over and over until stop_loop (the same clip already looping just changes its gain)."""
+        samples = self._samples(clip)
+        with self.lock:
+            if self.music and self.music[0] is samples:
+                self.music[2], self.music[3] = gain, 0.0
+            else:
+                self.music = [samples, 0, gain, 0.0]
+        self.wake.set()
+
+    def stop_loop(self, fade: float = 0.8) -> None:
+        with self.lock:
+            if self.music:
+                self.music[3] = self.music[2] / max(1.0, fade * self.rate / self.BLOCK)
 
     def _mix(self) -> bytes | None:
         with self.lock:
-            if not self.voices:
+            if not self.voices and not self.music:
                 return None
             out = [0] * self.BLOCK
             for voice in self.voices:
@@ -256,6 +280,16 @@ class Mixer:
                     out[i] += int(value * gain)
                 voice[1] = position + self.BLOCK
             self.voices = [v for v in self.voices if v[1] < len(v[0])]
+            if self.music:
+                samples, position, gain, fade = self.music
+                size = len(samples)
+                for i in range(self.BLOCK):
+                    out[i] += int(samples[(position + i) % size] * gain)
+                self.music[1] = (position + self.BLOCK) % size
+                if fade:
+                    self.music[2] = gain - fade
+                    if self.music[2] <= 0:
+                        self.music = None
         return array("h", (max(-32768, min(32767, v)) for v in out)).tobytes()
 
     def _run(self) -> None:
@@ -298,15 +332,37 @@ class Command:
         self.name = name
         self.argv = argv
         self.running: list[subprocess.Popen] = []
+        self.looping: object | None = None  # the music playing now (a token: a new one, or none, ends the old)
+        self.music: subprocess.Popen | None = None
+
+    def _start(self, clip: Clip, gain: float) -> subprocess.Popen:
+        return subprocess.Popen(self.argv(str(clip.source), gain), stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def play(self, clip: Clip, gain: float) -> None:
         self.running = [p for p in self.running if p.poll() is None]
         if len(self.running) < 4:
-            self.running.append(subprocess.Popen(self.argv(str(clip.source), gain), stdin=subprocess.DEVNULL,
-                                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            self.running.append(self._start(clip, gain))
+
+    def loop(self, clip: Clip, gain: float) -> None:
+        """Music: the player started again each time it finishes, until stop_loop."""
+        self.stop_loop()
+        token = self.looping = object()
+
+        def again() -> None:
+            while self.looping is token:
+                self.music = self._start(clip, gain)
+                self.music.wait()
+
+        threading.Thread(target=again, name="ptg-music", daemon=True).start()
+
+    def stop_loop(self, fade: float = 0.0) -> None:
+        self.looping = None
+        if self.music and self.music.poll() is None:
+            self.music.terminate()
 
     def close(self) -> None:
-        pass
+        self.stop_loop()
 
 
 COMMANDS = [
@@ -324,6 +380,17 @@ class Winsound:
         import winsound
 
         winsound.PlaySound(str(clip.source), winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
+
+    def loop(self, clip: Clip, gain: float) -> None:  # (winsound plays one thing at a time: a sound stops it)
+        import winsound
+
+        winsound.PlaySound(str(clip.source), winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_LOOP
+                           | winsound.SND_NODEFAULT)
+
+    def stop_loop(self, fade: float = 0.0) -> None:
+        import winsound
+
+        winsound.PlaySound(None, 0)
 
     def close(self) -> None:
         pass
@@ -359,6 +426,7 @@ class Sound:
         self.player = player
         self.last: dict[str, float] = {}
         self._opening = False
+        self.wanted: str = ""  # the music that should be playing (started once the player's open)
 
     def start(self) -> None:
         """Open the audio device in the background (it takes a moment), so it's ready for the first sound."""
@@ -368,6 +436,8 @@ class Sound:
 
     def _open(self) -> None:
         self.player = open_player() or Silent()
+        if self.wanted:
+            self.music(self.wanted)
 
     def play(self, moment: str) -> bool:
         if not self.enabled or self.volume <= 0 or not self.bank.get(moment):
@@ -387,10 +457,40 @@ class Sound:
         return True
 
 
+    def music(self, moment: str) -> bool:
+        """Loop a moment's sound as music (one at a time: it takes over from any other), if sound is on."""
+        self.wanted = moment
+        if not self.enabled or self.volume <= 0 or not self.bank.get(moment):
+            return False
+        if self.player is None:
+            self.start()  # (it starts once the player's open)
+            return False
+        clip = self.bank[moment][0]
+        try:
+            self.player.loop(clip, self.volume * clip.volume * MUSIC_LEVEL)
+        except Exception:
+            return False
+        return True
+
+    def stop_music(self, fade: float = 0.8) -> None:
+        self.wanted = ""
+        if self.player is not None:
+            try:
+                self.player.stop_loop(fade)
+            except Exception:
+                pass
+
+
 class Silent:
     name = "none"
 
     def play(self, clip: Clip, gain: float) -> None:
+        pass
+
+    def loop(self, clip: Clip, gain: float) -> None:
+        pass
+
+    def stop_loop(self, fade: float = 0.0) -> None:
         pass
 
     def close(self) -> None:
@@ -401,16 +501,32 @@ _sound = Sound(enabled=False)
 
 
 def configure(enabled: bool, volume: float) -> Sound:
-    """Set the game's sound up (again, after Settings change), keeping the audio device if it's already open."""
+    """Set the game's sound up (again, after Settings change), keeping the audio device if it's already open, and
+    any music that should be playing (stopped while sound's off, on again after)."""
     global _sound
+    wanted = _sound.wanted
     _sound = Sound(enabled, volume, user_folder(), player=_sound.player)
     _sound.start()
+    if wanted and enabled:
+        _sound.music(wanted)
+    elif wanted:
+        _sound.stop_music(0.0)
+        _sound.wanted = wanted  # (sound back on, it plays again)
     return _sound
 
 
 def play(moment: str) -> bool:
     """Play the sound for a moment, if sound is on. Never blocks."""
     return _sound.play(moment)
+
+
+def music(moment: str) -> bool:
+    """Loop a moment's sound as music until stop_music, if sound is on. Never blocks."""
+    return _sound.music(moment)
+
+
+def stop_music(fade: float = 0.8) -> None:
+    _sound.stop_music(fade)
 
 
 def engine() -> Sound:

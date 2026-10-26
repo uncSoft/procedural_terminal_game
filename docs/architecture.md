@@ -143,8 +143,10 @@ rewind. Tests rely on this (`tests/bot.py` games are compared run to run).
   line. `ui/here.py` builds the Here tiles; `ui/panels.py` the pop-up panels (inventory, sheet, map, bestiary,
   journal, shop, cards).
 - **Pictures**: sprites are PNG strips drawn as half-block characters (`sprites.py`); rooms are drawn in code from
-  the room itself (`room_picture.py`); the d20 is drawn in code (`dice_art.py`). `tools/build_sprites.py` and
-  `tools/build_sounds.py` generate the built-in art and 8-bit sounds (`sound.py` plays them without blocking).
+  the room itself (`room_picture.py`); the d20 is drawn in code (`dice_art.py`); so is the title's castle in the
+  storm (`title_scene.py`: materials and shades, coloured by the light, so one drawing gives the dark and the
+  flash). `tools/build_sprites.py` and
+  `tools/build_sounds.py` generate the built-in art and 8-bit sounds (`sound.py` plays them without blocking, and loops a moment's sound as music: the title's).
 - **Browser**: `ptg serve` (`serve.py`, on textual-serve) runs one game per tab behind a page that asks who's
   playing; `web/app_index.html` fits phones. Deployed with the `Dockerfile` (Render).
 - **Plain text mode**: `ptg --plain` drives the same `Game` from a prompt loop in `cli.py`.

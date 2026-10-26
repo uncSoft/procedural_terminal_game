@@ -86,7 +86,8 @@ async def test_a_run_in_progress_comes_first_and_picks_up_where_it_was():
     async with app.run_test(size=(130, 44)) as pilot:
         await pilot.pause(0.3)
         title = app.screen
-        assert [w.id for w in title.query_one("#menu").children][:3] == ["continue", "run-info", "new"]
+        assert [w.id for w in title.query_one("#menu").children][:2] == ["continue", "new"]
+        assert title.query_one("#run-info").display
         assert app.focused.id == "continue" and str(title.query_one("#new").label) == "New run"
         assert "Floor 1/3" in str(title.query_one("#run-info").render())
         await pilot.press("n")  # a new run, not without asking
@@ -1509,3 +1510,38 @@ async def test_toasts_and_the_hud_keep_out_of_the_way():
         assert toast.y <= 2 and toast.right >= 98 and not toast.overlaps(screen.query_one("#choices").region)
         hud = str(screen.query_one("#hud").render())
         assert "Floor 1/3 · " in hud and "turn" not in hud and len(hud) <= 98
+
+
+async def test_the_title_is_a_castle_in_a_storm_with_its_own_music(speakers):
+    """The title's picture: the rain's frames drawn ahead in the background, a strike that lights the castle up (the
+    name flashing with it) and the thunder after, and the title's music looping while it shows, fading out when a
+    screen covers it."""
+    from ptg import title_scene
+
+    app = PTGApp(Config(backend="offline", player_name="T"))
+    async with app.run_test(size=(152, 43)) as pilot:
+        await pilot.pause(0.3)
+        title = app.screen
+        assert isinstance(title, TitleScreen) and title.scene is not None
+        assert title.query_one("#title-scene").display and speakers.looping == "title_music"
+        await app.workers.wait_for_complete()
+        assert len(title.frames) == 4 * title.PHASES and title.flash  # (every rain frame, and the first strike's)
+        title.next_strike = 0  # (now)
+        lit = False
+        for _ in range(20):
+            await pilot.pause(0.05)
+            lit = lit or title.query_one("#splash").has_class("lit")
+        assert lit  # (the flash: the name lit with it)
+        await pilot.pause(1.6)
+        assert "thunder" in speakers.moments
+        await pilot.press("s")  # (Settings: the music fades out)
+        await pilot.pause(0.3)
+        assert speakers.looping == ""
+
+
+async def test_a_small_screen_has_the_title_without_the_picture():
+    app = PTGApp(Config(backend="offline", player_name="T"))
+    async with app.run_test(size=(80, 20)) as pilot:
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, TitleScreen) and not app.screen.query_one("#title-scene").display
+        assert app.screen.query_one("#new").region.bottom <= 20

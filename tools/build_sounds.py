@@ -105,6 +105,16 @@ def render(tones: list[Tone]) -> bytes:
     return bytes(max(0, min(255, round(128 + 127 * max(-1.0, min(1.0, v))))) for v in mix)
 
 
+def fold(samples: bytes, loop: float) -> bytes:
+    """A loop exactly `loop` seconds long: whatever rings on past its end is mixed back in at its start, so it
+    repeats without a seam."""
+    size = int(loop * RATE)
+    mix = [v - 128 for v in samples[:size]] + [0] * max(0, size - len(samples))
+    for i, v in enumerate(samples[size:]):
+        mix[i % size] += v - 128
+    return bytes(max(0, min(255, 128 + v)) for v in mix)
+
+
 def write(path: Path, samples: bytes) -> None:
     with wave.open(str(path), "wb") as w:
         w.setnchannels(1)
@@ -148,6 +158,71 @@ def _sparkle(names: list[str], step: float, volume: float = 0.3, at: float = 0.0
         tones.append(note(n, step * 2, at + i * step + step * 0.6, wave="square", duty=0.125, volume=volume * 0.3,
                           release=step * 1.5))
     return tones
+
+
+def _thunder(seed: int, crack: bool, distance: float) -> list[Tone]:
+    """Thunder: a crack (if it struck close), then a rumble rolling on for a few seconds, swelling and fading as it
+    goes, lower and softer the further away it struck."""
+    rng = random.Random(seed)
+    tones = []
+    if crack:
+        tones += [Tone("noise", 9000, to=3000, length=0.12, volume=0.42, release=0.06),
+                  Tone("noise", 2600, length=0.3, at=0.05, volume=0.4, metallic=True, release=0.2)]
+    start = 0.1 if crack else 0.0
+    loud = 0.36 * (1 - 0.3 * distance)
+    for i in range(7):  # the rolls: overlapping rumbles, each a little lower and softer
+        at = start + i * rng.uniform(0.25, 0.45)
+        pitch = rng.uniform(130, 220) * (1 - 0.4 * distance) * (0.92 ** i)
+        tones.append(Tone("noise", pitch, to=pitch * 0.5, length=rng.uniform(0.9, 1.4), at=at,
+                          volume=loud * (0.9 ** i) * rng.uniform(0.7, 1.0), attack=0.12, release=0.7))
+    tones.append(Tone("triangle", 55 * (1 - 0.2 * distance), to=32, length=2.2, at=start, volume=loud * 0.6,
+                      attack=0.05, release=1.4))
+    return tones
+
+
+# The title screen's music: a short loop that repeats while the title shows (sound.music). An original piece, in
+# the spirit of the minimal, hypnotic horror themes of the seventies: a bell-like figure that never changes, in 7/8
+# (2+2+3), over a bass that moves underneath it every two bars (A, F, D, E: the floor dropping away), then a slow
+# line above, then tubular bells. 16 bars, folded so it loops without a seam (LOOPS).
+EIGHTH = 0.178
+BAR = 7 * EIGHTH
+FIGURE = (["A4", "E5", "C5", "E5", "B4", "E5", "F5"], ["A4", "E5", "C5", "E5", "G4", "E5", "D5"])
+BASS = ["A2", "F2", "D2", "E2"]  # two bars each, twice over
+LINE = ["E5", "C5", "F5", "E5", "D5", "C5", "B4", "G#4"]  # the line above: a bar each, from bar 9
+
+
+def _bell(name: str, at: float, volume: float) -> list[Tone]:
+    """A tubular bell: a struck, metallic attack, its note and the clangorous partial above it, ringing long."""
+    pitch = hz(name)
+    return [Tone("noise", 6000, length=0.04, at=at, volume=volume * 0.5, metallic=True, release=0.03),
+            Tone("sine", pitch, length=2.4, at=at, volume=volume, attack=0.002, release=2.2),
+            Tone("sine", pitch * 2.76, length=1.2, at=at, volume=volume * 0.35, attack=0.002, release=1.1),
+            Tone("triangle", pitch / 2, length=1.6, at=at, volume=volume * 0.4, attack=0.002, release=1.4)]
+
+
+def _title_music() -> list[Tone]:
+    tones: list[Tone] = []
+    for bar in range(16):
+        start = bar * BAR
+        for i, name in enumerate(FIGURE[bar % 2]):  # the figure: a thin, glassy pulse, every bar
+            tones.append(note(name, EIGHTH * 0.9, start + i * EIGHTH, duty=0.125, volume=0.13, release=0.08))
+            if bar >= 4:  # (doubled an octave down, softly, once the bass is in)
+                tones.append(note(name[:-1] + str(int(name[-1]) - 1), EIGHTH * 0.8, start + i * EIGHTH,
+                                  wave="triangle", volume=0.07, release=0.06))
+        if bar >= 2:  # the bass, on the 2+2+3
+            root = BASS[(bar // 2) % 4]
+            for beat, length in ((0, 2), (2, 2), (4, 3)):
+                tones.append(note(root, EIGHTH * length * 0.85, start + beat * EIGHTH, wave="triangle",
+                                  volume=0.3 if beat == 0 else 0.22, release=0.1))
+    for i, name in enumerate(LINE):  # the line above, from bar 9, falling to the leading note (and home: bar 1)
+        tones.append(note(name, BAR * 0.97, (8 + i) * BAR, duty=0.25, volume=0.11, attack=0.15, release=0.6,
+                          vibrato=0.15, vibrato_rate=4.5))
+    for bar, name in ((12, "E4"), (14, "A3"), (15, "E4")):  # the bells
+        tones += _bell(name, bar * BAR, 0.22)
+    return tones
+
+
+LOOPS = {"title_music": 16 * BAR}  # a sound that loops, and how long a loop is: what rings past it, folded back in
 
 
 SOUNDS: dict[str, list[list[Tone]]] = {
@@ -239,6 +314,11 @@ SOUNDS: dict[str, list[list[Tone]]] = {
     "death": [arp(["E4", "D#4", "D4"], 0.24, duty=0.5, volume=0.3, release=0.06)
               + [note("C#4", 0.8, 0.72, duty=0.5, volume=0.3, vibrato=0.4, vibrato_rate=5, release=0.5),
                  note("C#3", 0.8, 0.72, wave="triangle", volume=0.35, release=0.5)]],
+    # the title screen
+    "thunder": [_thunder(1, crack=True, distance=0.0), _thunder(2, crack=True, distance=0.4),
+                _thunder(3, crack=False, distance=0.9)],
+    "title_music": [_title_music()],
+
     "victory": [arp(["G4", "C5", "E5", "G5"], 0.1, duty=0.5, volume=0.3)
                 + arp(["E5", "G5"], 0.1, at=0.45, duty=0.5, volume=0.3)
                 + [note("C6", 0.8, 0.65, duty=0.5, volume=0.3, vibrato=0.25, release=0.4),
@@ -256,7 +336,10 @@ def build(names: list[str] | None = None) -> list[Path]:
     for name in names or SOUNDS:
         for variant, filename in zip(SOUNDS[name], files_for(name)):
             path = OUT / filename
-            write(path, render(variant))
+            samples = render(variant)
+            if name in LOOPS:
+                samples = fold(samples, LOOPS[name])
+            write(path, samples)
             written.append(path)
     return written
 

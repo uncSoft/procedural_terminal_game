@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import random
+import time
+
 from rich.text import Text
 from textual import on, work
 from textual.app import ComposeResult
@@ -10,8 +13,16 @@ from textual.containers import Center, Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Input, Label, Select, Static
 
-from ..config import APPLE_HELP, DEFAULT_CLAUDE_MODEL, DEFAULT_URLS, Config, hosted, load_game, read_save
-from ..content import load_content
+from .. import sound, title_scene
+from ..config import (
+    APPLE_HELP,
+    DEFAULT_CLAUDE_MODEL,
+    DEFAULT_URLS,
+    Config,
+    hosted,
+    load_game,
+    read_save,
+)
 from ..llm import LLMError
 from ..llm.narrator import intro
 from ..llm.openai_compat import OpenAICompatLLM
@@ -37,32 +48,161 @@ def describe_backend(config: Config) -> str:
 
 
 class TitleScreen(Screen):
+    """The title: the castle in the storm (title_scene.py) under the game's name, and the menu in a row beneath it.
+    The rain falls; every few seconds lightning strikes, the castle lights up, something stands on the ridge for as
+    long as the flash lasts, and the thunder follows (closer, the sooner). The title's music loops while it shows.
+    A screen too small for the picture shows just the name."""
+
     BINDINGS = [Binding("n", "new", "Play"), Binding("c", "continue", "Continue"), Binding("s", "setup", "Settings")]
+    BEAT = 0.15  # seconds a frame of the rain (served, slower: each frame goes down the wire to the browser)
+    SERVED_BEAT = 0.4
+    PHASES = 8  # the rain's frames, in turn
+    # A strike, frame by frame: (light, bolt, watcher, seconds). A first flicker, a moment's dark, the flash itself,
+    # its afterglow, and the dark again.
+    STRIKE = ((title_scene.BRIGHT, True, False, 0.07), (title_scene.DARK, False, False, 0.06),
+              (title_scene.FLASH, True, True, 0.12), (title_scene.BRIGHT, False, True, 0.18),
+              (title_scene.DIM, False, False, 0.45))
+    CHROME = 12  # rows besides the picture: the name, the tagline, the menu, what's under it, the footer
+    LEAST_ROWS = 10  # a picture any smaller isn't worth the room
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.scene: title_scene.Scene | None = None
+        self.frames: dict[tuple, Text] = {}  # (light, phase) -> the frame, drawn in the background
+        self.flash: dict[tuple, Text] = {}  # this strike's own frames, drawn before it comes
+        self.phase = 0
+        self.steps: list[tuple] = []  # the strike playing now, what's left of it
+        self.next_strike = 0.0
+        self.strikes = 0
+        self.rng = random.Random()
 
     def compose(self) -> ComposeResult:
-        content = load_content()
         with Vertical(id="title-wrap"):
-            roomy = self.app.size.width >= 96 and self.app.size.height >= 48
-            yield Center(Static(Text(content.splash if roomy else COMPACT_TITLE), id="splash"))
+            yield Center(Static(Text(COMPACT_TITLE), id="splash"))
+            yield Center(Static("", id="title-scene"))
             yield Center(Static("A dungeon that listens. Type anything.", id="tagline"))
             with Center():
-                with Vertical(id="menu"):
+                with Horizontal(id="menu"):
                     yield Button("Play", id="new", variant="primary")
                     yield Button("Continue", id="continue")
-                    yield Static("", id="run-info")
                     yield Button("Settings", id="setup")
                     yield Button("Quit", id="quit", variant="error")
+            yield Center(Static("", id="run-info"))
             yield Center(Static("", id="narrator-info"))
         yield Footer()
 
     def on_mount(self) -> None:
         self.refresh_menu()
+        self.fit_scene()
+        self.set_interval(self.SERVED_BEAT if hosted() else self.BEAT, self.beat, name="storm")
+        sound.music("title_music")
 
     def on_screen_resume(self) -> None:
         self.refresh_menu()
+        sound.music("title_music")
+
+    def on_screen_suspend(self) -> None:
+        sound.stop_music()
+
+    def on_unmount(self) -> None:
+        sound.stop_music()
+
+    def on_resize(self) -> None:
+        self.fit_scene()
+
+    # --- the storm ---
+
+    def fit_scene(self) -> None:
+        """The picture as big as the screen has room for under the name and over the menu, or none at all."""
+        width = min(self.app.size.width - 4, 160)
+        rows = min(self.app.size.height - self.CHROME, width // 3)
+        box = self.query_one("#title-scene", Static)
+        roomy = rows >= self.LEAST_ROWS and self.app.config.art == "sprites"
+        scene = title_scene.scene(width, 2 * rows) if roomy else None
+        box.display = scene is not None
+        if scene is not self.scene:
+            self.scene, self.frames, self.flash, self.steps = scene, {}, {}, []
+            if scene is not None:
+                self.next_strike = time.monotonic() + 1.2
+                self.draw_ahead(scene)
+        self.show()
+
+    @work(thread=True, exclusive=True, group="storm")
+    def draw_ahead(self, scene: title_scene.Scene) -> None:
+        """Every frame of the rain in every light, drawn off the screen's thread, then the first strike's."""
+        for light in (title_scene.DARK, title_scene.DIM, title_scene.BRIGHT, title_scene.FLASH):
+            for phase in range(self.PHASES):
+                if scene is not self.scene:
+                    return
+                self.frames[(light, phase)] = scene.text(light, self.rain(scene, phase))
+        self.prepare_strike(scene)
+
+    def rain(self, scene: title_scene.Scene, phase: int) -> int:
+        """How far the rain's fallen at a phase: the eight phases fall the whole height, so they loop."""
+        return round(phase * scene.h / self.PHASES)
+
+    def prepare_strike(self, scene: title_scene.Scene) -> None:
+        """The next strike's bolt and watcher, and its frames (called off the screen's thread)."""
+        self.strikes += 1
+        scene.strike(self.rng.randrange(1_000_000))
+        flash = {}
+        for light, bolt, watcher, _ in self.STRIKE:
+            if bolt or watcher:
+                flash[(light, bolt, watcher)] = scene.text(light, self.rain(scene, 0), bolt, watcher)
+        if scene is self.scene:
+            self.flash = flash
+
+    def beat(self) -> None:
+        """A beat of the storm: the rain falls a step, or a strike starts when it's due (its frames keep their own
+        time: next_step)."""
+        if self.scene is None or self.app.screen is not self or self.steps:
+            return
+        self.phase = (self.phase + 1) % self.PHASES
+        now = time.monotonic()
+        if now >= self.next_strike and self.flash:
+            self.steps = list(self.STRIKE)
+            self.set_timer(self.steps[0][3], self.next_step)
+            distance = self.rng.random()  # (the further off, the later and softer the thunder: build_sounds' three)
+            self.set_timer(0.25 + 1.2 * distance, lambda: sound.play("thunder"))
+            self.next_strike = now + self.rng.uniform(4.5, 9.0)
+        self.show()
+
+    def next_step(self) -> None:
+        """A strike's next frame, after the last one's time; the last, and the next strike's drawn ahead."""
+        if self.steps:
+            self.steps.pop(0)
+        if self.steps:
+            self.set_timer(self.steps[0][3], self.next_step)
+        else:
+            self.prepare_later()
+        self.show()
+
+    @work(thread=True, exclusive=True, group="strike")
+    def prepare_later(self) -> None:
+        self.flash = {}
+        if self.scene is not None:
+            self.prepare_strike(self.scene)
+
+    def show(self) -> None:
+        """The frame for now: the strike's, if one's playing, else the rain's in the dark (drawn here if it isn't
+        ready yet); the name flashes with it."""
+        scene, box = self.scene, self.query_one("#title-scene", Static)
+        if scene is None:
+            return
+        light, bolt, watcher = (self.steps[0][:3] if self.steps else (title_scene.DARK, False, False))
+        frame = self.flash.get((light, bolt, watcher)) if (bolt or watcher) else self.frames.get((light, self.phase))
+        if frame is None:
+            frame = self.frames.get((light, 0)) or self.frames.get((title_scene.DARK, 0))
+        if frame is None:
+            frame = self.frames.setdefault((title_scene.DARK, 0), scene.text(title_scene.DARK, 0))
+        box.update(frame)
+        self.query_one("#splash", Static).set_class(light == title_scene.FLASH, "lit")
+
+    # --- the menu ---
 
     def refresh_menu(self) -> None:
-        """With a run in progress, Continue comes first, chosen, with the run beneath it; Play becomes New run."""
+        """With a run in progress, Continue comes first, chosen, with the run beneath the menu; Play becomes New
+        run."""
         state, problem = read_save()
         menu, info = self.query_one("#menu"), self.query_one("#run-info", Static)
         play, resume = self.query_one("#new", Button), self.query_one("#continue", Button)
@@ -71,11 +211,9 @@ class TitleScreen(Screen):
             menu.move_child(resume, before=play)
         else:
             menu.move_child(resume, after=play)
-        menu.move_child(info, after=resume)
-        menu.set_class(bool(state or problem), "with-run")
         info.display = bool(state or problem)
         if state:
-            info.update(Text("\n".join(run_summary(state))))
+            info.update(Text("  ·  ".join(run_summary(state))))
         elif problem:
             info.update(Text(f"Your last run can't be continued: {problem}."))
         first, second = (resume, play) if state else (play, resume)

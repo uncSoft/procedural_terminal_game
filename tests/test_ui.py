@@ -1513,26 +1513,26 @@ async def test_toasts_and_the_hud_keep_out_of_the_way():
 
 
 async def test_the_title_is_a_castle_in_a_storm_with_its_own_music(speakers):
-    """The title's picture: the rain's frames drawn ahead in the background, a strike that lights the castle up (the
-    name flashing with it) and the thunder after, and the title's music looping while it shows, fading out when a
-    screen covers it."""
-    from ptg import title_scene
+    """The title's picture: every frame made ready before the storm starts (the rain's in each light, and several
+    whole strikes), a strike that lights the castle up (the name flashing with it) with its thunder timed to the
+    flash, and the title's music looping while it shows, fading out when a screen covers it."""
+    from ptg.ui.storm import StormView
 
     app = PTGApp(Config(backend="offline", player_name="T"))
     async with app.run_test(size=(152, 43)) as pilot:
         await pilot.pause(0.3)
         title = app.screen
         assert isinstance(title, TitleScreen) and title.scene is not None
-        assert title.query_one("#title-scene").display and speakers.looping == "title_music"
+        assert title.query_one("#title-scene", StormView).frame and speakers.looping == "title_music"
         await app.workers.wait_for_complete()
-        assert len(title.frames) == 4 * title.PHASES and title.flash  # (every rain frame, and the first strike's)
+        assert len(title.frames) == 4 * title.PHASES and len(title.strikes) == title.STRIKES
         title.next_strike = 0  # (now)
         lit = False
         for _ in range(20):
             await pilot.pause(0.05)
             lit = lit or title.query_one("#splash").has_class("lit")
         assert lit  # (the flash: the name lit with it)
-        await pilot.pause(1.6)
+        await pilot.pause(1.2)
         assert "thunder" in speakers.moments
         await pilot.press("s")  # (Settings: the music fades out)
         await pilot.pause(0.3)

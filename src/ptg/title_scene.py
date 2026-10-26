@@ -91,7 +91,8 @@ class Scene:
         self.bolt: list[tuple[int, int, bool]] = []  # (x, y, core) the next flash's bolt
         self.watcher: str | None = None
         self.watcher_at: tuple[int, int] = (0, 0)
-        self._bases: dict[int, Image.Image] = {}
+        self._bases: dict[int, list[list[str]]] = {}
+        self._figures: dict[str, list[tuple[int, int, str]]] = {}
         self._draw()
         self.strike(seed)
 
@@ -293,6 +294,9 @@ class Scene:
                     path.append((bx, by, False))
         self.bolt = path
         self.watcher = WATCHERS[seed % len(WATCHERS)]
+        # How far off it struck, for the thunder: the castle's own spire, near it, or out over the hills.
+        off = abs(end[0] - self.at(1)) / max(1.0, 30 * self.s)
+        self.distance = 0 if end == (spire[0], max(2, spire[1])) else (1 if off < 1.6 else 2)
 
     # --- colours --------------------------------------------------------------------------------------------------
 
@@ -304,56 +308,70 @@ class Scene:
         ramp = RAMPS[material]
         return ramp[min(len(ramp) - 1, shade + LIFT[light])]
 
-    def base(self, light: int):
-        """The scene in a light, without the rain, the bolt or the watcher (kept: they're reused every frame)."""
+    def base(self, light: int) -> list[list[str]]:
+        """The scene's colours in a light, without the rain, the bolt or the watcher (kept: every frame starts
+        from it)."""
         if light not in self._bases:
-            img = Image.new("RGBA", (self.w, self.h))
-            px = img.load()
-            for y in range(self.h):
-                for x in range(self.w):
-                    px[x, y] = _rgb(self.colour(*self.mat[y][x], light))
-            self._bases[light] = img
+            self._bases[light] = [[self.colour(*cell, light) for cell in row] for row in self.mat]
         return self._bases[light]
 
-    def image(self, light: int = DARK, rain: int = 0, bolt: bool = False, watcher: bool = False):
-        img = self.base(light).copy()
-        px = img.load()
-        drop = _rgb(RAMPS["rain"][min(6, 2 + LIFT[light])])
+    def grid(self, light: int = DARK, rain: int = 0, bolt: bool = False, watcher: bool = False) -> list[list[str]]:
+        """A frame, as rows of colours (palette hex): the scene in a light, the rain `rain` pixels further down
+        (the whole height round is where it started), and the bolt and the watcher if asked for."""
+        grid = [list(row) for row in self.base(light)]
+        drop = RAMPS["rain"][min(6, 2 + LIFT[light])]
         span = self.w + self.h // 2
-        for i in range(int(self.w * self.h / 70)):  # the rain: short slanting streaks, `rain` pixels further down
+        for i in range(int(self.w * self.h / 70)):  # the rain: short slanting streaks
             x0, y0 = int(_hash(i, 1, self.seed) * span), int(_hash(i, 2, self.seed) * self.h) + rain
             for k in range(2):
-                y = (y0 + k) % self.h  # (wrapping round: fallen the whole height, it's where it started)
+                y = (y0 + k) % self.h
                 x = (x0 - y // 2) % span
                 if x < self.w and self.mat[y][x][0] != "window":
-                    px[x, y] = drop
+                    grid[y][x] = drop
         if watcher and self.watcher:
-            self._watcher(img, light)
+            for x, y, colour in self._figure():
+                grid[y][x] = colour if light == FLASH else COOL[0]  # (in colour at the flash's height, else black)
         if bolt:
             for x, y, core in self.bolt:
-                for dx, dy in ((0, 0), (-1, 0), (1, 0)) if core else ((0, 0),):
-                    if 0 <= x + dx < self.w and 0 <= y + dy < self.h:
-                        px[x + dx, y + dy] = _rgb(BOLT if (dx, dy) == (0, 0) else GLOW)
+                for dx in (0, -1, 1) if core else (0,):
+                    if 0 <= x + dx < self.w and 0 <= y < self.h:
+                        grid[y][x + dx] = BOLT if dx == 0 else GLOW
+        return grid
+
+    def _figure(self) -> list[tuple[int, int, str]]:
+        """The watcher's pixels where it stands on the ridge, in the palette's colours (kept for each watcher)."""
+        if self.watcher not in self._figures:
+            frames = sprites.frames(self.watcher, max(8, int(20 * self.s)))
+            pixels = []
+            if frames:
+                figure = frames[0].convert("RGBA")
+                solid = [(x, y) for y in range(figure.height) for x in range(figure.width)
+                         if figure.getpixel((x, y))[3] > 128]
+                bottom = max(y for _, y in solid)
+                fx, fy = self.watcher_at[0] - figure.width // 2, self.watcher_at[1] - bottom
+                for x, y in solid:
+                    if 0 <= fx + x < self.w and 0 <= fy + y < self.h:
+                        colour = sprites._colour(figure.getpixel((x, y)), False, snap=True)
+                        pixels.append((fx + x, fy + y, colour.triplet.hex))
+            self._figures[self.watcher] = pixels
+        return self._figures[self.watcher]
+
+    def image(self, light: int = DARK, rain: int = 0, bolt: bool = False, watcher: bool = False):
+        """A frame as a picture (for a look at it outside a terminal)."""
+        grid = self.grid(light, rain, bolt, watcher)
+        img = Image.new("RGBA", (self.w, self.h))
+        img.putdata([_rgb(colour) for row in grid for colour in row])
         return img
 
-    def _watcher(self, img, light: int) -> None:
-        """Whoever the flash shows on the ridge: black against the sky (at the flash's height, their own colours)."""
-        frames = sprites.frames(self.watcher, max(8, int(20 * self.s)))
-        if not frames:
-            return
-        figure = frames[0]
-        bottom = max(y for y in range(figure.height) for x in range(figure.width) if figure.getpixel((x, y))[3] > 128)
-        fx, fy = self.watcher_at[0] - figure.width // 2, self.watcher_at[1] - bottom
-        dark = _rgb("#181425")
-        fpx, px = figure.load(), img.load()
-        for y in range(figure.height):
-            for x in range(figure.width):
-                r, g, b, a = fpx[x, y]
-                if a > 128 and 0 <= fx + x < self.w and 0 <= fy + y < self.h:
-                    px[fx + x, fy + y] = (r, g, b, 255) if light == FLASH else dark
-
     def text(self, light: int = DARK, rain: int = 0, bolt: bool = False, watcher: bool = False) -> Text:
-        return sprites.image_text(self.image(light, rain, bolt, watcher), snap=True)
+        """A frame as half-block text (the title screen shows ui/storm.py's ready-made lines instead)."""
+        grid, text = self.grid(light, rain, bolt, watcher), Text(no_wrap=True, overflow="crop")
+        for y in range(0, self.h - 1, 2):
+            for top, bottom in zip(grid[y], grid[y + 1]):
+                text.append("▀", f"{top} on {bottom}")
+            if y + 3 < self.h:
+                text.append("\n")
+        return text
 
 
 @lru_cache(maxsize=4)

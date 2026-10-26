@@ -90,6 +90,7 @@ MOMENTS = {
     "title_music": "the title screen's music (it loops while the title shows)",
 }
 MUSIC_LEVEL = 0.6  # music sits under the sounds
+LEAD = 0.12  # how long a sound takes to reach the speakers (the mixer's queue): play it this early to land on time
 
 BUILTIN_CREDIT = "made for ptg (tools/build_sounds.py)"
 VARIANT = re.compile(r"^(.+?)(?:_(\d+))?$")
@@ -242,7 +243,7 @@ class Mixer:
     # Seconds of sound queued for the speakers. The mixer is Python on a thread: whenever the screen's thread (or the
     # title's storm, drawn in the background) holds the interpreter for a while, it can't keep up, and with less
     # queued than that the speakers run dry: the music skipped and crackled. A tenth of a second is never noticed.
-    LATENCY = 0.12
+    LATENCY = LEAD
     LIMIT = 24000  # over this, a mix (music and thunder at once) is squeezed rather than clipped
 
     def __init__(self, sd) -> None:
@@ -481,7 +482,8 @@ class Sound:
         if self.wanted:
             self.music(self.wanted)
 
-    def play(self, moment: str) -> bool:
+    def play(self, moment: str, variant: int | None = None) -> bool:
+        """Play a moment's sound: one of its variants at random, or the one asked for (thunder near or far)."""
         if not self.enabled or self.volume <= 0 or not self.bank.get(moment):
             return False
         now = time.monotonic()
@@ -491,7 +493,8 @@ class Sound:
         if self.player is None:
             self.start()
             return False
-        clip = random.choice(self.bank[moment])
+        clips = self.bank[moment]
+        clip = clips[variant] if variant is not None and 0 <= variant < len(clips) else random.choice(clips)
         try:
             self.player.play(clip, self.volume * clip.volume)
         except Exception:  # a broken file or a vanished device never stops the game
@@ -557,9 +560,9 @@ def configure(enabled: bool, volume: float) -> Sound:
     return _sound
 
 
-def play(moment: str) -> bool:
-    """Play the sound for a moment, if sound is on. Never blocks."""
-    return _sound.play(moment)
+def play(moment: str, variant: int | None = None) -> bool:
+    """Play the sound for a moment (a variant at random, or the one asked for), if sound is on. Never blocks."""
+    return _sound.play(moment, variant)
 
 
 def music(moment: str) -> bool:

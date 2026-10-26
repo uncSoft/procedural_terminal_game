@@ -149,6 +149,61 @@ rewind. Tests rely on this (`tests/bot.py` games are compared run to run).
   playing; `web/app_index.html` fits phones. Deployed with the `Dockerfile` (Render).
 - **Plain text mode**: `ptg --plain` drives the same `Game` from a prompt loop in `cli.py`.
 
+## Drawing: text and pixel art in a terminal
+
+**The terminal is a grid of character cells**, not pixels. Each cell holds one character, a foreground colour, a
+background colour and a style. Everything on screen, words and art alike, is characters in cells, in 24-bit colour.
+
+**The stack**, top to bottom:
+
+1. Our code builds **Rich `Text`**: runs of characters with styles (a story line, the HUD, a sprite).
+2. **Textual widgets** hold it, laid out by CSS (`ui/app.tcss`) into boxes.
+3. Textual's **compositor** merges the widgets into lines of styled segments, one per row.
+4. The **driver** writes ANSI escape sequences, **only for the lines that changed** since the last frame (which is
+   why changing a tab doesn't repaint the room's picture).
+5. The **terminal emulator** draws the cells as glyphs, usually on the GPU. In a browser (`ptg serve`), the same
+   output goes over a websocket to **xterm.js**.
+
+**Pixel art: half blocks** (`sprites.py`). A cell shows `▀` with its foreground set to the top pixel's colour and
+its background to the bottom pixel's: one cell, two pixels, and since a cell is about twice as tall as it's wide,
+the pixels come out square. A 24×24 sprite is 24 columns × 12 rows; a small 12px one is 12 × 6. A transparent pixel
+has no colour (`▀` with no background, `▄` alone, or a space). Sprites are PNG strips in `data/sprites/` (48×24 is two
+frames), with hand-made small versions in `data/sprites/small/`. Effects (a hit's flash, a lunge's red, the death
+dissolve's ordered dither) recolour pixels in a few fixed shades.
+
+**Room pictures are drawn in code** (`room_picture.py`), fresh for each room at whatever size the stage has: one-point
+perspective from the doorway you came in by; the dungeon's own look (`Look`: bricks and candles, timber and torches,
+marble and sky); textures from noise and Bayer dithering; light falling off from candles, torches and glowing things;
+props from small hand-made grids; fixtures, monsters and items placed from the floor plan (`layout.py`), scaled by
+halves and nudged aside so nothing you can act on is hidden or cut off. The result becomes half-block `Text` like any
+sprite. The d20 is drawn the same way (`dice_art.py`).
+
+**Animation** (`ui/widgets.py`). `Picture` is the one widget anything with a sprite is drawn in. One `PictureClock`
+per app beats every 0.15 s (flames, glints) or 0.6 s (idle breathing and bobbing), and a picture takes a frame only
+while it's in sight, so the screen changes once a beat, not once per picture. Fight moments (flash, lunge, death)
+play as frame sequences on the monster's picture.
+
+**Words that do things.** Story lines are `Text` whose highlighted terms carry metadata in their style: a tooltip
+for hover, and a term that a click turns into its card (`StoryLine`, `glossary.py`). The map's rooms carry their names
+the same way.
+
+**Two constraints the code works around:**
+
+- **The GPU glyph cache.** GPU terminals (xterm.js above all) cache each character in each pair of colours they meet;
+  pixel art makes thousands, and when the cache overflows, letters and art come out garbled or tiny. So every colour
+  the game makes up (room lighting, effects) is **snapped to the sprites' palette** (`sprites.palette()`), and the
+  app **wipes and redraws the whole screen** every few turns (`PTGApp.REDRAW_EVERY`, `action_redraw`; Ctrl+L by hand).
+- **Two colours a cell.** Half blocks are the densest lossless way to draw pixels. Denser characters exist (quadrants
+  2×2, sextants 2×3) but still allow only two colours a cell; and xterm.js draws half blocks and quadrants itself,
+  seamlessly, while leaving sextants to the font (seams, or missing glyphs on phones). See
+  `docs/plans/desktop-layouts/spike.py`'s "dense" thumbnails.
+
+**Not used:** true image protocols (Kitty graphics, Sixel, iTerm's): real pixels, but not supported everywhere, and
+not by xterm.js as textual-serve ships it.
+
+**Fallback.** With sprites off (Settings → Art, or no Pillow), everything is drawn from the ASCII art in
+`data/art.txt`: rooms, monsters, items and the die each have a text form.
+
 ## Commands
 
 | | |

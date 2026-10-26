@@ -36,7 +36,7 @@ from textual.widgets import Footer, Input, Static
 
 from .. import config, npcs, powers, sheet
 from ..events import Action
-from ..room_picture import look_of, picture_text
+from ..room_picture import look_of
 from ..world import map_glyph, render_map
 from .game_screen import GameScreen
 from .here import DEAD_VERB, DIE, PLAIN_VERB, VERB_STYLES, Thing, verb_lines
@@ -55,7 +55,6 @@ from .widgets import (
     StoryLine,
     highlight,
     legend,
-    room_text,
 )
 
 TABS = [("here", "Here", "F4"), ("map", "Map", "F5"), ("pack", "Pack", "F2"), ("sheet", "Sheet", "F3"),
@@ -523,8 +522,7 @@ class TabsScreen(GameScreen):
                  tuple(f.searched for f in room.features), self._sprites_on())
         if shown != self.stage_shown:
             self.stage_shown = shown
-            art = picture_text(state, game.content, plan.stage_width, 2 * plan.stage_rows) if self._sprites_on() else None
-            self.query_one("#stage-art", Static).update(art or room_text(state, game.content))
+            self.draw_stage(plan.stage_width, 2 * plan.stage_rows)
         stage = self.query_one("#stage")
         stage.tooltip = "Click to look around"
         colour = "#ff4b4b" if fight else look_of(state.theme).accent
@@ -727,9 +725,8 @@ class TabsScreen(GameScreen):
         everything about it beside it (`words`, else facts), then all of them as thumbnails in a grid that scrolls
         down, the one in the frame underlined."""
         focus = next((t for t in things if t.id == focus_id), things[0])
-        picture = Picture(focus.sprite, focus.kind, 24, pose=focus.pose, animate=focus.character, content=self.game.content,
-                          loop=focus.loop, action=f"screen.lookup('{self.lookup_id(focus)}')",
-                          classes="here-art focus-art")
+        picture = Picture(focus.sprite, focus.kind, 24, pose=focus.pose, content=self.game.content, loop=focus.loop,
+                          action=f"screen.lookup('{self.lookup_id(focus)}')", classes="here-art focus-art")
         about = words(focus) if words else facts(self.game.state, self.game.content, focus)
         side = [Static(about, classes="focus-words")]
         lines = buttons(focus)
@@ -739,7 +736,7 @@ class TabsScreen(GameScreen):
         if len(things) > 1:
             thumbs = []
             for thing in things:
-                thumb = ClickableBox(Picture(thing.sprite, thing.kind, 12, animate=False, content=self.game.content,
+                thumb = ClickableBox(Picture(thing.sprite, thing.kind, 12, content=self.game.content, loop=thing.loop,
                                              classes="thumb-art"),
                                      Static("▀" * 12, classes="thumb-mark"),
                                      action=f"screen.focus_thing('{thing.id}')",

@@ -506,8 +506,10 @@ class Picture:
     it, then reflections and flames. `kind` says what each pixel shows (wall, floor, water, sky, void, locked,
     ceiling, object); `placed` lists the sprites drawn, and `owner` which of them each pixel shows (-1 for none)."""
 
-    def __init__(self, state: GameState, content: Content, w: int, h: int, room: Room | None = None) -> None:
+    def __init__(self, state: GameState, content: Content, w: int, h: int, room: Room | None = None,
+                 frame: int = 0) -> None:
         self.state, self.content, self.room = state, content, room or state.room
+        self.frame = frame  # which frame of their idle animation whoever's here and what lies about are drawn in
         self.look = look_of(state.theme)
         archetype = content.archetypes.get(self.room.archetype)
         self.sky = bool(archetype) and "sky" in archetype.decor.split()
@@ -905,7 +907,7 @@ class Picture:
         for key, (gx, gy) in zip(room.items, layout.item_spots(room)):
             small = sprites.frames(f"item_{key}", sprites.SMALL)
             if small:
-                things.append(self._item(small[0], *view.cell(gx, gy)))
+                things.append(self._item(small[self.frame % len(small)], *view.cell(gx, gy)))
         occupant = self._stand(*figure) if figure else None
         for layer in (scenery, things):
             for _, draw in sorted(layer, key=lambda t: -t[0]):
@@ -950,10 +952,11 @@ class Picture:
             return None
         a, z = view.cell(*room.monster_pos)
         z = max(z, 0.3 * view.depth)
-        img = _whole(frames[0], self.h)  # in their own colours, calm or not: characters always are
-        if img.width < frames[0].width or img.width > self.w // 2:  # (a picture too small for them whole: as far
+        frame = frames[self.frame % len(frames)]
+        img = _whole(frame, self.h)  # in their own colours, calm or not: characters always are
+        if img.width < frame.width or img.width > self.w // 2:  # (a picture too small for them whole: as far
             # off as they stand, as it always was)
-            return self._fit(_at_scale(frames[0], lens.scale(z) * FIGURE), a, z, framed=True)[0], a, z
+            return self._fit(_at_scale(frame, lens.scale(z) * FIGURE), a, z, framed=True)[0], a, z
         self.figure = img.width  # (whole: what lies about is half that)
         return img, a, z
 
@@ -1300,12 +1303,13 @@ def draw(state: GameState, content: Content, width: int, height: int, room: Room
 
 
 def picture_text(state: GameState, content: Content, width: int, height: int, room: Room | None = None,
-                 compass: bool = False) -> Text | None:
+                 compass: bool = False, frame: int = 0) -> Text | None:
     """The room you're in (or another on this floor) as half-block text, `width` cells across and height / 2 rows.
-    With `compass`, each doorway you can see is marked with the way it goes (N, E, S or W), as on the floor map."""
+    With `compass`, each doorway you can see is marked with the way it goes (N, E, S or W), as on the floor map.
+    `frame`: which frame of their idle animation whoever's here and what lies about are in (the stage swaps two)."""
     if Image is None:
         return None
-    picture = Picture(state, content, width, height, room)
+    picture = Picture(state, content, width, height, room, frame)
     text = sprites.image_text(picture.draw().convert("RGBA"), snap=True)
     if not compass:
         return text

@@ -270,3 +270,31 @@ async def test_settings_offer_apple_intelligence_through_apfel():
         await pilot.pause(0.3)
         config = load_config()
         assert config.backend == "openai" and config.url == DEFAULT_URLS["apple"]
+
+
+def test_the_room_picture_draws_whoever_is_here_in_either_idle_frame():
+    from ptg.room_picture import picture_text
+
+    game = a_game()
+    state = game.state
+    state.room_id = next(r.id for r in state.rooms if r.monster and r.monster.key == npcs.LENNY)
+    first, second = (picture_text(state, game.content, 70, 32, frame=f) for f in (0, 1))
+    assert (first.plain, first.spans) != (second.plain, second.spans)  # (the same room, Lenny breathing)
+
+
+async def test_everything_pictured_animates_items_and_thumbnails_too_and_the_stage_breathes():
+    """Only characters used to animate in Here, and never a thumbnail; the stage's room picture was a still."""
+    from ptg.ui.widgets import Picture, PictureClock
+
+    app = PTGApp(Config(backend="offline", player_name="T"), test_room=("lenny", "strong", 0))
+    async with app.run_test(size=(152, 43)) as pilot:
+        screen = await walk_in(app, pilot)
+        await pilot.press("f2")  # (the pack: things, not characters)
+        await pilot.pause(0.3)
+        clock = PictureClock.of(app)
+        pictures = list(screen.query("#pane").first().query(Picture))
+        assert pictures and all(p in clock.pictures for p in pictures)
+        assert screen.query(".thumb-art") and all(p in clock.pictures for p in screen.query(".thumb-art"))
+        beat = screen.stage_beat
+        screen.stage_step()
+        assert screen.stage_beat == beat + 1 and len(screen.stage_frames) == 2

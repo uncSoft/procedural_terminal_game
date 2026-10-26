@@ -32,7 +32,7 @@ from .here import CARD, MINI, ROW, Thing, Tile, arrange, things_here
 from .panels import (BestiaryScreen, CharacterScreen, FloorScreen, HelpScreen, InfoScreen, InventoryScreen,
                      JournalScreen, LevelUpScreen, LookScreen, MapScreen, MenuScreen, Panel, PickScreen, ShopScreen)
 from .plan import Plan, make_plan
-from .widgets import (ARROWS, ChoiceItem, Clickable, ClickableBox, DiceLine, DPad, Hud, Picture, StoryLine, hearts,
+from .widgets import (ARROWS, IDLE, ChoiceItem, Clickable, ClickableBox, DiceLine, DPad, Hud, Picture, StoryLine, hearts,
                       highlight, map_text, roll_text, room_text)
 
 # (sprite, steps of (frame, pose, flash)) for the moment you use a fixture. A chest and a shrine end on their used-up
@@ -184,6 +184,9 @@ class GameScreen(Screen):
         self.choices_shown: tuple | None = None  # what the choices strip shows (see refresh_choices)
         self.here_shown: tuple | None = None  # what Here was built for: rebuilt only when it changes
         self.stage_shown: tuple | None = None  # likewise the stage's picture
+        self.stage_frames: list[Text | None] = []  # its two idle frames (the second drawn when it's first wanted)
+        self.stage_beat = 0
+        self._stage_timer = None
         self.here_page = self.choice_page = 0  # the "more" chips turn these
         self._resize_timer = None
 
@@ -289,8 +292,7 @@ class GameScreen(Screen):
                  tuple(f.searched for f in room.features), self._sprites_on())
         if shown != self.stage_shown:
             self.stage_shown = shown
-            art = picture_text(state, game.content, plan.stage_width, 2 * plan.stage_rows) if self._sprites_on() else None
-            self.query_one("#stage-art", Static).update(art or room_text(state, game.content))
+            self.draw_stage(plan.stage_width, 2 * plan.stage_rows)
         stage = self.query_one("#stage")
         stage.border_title = f"✦ {room.name}"
         stage.tooltip = "Click to look around"
@@ -298,6 +300,34 @@ class GameScreen(Screen):
             stage.styles.border = ("round", look_of(state.theme).accent)
             stage.styles.border_title_color = look_of(state.theme).accent
         stage.set_class(bool(monster and monster.hostile and monster.hp > 0), "combat")
+
+    def draw_stage(self, width: int, height: int) -> None:
+        """The room's picture on the stage, in the first frame of whoever's here and what lies about; every IDLE
+        seconds after, it swaps with the second (stage_step), so they breathe and bob as they do everywhere else."""
+        state, content = self.game.state, self.game.content
+        art = picture_text(state, content, width, height) if self._sprites_on() else None
+        self.stage_frames = [art, None] if art is not None else []
+        self.stage_size, self.stage_beat = (width, height), 0
+        self.query_one("#stage-art", Static).update(art or room_text(state, content))
+        if self._stage_timer is None and art is not None:
+            self._stage_timer = self.set_interval(IDLE, self.stage_step, name="stage")
+
+    def stage_step(self) -> None:
+        """A beat of the stage's idle animation: the other frame, while this screen's in front and nothing else is
+        moving on it (a turn, a blow, a chest opening). Its second frame is drawn the first time it's wanted, and
+        a room with nothing that moves stops asking."""
+        frames = self.stage_frames
+        if len(frames) != 2 or self.busy or self.animating or self.app.screen is not self:
+            return
+        if frames[1] is None:
+            state, content = self.game.state, self.game.content
+            second = picture_text(state, content, *self.stage_size, frame=1)
+            if second is None or second.plain == frames[0].plain and second.spans == frames[0].spans:
+                self.stage_frames = []  # (nothing here moves)
+                return
+            frames[1] = second
+        self.stage_beat += 1
+        self.query_one("#stage-art", Static).update(frames[self.stage_beat % 2])
 
     def refresh_here(self) -> None:
         """Who and what is here, as tiles (ui/here.py), in the box the plan gives them: Here beside the story, or a
@@ -753,7 +783,7 @@ class GameScreen(Screen):
         if not (action and action.id.startswith("take:")):  # a click on something lying there needs no echo
             self.add_line(f"> {shown}", "player-line")
         sound.play("select")
-        hp_before, gold_before = game.state.player.hp, game.state.player.gold
+        hp_before = game.state.player.hp
         purse_before = purse(game.state)
         monster = game.state.room.monster
         before = (monster.key, monster.name) if monster else None

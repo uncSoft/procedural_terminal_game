@@ -295,7 +295,7 @@ class Tile(Vertical):
     def picture(self) -> Picture:
         thing = self.thing
         pose = "idle" if self.form != CARD and thing.pose == "windup" else thing.pose  # (a glow swamps a small picture)
-        return Picture(thing.sprite, thing.kind, ART[self.form], pose=pose, animate=self.animate and thing.character,
+        return Picture(thing.sprite, thing.kind, ART[self.form], pose=pose, animate=self.animate,
                        action=f"screen.lookup('{self.lookup_id()}')", content=self.content, loop=thing.loop,
                        classes="here-art")
 

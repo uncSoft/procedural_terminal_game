@@ -250,7 +250,7 @@ def test_norfells_monsters_are_stronger_and_half_of_them_venomous(content):
             monster = room.monster
             if monster and not room.is_boss:
                 base = content.monster(monster.key)
-                deeper += monster.attack_mod >= 1 and monster.max_hp >= round(base.hp * 1.6)
+                deeper += monster.attack_mod >= 1 and monster.max_hp >= round(base.hp * 1.3)
                 venomous += "venom" in monster.tricks
                 assert ("venom" in monster.tricks) == ("Venomous" in monster.name)
     assert deeper > 100 and 0.35 < venomous / deeper < 0.65

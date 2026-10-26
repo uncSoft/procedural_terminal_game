@@ -17,6 +17,7 @@ INTENT_WEIGHTS = {
 }
 VENOM = 0.25  # how often a venomous bite poisons you (a deadly one always does)
 PURE_DROP = 0.25  # how often a venomous monster, slain, leaves a Pure
+VENOMOUS = {"venom", "venom_spit", "deadly_venom"}
 
 
 def monster_defense(monster: MonsterState, content: Content) -> int:
@@ -326,11 +327,12 @@ def monster_turn(state: GameState, content: Content, rng: random.Random) -> list
     if player.hp == 0:
         events += _death_or_reprieve(state, monster)
     if not state.over:
-        events += _tricks(state, content, rng, monster, monster_def)
+        events += _tricks(state, content, rng, monster, monster_def, heavy=intent == "heavy")
     return events + ([] if state.over else telegraph(state, content))
 
 
-def _tricks(state: GameState, content: Content, rng: random.Random, monster: MonsterState, monster_def) -> list[Event]:
+def _tricks(state: GameState, content: Content, rng: random.Random, monster: MonsterState, monster_def,
+            heavy: bool = False) -> list[Event]:
     """What a monster with tricks does when it hits you (see content.TRICKS): grab something, tangle you up, or
     poison you."""
     player, events = state.player, []
@@ -355,8 +357,9 @@ def _tricks(state: GameState, content: Content, rng: random.Random, monster: Mon
         events.append(Event("tangle", f"{cap(the(monster.name))}'s vines wrap round your legs: no running away "
                                       "until it's had its next go."))
     tricks = tricks_of(monster, content)
-    if "deadly_venom" in tricks or ("venom" in tricks and rng.random() < VENOM):
-        events += statuses.inflict(state, "poison", cap(the(monster.name)) + "'s bite")
+    spat = "venom_spit" in tricks and heavy
+    if "deadly_venom" in tricks or spat or ("venom" in tricks and rng.random() < VENOM):
+        events += statuses.inflict(state, "poison", cap(the(monster.name)) + ("'s spit" if spat else "'s bite"))
     return events
 
 
@@ -537,7 +540,7 @@ def _drops(state: GameState, content: Content, rng: random.Random, monster: Mons
     if rng.random() < (0.25 if monster.elite else 0.12):
         drops.append("bomb")
     tricks = tricks_of(monster, content)
-    if ("venom" in tricks or "deadly_venom" in tricks) and "pure" in content.items and rng.random() < PURE_DROP:
+    if tricks & VENOMOUS and "pure" in content.items and rng.random() < PURE_DROP:
         drops.append("pure")  # (what it bit you with, it carries the cure for)
     return [d for d in drops if d]
 

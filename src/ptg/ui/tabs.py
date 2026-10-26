@@ -280,11 +280,11 @@ def map_notes(state, content) -> Table:
         steps = steps_to(state, goal.id)
         away = "you're there" if steps == 0 else f"{steps} room{'s' * (steps != 1)} from here" if steps else \
             "no way there known yet"
-        what.append(f"{'The boss' if last else 'The stairs down'}: ", style="bold #e8e8f4")
+        what.append(f"{'The boss' if state.boss_floor else 'The stairs down'}: ", style="bold #e8e8f4")
         what.append(goal.name, style="#5fe3ff")
         what.append(f" · {away}", style=DIM)
     else:
-        what.append("Find the " + ("boss's lair" if last else "stairs down"), style="bold #e8e8f4")
+        what.append("Find the " + ("boss's lair" if state.boss_floor else "stairs down"), style="bold #e8e8f4")
         what.append("  · not found yet", style=DIM)
     table.add_row("GOAL", what)
     for n, (_, line, still) in enumerate(npcs.quest_log(state, content)):

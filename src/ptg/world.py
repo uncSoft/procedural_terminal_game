@@ -7,9 +7,9 @@ from __future__ import annotations
 import random
 from collections import deque
 
-from . import dice, layout, loot, npcs
+from . import dice, hazards, layout, loot, npcs
 from .content import Content, load_content
-from .models import (DELTA, DIRECTIONS, DUNGEONS, FLOORS, OPPOSITE, Exit, Feature, GameState, MonsterState, Player,
+from .models import (DELTA, DIRECTIONS, FLOORS, OPPOSITE, Exit, Feature, GameState, MonsterState, Player,
                      Room, Shop, Ware)
 
 HIDDEN_FEATURES = ["a loose flagstone", "a hollow-sounding wall", "a hidden alcove", "a false-bottomed niche"]
@@ -20,8 +20,9 @@ ELITES = {
     "Cursed": {"reward_mult": 2.0},
 }
 ROOMS = {1: 7, 2: 7, 3: 8, 4: 10}  # rooms on each floor (and a secret one, and maybe a shop)
-# Below the dungeons, the same monsters are stronger (docs/plans/progression-loot-difficulty.md §3.2: depth 3).
-DEPTH = {4: {"hp_mult": 1.6, "attack_mod": 1, "defense_mod": 1, "damage_mod": 1}}
+# Below the dungeons, the same monsters are stronger: lighter than docs/plans/progression-loot-difficulty.md §3.2's
+# depth bonus (x1.6 HP, +1 defense), which the bot died of on floor 4 three times in ten (its player's curve isn't in).
+DEPTH = {4: {"hp_mult": 1.3, "attack_mod": 1, "defense_mod": 0, "damage_mod": 1}}
 VENOMOUS = 0.5  # on a floor with poison of its own, how many of its monsters bite with venom (combat.VENOM)
 
 def generate(seed: int, player_name: str = "Adventurer", content: Content | None = None,
@@ -86,6 +87,8 @@ def build_floor(state: GameState, content: Content) -> None:
     if shop:
         rooms.append(shop)
     npcs.place(state, content, rooms, end_id)  # Lucky Lenny, Swoogy, King Mouse at the stairs...
+    if theme.status == "poison":  # puddles in its doorways, rivers, gas vents
+        hazards.place(state, rooms, end_id)
 
     for room in rooms:
         layout.build(dice.stream(state.seed, "layout", state.floor, room.id), room,
@@ -236,7 +239,7 @@ def _place_monsters(rng, content, state, theme, rooms: list[Room], max_distance:
 
     candidates = [r for r in rooms if r.id not in (0, end_id) and r.fixture != "shrine"]
     rng.shuffle(candidates)
-    elite_chance = {1: 0.0, 2: 0.25, 3: 0.4}.get(state.floor, 0.4)
+    elite_chance = {1: 0.0, 2: 0.25, 3: 0.4, 4: 0.25}.get(state.floor, 0.4)  # (floor 4: deeper already)
     for room in candidates[:max(2, round(len(candidates) * 0.5))]:
         elite = rng.choice(sorted(ELITES)) if rng.random() < elite_chance else ""
         room.monster = monster_for(rng, content, theme.key, tier_for(room.distance, max_distance, state.floor), elite,

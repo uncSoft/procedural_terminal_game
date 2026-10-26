@@ -21,6 +21,7 @@ FOUND_IN = ("chest", "stash", "secret", "warden", "shop", "quest")
 TRICKS = {"steal": "grabs your food (or gold) and runs off with it next turn, unless you stop it",
           "tangle": "its hits tangle you up: no running away until its next go",
           "venom": "its bite can poison you (a quarter of its hits)",
+          "venom_spit": "its heavy blow is a spit of venom: it always poisons you (dodge it)",
           "deadly_venom": "every bite of its poisons you"}
 STATS = ("might", "agility", "wits", "max_hp", "fate")  # what a carried item's `stats` can change (fate: tokens held)
 # When a character says each of its lines (dialogue.toml; npcs.say), and the blanks a line can have filled in.
@@ -267,7 +268,8 @@ def _value_error(kind: str, value: object) -> str:
                   f"must be stats and whole numbers, like {{might = 1, wits = -1}} (stats: {', '.join(STATS)})"),
         "tricks": (isinstance(value, list) and all(v in TRICKS for v in value),
                    f"must be a list of tricks the game knows: {', '.join(TRICKS)}"),
-        "status": (isinstance(value, str) and value in STATUSES, f"must be a status the game knows: {', '.join(STATUSES)}"),
+        "status": (isinstance(value, str) and value in STATUSES,
+                   f"must be a status the game knows: {', '.join(STATUSES)}"),
         "statuses": (isinstance(value, list) and all(v in STATUSES for v in value),
                      f"must be a list of statuses the game knows: {', '.join(STATUSES)}"),
         "guards": (isinstance(value, dict) and all(k in STATUSES and is_count(v) for k, v in value.items()),

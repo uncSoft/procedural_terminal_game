@@ -125,14 +125,13 @@ numbers, not code.
 
 **Waiting for floor 4.** Some of the kids' creations are made for deeper floors, with numbers from there, and are
 kept as made: tier 4, so floors 1–3 never draw them as ordinary monsters.
-- **Serpentis** (BelleDaBest): 75 HP, defense 15, 2d8, weak to holy and water; one of a kind; meant as a floor
-  boss. Drops **Bloodbath** (2d7+2, its old sword, tier 4). Until floor 4 exists it's floor 3's *hidden boss*: a
-  quarter of runs, it lairs in floor 3's secret room, cut down to 52 HP, +6 to hit, defense 15, 2d8−1
-  (`npcs.SERPENTIS_SIZE`; the bot with a floor-3 kit wins 81%, in about 8 rounds, keeping 56% of its HP). Its test
-  room is that lair (`ptg --test-room serpentis`). When the deeper floors come, it becomes a theme's boss at its
-  maker's numbers.
-- **The floor-3 bosses are soft** by the same measure: the Goblin King, the Drowned Abbot and the Thornmother go
-  down in 5–6 rounds, the bot keeping three quarters of its HP and almost never dying (target: 8–12 rounds).
+- **Serpentis** (BelleDaBest): 75 HP, defense 15, 2d8, weak to holy and water; one of a kind. It is **Norfell's
+  boss**, the bottom of floor 4, at its maker's numbers (docs/plans/floor-4-and-statuses.md): its bite poisons now
+  and then, and its heavy blow is a spit of venom. Its old sword, **Bloodbath** (2d7+2, tier 4), still names it as
+  the one that drops it, which can't happen now that beating it ends the run: it needs a new home. Its test room is
+  its lair (`ptg --test-room serpentis`).
+- **The floor-3 bosses were soft** by the same measure (5–6 rounds, the bot keeping three quarters of its HP and
+  almost never dying): they have 68 HP now, not 34, and the bot dies on floor 3 17% of the time, not 9%.
 
 ### 3.3 The player grows more by choices, less by raw numbers
 

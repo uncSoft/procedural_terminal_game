@@ -1,8 +1,8 @@
 # Floor 4 and statuses
 
-Status: **second draft, with your first round of answers in; step 1 (the system and poison) built.** Marked **✅**
-where it's decided, **❓** where it's still a choice for you. One new floor and one new status at a time: this is floor 4
-and poison.
+Status: **steps 1 and 2 built (poison, then floor 4: Norfell, its hazards and look, Serpentis as its boss), with your
+second round of answers in.** Marked **✅** where it's decided, **❓** where it's still a choice for you. One new floor
+and one new status at a time: this is floor 4 and poison.
 
 What this covers: a status system in the spirit of Final Fantasy 1 (poison first), what cures and wards it, and the
 floor it's made for: a fourth floor with Serpentis as its boss, a purple poison cavern after Metroid's Norfair. The
@@ -15,9 +15,9 @@ numbers are first guesses; the bot (`tools/simulate.py`) gets to argue with them
 - ✅ A **status** stays with you (or a monster) between turns and does something on its own. Statuses live in data
   (`statuses.toml`), like monsters and items, so a new one is mostly a table row.
 - ✅ **Poison never kills you on its own**, in a fight or out of one: it stops at 1 HP. But while you're poisoned
-  **your rolls are at a disadvantage**, and it costs you 1 HP a step. So you'll want to deal with it.
+  **your rolls are 2 worse**, and it costs you **2 HP a step and 2 a turn of a fight**. So you'll want to deal with it.
 - ✅ **Cures**: a shrine (free, as often as you like, but you walk there poisoned), and an **antidote** that also
-  **protects you from the next one or two poisonings** (not for a time, not for the floor: the danger stays).
+  **protects you from the next poisoning** (not for a time, not for the floor: the danger stays, so stock up).
 - ✅ **Floor 4** is a purple poison cavern after Norfair: poison rivers, gas vent traps to disarm, poison puddles
   across some doorways to jump with agility, and Serpentis waiting at the bottom. Metroid and Final Fantasy 1 nods
   throughout.
@@ -108,21 +108,18 @@ inflicts = { poison = 1 }   # its hits poison what they hit (its maker wrote tha
 ### 3.2 What it does
 
 - ✅ **It never kills you**: it stops at 1 HP ("the poison leaves you barely standing").
-- ✅ **Your rolls are at a disadvantage** while you're poisoned (two d20s, the lower kept). That's the real threat:
-  every attack, dodge, jump and disarm gets harder.
-- ✅ **1 HP a step** (rooms walked into, and each room passed on quick travel, told as one line). Not a round in a
-  fight: the disadvantage is plenty there (§3.6).
+- ✅ **-2 to your rolls** while you're poisoned (shown as a bonus of its own: "- 2 poisoned"). A disadvantage (two
+  d20s, the lower kept) was the first try: too much (§3.6). The code still has it for a later status.
+- ✅ **2 HP a step** (rooms walked into, and each room passed on quick travel, told as one line) **and 2 a turn of a
+  fight**.
 - ✅ **It doesn't wear off**: a cure ends it. Resting while poisoned does half the good.
-
-❓ If the bot says a disadvantage on *every* roll is too much, a softer version: -2 to your rolls instead (§3.6 says
-the disadvantage is what bites).
 
 ### 3.3 Cures
 
 | Cure | How | |
 |---|---|---|
 | ✅ **Shrine** | pray: cures poison, as often as you like | the walk there ticks; quick travel ticks too, room by room |
-| ✅ **Pure** (the antidote: FF1's own name for it; built) | drink it: cured, and **guarded against the next 2 poisonings**; drunk ahead of time, just the guard (they don't pile up) | 20 gold on floor 4 (15 base); floor 4's shop always has 2-3; venomous monsters drop one 25% of the time |
+| ✅ **Pure** (the antidote: FF1's own name for it; built) | drink it: cured, and **guarded against the next poisoning**; drunk ahead of time, just the guard (they don't pile up) | 60 gold on floor 4 (75 at Granny Kamultruk's); floor 4's shop always has two; venomous monsters drop one 25% of the time; one lies about on floor 4 |
 | **Bitterroot** (food) | eat it: cured, no guard | found by searching on floor 4 |
 | **Holy water**, drunk | cured (and your throw's gone) | a choice: your weapon against undead, or your cure |
 | **Superior healing potion** | heals and cures | |
@@ -130,7 +127,7 @@ the disadvantage is what bites).
 ### 3.4 Guards and wards
 
 - ✅ **A guard** is a charge: the next poisoning that would take hold doesn't, and the charge is spent. Pure gives
-  ❓ 1 or 2 (I've drafted 2). The danger stays: the third bite still poisons you.
+  one. The danger stays: the second bite still poisons you, so a Pure or two in your pack is worth the gold.
 - **A ward** works while you carry it:
 
 | Ward | What | Where from |
@@ -242,7 +239,8 @@ secret room sometimes holds **Serpentis's shed skin** (§3.4).
 ### 4.7 Economy
 
 Gold is easy to come by (searching everything, resting, fights), so Pure doesn't need to be rare, just not free:
-~15 gold, 2-3 in every floor-4 shop, a 25% drop from venomous monsters. The floor's question: did you buy the right
+✅ **60 gold**, two in every floor-4 shop (Granny has a shop there half the time, not a quarter), a 25% drop from
+venomous monsters. ✅ Her potions come in twos on every floor now. The floor's question: did you buy the right
 things before you went down?
 
 ---
@@ -254,10 +252,21 @@ things before you went down?
    the story's burn lines and the narrator's facts. Pure (its own pale-blue bottle) and its guards, the shrine's
    cure. The `venom` trick (Serpentis has it). The bot cures itself; the simulator reports poison (and `--venom` to
    try it on anything). A test room: `ptg --test-room poison`. Statuses on monsters wait for Bloodbath (step 3).
-2. **Floor 4**: four-floor runs (floor 3's boss opens the stairs), Norfell's theme and look, 10 rooms, a guaranteed
-   shrine, the shop's Pure, vents, puddles and rivers.
-3. **Monsters and the boss**: the roster (from the Maker, or stand-ins), Serpentis's rule, Bloodbath poisoning
-   monsters, the floor-3 shed skin, the nods.
+2. ✅ **Floor 4** (built): four-floor runs (floor 3's boss, beaten, opens the stairs in its own room), Norfell
+   (`themes.toml`: always the fourth floor, `status = "poison"`), seven room kinds in `rooms.toml` (a bubbling cavern,
+   a poison ford, a vent field, a pillar hall, an egg chamber, a bird-headed statue's alcove, Serpentis's lair), its
+   look (`room_picture.py`: purple bubbled rock, glowing pink pools, grey pillars), 10 rooms, always a shrine, a shop
+   half the time with two Pure, the Chozo Orb for its key, holy water for its trinket. Hazards (`hazards.py`): a
+   quarter of its doorways have a puddle to jump (agility 10), a ford's river to cross (agility 12), gas vents in a
+   quarter of its rooms and every vent field (wits 12 to spot coming in; seen, no resting beside one until it's
+   disarmed, wits 13, a ten-foot pole +2, 15 XP). Each a roll you can spend Fate on; no roll if you're poisoned
+   already. The floor-3 lair is gone. Test rooms: `ptg --test-room serpentis` (its lair, floor 4).
+3. **Monsters and the boss** (started): ✅ Norfell's monsters for now are the dungeons' tier 3, deeper (x1.3 HP, +1
+   to hit and damage; the plan's x1.6 and +1 defense killed the bot three times in ten there), half of them
+   venomous ("Venomous Troll"), elites a quarter of the time. ✅ Serpentis at its maker's numbers: its bite poisons a
+   quarter of the time, and its heavy blow ("SSSSSS...") is a **spit of venom** that always does: dodge it. Still to
+   come: the kids' roster, Bloodbath (it says Serpentis drops it, but beating Serpentis ends the run: Norfell's secret
+   room?) and its poisoning monsters, the floor-3 shed skin, more nods.
 4. **The eggplant.**
 5. **Balance**: the bot against §3.6's targets, and the whole run's curve with a fourth floor.
 
@@ -267,9 +276,21 @@ Each step ships on its own, and the game stays playable in between.
 
 ## 6. Still open
 
-1. Poison's HP: a step only (built), or a fight's round too? And the disadvantage, or -2? (§3.2, §3.6)
-2. Pure's guard: 1 poisoning or 2? (§3.4)
-3. The floor's name: Norfell? (§4)
-4. Serpentis's rule: "smells the venom", or another? (§4.6)
-5. The roster: drawn by the kids in the Maker? (§4.5)
-6. How rare is the eggplant? (§3.5)
+1. The floor's name: Norfell? (§4)
+2. Serpentis: at its maker's numbers it wins 41% of fights against a floor-4 kit (bite and spit; 26% with no
+   venom at all). Keep it the hardest thing in the game, or trim its HP or its 2d8? (§4.6)
+3. The roster: drawn by the kids in the Maker? (§4.5) Until then, the deeper dungeons' own.
+4. How rare is the eggplant? (§3.5)
+
+## 7. The numbers now (300 seeds, `tools/simulate.py`)
+
+| | won | F1 | F2 | F3 | F4 |
+|---|---|---|---|---|---|
+| plain bot, 3 floors, bosses at 34 HP (before) | 44% | 18% | 41% | 9% | |
+| plain bot, 3 floors, bosses at 68 HP | 40% | 18% | 41% | 17% | |
+| plain bot, 4 floors | 23% | 18% | 41% | 19% | 42% (Serpentis 25) |
+| average habits, 4 floors (200 seeds) | 5% | 27% | 66% | 51% | 58% |
+
+Poison, plain bot: poisoned a median **3 times** on floor 4 (target 2-4), **11% of the HP lost** to its burn (target
+10-25%), cured by Pure about one time in three and by a shrine the rest. Deaths with poison in you: most of floor 4's,
+well over the third we aimed for, since nearly everything there poisons you.

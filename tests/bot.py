@@ -127,7 +127,7 @@ def choose(state: GameState, content: Content, who: Player | None = None) -> str
     # Missing the boss's key with the whole floor seen: back to look properly where it walked past things.
     hunting = bool(who) and state.boss_floor and key not in player.inventory \
         and _route_to_unexplored(state, content) is None
-    for prefix in ("take", "equip:", "search:", "chest", "fountain"):  # (take: one thing, take_all: the lot)
+    for prefix in ("take", "equip:", "search:", "chest", "fountain", "disarm"):  # (take: one thing, take_all: the lot)
         found = next((a for a in actions if a.startswith(prefix) and
                       (not who or hunting or a == f"take:{key}"
                        or who.once((state.floor, state.room_id, a), habits.thorough))), None)

@@ -165,8 +165,19 @@ def test_a_venomous_bite_poisons_you_and_its_owner_may_carry_pure():
     assert 30 < sum("pure" in d for d in drops) < 70  # (a quarter of the time)
 
 
-def test_serpentis_poisons_with_every_bite(content):
-    assert "deadly_venom" in content.monster("serpentis").tricks and content.monster("serpentis").boss
+def test_serpentis_spits_venom_with_its_heavy_blow(content):
+    """Its bite poisons you now and then; its heavy blow ("SSSSSS...") is a spit of venom that always does. Dodge it."""
+    assert {"venom", "venom_spit"} <= set(content.monster("serpentis").tricks) and content.monster("serpentis").boss
+    state = quiet()
+    serpentis = put_monster(state, content, key="serpentis", intent="heavy")
+    state.player.armor, state.player.agility = None, -20  # (every blow lands)
+    state.player.max_hp = state.player.hp = 500
+    events = combat.monster_turn(state, content, random.Random(1))
+    assert statuses.has(state, "poison") and any(e.text == "Serpentis's spit has poisoned you." for e in events)
+    statuses.cure(state, "poison")
+    serpentis.intent, state.player.dodging = "heavy", True
+    combat.monster_turn(state, content, random.Random(1))
+    assert not statuses.has(state, "poison")  # (dodged: nothing happens)
 
 
 def test_resting_poisoned_does_half_the_good(content):

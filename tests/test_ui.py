@@ -1052,11 +1052,13 @@ async def test_a_shop_from_its_door_to_its_counter(monkeypatch):
         await pilot.pause(0.5)
         assert isinstance(app.screen, ShopScreen)
         first = shop.shop.wares[0]
+        count = first.count  # (a potion: two of them)
         await pilot.press("enter")  # buy the first
         await pilot.pause(0.4)
         await settle(app, pilot)
         await pilot.pause(0.6)
-        assert state.player.gold == 500 - first.price and first not in shop.shop.wares
+        assert state.player.gold == 500 - first.price and first.count == count - 1
+        assert (first in shop.shop.wares) == (count > 1)
         assert isinstance(app.screen, ShopScreen)  # back at her counter
         assert first.item in state.player.inventory or first.item in (state.player.weapon, state.player.armor)
         assert not screen.query_one("#story").query(".loot-card")  # (bought: the story says so, in words)

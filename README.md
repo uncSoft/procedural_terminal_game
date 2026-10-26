@@ -488,6 +488,9 @@ leave a test room they're back at their own title screen, their run where they l
 
 ## Project layout
 
+How the pieces fit (the layers, a turn's flow, where state lives, where to extend) is in
+[docs/architecture.md](docs/architecture.md).
+
 ```
 src/ptg/
   data/            themes, rooms, items, monsters, perks, unlocks, prop tags, the characters' lines (TOML), art

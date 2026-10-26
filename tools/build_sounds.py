@@ -11,7 +11,8 @@ can tweak one and rebuild. The synthesizer works the way old consoles did:
 
 Each sound is a list of Tones mixed together: a waveform with a pitch (optionally sliding to another), a length,
 a start time, a volume, a short attack and release, and optional vibrato. Files are 8-bit, 22050 Hz mono WAV: tiny,
-crunchy, and playable everywhere. A moment with several variants (hit, hit_2, hit_3) picks one at random.
+crunchy, and playable everywhere (music, LOOPS, is 16-bit: a long fade in 8 bits grinds down in audible steps). A
+moment with several variants (hit, hit_2, hit_3) picks one at random.
 
     uv run python tools/build_sounds.py              # rebuild every sound
     uv run python tools/build_sounds.py coin crit    # rebuild some, and play them
@@ -93,32 +94,42 @@ def _voice(tone: Tone) -> list[float]:
     return out
 
 
-def render(tones: list[Tone]) -> bytes:
-    """Mix the tones and quantize to 8-bit unsigned samples."""
+def mix(tones: list[Tone]) -> list[float]:
+    """The tones mixed, as samples in -1..1."""
     length = int((max(t.at + t.length for t in tones) + 0.02) * RATE)
-    mix = [0.0] * length
+    out = [0.0] * length
     for tone in tones:
         start = int(tone.at * RATE)
         for i, value in enumerate(_voice(tone)):
             if start + i < length:
-                mix[start + i] += value
-    return bytes(max(0, min(255, round(128 + 127 * max(-1.0, min(1.0, v))))) for v in mix)
+                out[start + i] += value
+    return [max(-1.0, min(1.0, v)) for v in out]
 
 
-def fold(samples: bytes, loop: float) -> bytes:
+def render(tones: list[Tone]) -> bytes:
+    """Mix the tones and quantize to 8-bit unsigned samples."""
+    return bytes(round(128 + 127 * v) for v in mix(tones))
+
+
+def render16(samples: list[float]) -> bytes:
+    """Samples in -1..1 as 16-bit signed little-endian: for music, whose long fades 8 bits would grind into steps."""
+    return b"".join(max(-32767, min(32767, round(32767 * v))).to_bytes(2, "little", signed=True) for v in samples)
+
+
+def fold(samples: list[float], loop: float) -> list[float]:
     """A loop exactly `loop` seconds long: whatever rings on past its end is mixed back in at its start, so it
     repeats without a seam."""
     size = int(loop * RATE)
-    mix = [v - 128 for v in samples[:size]] + [0] * max(0, size - len(samples))
+    out = samples[:size] + [0.0] * max(0, size - len(samples))
     for i, v in enumerate(samples[size:]):
-        mix[i % size] += v - 128
-    return bytes(max(0, min(255, 128 + v)) for v in mix)
+        out[i % size] += v
+    return [max(-1.0, min(1.0, v)) for v in out]
 
 
-def write(path: Path, samples: bytes) -> None:
+def write(path: Path, samples: bytes, width: int = 1) -> None:
     with wave.open(str(path), "wb") as w:
         w.setnchannels(1)
-        w.setsampwidth(1)
+        w.setsampwidth(width)
         w.setframerate(RATE)
         w.writeframes(samples)
 
@@ -336,10 +347,10 @@ def build(names: list[str] | None = None) -> list[Path]:
     for name in names or SOUNDS:
         for variant, filename in zip(SOUNDS[name], files_for(name)):
             path = OUT / filename
-            samples = render(variant)
-            if name in LOOPS:
-                samples = fold(samples, LOOPS[name])
-            write(path, samples)
+            if name in LOOPS:  # music: 16-bit, and folded to loop
+                write(path, render16(fold(mix(variant), LOOPS[name])), width=2)
+            else:
+                write(path, render(variant))
             written.append(path)
     return written
 

@@ -211,12 +211,23 @@ def envelope(clip: Clip, width: int = 32) -> str:
     return "".join(BARS[peak * len(BARS) // top] for peak in peaks)
 
 
-def resample(samples: array, rate: int, target: int) -> array:
-    """Change the sample rate by holding each sample (no smoothing, so 8-bit sounds keep their crunch)."""
+def resample(samples: array, rate: int, target: int, smooth: bool = False) -> array:
+    """Change the sample rate by holding each sample (no smoothing, so 8-bit sounds keep their crunch), or, `smooth`,
+    between neighbours (music: held, a long pure tone warbles, each sample held two times or three)."""
     if rate == target:
         return samples
     step = rate / target
-    return array("h", (samples[int(i * step)] for i in range(int(len(samples) / step))))
+    count = int(len(samples) / step)
+    if not smooth:
+        return array("h", (samples[int(i * step)] for i in range(count)))
+    last = len(samples) - 1
+    out = array("h", bytes(2 * count))
+    for i in range(count):
+        at = i * step
+        j = int(at)
+        k = j + 1 if j < last else j
+        out[i] = int(samples[j] + (samples[k] - samples[j]) * (at - j))
+    return out
 
 
 # --- players ----------------------------------------------------------------------------------------------------
@@ -228,22 +239,28 @@ class Mixer:
     name = "sounddevice"
     BLOCK = 512
     VOICES = 8
+    # Seconds of sound queued for the speakers. The mixer is Python on a thread: whenever the screen's thread (or the
+    # title's storm, drawn in the background) holds the interpreter for a while, it can't keep up, and with less
+    # queued than that the speakers run dry: the music skipped and crackled. A tenth of a second is never noticed.
+    LATENCY = 0.12
+    LIMIT = 24000  # over this, a mix (music and thunder at once) is squeezed rather than clipped
 
     def __init__(self, sd) -> None:
         self.rate = int(sd.query_devices(kind="output")["default_samplerate"])
-        self.stream = sd.RawOutputStream(samplerate=self.rate, channels=1, dtype="int16", latency="low")
+        self.stream = sd.RawOutputStream(samplerate=self.rate, channels=1, dtype="int16", latency=self.LATENCY)
         self.voices: list[list] = []  # [samples, position, gain]
         self.music: list | None = None  # [samples, position, gain, fade]: looped until it fades out
+        self.wanted = ""  # the music asked for (it may still be being made ready)
         self.cache: dict[str, array] = {}
         self.lock = threading.Lock()
         self.wake = threading.Event()
         self.closed = False
         threading.Thread(target=self._run, name="ptg-sound", daemon=True).start()
 
-    def _samples(self, clip: Clip) -> array:
+    def _samples(self, clip: Clip, smooth: bool = False) -> array:
         key = str(clip.source)
         if key not in self.cache:
-            self.cache[key] = resample(*decode(clip.source), self.rate)
+            self.cache[key] = resample(*decode(clip.source), self.rate, smooth=smooth)
         return self.cache[key]
 
     def play(self, clip: Clip, gain: float) -> None:
@@ -255,8 +272,24 @@ class Mixer:
         self.wake.set()
 
     def loop(self, clip: Clip, gain: float) -> None:
-        """Music: the clip over and over until stop_loop (the same clip already looping just changes its gain)."""
-        samples = self._samples(clip)
+        """Music: the clip over and over until stop_loop (the same clip already looping just changes its gain). The
+        first time, it's made ready on a thread of its own (smoothly resampled, a moment's work), never the
+        caller's."""
+        key = str(clip.source)
+        self.wanted = key
+        if key in self.cache:
+            self._start(key, gain)
+            return
+
+        def ready() -> None:
+            self._samples(clip, smooth=True)
+            if self.wanted == key:
+                self._start(key, gain)
+
+        threading.Thread(target=ready, name="ptg-music-ready", daemon=True).start()
+
+    def _start(self, key: str, gain: float) -> None:
+        samples = self.cache[key]
         with self.lock:
             if self.music and self.music[0] is samples:
                 self.music[2], self.music[3] = gain, 0.0
@@ -265,6 +298,7 @@ class Mixer:
         self.wake.set()
 
     def stop_loop(self, fade: float = 0.8) -> None:
+        self.wanted = ""
         with self.lock:
             if self.music:
                 self.music[3] = self.music[2] / max(1.0, fade * self.rate / self.BLOCK)
@@ -290,7 +324,15 @@ class Mixer:
                     self.music[2] = gain - fade
                     if self.music[2] <= 0:
                         self.music = None
-        return array("h", (max(-32768, min(32767, v)) for v in out)).tobytes()
+        limit = self.LIMIT
+        return array("h", (v if -limit <= v <= limit else self._squeeze(v) for v in out)).tobytes()
+
+    def _squeeze(self, v: int) -> int:
+        """A loud moment, squeezed into what's left above LIMIT rather than clipped (a clip crackles)."""
+        over = abs(v) - self.LIMIT
+        room = 32767 - self.LIMIT
+        squeezed = self.LIMIT + int(room * over / (over + room))
+        return squeezed if v > 0 else -squeezed
 
     def _run(self) -> None:
         try:

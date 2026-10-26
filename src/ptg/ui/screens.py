@@ -135,6 +135,7 @@ class TitleScreen(Screen):
                 if scene is not self.scene:
                     return
                 self.frames[(light, phase)] = scene.text(light, self.rain(scene, phase))
+                time.sleep(0.02)  # (a breath between frames: the screen and the sound's mixer get their turn)
         self.prepare_strike(scene)
 
     def rain(self, scene: title_scene.Scene, phase: int) -> int:

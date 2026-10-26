@@ -74,7 +74,8 @@ from dataclasses import dataclass
 from typing import Callable
 
 from . import dice, inventory, npcs, powers
-from .combat import bomb_monster, defeat, discover, distract, fortune, provoked, throw, thrown_damage
+from .combat import (bomb_monster, defeat, discover, distract, fortune, holds_its_ground, provoked, throw,
+                     thrown_damage)
 from .content import Content, ItemDef
 from .events import Action, Event
 from .intent import Intent
@@ -470,8 +471,10 @@ def _plan_use(state, content, view, use, target) -> Row | None:
         if key == "bomb":
             return _at_creature(state, content, view, use, target)
         if item.escape or ("dazzle" in item.powers and state.in_combat):
+            firm = monster is not None and holds_its_ground(state, content, monster)
             return Row(alias=f"use:{key}", label=f"{'Throw' if item.escape else 'Eat'} {what}",
-                       hint="get away" if item.escape else "it glows!")
+                       hint=("a run for it: no sure escape" if firm else "get away") if item.escape else
+                       ("it won't scare it" if firm else "it glows!"))
         if "throw" in item.powers:
             return _at_creature(state, content, view, use, target)
         if target.state["hostile"] and distracts(content, key, monster):

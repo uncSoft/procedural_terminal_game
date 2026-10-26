@@ -33,6 +33,26 @@ def choose_intent(rng: random.Random, monster: MonsterState, content: Content) -
     return rng.choices(list(weights), weights=list(weights.values()))[0]
 
 
+def holds_its_ground(state: GameState, content: Content, monster: MonsterState) -> bool:
+    """One nothing scares off and no smoke hides you from: a boss, a guardian (King Mouse), the warden at the stairs,
+    a one-of-a-kind creature (Serpentis, the Rat King), anything from a deeper floor (tier 4), or anything still
+    keeping a rare thing of its own (it would go with it). Getting away from one takes a pair of fast legs: a flee
+    roll, smoke or no smoke (flee)."""
+    known = content.monster(monster.key)
+    keeps = any(monster.key in item.found and item.key not in state.rares for item in content.items.values())
+    return known.boss or "guardian" in known.tags or monster.warden or known.once or known.tier >= 4 or keeps
+
+
+def stand_firm_warning(state: GameState, content: Content) -> list[Event]:
+    """A fight with one that holds its ground (holds_its_ground) says so as it starts, so nobody finds out by
+    wasting a smoke bomb."""
+    monster = state.room.monster
+    if not (monster and monster.hostile and monster.hp > 0 and holds_its_ground(state, content, monster)):
+        return []
+    return [Event("warning", f"{cap(the(monster.name))} won't be scared off, and no smoke will hide you from it: to "
+                             "get away, you'll have to outrun it.", data={"monster": monster.key})]
+
+
 def telegraph(state: GameState, content: Content) -> list[Event]:
     monster = state.room.monster
     if monster and monster.hostile and monster.intent == "heavy":
@@ -385,17 +405,22 @@ def flee(state: GameState, content: Content, rng: random.Random, guaranteed: boo
     if direction is None:
         return [Event("info", "There is nowhere to run.")]
     events: list[Event] = []
+    smoke = guaranteed and holds_its_ground(state, content, monster)  # (smoke helps, but it's still a run for it)
+    said = [Event("info", f"The smoke would hide you from most things, but not from {the(monster.name)}: you make a "
+                          "run for it.")] if smoke else []
+    guaranteed = guaranteed and not smoke
     if not guaranteed:
         dc = 10 + tier_of(monster, content)
-        advantage = 1 if "escape_artist" in state.player.traits else 0
+        advantage = 1 if "escape_artist" in state.player.traits or smoke else 0
         bonuses = [("agility", state.player.agility)] + powers.roll_bonuses(state, content, "flee")
         roll = dice.check(rng, "agility (flee)", bonuses, dc, advantage=advantage)
         events += fortune(state, roll)
         if not roll.success:
-            return [Event("flee_fail", f"You try to flee, but {the(monster.name)} cuts you off.", dice=roll,
-                          data={"rerollable": True})] + events
+            return said + [Event("flee_fail", f"You try to flee, but {the(monster.name)} cuts you off.", dice=roll,
+                                 data={"rerollable": True})] + events
         events.insert(0, Event("flee", f"You escape from {the(monster.name)}, running {direction}.", dice=roll,
                                data={"rerollable": True}))
+        events = said + events
     else:
         events.append(Event("flee", f"You escape from {the(monster.name)}, running {direction}."))
     state.player.bump("fled")

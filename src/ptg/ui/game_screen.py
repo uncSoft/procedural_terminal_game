@@ -885,6 +885,8 @@ class GameScreen(Screen):
             self.add_line(f"  ({error})", "system-line")
         for exchange in exchange_lines(result.events, game.content):  # (what changed hands, in a line each)
             self.add_line(Text(exchange), "pickup-line")
+        for warning in (e for e in result.events if e.kind == "warning"):  # (said as it is, never by the narrator)
+            self.add_line(Text("  ⚠ " + warning.text, style="bold #ff7b39"), "system-line")
         chips = purse_chips(purse_before, purse(game.state))
         if chips and not line:  # (gold, bombs and keys found say so, with how many you have now)
             self.add_line(chips, "purse-line")

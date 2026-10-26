@@ -364,3 +364,11 @@ async def test_a_room_on_the_map_you_can_get_back_to_is_a_click_away():
         await settle(app, pilot)
         assert state.room_id == start
         assert "make your way back" in " ".join(str(w.render()) for w in screen.query("#story .narration"))
+
+
+async def test_walking_into_one_that_holds_its_ground_puts_a_warning_in_the_story():
+    app = PTGApp(Config(backend="offline", player_name="T"), test_room=("serpentis", "strong", 0))
+    async with app.run_test(size=(152, 43)) as pilot:
+        screen = await walk_in(app, pilot)
+        said = " ".join(str(w.render()) for w in screen.query("#story .system-line"))
+        assert "⚠ Serpentis won't be scared off" in said

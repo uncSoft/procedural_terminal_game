@@ -277,7 +277,10 @@ def test_the_glow_doesnt_scare_swoogy_off(content, everyone):
     """Eating the Jar o' Light sent an angry Swoogy running: no diaper, no fight, gone from the floor."""
     state, monster = angry_swoogy(content)
     state.player.inventory.append("jar_o_light")
-    events = perform(state, content, "use:jar_o_light")
+    events = perform(state, content, "use:jar_o_light")  # (unhurt: it'd be eaten only for a glow he won't mind)
+    assert events[0].kind == "info" and "jar_o_light" in state.player.inventory and state.room.monster is monster
+    state.player.hp -= 4
+    events = perform(state, content, "use:jar_o_light")  # (hurt: eaten for its HP, and he stands there squinting)
     assert state.room.monster is monster and "stands its ground" in next(e.text for e in events if e.kind == "dazzle")
 
 

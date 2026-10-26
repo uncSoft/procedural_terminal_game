@@ -37,7 +37,8 @@ from .text import the
 JOURNAL_SKIP = {"miss", "monster_miss", "stunned", "check", "info", "spend", "story_seen", "story_mark", "story_context"}
 JOURNAL_KEEP = 400  # lines
 QUIET_KINDS = {"perk"}  # resolved without asking the narrator
-MECHANICS = {"fate_spent", "level", "trait"}  # the screen says these (a line, the level-up screen, a banner): not told
+MECHANICS = {"fate_spent", "level", "trait", "warning"}  # the screen says these (a line, the level-up screen, a
+# banner, a warning's line): not told
 
 
 def roll_said(event: Event) -> str:

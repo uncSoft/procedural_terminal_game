@@ -201,3 +201,54 @@ def test_the_magical_cards_hold_one_more_fate_and_deal_one_once(content):
     powers.settle_stats(state, content)
     assert player.max_fate() == room + 1 and player.fate <= fate + 1
     assert "+1 Fate held" in powers.describe(content.item("magical_cards"))[-1]
+
+
+def test_the_big_ones_hold_their_ground_against_a_glow_and_smoke(content):
+    """Run 61: a Jar o' Light sent Serpentis running, its sword with it. A boss, a guardian, the warden, one of a
+    kind, anything from a deeper floor or keeping a rare thing of its own stands there; a smoke bomb's no sure escape
+    from it (a run for it, with the smoke's help); and the fight says so as it starts."""
+    from ptg.combat import holds_its_ground
+    from ptg.models import MonsterState
+
+    state = generate(1)
+    serpent = MonsterState(key="serpentis", name="Serpentis", hp=75, max_hp=75)
+    state.room.monster = serpent
+    assert holds_its_ground(state, content, serpent)
+    assert not holds_its_ground(state, content, put_monster(state, content, "goblin"))
+    state.room.monster = serpent
+    state.player.inventory += ["jar_o_light", "smoke_bomb"]
+    choices = {a.id: a for a in available_actions(state, content)}
+    assert "use:jar_o_light" not in choices  # (unhurt, its only use here would be the glow: not offered)
+    assert "no sure escape" in choices["use:smoke_bomb"].hint
+    events = perform(state, content, "use:jar_o_light")
+    assert events[0].kind == "info" and "jar_o_light" in state.player.inventory  # (kept)
+    state.player.hp -= 5
+    perform(state, content, "use:jar_o_light")  # (eaten for its HP: the glow does nothing to Serpentis)
+    assert state.room.monster is serpent
+    escaped = stopped = 0
+    for seed in range(30):
+        state.seed, state.turn = seed, state.turn + 1
+        state.player.hp = state.player.max_hp  # (Serpentis hits back when the run fails)
+        state.player.inventory.append("smoke_bomb")
+        start = state.room_id
+        events = perform(state, content, "use:smoke_bomb")
+        assert any("not from Serpentis" in e.text for e in events)
+        if state.room_id != start:
+            escaped += 1
+            state.room_id = start
+        else:
+            stopped += 1
+        state.room.monster = serpent
+    assert escaped and stopped  # (a roll, not a sure thing)
+
+
+def test_a_fight_with_one_that_holds_its_ground_warns_you_as_it_starts(content):
+    from ptg.combat import stand_firm_warning
+    from ptg.models import MonsterState
+
+    state = generate(1)
+    state.room.monster = MonsterState(key="serpentis", name="Serpentis", hp=75, max_hp=75)
+    warning = stand_firm_warning(state, content)
+    assert warning and warning[0].kind == "warning" and "outrun" in warning[0].text
+    put_monster(state, content, "goblin")
+    assert not stand_firm_warning(state, content)

@@ -15,8 +15,8 @@ import random
 from collections import deque
 
 from . import dice, interactions, inventory, layout, loot, npcs, powers
-from .combat import (bomb_monster, discover, distract, dodge, flee, flee_direction, fortune, monster_turn,
-                     player_attack, telegraph, throw, what_is_left)
+from .combat import (bomb_monster, discover, distract, dodge, flee, flee_direction, fortune, holds_its_ground,
+                     monster_turn, player_attack, stand_firm_warning, telegraph, throw, what_is_left)
 from .content import Content, ItemDef
 from .creative import perform_creative as _creative
 from .events import Action, Event
@@ -84,10 +84,13 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
         monster = room.monster
         actions.append(Action("attack", f"Attack {the(monster.name)}", "it's guarding" if monster.guarding else ""))
         actions.append(Action("dodge", "Dodge", "counter the heavy blow!" if monster.intent == "heavy" else ""))
+        firm = holds_its_ground(state, content, monster)  # (no scaring it off, no smoke hiding you: a warning says)
         for item in consumables:
-            if item.escape or player.hp < player.max_hp or "dazzle" in item.powers:
+            glows = "dazzle" in item.powers and not firm
+            if item.escape or player.hp < player.max_hp or glows:
                 verb = "Throw" if item.escape else heal_verb(item)
-                hints = [how_many(player, item.key), "it glows!" if "dazzle" in item.powers else ""]
+                hints = [how_many(player, item.key), "it glows!" if glows else "",
+                         "no sure escape: a run for it" if item.escape and firm else ""]
                 actions.append(Action(f"use:{item.key}", f"{verb} {the(item.name)}", " · ".join(filter(None, hints))))
         for item in (content.item(k) for k in _distinct(player.inventory)):
             if "throw" in item.powers:
@@ -587,7 +590,7 @@ def travel(state: GameState, content: Content, direction: str, to: int) -> list[
                           "monster": room.monster.key if room.monster else (room.shop.keeper if room.shop else ""),
                           "journal": journal, "direction": direction})]
     if room.monster and room.monster.hostile:
-        events += telegraph(state, content)
+        events += telegraph(state, content) + stand_firm_warning(state, content)
     return events
 
 
@@ -645,7 +648,7 @@ def _journey(state: GameState, content: Content, rng: random.Random, target: int
         return [Event("ambush", f"You set off for {the(goal.name)}, but in {the(room.name)} {who} blocks the way!",
                       data={"monster": room.monster.key, "room": room.id,
                             "journal": f"On the way to {the(goal.name)}, {who} stopped you in {the(room.name)}."})] \
-            + telegraph(state, content)
+            + telegraph(state, content) + stand_firm_warning(state, content)
     through = [the(state.rooms[to].name) for _, to in steps[:-1]]
     via = f", through {inventory.listing(through, 'and')}" if through else ""
     told = f"You make your way back to {the(goal.name)}{via}."
@@ -1316,6 +1319,9 @@ def _use(state: GameState, content: Content, rng: random.Random, key: str) -> tu
                              f"{what_is_left(player, key)}", data=used)] + flee(
             state, content, rng, guaranteed=True), True
     glows = "dazzle" in item.powers and state.in_combat
+    if glows and player.hp >= player.max_hp and holds_its_ground(state, content, state.room.monster):
+        return [Event("info", f"{cap(the(state.room.monster.name))} won't be scared off by a glow, so you keep "
+                              f"{the(item.name)}.")], False
     if player.hp >= player.max_hp and not glows:
         return [Event("info", f"You're not hurt, so you keep {the(item.name)}.")], False
     heal = round(item.heal * (1.5 if "alchemist" in player.perks else 1))
@@ -1329,12 +1335,13 @@ def _use(state: GameState, content: Content, rng: random.Random, key: str) -> tu
 
 
 def _dazzle(state: GameState, content: Content) -> list[Event]:
-    """Glowing like a lantern (a dazzle power): the monster flees the room, no reward for it. A boss, a guardian, the
-    warden at the stairs, a ghost, or one of the dungeon's characters (Swoogy: calm him down or fight him) stands its
-    ground."""
+    """Glowing like a lantern (a dazzle power): the monster flees the room, no reward for it. One that holds its
+    ground (combat.holds_its_ground: a boss, a guardian, the warden at the stairs, one of a kind, one keeping a rare
+    thing of its own), a ghost, or one of the dungeon's characters (Swoogy: calm him down or fight him) stands
+    there squinting."""
     monster = state.room.monster
     monster_def = content.monster(monster.key)
-    if monster_def.boss or monster_def.npc or "guardian" in monster_def.tags or monster.warden or monster.ghost_of:
+    if monster_def.npc or monster.ghost_of or holds_its_ground(state, content, monster):
         return [Event("dazzle", f"You glow like a lantern, but {the(monster.name)} only squints at you and stands its "
                                 "ground.")]
     state.room.monster = None
@@ -1405,7 +1412,7 @@ def _rest(state: GameState, content: Content, rng: random.Random) -> list[Event]
                                    met=state.met)
         who = room.monster.name if content.monster(room.monster.key).named else a(room.monster.name)
         events = [Event("ambush", f"While you rest, {who} creeps up on you!",
-                        data={"monster": room.monster.key})]
+                        data={"monster": room.monster.key})] + stand_firm_warning(state, content)
         events += monster_turn(state, content, rng)
         return events
     cook = powers.holders(state, content, "cook")

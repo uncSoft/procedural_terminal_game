@@ -568,7 +568,8 @@ Add a theme with a `[[theme]]` block in `themes.toml`, its room archetypes in `r
 uv run pytest
 ```
 
-The suite includes a bot that plays 100 seeded runs using only the listed actions. It never improvises, shops or buys blessings, and wins about three runs in ten of the four floors; that win rate is a guard against balance regressions.
+It runs in parallel, one worker a core (about a minute); add `-n0` to run tests one at a time, for a debugger or
+`print()`. The suite includes a bot that plays 100 seeded runs using only the listed actions. It never improvises, shops or buys blessings, and wins about three runs in ten of the four floors; that win rate is a guard against balance regressions.
 
 For balance, `tools/simulate.py` plays many seeds and reports each floor (who reached it, who died there and of
 what, what they took down the stairs) and how poison went:

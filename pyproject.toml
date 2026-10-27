@@ -27,6 +27,7 @@ ptg = "ptg.cli:main"
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
+    "pytest-xdist>=3.6",
     "textual-serve>=1.1.3,<1.2",
 ]
 
@@ -38,6 +39,10 @@ build-backend = "hatchling.build"
 packages = ["src/ptg"]
 
 [tool.pytest.ini_options]
+# In parallel: nine tenths of the time is the UI tests, mostly waiting on the app (animations, dice, narration), so
+# they overlap well, and each test has its own PTG_HOME (conftest.py). -n0 runs one at a time (for a debugger, or
+# print()).
+addopts = "-n auto --dist worksteal"
 testpaths = ["tests"]
 pythonpath = ["tests"]
 asyncio_mode = "auto"

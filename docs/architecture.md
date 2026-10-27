@@ -233,13 +233,16 @@ not by xterm.js as textual-serve ships it.
 | `uv run ptg export` / `ptg import …` | the Maker's library out and creations in |
 | `uv run python -m ptg.integrity [--sign]` | check or accept the data files |
 | `uv run python -m ptg.story` | check the story files |
-| `uv run pytest -q` | the tests (about 1,300; ten minutes) |
+| `uv run pytest -q` | the tests (about 1,300; under a minute, in parallel: `-n0` for one at a time) |
 
 ## Tests
 
 - **Rules and content** are tested directly on `GameState` (fast).
 - **UI** tests drive the real app headless with Textual's `run_test` (`tests/test_ui.py`, `test_screen.py`,
   `test_tabs.py`, `test_grid.py`); classic-screen tests pin `layout="classic"`.
+- **In parallel** (pytest-xdist, `-n auto --dist worksteal` in `pyproject.toml`): the UI tests are nine tenths of
+  the time and mostly wait on the app (animations, dice, narration), so they overlap well; each test has its
+  own `PTG_HOME` (`conftest.py`). Run one with `-n0` to use a debugger or see print().
 - **Balance**: `tests/bot.py` is an action-only player; `test_rules.py` plays 100 seeds and keeps its win rate
   between 20% and 75%, and checks bot games are deterministic.
 - **Narration** is tested offline (no model), with a fake model where the shape of a model call matters.

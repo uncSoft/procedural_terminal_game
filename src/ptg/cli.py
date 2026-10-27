@@ -40,7 +40,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "monster) in a run that counts for nothing; `--test-room list` for them all")
     parser.add_argument("--loadout", default="random", metavar="KIT",
                         help="a test room's kit: new, random, strong, or weapon=..,armor=..,items=a+b,level=N,gold=N")
-    parser.add_argument("--floor", type=int, default=0, help="a test room's floor (1-3)")
+    parser.add_argument("--floor", type=int, default=0, help="a test room's floor (1-4)")
     return parser.parse_args(argv)
 
 

@@ -32,6 +32,7 @@ deterministic fallback, so the whole game runs offline.
  │  extras.py       lore, recaps inventory.py  every change of hands            │
  │  backends: openai_compat,     npcs.py · powers.py · loot.py · dice.py ·       │
  │            anthropic, offline outcome.py · sheet.py · scene.py · glossary.py │
+ │                               statuses.py (poison...) · hazards.py (Norfel)  │
  ├───────────────────────────┴──────────────────────────────────────────────────┤
  │ World        world.py (seeded floors) · layout.py (floor plans)              │
  │              room_picture.py (rooms drawn in code) · sprites.py (pixel art)  │
@@ -111,6 +112,14 @@ rewind. Tests rely on this (`tests/bot.py` games are compared run to run).
   Maker's saves or GitHub issues), writing sprites and TOML entries, checking the game still loads, and re-signing.
 - **Loot, NPCs and powers are data-driven**: a new item drops by its role and tier (`loot.py`); what an item does is
   a list of named powers (`powers.py`); characters are tagged `npc` and given behaviour in `npcs.py`.
+- **Statuses are data too** (`statuses.toml`, `statuses.py`): a status says when it ticks (a step, a fight's turn),
+  what a tick costs, whether it can kill, what it takes off your rolls, and whether a shrine cures it. Items say what
+  they do about one: `cures` it (used up), `guards` against the next few, `wards` it off while they work for you.
+  `statuses.inflict` is the one way any status takes hold, so a new one is a row and its sources; the turn puts its
+  penalty on every roll of yours (`dice.HINDERED`, set by `rules.perform`).
+- **Floors**: a theme's `floor` pins it to one (Norfel to 4) and its `status` makes it that status's floor (shops,
+  a shrine, Granny's offer a floor above). Norfel's river and vent are placed by `hazards.py`, as choices, never as
+  rolls on the way in.
 - **Story events** are Markdown with a small header (`story/parser.py` checks them against the content, failing
   loudly with a file and line).
 

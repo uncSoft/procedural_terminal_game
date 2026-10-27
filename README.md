@@ -22,7 +22,7 @@ You hurl the vial with theatrical precision and it shatters against the ghoul's 
 
 | Who | Does what |
 | --- | --- |
-| **World generator** (code) | Builds a three-floor descent from a seed. Each floor is a different dungeon: rooms on a grid with floor plans, stairs guarded by a warden, shrines, trapped chests, fountains, elites, one secret per floor, and the boss behind a locked door on the last floor. Same seed, same run. |
+| **World generator** (code) | Builds a four-floor descent from a seed: three different dungeons, then Norfel. Rooms on a grid with floor plans, stairs guarded by a warden, shrines, trapped chests, fountains, elites, one secret per floor, a boss behind a locked door on floor 3 (beaten, it opens the stairs down) and Serpentis behind one at the bottom. Same seed, same run. |
 | **Rules** (code) | List the legal actions each turn (the numbered choices) and resolve everything with d20 rolls: combat, telegraphed heavy blows, dodging, fleeing, searching, fixtures, leveling. |
 | **Interpreter** (model) | Turns free text into JSON: one of the listed actions, a use of one thing on another (what's done, with what, to what: "throw the cheese at the ghoul", by the ids of what's in the room and what you carry), or a *creative* attempt with a stat, a difficulty, the props it uses, and effects from a fixed menu (stun, small damage, pacify, evade, reveal a secret...). The rules check the props exist, clamp the effects, roll the dice and apply them. "Summon a dragon" fails; "throw sand in its eyes" might stun it. Plain commands skip the model (a keyword matcher reads them the same way); handing something over, or anything said to a character, is the model's to read too. |
 | **Narrator** (model) | Gets the list of facts that actually happened and streams a few sentences of prose. It tells what happened, not what the screen already shows: the room's things, who's here and the ways out are on the stage and in Here, so it names one only when something happens to it. It can't change the game state, so it can't make up loot or kill monsters. |
@@ -65,7 +65,10 @@ It scores ten typed commands and five narrated moments, shows what the guard wou
 - **Easy to get around.** The ways out carry their arrows (▲ ▼ ◀ ▶) in the choices, and a pad of arrows in the side column (a bar of them above the choices, on a narrow screen) lights the doors there are: click one to go. Or type `n`, `s`, `e` or `w`. The buttons on Here's tiles are numbered first and the choices carry on from them, so typing a number does what clicking does. The screen fits itself to the window: two columns from 88 wide, one below that, a short status bar and a ☰ menu on a short one, and big buttons when played with a finger.
 
 **Every run (about 25-40 minutes)**
-- Three floors, three different dungeons, getting harder, with a boss at the bottom.
+- **Four floors.** Three different dungeons, getting harder; the third's boss guards the way down. Then **Norfel, Domain of Serpentis**, always the fourth: a purple poison cavern (after Metroid's Norfair), ten rooms, always a shrine, with Serpentis at the bottom.
+- **Poison** (and statuses to come, one a floor: `src/ptg/data/statuses.toml`). Venomous bites, Serpentis's spit, Norfel's river and its gas vent poison you: -2 to your rolls and 2 HP a room walked and a fight's turn, shown by purple hearts and ☠ Poisoned. It never takes your last HP on its own, and it doesn't wear off: pray at a shrine (free, as often as you like) or drink **Pure** (it also stops the next poisoning). Norfel's monsters are deeper and half of them venomous.
+- **Norfel's hazards are choices.** Nothing rolls as you walk in. One poison river on the way to the boss: leap it (agility), wade it (poisoned) or vault it with a ten-foot pole, and once you're over you know its stepping stones. One gas vent, over a cache: disarm it first, or grab the loot and take the gas.
+- **Get ready a floor ahead.** Floor 3 always has Granny's shop, and asked what she knows she brings out an old smelly snakeskin for 80 gold: +2 armor that poison can't get past, against the +3 you likely wear. Items can cure, guard against and ward off statuses (`cures`, `guards`, `wards` in `items.toml`).
 - **Pick one of three perks** at each level-up (Ruthless, Acrobatics, Vampiric, Glass Cannon...).
 - **Traits earned by how you play**: talk monsters down and you become *Silver Tongue*; win with props and you become a *Showboat*; dodge enough and you become a *Duelist*.
 - See what's through a door before you go: the map and choices show stairs `>`, shrines `†`, chests `■` and fountains `◊` ahead.
@@ -74,7 +77,7 @@ It scores ten typed commands and five narrated moments, shows what the guard wou
 - **Rare things.** Some items never lie about on a floor or drop from an everyday monster: they're kept in chests, hidden stashes, each floor's secret room, shops, and by the warden at the stairs (always) or an elite (sometimes), and each turns up at most once a run. The floor caps how good a warden's is, so the best come deeper, and from secret rooms. A warden with nothing rare left to give carries a small key.
 - **Bombs and small keys** (● and ⚷ by your hearts). You start with a bomb; monsters drop bombs and keys now and then, elites more often. A chest opens three ways: a small key (safe), picking its lock (agility: fail and a needle gets you) or smashing it (might: fail and what's inside breaks); or blow it open with a bomb (it always opens, and what's inside always breaks). A bomb thrown in a fight always goes off.
 - **A secret room on every floor**, sealed until you bomb a wall into it. It's only ever built in a gap in the map that touches two rooms or more, so you can work out where it might be, and only those walls offer a bomb. Search a room next to it and you may feel a draft. There's one a floor: once it's open, no wall is worth a bomb. Finding it is a moment: a bang, a fanfare, a banner across the story, and the room in gold on the map, `{✧}`, from then on.
-- **Shops, now and then** (about one floor in four): a nook off the map, `[¤]`, behind a door a small key opens or two bombs break. Granny Gristle keeps most of them: a potion, gear for the floor, a bomb or a small key, and a trinket or, sometimes, something rare. Once in a while it's Granny Kamultruk's instead, the rare one, with the best and dearest stock. Shopping has a screen of its own: her wares as pictures with their prices; pick one for its card, Enter to buy, B to haggle (wits: a third off, or a quarter dearer if it goes wrong, once a ware). She buys too, at half her price ("sell the hand axe"): anything but a key, a quest's things, a curse or the weapon in your hand. Mama's Shillelagh, sold nowhere else, helps you talk. Walking into one gets a jingle and a banner, gold and starrier for Granny Kamultruk.
+- **Shops, now and then** (about one floor in four; always on floor 3, and half the time on Norfel, where she always has two Pure): a nook off the map, `[¤]`, behind a door a small key opens or two bombs break. Granny Gristle keeps most of them: potions (two of them), gear for the floor, a bomb or a small key, and a trinket or, sometimes, something rare. Once in a while it's Granny Kamultruk's instead, the rare one, with the best and dearest stock. Shopping has a screen of its own: her wares as pictures with their prices; pick one for its card, Enter to buy, B to haggle (wits: a third off, or a quarter dearer if it goes wrong, once a ware). She buys too, at half her price ("sell the hand axe"): anything but a key, a quest's things, a curse or the weapon in your hand. Mama's Shillelagh, sold nowhere else, helps you talk. Walking into one gets a jingle and a banner, gold and starrier for Granny Kamultruk.
 - **Creatures that have stopped fighting know things.** Ask one what it knows (or, if it can't talk, watch where it goes), or a shopkeeper: a wits roll, once each. It may put the floor's secret room or its hidden stash on your map (the stash as a gold `$`, and there when you search it), or, if it talks, tell you what one of the floor's monsters can't stand, the warden's or the boss's first.
 
 **Across runs**
@@ -102,8 +105,8 @@ problems, and can fire any event at the start of your next descent.
 
 ## Data files
 
-All game content (themes, rooms, items, monsters, perks, unlocks, tags, art, story events, what the characters
-say) is plain data in `src/ptg/data/`, checked on startup: a mistake is explained by file, entry and field
+All game content (themes, rooms, items, monsters, statuses, perks, unlocks, tags, art, story events, what the
+characters say) is plain data in `src/ptg/data/`, checked on startup: a mistake is explained by file, entry and field
 ("monsters.toml [monster.goblin]: unknown field 'hpp' (did you mean 'hp'?)") instead of crashing. The shipped files are
 also fingerprinted, so the game notices when they've been edited. Editing is allowed. It's just noticed.
 After real changes:
@@ -478,7 +481,8 @@ To try someone out without playing down to them: a test room starts you next doo
 in plays out as it would in a run. Lucky Lenny (his bad tooth is in your pack, as if you'd found it first; or, in
 `lenny_quest`, still hidden on his floor, for him to tell you where), Swoogy (behind a wall to bomb, with
 a bomb), King Mouse (at the floor-2 stairs), either shop (at its door, with a small key, two bombs and 100 gold to
-spend), each boss (at its locked door, with its key), or any monster.
+spend; on floor 3, ask Granny for her snakeskin), each boss (at its locked door, with its key: Serpentis's is on
+floor 4), poisoned already beside a shrine with a Pure in your pack (`poison`), or any monster.
 
 Pick a kit: a new adventurer (`new`), what a run might have by that floor (`random`: gear, level and a perk for each
 level), the best of everything (`strong`), or your own (`weapon=war_pick,armor=chain_shirt,items=holy_water+pickle,
@@ -491,6 +495,8 @@ ghosts and bestiary as they were. Esc twice leaves it.
 uv run ptg --test-room list                                  # who, and the kits
 uv run ptg --test-room king_mouse --loadout strong
 uv run ptg --test-room shiny_shop --loadout new --floor 3
+uv run ptg --test-room serpentis                              # Norfel's boss, at its lair's door
+uv run ptg --test-room orc --floor 4                          # anywhere on Norfel: its river, its vent
 uv run ptg --test-room goblin --loadout "weapon=war_pick,items=pickle+pickle"
 ```
 
@@ -545,7 +551,7 @@ tools/             build_sprites.py: the hand-drawn sprite maps; build_sounds.py
 legacy/            the v1 curses prototype, kept for reference
 ```
 
-Add a theme with a `[[theme]]` block in `themes.toml`, its room archetypes in `rooms.toml`, and tagged monsters in `monsters.toml`. Give a room feature new powers by adding its keyword to `tags.toml`. No code changes needed.
+Add a theme with a `[[theme]]` block in `themes.toml`, its room archetypes in `rooms.toml`, and tagged monsters in `monsters.toml`. Give a room feature new powers by adding its keyword to `tags.toml`. No code changes needed. A theme with a `floor` is always that floor (Norfel: `floor = 4`) instead of one of the three shuffled dungeons, and one with a `status` (Norfel's `"poison"`) makes it that status's floor: its shops sell the cure, it always has a shrine, and Granny brings out something against it on the floor above. A new status is a row in `statuses.toml`; items `cures`, `guards` and `wards` it.
 
 ## Tests
 
@@ -553,4 +559,13 @@ Add a theme with a `[[theme]]` block in `themes.toml`, its room archetypes in `r
 uv run pytest
 ```
 
-The suite includes a bot that plays 100 seeded runs using only the listed actions. It never improvises or buys blessings, and wins a little under half its runs; that win rate is a guard against balance regressions.
+The suite includes a bot that plays 100 seeded runs using only the listed actions. It never improvises, shops or buys blessings, and wins about three runs in ten of the four floors; that win rate is a guard against balance regressions.
+
+For balance, `tools/simulate.py` plays many seeds and reports each floor (who reached it, who died there and of
+what, what they took down the stairs) and how poison went:
+
+```bash
+uv run python tools/simulate.py 300                  # the plain bot (tests/bot.py)
+uv run python tools/simulate.py 200 --compare        # every player, from the careful to the sloppy
+uv run python tools/simulate.py 300 --venom orc,troll   # as if they bit with venom
+```

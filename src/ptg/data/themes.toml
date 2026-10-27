@@ -1,11 +1,16 @@
 # A theme is one dungeon flavor. The world generator picks one per seed and
 # builds every room from its archetypes and monster tags.
+#
+# Its `lore` is told on its floor's card, under its splash art (data/splash/<key>/). A dungeon can be any of the
+# first three floors and its boss is only on the third, so its lore is the place's legend: it never says the boss is
+# here, nor where the key is. Its hints are the boss's weaknesses and what its key is like.
 
 [[theme]]
 key = "sunken_crypt"
 name = "The Sunken Crypt"
 blurb = "A burial vault under a drowned chapel. Black water seeps through every wall, and candles that should have guttered out a century ago are still burning."
 goal = "Put the Drowned Abbot to rest."
+lore = "The Abbot loved his chapel so much that when the river broke in through the walls, he simply refused to leave. He has been saying mass ever since, underwater and backwards, to a congregation of skulls far too polite to get up. The candles never go out, because he won't let them. The black water gets into everything: your boots, your bread, your dreams. He can't abide anything holy, and he was always a little afraid of fire. Anyone who wants a word with him will need his key, and it's crusted with things that used to be alive."
 archetypes = ["flooded_nave", "ossuary", "reliquary", "cistern", "collapsed_tunnel", "vestry", "catacomb", "bell_shaft"]
 monster_tags = ["undead", "aquatic", "vermin"]
 boss = "drowned_abbot"
@@ -17,6 +22,7 @@ key = "goblin_warren"
 name = "The Goblin Warren"
 blurb = "A maze of tunnels gnawed into a hillside by a goblin tribe with big ambitions and no sense of hygiene. It smells like smoke, wet dog and stolen cheese."
 goal = "Dethrone the Goblin King."
+lore = "Long ago a goblin found a crown in a ditch, put it on, and said he was king. Nobody could think of a reason why not. Ever since, his tribe has gnawed tunnels into the hill and filled them with everything they can carry off: plates, boots, cheese, doors to make tables of, and far more lanterns than anyone needs. He sits on a throne of stacked chairs and waves a frying pan at people. He loves shiny things more than breathing, and he has never once kept his feet on a greasy floor. His key is greasy too. Don't ask."
 archetypes = ["feast_hall", "kennels", "trash_heap", "guard_post", "shrine_of_junk", "mushroom_farm", "sleeping_burrow", "forge_pit"]
 monster_tags = ["goblinoid", "vermin", "beast", "giant"]
 boss = "goblin_king"
@@ -28,6 +34,7 @@ key = "overgrown_ruins"
 name = "The Overgrown Ruins"
 blurb = "An elven observatory swallowed by a forest that is slowly, deliberately eating it. Roots crack the marble, and the flowers turn to follow you."
 goal = "Cut out the heart of the Thornmother."
+lore = "The elves built this observatory to watch the stars, and they watched so hard they never noticed the forest watching them back. It crept in one root at a time, cracked the marble, swallowed the stars, and now every bit of it belongs to the Thornmother: part flower, part spider, all appetite. Her heart beats in a cathedral of living wood, and the flowers turn to follow you because she is looking through them. She hates fire, and anything sharp makes her nervous. Her door opens only to a key that is still growing."
 archetypes = ["root_choked_hall", "star_chamber", "greenhouse", "collapsed_library", "fountain_court", "spore_grotto", "statue_garden", "hollow_tree"]
 monster_tags = ["plant", "beast", "goblinoid"]
 boss = "thornmother"

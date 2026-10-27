@@ -35,17 +35,19 @@ def test_sprites_scale_to_any_width():
     assert len(sprite_text("goblin", width=12).plain.split("\n")) == 6
 
 
-def test_norfel_has_splash_art_in_every_size_its_card_draws():
-    """Its card's picture (data/splash/norfel/, made by tools/make_splash.py), widest first, every size in whole rows
-    of cells and in the sprites' own colours (a terminal caches each pair of colours it meets)."""
-    sizes = splash_sizes("norfel")
-    assert sizes[0] == (160, 90) and len(sizes) >= 3
-    assert [w for w, _ in sizes] == sorted((w for w, _ in sizes), reverse=True)
+def test_every_floor_has_splash_art_in_every_size_its_card_draws(content):
+    """Its card's picture (data/splash/<theme>/, made by tools/make_splash.py), widest first, every size in whole
+    rows of cells and in the sprites' own colours (a terminal caches each pair of colours it meets); and its lore."""
     colours = set(palette())
-    for width, height in sizes:
-        art = splash("norfel", width)
-        assert art.size == (width, height) and height % 2 == 0
-        assert {pixel[:3] for pixel in art.get_flattened_data()} <= colours
+    for key, theme in content.themes.items():
+        sizes = splash_sizes(key)
+        assert sizes and sizes[0] == (160, 90) and len(sizes) >= 3, key
+        assert [w for w, _ in sizes] == sorted((w for w, _ in sizes), reverse=True), key
+        for width, height in sizes:
+            art = splash(key, width)
+            assert art.size == (width, height) and height % 2 == 0, (key, width)
+            assert {pixel[:3] for pixel in art.get_flattened_data()} <= colours, (key, width)
+        assert theme.lore, key
     assert splash_sizes("no_such_floor") == () and splash("no_such_floor", 64) is None
 
 

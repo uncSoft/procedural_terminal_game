@@ -23,10 +23,13 @@ from ptg.ui.widgets import ChoiceItem, Picture, PictureClock, roll_text
 
 
 async def settle(app, pilot, limit: float = 10.0) -> None:
-    """Wait for the current turn to finish, rolling any dice and picking any perks along the way."""
+    """Wait for the current turn to finish, rolling any dice, picking any perks and reading any floor's card along the
+    way."""
     for _ in range(int(limit / 0.1)):
         await pilot.pause(0.1)
-        if isinstance(app.screen, DiceScreen):
+        if isinstance(app.screen, FloorScreen):
+            await pilot.press("enter")
+        elif isinstance(app.screen, DiceScreen):
             await pilot.press("space")
             await pilot.pause(1.5)
             await pilot.press("enter")
@@ -616,26 +619,36 @@ async def test_norfels_card_shows_its_splash_art_and_fits_the_screen(content):
             assert not isinstance(app.screen, FloorScreen)
 
 
-async def test_a_first_floor_with_splash_art_opens_on_its_card(monkeypatch):
-    """A run's first floor gets its card too, if it has art (the descents always have theirs)."""
-    monkeypatch.setattr("ptg.ui.game_screen.splash_sizes", lambda key: ((160, 90),))
-    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
-    async with app.run_test(size=(130, 44)) as pilot:
-        await pilot.pause()
-        app.show_campfire()
-        await pilot.pause(0.3)
-        app.profile.set("intro_seen", 1)
-        app.start_descent()
-        for _ in range(50):
-            await pilot.pause(0.1)
-            if isinstance(app.screen, IntroScreen):
-                await pilot.press("enter")
-            elif isinstance(app.screen, FloorScreen):
-                break
-        assert isinstance(app.screen, FloorScreen) and app.screen.floor == 1
-        await pilot.press("enter")
-        await settle(app, pilot)
-        assert isinstance(app.screen, GameScreen)
+async def test_a_run_opens_on_its_first_floors_card(monkeypatch):
+    """A run's first floor has its card too (the descents always had theirs): its art and its lore, or its words
+    only with ASCII art chosen in Settings; and a floor with no art has none, as before any had art."""
+    for art, drawn in (("sprites", True), ("ascii", True), ("sprites", False)):
+        if not drawn:
+            monkeypatch.setattr("ptg.ui.game_screen.splash_sizes", lambda key: ())
+        app = PTGApp(Config(backend="offline", layout="classic", player_name="T", art=art), seed=1)
+        async with app.run_test(size=(130, 44)) as pilot:
+            await pilot.pause()
+            app.show_campfire()
+            await pilot.pause(0.3)
+            app.profile.set("intro_seen", 1)
+            app.start_descent()
+            for _ in range(50):
+                await pilot.pause(0.1)
+                if isinstance(app.screen, IntroScreen):
+                    await pilot.press("enter")
+                elif isinstance(app.screen, FloorScreen) or isinstance(app.screen, GameScreen) and not app.screen.busy:
+                    break
+            if not drawn:
+                assert isinstance(app.screen, GameScreen)
+                continue
+            card = app.screen
+            assert isinstance(card, FloorScreen) and card.floor == 1 and card.theme.floor == 0  # (a dungeon)
+            words = " ".join(str(w.render()) for w in card.query(".floor-words > Static"))
+            assert card.theme.lore[:40] in words and "Your goal" not in words  # (its boss is on the third)
+            assert card.query_one("#floor-art").display == (art == "sprites")
+            await pilot.press("enter")
+            await settle(app, pilot)
+            assert isinstance(app.screen, GameScreen)
 
 
 async def test_a_new_floor_waits_for_you():

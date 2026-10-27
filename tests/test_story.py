@@ -260,9 +260,10 @@ async def test_scene_in_the_ui_and_the_book_of_secrets():
         app.profile.add_souls(0)
         app.start_descent()
         await pilot.pause(0.6)
-        if not isinstance(app.screen, GameScreen):
-            await pilot.press("enter")
-            await pilot.pause(0.6)
+        for _ in range(3):  # the intro, then the first floor's card
+            if not isinstance(app.screen, GameScreen):
+                await pilot.press("enter")
+                await pilot.pause(0.6)
         screen = app.screen
         while screen.busy:
             await pilot.pause(0.1)

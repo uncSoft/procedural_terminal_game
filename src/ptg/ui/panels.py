@@ -1078,6 +1078,8 @@ class FloorScreen(Panel):
         super().fit()
         columns, rows = self.app.size
         width, beside = floor_card_fit(columns, rows, self.theme, self.final)
+        if self.app.config.art != "sprites":  # (ASCII art chosen in Settings: the words only)
+            width, beside = 0, False
         if self.shown == (columns, rows, width, beside):
             return
         self.shown = (columns, rows, width, beside)

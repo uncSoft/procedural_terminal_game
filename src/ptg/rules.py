@@ -968,8 +968,9 @@ def _snakeskin(state: GameState, content: Content) -> list[Event]:
     shop.wares.append(Ware(item=loot.SNAKESKIN, price=loot.SNAKESKIN_PRICE))
     keeper = content.monster(shop.keeper).name
     return npcs.say(state, content, shop.keeper, "snakeskin") + [
-        Event("ask", f"{keeper}'s fingers tingle where they touched the snakeskin, but she doesn't say a word. It's "
-                     f"on her counter now: {loot.SNAKESKIN_PRICE} gold.", data={"item": loot.SNAKESKIN})]
+        Event("ask", f"{keeper} drags an old snakeskin out from under her counter. Her fingers tingle where they "
+                     f"touch it, but she doesn't say a word. It's on her counter now: {loot.SNAKESKIN_PRICE} gold.",
+              data={"item": loot.SNAKESKIN})]
 
 
 def _hidden_things(state: GameState) -> list[tuple[Room, Feature | None]]:

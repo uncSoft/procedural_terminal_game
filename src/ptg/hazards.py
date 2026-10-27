@@ -135,10 +135,9 @@ def facts(state: GameState) -> list[str]:
     """What there is to say of this room's river and vent, for a look around (and on the way in)."""
     room = state.room
     said = []
-    if room.river:
-        said.append("A river of glowing poison cuts the room in two; you know its stepping stones." if room.stones
-                    else f"A river of glowing poison cuts the room in two: the way {room.across} is on the "
-                         f"{'near' if room.far else 'far'} bank.")
+    if room.river:  # (the room's own words say what the river is: this is where you stand)
+        said.append("You know the poison river's stepping stones now." if room.stones
+                    else f"The way {room.across} is on the poison river's {'near' if room.far else 'far'} bank.")
     said += {"live": [f"A gas vent hisses in the floor, right under {CACHE}."],
              "dead": ["A dead gas vent, jammed shut."]}.get(room.vent, [])
     return said

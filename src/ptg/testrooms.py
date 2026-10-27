@@ -120,6 +120,8 @@ def build(content: Content, who: str, loadout: str = "random", floor: int = 0, n
     powers.settle_stats(state, content)
     room = state.rooms[start]
     state.room_id, room.visited = start, True
+    room.far = room.river and room.exits.get(room.across) is not None \
+        and room.exits[room.across].to == target(state).id  # (by the river's bank next door: no crossing first)
     if room.monster and room.monster.hostile:
         room.monster = None  # (somewhere safe to stand)
     return state

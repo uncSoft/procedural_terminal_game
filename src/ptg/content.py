@@ -59,6 +59,7 @@ MOMENTS = {
     "buys": "a shopkeeper, when you sell her something",
     "haggle_won": "a shopkeeper, talked down",
     "haggle_lost": "a shopkeeper, when your haggling goes wrong",
+    "snakeskin": "a shopkeeper, asked what she knows on the floor above the poison: the snakeskin she found",
 }
 BLANKS = ("name", "feature", "place")  # {name}: who's talking; {feature}, {place}: where a thing is ("in the Den")
 
@@ -103,7 +104,9 @@ class ItemDef:
     found: list[str] = field(default_factory=list)  # the only places it turns up, if it's that rare (see loot.py)
     stats: dict[str, int] = field(default_factory=dict)  # what carrying it does to your stats: {might = 1, wits = -1}
     cures: list[str] = field(default_factory=list)  # statuses it ends, used up (statuses.py): ["poison"]
-    guards: dict[str, int] = field(default_factory=dict)  # ...and the next ones it stops taking hold: {poison = 2}
+    guards: dict[str, int] = field(default_factory=dict)  # ...and the next ones it stops taking hold: {poison = 1}
+    wards: list[str] = field(default_factory=list)  # statuses that can't take hold of you while it works for you
+    # (worn, for gear; carried, for anything else): ["poison"], the Shed Snakeskin
 
 
 @dataclass(frozen=True)
@@ -224,7 +227,7 @@ SCHEMAS: dict[str, dict[str, tuple[str, bool]]] = {
              "defense": ("count", False), "heal": ("count", False), "escape": ("bool", False),
              "tier": ("count", False), "tags": ("names", False), "desc": ("text", False),
              "powers": ("powers", False), "found": ("names", False), "stats": ("stats", False),
-             "cures": ("statuses", False), "guards": ("guards", False)},
+             "cures": ("statuses", False), "guards": ("guards", False), "wards": ("statuses", False)},
     "monster": {"name": ("text", True), "hp": ("positive", True), "defense": ("count", True),
                 "attack": ("int", True), "damage": ("dice", True), "xp": ("count", True), "tier": ("tier", True),
                 "tags": ("names", False), "intelligent": ("bool", False), "boss": ("bool", False),

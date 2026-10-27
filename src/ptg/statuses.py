@@ -19,10 +19,12 @@ from dataclasses import dataclass
 from importlib import resources
 from typing import TYPE_CHECKING
 
+from . import powers
 from .dice import Hindrance
 from .events import Event
 
 if TYPE_CHECKING:  # models imports content, and content checks its items' statuses against DEFS
+    from .content import Content, ItemDef
     from .models import GameState
 
 
@@ -80,12 +82,23 @@ def hindrance(state: GameState) -> Hindrance:
     return Hindrance(hindered(state), sum(s.penalty for s in ailing), any(s.disadvantage for s in ailing))
 
 
-def inflict(state: GameState, key: str, by: str = "") -> list[Event]:
-    """A status taking hold (`by`: what did it, for the story), or a guard spent stopping it. Already suffering it,
-    nothing more happens."""
+def warded(state: GameState, content: Content, key: str) -> ItemDef | None:
+    """What of yours keeps a status off for good (an item that `wards` it, working for you: worn, or carried), if
+    anything does."""
+    return next((item for item in powers.carried(state, content) if key in item.wards), None)
+
+
+def inflict(state: GameState, key: str, by: str = "", content: Content | None = None) -> list[Event]:
+    """A status taking hold (`by`: what did it, for the story), unless something of yours wards it off (given the
+    content to know what you have: the Shed Snakeskin, for poison), or a guard is spent stopping it. Already suffering
+    it, nothing more happens."""
     player, status = state.player, DEFS[key]
     if key in player.statuses:
         return []
+    ward = warded(state, content, key) if content else None
+    if ward:
+        return [Event("guarded", f"{by or 'It'} would have {WORDS.get(key, (key,))[0]} you, but it never gets past "
+                                 f"your {ward.name}.", data={"status": key, "ward": ward.key})]
     if player.guards.get(key, 0) > 0:
         player.guards[key] -= 1
         left = player.guards[key]

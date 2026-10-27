@@ -1,127 +1,167 @@
-"""Hazards: what a floor with poison of its own (Norfel) has waiting in its doorways and its rooms, after Metroid's
-Norfair (docs/plans/floor-4-and-statuses.md §3.1).
+"""Hazards: what a floor with poison of its own (Norfel) puts in your way, after Metroid's Norfair
+(docs/plans/floor-4-and-statuses.md §3.1). One of each, never next door to each other, and nothing rolls as you walk
+in: you see them, and choose.
 
-    a poison puddle across a doorway   jump it going through (agility), or land in it: poisoned
-    a poison river across a room       cross it coming in (agility, harder), or slip in: poisoned
-    a gas vent in a room's floor       unseen, it catches you coming in unless you spot it in time (wits); seen, you
-                                       walk wide of it, but there's no resting beside it until it's disarmed (wits,
-                                       and a ten-foot pole's care helps: XP for it, and a failed try poisons you)
+    a poison river   across a room on the way to the boss: the way on is on its far bank. Leap it (agility: fall in
+                     and you're poisoned, but across), wade it (poisoned for sure, unless a snakeskin keeps it off),
+                     or vault it with a ten-foot pole (no roll). Across once, you know its stepping stones: from then
+                     on it's a stroll, both ways.
+    a gas vent       in another room, right under a crust of crystals with something good in it. Disarm it first (wits;
+                     a ten-foot pole's care helps; XP for it, and a failed try gasses you), or grab what's there and
+                     take the gas. There's no resting beside a live vent.
 
-Each is a roll every time you come through (a vent's, until it's seen). Already poisoned, there's nothing more for it
-to do to you, so there's no roll. A guard (Pure) stops what would have poisoned you. Quick travel crosses them all on
-the way, room by room.
+A guard (Pure) stops what would have poisoned you, and so does anything that wards poison off, every time: the Shed
+Snakeskin, worn (Granny's, on floor 3: see rules._snakeskin).
 """
 
 from __future__ import annotations
 
 import random
+from collections import deque
 from typing import TYPE_CHECKING
 
-from . import dice, powers, statuses
-from .events import Event
-from .models import OPPOSITE
+from . import dice, loot, powers, statuses
+from .events import Action, Event
+from .models import OPPOSITE, Feature
 
 if TYPE_CHECKING:
     from .content import Content
     from .models import GameState, Room
 
-PUDDLES = 0.25  # of a poison floor's doorways between its rooms
-VENTS = 0.25  # of its rooms (and every vent field)
-RIVERS = ("river_crossing",)  # the kinds of room a river runs through
-DC = {"puddle": 10, "river": 12, "spot": 12, "disarm": 13}
+RIVER, VENT = "river_crossing", "vent_field"  # the kinds of room they're in (rooms.toml), and nowhere else
+DC = {"leap": 12, "disarm": 13}
 VENT_XP = 15
-SAID = {  # what each roll is, and how it went: (the roll's label, made it, didn't, what poisoned you)
-    "puddle": ("agility (jump the puddle)",
-               "A puddle of glowing poison lies across the doorway: you jump it cleanly.",
-               "A puddle of glowing poison lies across the doorway. You jump, and land right in it.",
-               "The poison puddle"),
-    "river": ("agility (cross the river)",
-              "A river of poison runs across the room: you cross on its stepping stones without a splash.",
-              "A river of poison runs across the room. A stepping stone rolls under your foot, and in you go.",
-              "The poison river"),
-    "spot": ("wits (spot the vent)",
-             "A gas vent hisses in the floor ahead: you see it in time, and keep wide of it.",
-             "A gas vent you never saw breathes a yellow-green cloud right in your face.",
-             "The gas vent"),
-    "disarm": ("wits (disarm the vent)",
-               f"You jam the gas vent shut. It coughs once, and goes quiet for good. +{VENT_XP} XP.",
-               "The vent spits gas in your face while you work at it.",
-               "The gas vent"),
-}
+POLES = ("ten_foot_pole",)  # what you can vault a river with
+CACHE = "a crust of yellow crystals"  # what the vent's under, with something good in it
+CACHE_SLOTS = ["potion 3+", "rare", "pure"]  # what's in it (loot.py slots)
 
 
-def place(state: GameState, rooms: list[Room], end_id: int) -> None:
-    """A poison floor's hazards, from a random stream of their own (so they change nothing else about the floor). A
-    river wherever a room's kind has one; no vent in the first room, the boss's, a shop or the secret room; no puddle
-    in a locked doorway."""
+def shape(state: GameState, content: Content, rooms: list[Room], end_id: int) -> None:
+    """A poison floor's river and vent, from a random stream of their own (so they change nothing else about the
+    floor): the river in a room on the way from the entrance to the boss (not the first room, nor the one by the
+    boss's door), the vent in another, not next door to it. Each room is made the kind it is."""
     rng = dice.stream(state.seed, "hazards", state.floor)
-    for room in rooms:
-        room.river = room.archetype in RIVERS
-    open_rooms = [r for r in rooms if r.id not in (0, end_id) and not (r.shop or r.secret)]
-    for room in open_rooms:
-        if room.archetype == "vent_field" or rng.random() < VENTS:
-            room.vent = "hidden"
-    doorways = {r.id for r in open_rooms} | {0}
-    for room in rooms:
-        for direction, exit_ in sorted(room.exits.items()):
-            if room.id < exit_.to and {room.id, exit_.to} <= doorways and not exit_.locked \
-                    and rng.random() < PUDDLES:
-                exit_.puddle = rooms[exit_.to].exits[OPPOSITE[direction]].puddle = True
+    path = _path(rooms, end_id)
+    gate = path[-2] if len(path) > 1 else None
+    on_way = [r for r in path[1:-1] if r != gate] or [r for r in path[1:-1]]
+    if on_way:
+        river = rooms[rng.choice(on_way)]
+        _become(rng, content, river, RIVER)
+        river.river = True
+        river.across = next(d for d, e in river.exits.items() if e.to == path[path.index(river.id) + 1])
+    else:
+        river = None
+    near = {river.id, *(e.to for e in river.exits.values())} if river else set()
+    spots = [r for r in rooms if r.id not in (0, end_id) and r.id not in near]
+    if spots:
+        vent = rng.choice(spots)
+        _become(rng, content, vent, VENT)
+        vent.vent = "live"
+        key = loot.produce(rng, content, state.rares, [rng.choice(CACHE_SLOTS)], "chest")
+        vent.features.append(Feature(name=CACHE, loot=[key] if key else [], gold=rng.randint(10, 25), trapped=True))
 
 
-def crossing(state: GameState, content: Content, direction: str) -> list[Event]:
-    """Come into this room going `direction`: the puddle in its doorway, its river, its unseen vent, a roll each."""
+def blocked(state: GameState, direction: str) -> bool:
+    """Whether the way `direction` is across this room's river from you, and you haven't crossed it yet."""
     room = state.room
-    came = room.exits.get(OPPOSITE[direction])
-    rng = dice.stream(state.seed, "hazard", state.turn, state.reroll, room.id)
-    events = []
-    for kind, there in (("puddle", bool(came and came.puddle)), ("river", room.river), ("spot", room.vent == "hidden")):
-        if there:
-            events += _roll(state, content, rng, kind)
-    return events
+    return room.river and not room.stones and (direction == room.across) != room.far
+
+
+def came_in(state: GameState, direction: str) -> None:
+    """You've come into this room going `direction`: on which bank of its river."""
+    room = state.room
+    if room.river:
+        room.far = OPPOSITE[direction] == room.across
+
+
+def crossings(state: GameState, content: Content) -> list[Action]:
+    """The ways over this room's river, if there's somewhere you'd go on its other side."""
+    room = state.room
+    if not room.river or room.stones:
+        return []
+    ward = statuses.warded(state, content, "poison")
+    wade = "poisoned already" if statuses.has(state, "poison") else \
+        f"your {ward.name} keeps it off" if ward else "you'll be poisoned"
+    actions = [Action("cross:leap", "Leap the poison river", "agility"),
+               Action("cross:wade", "Wade across the poison river", wade)]
+    pole = next((content.item(k) for k in POLES if k in state.player.inventory), None)
+    if pole:
+        actions.append(Action("cross:vault", f"Vault the river with your {pole.name}", "no roll"))
+    return actions
+
+
+def cross(state: GameState, content: Content, rng: random.Random, how: str) -> list[Event]:
+    """Over the river: leaping (fall in, and you're poisoned, but over), wading, or vaulting. Either way you're on the
+    other bank, and you know its stepping stones now."""
+    room, player = state.room, state.player
+    room.far, room.stones = not room.far, True
+    if how == "vault":
+        return [Event("hazard", "You plant your pole in the riverbed and vault the poison clean over. You'll know the "
+                                "stepping stones from now on.")]
+    if how == "wade":
+        return [Event("hazard", "You wade across the poison river, gritting your teeth. You'll know the stepping "
+                                "stones from now on.")] + statuses.inflict(state, "poison", "The poison river", content)
+    roll = dice.check(rng, "agility (leap the river)", [("agility", player.agility)]
+                      + powers.roll_bonuses(state, content, "dodge"), DC["leap"])
+    if roll.success:
+        return [Event("hazard", "You leap the poison river from stone to stone, and land dry on the far bank.",
+                      dice=roll, data={"rerollable": True})]
+    return [Event("hazard", "A stepping stone rolls under your foot, and in you go. You scramble out on the far bank, "
+                            "dripping.", dice=roll, data={"rerollable": True})] + \
+        statuses.inflict(state, "poison", "The poison river", content)
 
 
 def disarm(state: GameState, content: Content, rng: random.Random) -> list[Event]:
-    """Work a seen vent shut: done, it's dead and there's XP for it; failed, it gets you (and is still there)."""
-    return _roll(state, content, rng, "disarm")
+    """Work a live vent shut: done, it's dead and there's XP for it; failed, it gets you (and it's still live)."""
+    player, room = state.player, state.room
+    roll = dice.check(rng, "wits (disarm the vent)", [("wits", player.wits)]
+                      + powers.roll_bonuses(state, content, "disarm"), DC["disarm"])
+    if roll.success:
+        room.vent = "dead"
+        player.xp += VENT_XP
+        return [Event("hazard", f"You jam the gas vent shut. It coughs once, and goes quiet for good. +{VENT_XP} XP.",
+                      dice=roll, data={"rerollable": True})]
+    return [Event("hazard", "The vent spits gas in your face while you work at it.", dice=roll,
+                  data={"rerollable": True})] + statuses.inflict(state, "poison", "The gas vent", content)
 
 
-def dozed(state: GameState) -> list[Event]:
-    """Resting in a room with a vent you never saw: it finds you asleep."""
-    state.room.vent = "seen"
-    return [Event("hazard", "As you doze, a gas vent you never saw breathes on you.")] + \
-        statuses.inflict(state, "poison", "The gas vent")
+def grabbed(state: GameState, content: Content) -> list[Event]:
+    """Searching what sits over a live vent: you get it, and a faceful of gas."""
+    return [Event("hazard", "The vent breathes a yellow-green cloud right in your face as you reach in.")] + \
+        statuses.inflict(state, "poison", "The gas vent", content)
 
 
 def facts(state: GameState) -> list[str]:
-    """What there is to say of this room's hazards that you know of, for a look around."""
+    """What there is to say of this room's river and vent, for a look around (and on the way in)."""
     room = state.room
-    said = ["A river of glowing poison runs across the room."] if room.river else []
-    said += {"seen": ["A gas vent hisses in the floor: you keep wide of it."],
+    said = []
+    if room.river:
+        said.append("A river of glowing poison cuts the room in two; you know its stepping stones." if room.stones
+                    else f"A river of glowing poison cuts the room in two: the way {room.across} is on the "
+                         f"{'near' if room.far else 'far'} bank.")
+    said += {"live": [f"A gas vent hisses in the floor, right under {CACHE}."],
              "dead": ["A dead gas vent, jammed shut."]}.get(room.vent, [])
-    puddles = [d for d, e in room.exits.items() if e.puddle]
-    if puddles:
-        said.append("A poison puddle lies across the doorway " + " and ".join(puddles) + ".")
     return said
 
 
-def _roll(state: GameState, content: Content, rng: random.Random, kind: str) -> list[Event]:
-    player = state.player
-    if kind != "disarm" and statuses.has(state, "poison"):  # (it can't do more to you: on you go)
-        if kind == "spot":
-            state.room.vent = "seen"  # (you smell it, poisoned or not)
-        return []
-    label, made, missed, by = SAID[kind]
-    stat = "wits" if kind in ("spot", "disarm") else "agility"
-    bonuses = [(stat, getattr(player, stat))] + powers.roll_bonuses(state, content, "disarm" if kind == "disarm"
-                                                                   else "search" if kind == "spot" else "dodge")
-    roll = dice.check(rng, label, bonuses, DC[kind])
-    if kind == "spot":
-        state.room.vent = "seen"
-    if roll.success:
-        if kind == "disarm":
-            state.room.vent = "dead"
-            player.xp += VENT_XP
-        return [Event("hazard", made, dice=roll, data={"rerollable": True, "hazard": kind})]
-    return [Event("hazard", missed, dice=roll, data={"rerollable": True, "hazard": kind})] + \
-        statuses.inflict(state, "poison", by)
+def _become(rng: random.Random, content: Content, room: Room, kind: str) -> None:
+    archetype = content.archetypes[kind]
+    room.archetype, room.name = kind, rng.choice(archetype.names)
+    room.features = [Feature(name=f) for f in rng.sample(archetype.features, min(2, len(archetype.features)))]
+
+
+def _path(rooms: list[Room], end_id: int) -> list[int]:
+    """The shortest way from the entrance to `end_id`, room by room."""
+    came: dict[int, int | None] = {0: None}
+    queue = deque([0])
+    while queue:
+        here = queue.popleft()
+        for exit_ in sorted(rooms[here].exits.values(), key=lambda e: e.to):
+            if exit_.to not in came:
+                came[exit_.to] = here
+                queue.append(exit_.to)
+    path, at = [], end_id
+    while at is not None and at in came:
+        path.append(at)
+        at = came[at]
+    return path[::-1]

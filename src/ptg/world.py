@@ -60,6 +60,8 @@ def build_floor(state: GameState, content: Content) -> None:
     max_distance = max(distance.values())
 
     rooms = _build_rooms(rng, content, theme, coords, neighbors, distance, end_id, boss)
+    if theme.status == "poison":  # a river on the way to the boss, a gas vent somewhere else
+        hazards.shape(state, content, rooms, end_id)
     if boss:
         gate = next(iter(neighbors[end_id]))
         for exit_ in rooms[gate].exits.values():
@@ -87,8 +89,6 @@ def build_floor(state: GameState, content: Content) -> None:
     if shop:
         rooms.append(shop)
     npcs.place(state, content, rooms, end_id)  # Lucky Lenny, Swoogy, King Mouse at the stairs...
-    if theme.status == "poison":  # puddles in its doorways, rivers, gas vents
-        hazards.place(state, rooms, end_id)
 
     for room in rooms:
         layout.build(dice.stream(state.seed, "layout", state.floor, room.id), room,
@@ -347,7 +347,10 @@ def _shop(state: GameState, content: Content, rooms: list[Room], end_id: int) ->
     rng = dice.stream(state.seed, "shop", state.floor)
     keepers = [k for k in (loot.SHOPKEEPER, loot.SHINY) if k in content.monsters]
     status = content.themes[state.theme].status  # (a floor with poison of its own: a shop more often, with the cure)
-    if not keepers or rng.random() >= (loot.STATUS_SHOP_CHANCE if status else loot.SHOP_CHANCE):
+    below = state.themes[state.floor] if state.floor < len(state.themes) else ""  # (and the floor above it: always)
+    chance = loot.STATUS_SHOP_CHANCE if status else \
+        loot.BEFORE_STATUS_SHOP_CHANCE if below and content.themes[below].status else loot.SHOP_CHANCE
+    if not keepers or rng.random() >= chance:
         return None
     keeper = keepers[-1] if len(keepers) > 1 and rng.random() < loot.SHINY_CHANCE else keepers[0]
     taken = {(r.x, r.y) for r in rooms}

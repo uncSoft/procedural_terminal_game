@@ -127,7 +127,7 @@ def choose(state: GameState, content: Content, who: Player | None = None) -> str
     # Missing the boss's key with the whole floor seen: back to look properly where it walked past things.
     hunting = bool(who) and state.boss_floor and key not in player.inventory \
         and _route_to_unexplored(state, content) is None
-    for prefix in ("take", "equip:", "search:", "chest", "fountain", "disarm"):  # (take: one thing, take_all: the lot)
+    for prefix in ("take", "equip:", "disarm", "search:", "chest", "fountain"):  # (take: one thing, take_all: the lot)
         found = next((a for a in actions if a.startswith(prefix) and
                       (not who or hunting or a == f"take:{key}"
                        or who.once((state.floor, state.room_id, a), habits.thorough))), None)
@@ -153,13 +153,16 @@ def choose(state: GameState, content: Content, who: Player | None = None) -> str
     direction = _route_to_unexplored(state, content) if explore else None
     if direction and f"go:{direction}" in actions:
         return f"go:{direction}"
+    cross = next((a for a in ("cross:vault", "cross:leap") if a in actions), None)  # (a river in the way: never wade)
+    if cross and direction and direction in state.room.exits:
+        return cross
     if "descend" in actions:
         return "descend"
     stairs = next((r.id for r in state.rooms if r.fixture == "stairs"), None)
     if stairs is not None:
         step = _route_to(state, stairs)
         if step:
-            return f"go:{step}"
+            return f"go:{step}" if f"go:{step}" in actions or not cross else cross
     step = _route_to_unsearched(state) if hunting else None
     if step and f"go:{step}" in actions:
         return f"go:{step}"

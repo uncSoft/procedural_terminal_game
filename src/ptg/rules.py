@@ -22,7 +22,7 @@ from .creative import perform_creative as _creative
 from .events import Action, Event
 from .intent import Intent
 from .inventory import PICKUPS
-from .models import DELTA, DIRECTIONS, OPPOSITE, Exit, Feature, GameState, MonsterState, Room
+from .models import DELTA, DIRECTIONS, OPPOSITE, Exit, Feature, GameState, MonsterState, Room, Ware
 from .scene import RoomView
 from .text import a, cap, the
 from .world import build_floor, monster_for, tier_for
@@ -118,12 +118,15 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
     actions += inventory.choices(state, content)  # better gear in your pack, to put on
     for index, feature in room.visible_features():
         if not feature.searched:
-            actions.append(Action(f"search:{index}", f"Search {the(feature.name)}", TIP if feature.told else ""))
+            gassed = "the vent's live: it'll gas you" if feature.trapped and room.vent == "live" else ""
+            actions.append(Action(f"search:{index}", f"Search {the(feature.name)}",
+                                  gassed or (TIP if feature.told else "")))
     actions += _fixture_actions(state, content)
-    if room.vent == "seen":
+    if room.vent == "live":
         careful = powers.roll_bonuses(state, content, "disarm")
         actions.append(Action("disarm", "Disarm the gas vent",
                               " · ".join(["wits", *(f"{name} +{n}" for name, n in careful)])))
+    actions += hazards.crossings(state, content) if any(hazards.blocked(state, d) for d in room.exits) else []
     theme = content.themes[state.theme]
     for direction in DIRECTIONS:
         exit_ = room.exits.get(direction)
@@ -140,16 +143,18 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
                                       f"cracked! · {bombs}" if exit_.cracked else f"two bombs break it · {bombs}"))
             continue
         if exit_.locked:
-            if theme.key_item in player.inventory:
+            if theme.key_item in player.inventory and not hazards.blocked(state, direction):
                 actions.append(Action(f"go:{direction}", f"Unlock the door {direction}", "boss"))
+            continue
+        if hazards.blocked(state, direction):  # (across the river: cross it first)
             continue
         hint = ""
         if dest.fixture and not dest.fixture_used:
             hint = {"stairs": "stairs down"}.get(dest.fixture, dest.fixture)
         elif dest.visited and dest.monster and dest.monster.hostile:
             hint = "danger"
-        wet = ["poison puddle: jump it" if exit_.puddle else "", "poison river" if dest.visited and dest.river else ""]
-        hint = " · ".join(filter(None, [hint, *wet]))
+        if dest.visited and (dest.river and not dest.stones or dest.vent == "live"):
+            hint = " · ".join(filter(None, [hint, "poison river" if dest.river else "live gas vent"]))
         where = f" to {the(dest.name)}" if dest.visited else ""
         actions.append(Action(f"go:{direction}", f"Go {direction}{where}", hint))
     for item in consumables:
@@ -170,7 +175,7 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
             sign = TIP if direction == told else ("a draft!" if room.draft == direction else "")
             actions.append(Action(f"bomb:{direction}", f"Bomb the {direction} wall",
                                   f"{sign} · {count}" if sign else count))
-    if not room.rested and player.hp < player.max_hp and room.vent != "seen":
+    if not room.rested and player.hp < player.max_hp and room.vent != "live":
         actions.append(Action("rest", "Rest a while", "safe here" if safe_to_rest(state) else "risky"))
     if room.monster:  # last of all: it isn't fighting you (and one click shouldn't end a quest)
         monster = room.monster
@@ -376,6 +381,8 @@ def _perform(state: GameState, content: Content, action_id: str) -> list[Event]:
         events = _rest(state, content, rng)
     elif verb == "disarm":
         events = hazards.disarm(state, content, rng) + check_level(state, content)
+    elif verb == "cross":
+        events = hazards.cross(state, content, rng, arg)
     elif verb == "ask":
         events, took_turn = _ask(state, content, rng)
     elif verb == "talk":  # their own words, for nothing: no roll, no turn
@@ -628,19 +635,19 @@ def travel(state: GameState, content: Content, direction: str, to: int) -> list[
                           "journal": journal, "direction": direction})]
     if room.monster and room.monster.hostile:
         events += telegraph(state, content) + stand_firm_warning(state, content)
-    return events + statuses.tick(state, "step") + hazards.crossing(state, content, direction)
+    hazards.came_in(state, direction)
+    return events + statuses.tick(state, "step")
 
 
 # Quick travel: back to a room you've been in, from the map. Now and then something's wandered into a room on the way
 # (TRAVEL_ODDS a trip), but no more than TRAVEL_MEETINGS times a floor, so it's no way to farm a floor for XP.
 TRAVEL_ODDS, TRAVEL_MEETINGS = 0.2, 2
-ON_THE_WAY = {"hazard", "status", "warning", "guarded"}  # what quick travel tells of the rooms it passes through
 
 
 def journey(state: GameState, target: int) -> list[tuple[str, int]] | None:
     """The way to `target` as (direction, room) steps, through rooms you've been in, by doors standing open, past
-    nothing hostile (nor into it). None if there's no such way, or you can't set off now (a fight, a scene, a perk to
-    pick)."""
+    nothing hostile (nor into it), and not over a river you haven't crossed yet. None if there's no such way, or you
+    can't set off now (a fight, a scene, a perk to pick)."""
     if state.in_combat or state.scene or state.pending_perks or state.over:
         return None
     if not 0 <= target < len(state.rooms) or target == state.room_id or not state.rooms[target].visited:
@@ -660,8 +667,11 @@ def journey(state: GameState, target: int) -> list[tuple[str, int]] | None:
                 steps.append((direction, room_id))
                 room_id = back
             return steps[::-1]
-        for direction, exit_ in state.rooms[room_id].exits.items():
-            if not exit_.locked and exit_.to not in came and clear(state.rooms[exit_.to]):
+        room = state.rooms[room_id]
+        far = room.far if came[room_id] is None else OPPOSITE[came[room_id][0]] == room.across  # (its river's bank)
+        for direction, exit_ in room.exits.items():
+            wet = room.river and not room.stones and (direction == room.across) != far
+            if not exit_.locked and not wet and exit_.to not in came and clear(state.rooms[exit_.to]):
                 came[exit_.to] = (direction, room_id)
                 queue.append(exit_.to)
     return None
@@ -674,11 +684,10 @@ def _journey(state: GameState, content: Content, rng: random.Random, target: int
     floor = str(state.floor)
     meet = len(steps) > 1 and state.wandered.get(floor, 0) < TRAVEL_MEETINGS and rng.random() < TRAVEL_ODDS
     stop = rng.randrange(len(steps) - 1) if meet else len(steps) - 1
-    ticks, crossed = [], []  # (poison burns all the way, each room passed a step; and what's on the way, crossed)
+    ticks = []  # (poison burns all the way: each room passed is a step)
     for direction, to in steps[:stop + 1]:
-        for event in travel(state, content, direction, to):
-            (ticks if event.kind == "status_tick" else crossed if event.kind in ON_THE_WAY else []).append(event)
-    ticks = crossed + statuses.summed(ticks)
+        ticks += [e for e in travel(state, content, direction, to) if e.kind == "status_tick"]
+    ticks = statuses.summed(ticks)
     room, goal = state.room, state.rooms[target]
     if meet:
         state.wandered[floor] = state.wandered.get(floor, 0) + 1
@@ -723,6 +732,7 @@ gone: run 59's Swoogy), and on a return what happened here since. (room_facts is
     for a question about it.)"""
     room = state.room
     lines = ["A secret room, walled off until a bomb opened it."] if room.secret else []
+    lines += hazards.facts(state)  # (a river to cross, a vent: seen as you come in)
     if room.shop:
         lines.append(shop_facts(room.shop, content))
     monster = room.monster
@@ -831,6 +841,11 @@ def _descend(state: GameState, content: Content) -> list[Event]:
 # --- items and searching -----------------------------------------------------
 
 def _search_feature(state: GameState, content: Content, feature: Feature) -> list[Event]:
+    gassed = hazards.grabbed(state, content) if feature.trapped and state.room.vent == "live" else []
+    return _searched(state, content, feature) + gassed
+
+
+def _searched(state: GameState, content: Content, feature: Feature) -> list[Event]:
     feature.searched = True
     state.player.bump("searched")
     events = []
@@ -902,10 +917,12 @@ def _ask(state: GameState, content: Content, rng: random.Random) -> tuple[list[E
     room, player = state.room, state.player
     if npcs.tooth_first(state):
         return npcs.talk(state, content, npcs.LENNY), False
+    offer = []
     if room.monster is None and room.shop:  # (she's no monster, but she knows her floor as well as any)
         keeper = content.monster(room.shop.keeper)
         monster = MonsterState(key=keeper.key, name=keeper.name, hp=keeper.hp, max_hp=keeper.hp, hostile=False)
         room.shop.asked = True
+        offer = _snakeskin(state, content)
     else:
         monster = room.monster
         monster.asked = True
@@ -914,16 +931,17 @@ def _ask(state: GameState, content: Content, rng: random.Random) -> tuple[list[E
               if not (monster.key == npcs.LENNY and f and npcs.BAD_TOOTH in f.loot)]
     weak = _weak_spots(state, content) if talks else []
     if not (hidden or weak):  # nothing it could tell you, so nothing to roll for
-        return [Event("ask", f"{cap(the(monster.name))} doesn't know anything about this floor that you don't." if talks
-                      else f"You watch {the(monster.name)} for a while. It doesn't lead you anywhere new.")], True
+        return offer + [Event("ask", f"{cap(the(monster.name))} doesn't know anything about this floor that you don't."
+                              if talks else f"You watch {the(monster.name)} for a while. It doesn't lead you anywhere "
+                                            "new.")], True
     bonuses = [("wits", player.wits)] + powers.roll_bonuses(state, content, "ask")
     roll = dice.check(rng, "wits (ask)" if talks else "wits (watch it)", bonuses, ASK_DC,
                       advantage=int(talks and "silver_tongue" in player.traits))
     events = fortune(state, roll)
     if not roll.success:
-        return [Event("ask", f"{cap(the(monster.name))} hums and haws, and tells you nothing you can use." if talks
-                      else f"You watch {the(monster.name)} for a while, but it never goes anywhere that matters.",
-                      dice=roll, data={"rerollable": True})] + events, True
+        return offer + [Event("ask", f"{cap(the(monster.name))} hums and haws, and tells you nothing you can use."
+                              if talks else f"You watch {the(monster.name)} for a while, but it never goes anywhere "
+                                            "that matters.", dice=roll, data={"rerollable": True})] + events, True
     if hidden:
         room, feature = rng.choice(hidden)
         told = (_tell_feature(state, content, monster, talks, room, feature) if feature
@@ -935,7 +953,23 @@ def _ask(state: GameState, content: Content, rng: random.Random) -> tuple[list[E
         told = [Event("tip", f"{cap(the(monster.name))} tells you a thing or two about {the(target.name)} "
                              f"{where}.")] + discover(state, target, tag)
     told[0].dice, told[0].data["rerollable"] = roll, True
-    return told + events, True
+    return offer + told + events, True
+
+
+def _snakeskin(state: GameState, content: Content) -> list[Event]:
+    """Asked what she knows on the floor above one with poison of its own, a shopkeeper brings out the old snakeskin
+    she found (Serpentis's, though she doesn't know it), once a run, and puts it on her counter: a bargain, she says.
+    It doesn't take the place of anything she has."""
+    shop, below = state.room.shop, state.themes[state.floor] if state.floor < len(state.themes) else ""
+    if not below or not content.themes[below].status or loot.SNAKESKIN in state.rares \
+            or loot.SNAKESKIN not in content.items:
+        return []
+    state.rares.append(loot.SNAKESKIN)
+    shop.wares.append(Ware(item=loot.SNAKESKIN, price=loot.SNAKESKIN_PRICE))
+    keeper = content.monster(shop.keeper).name
+    return npcs.say(state, content, shop.keeper, "snakeskin") + [
+        Event("ask", f"{keeper}'s fingers tingle where they touched the snakeskin, but she doesn't say a word. It's "
+                     f"on her counter now: {loot.SNAKESKIN_PRICE} gold.", data={"item": loot.SNAKESKIN})]
 
 
 def _hidden_things(state: GameState) -> list[tuple[Room, Feature | None]]:
@@ -1212,6 +1246,12 @@ def why_not(state: GameState, content: Content, action_id: str) -> str:
             return f"You're not hurt, so you keep {the(item.name)}."
         if item.kind != "consumable":
             return f"{cap(the(item.name))} is no use on its own: try it on something."
+    if verb == "go" and arg in room.exits and hazards.blocked(state, arg):
+        return f"The way {arg} is across the poison river: leap it, wade it, or vault it first."
+    if verb == "cross" and not hazards.crossings(state, content):
+        return "There's no river here to cross." if not room.river else "You know its stepping stones: just walk."
+    if verb == "disarm" and room.vent != "live":
+        return "There's no live gas vent here."
     if verb in ("attack", "throw", "distract") or (verb == "bomb" and not arg):
         if verb == "bomb" and not player.bombs:
             return "You have no bombs."
@@ -1270,7 +1310,7 @@ def why_not(state: GameState, content: Content, action_id: str) -> str:
             return "You've rested here already."
         if player.hp >= player.max_hp:
             return "You're not hurt: there's nothing to rest off."
-        if room.vent == "seen":
+        if room.vent == "live":
             return "Not with a gas vent hissing beside you: disarm it first."
     if verb == "search_room":
         if state.in_combat:
@@ -1508,7 +1548,7 @@ def _rest(state: GameState, content: Content, rng: random.Random) -> list[Event]
     uneasy = f" Being {sick}, you barely sleep: it does you half the good." if sick else ""
     events = [Event("rest", f"You rest for a while and recover {healed} HP ({player.hp}/{player.max_hp}).{meal}"
                             f"{uneasy}")]
-    return events + (hazards.dozed(state) if room.vent == "hidden" else [])
+    return events
 
 
 def _fixture(state: GameState, content: Content, rng: random.Random, verb: str) -> list[Event]:

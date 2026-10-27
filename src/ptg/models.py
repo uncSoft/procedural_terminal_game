@@ -60,6 +60,7 @@ class Feature(BaseModel):
     pos: tuple[int, int] = (0, 0)
     used: str = ""  # what a stunt did with it; once used, it's spent as a prop
     told: str = ""  # who told you something's hidden here (it's on your map)
+    trapped: bool = False  # right over a live gas vent (hazards.py): searched before it's disarmed, it gasses you
 
 
 class Exit(BaseModel):
@@ -67,7 +68,6 @@ class Exit(BaseModel):
     locked: bool = False
     key: str = ""  # what opens it when locked: the dungeon's own key, or "small_key" for a shop's door
     cracked: bool = False  # a shop door one bomb has had a go at: the next one breaks it
-    puddle: bool = False  # a poison puddle across the doorway, to jump (hazards.py)
 
 
 class Ware(BaseModel):
@@ -112,8 +112,11 @@ class Room(BaseModel):
     draft: str = ""  # the wall you felt a draft through: the secret room is behind it
     told: str = ""  # who told you about this secret room (it's on your map)
     shop: Shop | None = None  # a shopkeeper and her wares, behind a locked door (fixture "shop")
-    vent: Literal["", "hidden", "seen", "dead"] = ""  # a gas vent in the floor (hazards.py), and what you know of it
-    river: bool = False  # a poison river across it, to cross coming in (hazards.py)
+    vent: Literal["", "live", "dead"] = ""  # a gas vent in the floor, under a cache, until it's disarmed (hazards.py)
+    river: bool = False  # a poison river across it (hazards.py): the way on, `across`, is on its far bank
+    across: str = ""
+    far: bool = False  # you're on the river's far bank
+    stones: bool = False  # you've crossed it once, and know its stepping stones: no crossing it needs now
 
     @model_validator(mode="after")
     def _mark_warden(self) -> Room:

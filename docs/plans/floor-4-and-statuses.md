@@ -37,11 +37,12 @@ A row in `src/ptg/data/statuses.toml`:
 name = "Poisoned"
 icon = "☠"                  # on the HUD, and beside a monster's name
 colour = "#b55088"
-ticks = ["step", "round"]   # when it does its thing: a step, a fight's round
-damage = 1                  # each tick
+ticks = ["step", "round"]   # when it does its thing: a step, a fight's turn
+damage = 2                  # each tick
 lethal = false              # never takes you below 1 HP
-disadvantage = true         # your rolls, while it lasts
-blurb = "Venom in your blood: your hands shake (your rolls are at a disadvantage), and every step costs you health."
+penalty = 2                 # off your rolls, while it lasts (or disadvantage = true: two dice, the worse kept)
+shrine = true               # a shrine's prayer cures it
+blurb = "Venom in your blood: your hands shake (-2 to your rolls), and every step and every turn of a fight costs you health."
 ```
 
 Anyone can carry one: the player (`Player.statuses`) and a monster (`MonsterState.statuses`). Some of what's in the
@@ -53,9 +54,10 @@ Items say what they do with statuses, also in data:
 ```toml
 [item.pure]
 cures = ["poison"]          # used up: ends these
-guards = { poison = 2 }     # ...and stops the next two before they take hold
-[item.varia_cloak]
-wards = ["poison_ground"]   # while you wear it: rivers and puddles can't poison you
+guards = { poison = 1 }     # ...and stops the next one before it takes hold
+[item.shed_snakeskin]
+wards = ["poison"]          # ✅ built: while it works for you (worn, for gear; carried, for anything else), poison
+                            # can't take hold of you at all: statuses.inflict checks what wards it, for any status
 [item.bloodbath]
 inflicts = { poison = 1 }   # its hits poison what they hit (its maker wrote that it does)
 ```
@@ -98,11 +100,15 @@ inflicts = { poison = 1 }   # its hits poison what they hit (its maker wrote tha
   hit (a trick, like `steal` and `tangle`: `tricks = ["venom"]` in monsters.toml). Serpentis has `venom` for now:
   `deadly_venom` took its floor-3 lair from 19% of fights lost to 50%, plain `venom` to 32% (20% with a Pure in your
   pack). `deadly_venom` waits for its floor-4 self (§4.6).
-- ✅ **Gas vent traps**: a vent in a room's floor, seen or found by searching. **Disarm** it (a wits roll; the ten-foot
-  pole's +2 careful counts) or walk wide of it. A failed disarm, or stepping on one unseen, poisons you.
-- ✅ **Poison puddles across doorways**: some passages between rooms have one. **Jump it** (an agility roll) or wade
-  through (poisoned). Fail the jump and you land in it. Going round by another way is always allowed.
-- ✅ **Poison rivers**: rooms with a river across them (Norfair). Crossing is like a puddle, but harder.
+- ✅ **Nothing rolls as you walk in** (your playtest: two surprise rolls in one step, puddle then river, was no fun).
+  Each Norfel has **one river and one vent**, never next door to each other, and no puddles; you see them as you come
+  in, and choose (`hazards.py`).
+- ✅ **The poison river** is in a room on the way to the boss: the way on is on its far bank. **Leap** it (agility 12:
+  miss, and you're poisoned, but over), **wade** it (poisoned for sure), or **vault** it with a ten-foot pole (no
+  roll). Over once, you know its stepping stones: it's a stroll from then on, both ways (quick travel too).
+- ✅ **The gas vent** sits under a crust of crystals with something good in it (a strong potion, a rare thing, or a
+  Pure, and gold). **Disarm** it first (wits 13; the ten-foot pole's +2; 15 XP; a miss gasses you), or grab what's
+  there and take the gas. No resting beside a live vent.
 - **Needles**: on floor 4, a chest's needle trap poisons as well as hurting.
 
 ### 3.2 What it does
@@ -132,9 +138,12 @@ inflicts = { poison = 1 }   # its hits poison what they hit (its maker wrote tha
 
 | Ward | What | Where from |
 |---|---|---|
-| **Riverwalker Cloak** (armor, +1) | rivers and puddles can't poison you (bites and vents still can) | floor 4's secret room, or a warden |
+| ✅ **Shed Snakeskin** (armor, +2; built) | poison can't take hold of you while you wear it: not a bite, the river or the vent | **Granny, on floor 3**: asked what she knows, she brings out "this old smelly snakeskin, HUGE, purple stains all over" (her fingers tingle, she says nothing) for 80 gold, on top of her wares. Floor 3 always has her shop now. The forward-thinking buy: you haven't met poison yet |
 | **Bezoar** (rare trinket) | a guard back at every shrine you pray at | chests on floor 4 |
-| **Serpentis's shed skin** (trinket) | venomous bites poison you half as often | floor 3's secret room: a warning of what's below, and a help |
+
+Why +2 and poison-proof, not +1 and half poison: against the floor-3 armor everyone has by then (+3), the bot died on
+Norfel 42% of the time in a +1 skin that halved poison, 28% in its +3 armor; a +2 skin that keeps poison off
+altogether, 29%. A real trade: a point of defense for no poison.
 
 ### 3.5 The eggplant (an easter egg)
 
@@ -235,8 +244,7 @@ Its rule (one weakness, one rule, as in `game-design.md`'s bosses): ❓ **"It sm
 Its sword, **Bloodbath** (2d7+2), poisons what it hits: monsters can be poisoned too (they tick each round, and at a
 disadvantage to hit you).
 
-**The floor-3 lair we just built** stops making sense once Serpentis has a floor of its own. Instead, floor 3's
-secret room sometimes holds **Serpentis's shed skin** (§3.4).
+**The floor-3 lair** is gone: Serpentis has a floor of its own. Its shed skin is Granny's to sell on floor 3 (§3.4).
 
 ### 4.7 Economy
 
@@ -258,11 +266,9 @@ things before you went down?
    (`themes.toml`: always the fourth floor, `status = "poison"`), seven room kinds in `rooms.toml` (a bubbling cavern,
    a poison ford, a vent field, a pillar hall, an egg chamber, a bird-headed statue's alcove, Serpentis's lair), its
    look (`room_picture.py`: purple bubbled rock, glowing pink pools, grey pillars), 10 rooms, always a shrine, a shop
-   half the time with two Pure, the Watcher's Orb for its key (an old bird-headed statue's: Nintendo's own names stay out of the game), holy water for its trinket. Hazards (`hazards.py`): a
-   quarter of its doorways have a puddle to jump (agility 10), a ford's river to cross (agility 12), gas vents in a
-   quarter of its rooms and every vent field (wits 12 to spot coming in; seen, no resting beside one until it's
-   disarmed, wits 13, a ten-foot pole +2, 15 XP). Each a roll you can spend Fate on; no roll if you're poisoned
-   already. The floor-3 lair is gone. Test rooms: `ptg --test-room serpentis` (its lair, floor 4).
+   half the time with two Pure, the Watcher's Orb for its key (an old bird-headed statue's: Nintendo's own names
+   stay out of the game), holy water for its trinket. One river on the way and one trapped vent (§3.1), and Granny's
+   snakeskin a floor above (§3.4). The floor-3 lair is gone. Test rooms: `ptg --test-room serpentis` (its lair).
 3. **Monsters and the boss** (started): ✅ Norfel's monsters for now are the dungeons' tier 3, deeper (x1.3 HP, +1
    to hit and damage; the plan's x1.6 and +1 defense killed the bot three times in ten there), half of them
    venomous ("Venomous Troll"), elites a quarter of the time. ✅ Serpentis at its maker's numbers: its bite poisons a
@@ -291,6 +297,11 @@ Each step ships on its own, and the game stays playable in between.
 | plain bot, 3 floors, bosses at 68 HP | 40% | 18% | 41% | 17% | |
 | plain bot, 4 floors | 23% | 18% | 41% | 19% | 42% (Serpentis 25) |
 | average habits, 4 floors (200 seeds) | 5% | 27% | 66% | 51% | 58% |
+| plain bot, one river and one vent, no surprise rolls (200 seeds) | 30% | 16% | 41% | 16% | 27% |
+| careful / average / sloppy habits, the same | 24% / 7% / 2% | | | | 36% / 42% / 67% |
+
+Floor 4 alone (bots dropped in with a floor-4 kit): 45% died with the old hazards (4.4 poisonings a visit, 3.6 of them
+walking into rooms; 30% of the HP lost to poison's burn), 28% now (1.8, from the river, the vent and bites; 13%).
 
 Poison, plain bot: poisoned a median **3 times** on floor 4 (target 2-4), **11% of the HP lost** to its burn (target
 10-25%), cured by Pure about one time in three and by a shrine the rest. Deaths with poison in you: most of floor 4's,

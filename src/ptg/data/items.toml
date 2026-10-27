@@ -1,7 +1,8 @@
 # kind: weapon | armor | consumable | key | trinket
 # Weapons roll `damage` and add the player's might. Armor adds `defense`.
 # Consumables restore `heal` HP, let you escape a fight if `escape = true`, or cure what ails you (`cures`, with
-# `guards` against the next of it: see statuses.toml).
+# `guards` against the next of it: see statuses.toml). Anything can ward a status off for good while it works for you
+# (`wards`: worn, for armor and weapons; carried, for anything else).
 # `tags` matter for creative actions: using a tagged thing earns a flair bonus,
 # and a tag a monster is weak to gives advantage and bigger effects.
 
@@ -166,6 +167,18 @@ name = "Barnacled Reliquary Key"
 kind = "key"
 tags = ["metal"]
 desc = "Opens the Abbot's sanctum. Crusted with things that used to be alive."
+
+# Serpentis's, though nobody says so: Granny brings it out on floor 3, asked what she knows (a recolour of JT's
+# Leather Jerkin)
+[item.shed_snakeskin]
+name = "Shed Snakeskin"
+kind = "armor"
+defense = 2
+tier = 3
+tags = ["smelly", "leather"]
+desc = "An old snakeskin, HUGE, smelly, and stained purple all over. Worn as a cloak it's thinner than good armor, but poison can't take hold of you: not a bite, not a river, not a vent's gas."
+wards = ["poison"]
+found = ["quest"]
 
 # Norfel's key: an old bird-headed statue's offering (the one in the Old Watcher's alcove)
 [item.watchers_orb]

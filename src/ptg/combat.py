@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import random
 
-from . import dice, inventory, loot, powers, statuses
+from . import dice, hazards, inventory, loot, powers, statuses
 from .content import Content, ItemDef
 from .events import Event
 from .models import GameState, MonsterState
@@ -359,7 +359,8 @@ def _tricks(state: GameState, content: Content, rng: random.Random, monster: Mon
     tricks = tricks_of(monster, content)
     spat = "venom_spit" in tricks and heavy
     if "deadly_venom" in tricks or spat or ("venom" in tricks and rng.random() < VENOM):
-        events += statuses.inflict(state, "poison", cap(the(monster.name)) + ("'s spit" if spat else "'s bite"))
+        events += statuses.inflict(state, "poison", cap(the(monster.name)) + ("'s spit" if spat else "'s bite"),
+                                   content)
     return events
 
 
@@ -405,7 +406,7 @@ def dodge(state: GameState, content: Content, rng: random.Random) -> list[Event]
 
 
 def flee_direction(state: GameState) -> str | None:
-    open_exits = [(d, e) for d, e in state.room.exits.items() if not e.locked]
+    open_exits = [(d, e) for d, e in state.room.exits.items() if not e.locked and not hazards.blocked(state, d)]
     for direction, exit_ in open_exits:
         if exit_.to == state.prev_room_id:
             return direction

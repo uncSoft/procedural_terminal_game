@@ -41,13 +41,16 @@ def in_the_shop(content, keeper: str = loot.SHOPKEEPER):
     return state, room.shop
 
 
-def test_shops_are_rare_and_kamultruks_rarer(content):
-    keepers, count = Counter(), 0
+def test_shops_are_rare_and_kamultruks_rarer_but_always_above_the_poison(content):
+    keepers, count, above = Counter(), 0, 0
     for state in floors(content, range(300)):
+        if state.floor == 3:  # (the floor above Norfel: always a shop, for Granny's snakeskin)
+            above += any(r.shop for r in state.rooms)
+            continue
         count += 1
         keepers.update(r.shop.keeper for r in state.rooms if r.shop)
     shops = sum(keepers.values())
-    assert 0.18 < shops / count < 0.35 and 0.05 < keepers[loot.SHINY] / shops < 0.25
+    assert 0.18 < shops / count < 0.35 and 0.05 < keepers[loot.SHINY] / shops < 0.25 and above == 300
 
 
 def test_a_shop_changes_nothing_else_on_its_floor(content, monkeypatch):

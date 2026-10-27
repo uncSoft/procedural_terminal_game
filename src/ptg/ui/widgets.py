@@ -392,9 +392,11 @@ def item_note(content: Content, key: str) -> str:
     shown = [p for p in item.powers if p != "cursed"]
     if item.kind == "trinket" and shown:
         return curse + powers.SHORT[shown[0]] + (f" ({item.damage})" if shown[0] == "throw" else "")
+    wards = "".join(f" · {w}" for w in powers.ward_words(item))
     return curse + {"weapon": f"{item.damage} damage", "armor": f"+{item.defense} defense", "key": "a key",
-                    "consumable": "escape a fight" if item.escape else f"heals {item.heal}",
-                    "trinket": "trinket"}[item.kind]
+                    "consumable": "escape a fight" if item.escape else f"heals {item.heal}" if item.heal else
+                    f"cures {' and '.join(item.cures)}" if item.cures else "a consumable",
+                    "trinket": "trinket"}[item.kind] + wards
 
 
 def power_lines(content: Content, key: str) -> Text:

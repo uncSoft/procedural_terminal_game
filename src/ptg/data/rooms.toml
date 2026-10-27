@@ -199,7 +199,7 @@ features = ["a stepping stone", "a heap of washed-up junk", "the far bank"]
 decor = "rubble embers"
 names = ["Vent Field", "Hissing Flats"]
 blurb = "The floor is cracked with vents that hiss yellow-green gas in slow puffs. Your eyes water before you're three steps in."
-features = ["a dead vent", "a crust of yellow crystals", "a skeleton that didn't hold its breath"]
+features = ["a cold, dead vent", "a ring of stained rocks", "a skeleton that didn't hold its breath"]
 
 [archetype.pillar_hall]
 decor = "pillars"

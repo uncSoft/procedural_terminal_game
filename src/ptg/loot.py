@@ -79,6 +79,9 @@ SHOP_CHANCE, SHINY_CHANCE = 0.25, 0.15  # a floor has a shop; of the shops, how 
 STATUS_SHOP_CHANCE = 0.5  # a floor with a status of its own (Norfel's poison) has a shop more often
 GRISTLE_RARE = 1 / 3  # how often Granny Gristle has something rare where her trinket would be
 STOCK = {"potion": 2, "cure": 2}  # how many of a ware she has: one of anything else
+# On the floor above one with poison of its own, a shop always (rules._ask: asked, she brings out the snakeskin).
+BEFORE_STATUS_SHOP_CHANCE = 1.0
+SNAKESKIN, SNAKESKIN_PRICE = "shed_snakeskin", 80
 SHINY_WARES = ["potion 2+", "gear 3+", "rare", "rare"]
 FINDS = ["food 0", "food 0", "potion 1", "escape 1", "trinket"]  # what a stunt that pays off can turn up
 EVERYDAY = "floor"  # the place of a floor's scattered loot, a monster's drop or a find: no rare things here

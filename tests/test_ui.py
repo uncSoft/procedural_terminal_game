@@ -86,9 +86,10 @@ async def test_a_run_in_progress_comes_first_and_picks_up_where_it_was():
     async with app.run_test(size=(130, 44)) as pilot:
         await pilot.pause(0.3)
         title = app.screen
-        assert [w.id for w in title.query_one("#menu").children][:3] == ["continue", "run-info", "new"]
+        assert [w.id for w in title.query_one("#menu").children][:2] == ["continue", "new"]
+        assert title.query_one("#run-info").display
         assert app.focused.id == "continue" and str(title.query_one("#new").label) == "New run"
-        assert "Floor 1/3" in str(title.query_one("#run-info").render())
+        assert "Floor 1/4" in str(title.query_one("#run-info").render())
         await pilot.press("n")  # a new run, not without asking
         await pilot.pause(0.3)
         assert isinstance(app.screen, AbandonScreen)
@@ -1051,11 +1052,13 @@ async def test_a_shop_from_its_door_to_its_counter(monkeypatch):
         await pilot.pause(0.5)
         assert isinstance(app.screen, ShopScreen)
         first = shop.shop.wares[0]
+        count = first.count  # (a potion: two of them)
         await pilot.press("enter")  # buy the first
         await pilot.pause(0.4)
         await settle(app, pilot)
         await pilot.pause(0.6)
-        assert state.player.gold == 500 - first.price and first not in shop.shop.wares
+        assert state.player.gold == 500 - first.price and first.count == count - 1
+        assert (first in shop.shop.wares) == (count > 1)
         assert isinstance(app.screen, ShopScreen)  # back at her counter
         assert first.item in state.player.inventory or first.item in (state.player.weapon, state.player.armor)
         assert not screen.query_one("#story").query(".loot-card")  # (bought: the story says so, in words)
@@ -1508,4 +1511,39 @@ async def test_toasts_and_the_hud_keep_out_of_the_way():
         toast = screen.query_one("Toast").region
         assert toast.y <= 2 and toast.right >= 98 and not toast.overlaps(screen.query_one("#choices").region)
         hud = str(screen.query_one("#hud").render())
-        assert "Floor 1/3 · " in hud and "turn" not in hud and len(hud) <= 98
+        assert "Floor 1/4 · " in hud and "turn" not in hud and len(hud) <= 98
+
+
+async def test_the_title_is_a_castle_in_a_storm_with_its_own_music(speakers):
+    """The title's picture: every frame made ready before the storm starts (the rain's in each light, and several
+    whole strikes), a strike that lights the castle up (the name flashing with it) with its thunder timed to the
+    flash, and the title's music looping while it shows, fading out when a screen covers it."""
+    from ptg.ui.storm import StormView
+
+    app = PTGApp(Config(backend="offline", player_name="T"))
+    async with app.run_test(size=(152, 43)) as pilot:
+        await pilot.pause(0.3)
+        title = app.screen
+        assert isinstance(title, TitleScreen) and title.scene is not None
+        assert title.query_one("#title-scene", StormView).frame and speakers.looping == "title_music"
+        await app.workers.wait_for_complete()
+        assert len(title.frames) == 4 * title.PHASES and len(title.strikes) == title.STRIKES
+        title.next_strike = 0  # (now)
+        lit = False
+        for _ in range(20):
+            await pilot.pause(0.05)
+            lit = lit or title.query_one("#splash").has_class("lit")
+        assert lit  # (the flash: the name lit with it)
+        await pilot.pause(1.2)
+        assert "thunder" in speakers.moments
+        await pilot.press("s")  # (Settings: the music fades out)
+        await pilot.pause(0.3)
+        assert speakers.looping == ""
+
+
+async def test_a_small_screen_has_the_title_without_the_picture():
+    app = PTGApp(Config(backend="offline", player_name="T"))
+    async with app.run_test(size=(80, 20)) as pilot:
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, TitleScreen) and not app.screen.query_one("#title-scene").display
+        assert app.screen.query_one("#new").region.bottom <= 20

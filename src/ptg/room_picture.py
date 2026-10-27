@@ -72,7 +72,7 @@ class Look:
     wood: list
     stone: list
     moss: list
-    walls: str  # bricks | earth | marble
+    walls: str  # bricks | earth | marble | bubbles
     ground: str  # flags | dirt | mosaic
     above: str  # vault | rock
     ambient: float
@@ -124,6 +124,18 @@ LOOKS = {
         moss=_ramp("#193c3e", "#265c42", "#3e8948", "#63c74d"),
         walls="marble", ground="mosaic", above="vault", ambient=0.30, lantern=0.45, sconces="", fog=0.30,
         accent="#63c74d"),
+    "norfel": Look(  # Metroid's Norfair: purple rock all bubbles, lit from below by pools of glowing poison
+        wall=_ramp("#181425", "#68386c", "#b55088", "#f6757a", "#e8b796"),
+        wall_warm=_ramp("#181425", "#68386c", "#b55088", "#f6757a", "#e8b796"),
+        floor=_ramp("#181425", "#3e2731", "#68386c", "#b55088"),
+        floor_warm=_ramp("#181425", "#68386c", "#b55088", "#f6757a"),
+        ceiling=_ramp("#181425", "#3e2731", "#68386c"),
+        water=_ramp("#68386c", "#b55088", "#f6757a", "#ead4aa"),  # poison, glowing
+        wood=_ramp("#3e2731", "#733e39", "#b86f50", "#c28569"),
+        stone=_ramp("#262b44", "#3a4466", "#5a6988", "#8b9bb4", "#c0cbdc"),  # grey pillars with pale caps
+        moss=_ramp("#193c3e", "#265c42", "#3e8948", "#63c74d"),  # a vent's crystals
+        walls="bubbles", ground="dirt", above="rock", ambient=0.34, lantern=0.55, sconces="", fog=0.30,
+        accent="#b55088"),
 }
 DEFAULT_LOOK = LOOKS["sunken_crypt"]  # for a dungeon added without a look of its own
 
@@ -774,6 +786,8 @@ class Picture:
                 return self.shade(look.wood, look.wood, a, z, v, x, y, -0.05)
             bias = (_noise((a if wall == "back" else z) * 0.9, v * 3.5, 9) - 0.5) * 0.28
             mortar = False
+        elif look.walls == "bubbles":
+            bias, mortar = self._bubble(a if wall == "back" else z, v), False
         colour = self.shade(look.wall, look.wall_warm, a, z, v, x, y, bias - (0.22 if mortar else 0.0))
         if look.walls == "marble" and self._moss(wall, a, z, v, x):
             colour = _pick(look.moss, self.light(a, z, v)[0] * 0.9, x, y)
@@ -809,6 +823,23 @@ class Picture:
         below = self.info[y + 1][x] if y + 1 < self.h else None
         above = self.info[y - 1][x] if y > 0 else None
         return bool(below and below[0] in ("floor", "water")) or bool(above and above[0] == "ceiling")
+
+    def _bubble(self, along: float, v: float) -> float:
+        """Norfair's rock: round cells packed in staggered rows, each with a dark rim and a lit cap at its top left,
+        and the dark rock showing between them. How much lighter (or darker) it is here."""
+        rows = 4
+        w = v * rows
+        row = math.floor(w)
+        u = along / (2 * self.view.half / 7) + (row % 2) * 0.5
+        cell = math.floor(u)
+        dx, dy = u - cell - 0.5, (w - row - 0.5) * 1.15
+        r = 0.42 + 0.1 * _hash01(row, cell, 61)
+        d = math.hypot(dx, dy)
+        if d > r:
+            return -0.14  # (between the bubbles)
+        if d > r - 0.09:
+            return -0.24  # (a bubble's rim)
+        return 0.2 if dx < -0.05 and dy > 0.05 and d < r * 0.55 else 0.04  # (its cap, lit: v runs up the wall)
 
     def _beam(self, wall: str, a: float, z: float, v: float) -> bool:
         """Timber props holding up a goblin tunnel."""

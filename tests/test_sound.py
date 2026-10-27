@@ -1,8 +1,11 @@
 import builtins
 import sys
+import threading
 import wave
+from array import array
 
 from conftest import Recorder
+
 from ptg import sound
 from ptg.sound import MOMENTS, Sound, decode, load_bank, resample
 
@@ -27,8 +30,10 @@ def test_built_in_sounds_are_small_8_bit_files():
     for clips in bank.values():
         for clip in clips:
             with clip.source.open("rb") as f, wave.open(f) as w:
-                assert (w.getnchannels(), w.getsampwidth(), w.getframerate()) == (1, 1, 22050), clip.source.name
-                assert w.getnframes() / w.getframerate() < 2.0, clip.source.name
+                width = 2 if clip.moment == "title_music" else 1  # (music is 16-bit: its fades would grind in 8)
+                assert (w.getnchannels(), w.getsampwidth(), w.getframerate()) == (1, width, 22050), clip.source.name
+                longest = {"thunder": 4.0, "title_music": 21.0}.get(clip.moment, 2.0)  # (a rumble; a loop)
+                assert w.getnframes() / w.getframerate() < longest, clip.source.name
 
 
 def test_decoding_and_resampling(tmp_path):
@@ -79,3 +84,47 @@ def test_without_sounddevice_the_system_player_steps_in(monkeypatch):
     assert player.name == "aplay" and player.argv("x.wav", 0.5) == ["aplay", "-q", "x.wav"]
     monkeypatch.setattr(sound.shutil, "which", lambda name: None)
     assert sound.open_player() is None  # and then the game is just quiet
+
+
+def test_music_loops_until_stopped_and_waits_out_sound_being_off(speakers):
+    """The title's music: looped by the player, stopped with a fade; switched off in Settings (or F8) it stops,
+    and switched on again while it's still wanted, it plays again."""
+    assert sound.music("title_music") and speakers.looping == "title_music"
+    sound.stop_music()
+    assert speakers.looping == "" and not sound.engine().wanted
+    sound.music("title_music")
+    sound.configure(False, 0.5)
+    assert speakers.looping == "" and sound.engine().wanted == "title_music"
+    sound.configure(True, 0.5)
+    assert speakers.looping == "title_music"
+
+
+def test_the_mixer_loops_music_and_fades_it_out():
+    """The mixer's music voice wraps around its samples, and fades to nothing when stopped (then the stream may
+    sleep)."""
+    from ptg.sound import Clip, Mixer
+
+    mixer = Mixer.__new__(Mixer)  # (no speakers here: just its mixing)
+    mixer.rate, mixer.voices, mixer.music, mixer.lock, mixer.wanted = 22050, [], None, threading.Lock(), ""
+    mixer.cache, mixer.wake = {"x": array("h", [1000] * 300)}, threading.Event()
+    clip = Clip("title_music", "x")
+    mixer.loop(clip, 1.0)
+    first = array("h", mixer._mix())
+    assert len(first) == Mixer.BLOCK and set(first) == {1000} and mixer.music[1] == Mixer.BLOCK % 300  # (wrapped)
+    mixer.stop_loop(fade=0.05)
+    for _ in range(10):
+        mixer._mix()
+    assert mixer.music is None and mixer._mix() is None
+
+
+def test_loud_moments_are_squeezed_not_clipped_and_music_resamples_smoothly():
+    """Thunder over the music went past the loudest a sample can be, and crackled: over LIMIT, a mix is squeezed
+    into what's left. Music is resampled between neighbouring samples (held, a long pure tone warbles)."""
+    from ptg.sound import Mixer
+
+    mixer = Mixer.__new__(Mixer)
+    assert mixer._squeeze(Mixer.LIMIT + 1) <= 32767 and mixer._squeeze(10 ** 6) <= 32767
+    assert mixer._squeeze(-(10 ** 6)) >= -32767 and mixer._squeeze(40000) > mixer._squeeze(30000) > Mixer.LIMIT
+    ramp = array("h", [0, 1000, 2000, 3000])
+    assert list(resample(ramp, 2, 4, smooth=True))[:6] == [0, 500, 1000, 1500, 2000, 2500]
+    assert list(resample(ramp, 2, 4))[:4] == [0, 0, 1000, 1000]  # (the effects keep their crunch)

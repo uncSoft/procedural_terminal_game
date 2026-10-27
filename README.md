@@ -297,7 +297,9 @@ Settings has the volume, and `PTG_SOUND=0` keeps it quiet (the tests do).
 
 The built-in sounds are synthesized, like the sprites: `tools/build_sounds.py` describes each one as a few
 chip-style tones (square, triangle and noise waves, pitch slides, arpeggios) and writes 8-bit, 22 kHz WAVs to
-`src/ptg/data/sounds`. Tweak one and rebuild.
+`src/ptg/data/sounds`. Tweak one and rebuild. That includes the title screen's music, a 20-second loop (an original
+piece: a glassy figure in 7/8 over a falling bass, then a slow line and tubular bells) that plays while the title
+shows and fades out when you leave it, and the thunder that follows each flash of lightning there.
 
 To use your own, put WAV files (8- or 16-bit PCM, any rate) in `~/.ptg/sounds`:
 
@@ -333,7 +335,9 @@ Needs Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 uv run ptg
 ```
 
-The first launch opens Settings: pick LM Studio, Ollama, Apple Intelligence, another OpenAI-compatible server, Claude, or Offline, pixel sprites or ASCII art, and whether dice roll on Space or automatically. Settings, saves and the profile database live in `~/.ptg` (set `PTG_HOME` to move them). The game autosaves every turn; **Continue** on the title screen picks up where you left off, with a line where the story so far stops, the room as you'd see it walking in (anything lying there ready to take) and where you are. While a run is unfinished, Continue comes first, with the run shown under it. Starting a new one instead asks first, and abandoning a run counts as a death: you keep its souls, it goes in the Hall of Legends, and your ghost stays on the floor where you left it.
+The title screen is a castle on a crag in a thunderstorm, drawn in code at whatever size your terminal has room
+for (`title_scene.py`): the rain falls, and every few seconds lightning strikes, the castle lights up, something stands
+on the ridge for as long as the flash lasts, and the thunder rolls in after it. The first launch opens Settings: pick LM Studio, Ollama, Apple Intelligence, another OpenAI-compatible server, Claude, or Offline, pixel sprites or ASCII art, and whether dice roll on Space or automatically. Settings, saves and the profile database live in `~/.ptg` (set `PTG_HOME` to move them). The game autosaves every turn; **Continue** on the title screen picks up where you left off, with a line where the story so far stops, the room as you'd see it walking in (anything lying there ready to take) and where you are. While a run is unfinished, Continue comes first, with the run shown under it. Starting a new one instead asks first, and abandoning a run counts as a death: you keep its souls, it goes in the Hall of Legends, and your ghost stays on the floor where you left it.
 
 On a screen at least 110x32 the game plays in **tabs** (Settings, Game screen; Classic is the other choice, and a
 touch screen or a smaller terminal always gets it), laid out like an illustrated storybook: the words on the left

@@ -116,9 +116,20 @@ def roll_bonuses(state: GameState, content: Content, kind: str) -> list[tuple[st
 
 
 def describe(item: ItemDef) -> list[str]:
-    """An item's powers, in words, for its card (and what it does to your stats while you carry it)."""
+    """An item's powers, in words, for its card (and what it does to your stats while you carry it, and the statuses
+    it cures, guards against or wards off: statuses.py)."""
     lines = [POWERS[p] + (f" ({item.damage})" if p == "throw" and item.damage else "") for p in item.powers]
+    lines += [f"cures {key}" for key in item.cures]
+    lines += [f"then the next {n} {key}ing{'s' * (n != 1)} won't take hold" if n > 1 else
+              f"then the next {key}ing won't take hold" for key, n in item.guards.items()]
+    worn = "while you wear it" if item.kind in GEAR else "while you carry it"
+    lines += [f"{worn}: {key} can't take hold of you" for key in item.wards]
     return lines + ([f"while you carry it: {stat_words(item.stats)}"] if item.stats else [])
+
+
+def ward_words(item: ItemDef) -> list[str]:
+    """What an item wards off, in a word each, for a few words about it: "poison-proof"."""
+    return [f"{key}-proof" for key in item.wards]
 
 
 def stat_words(stats: dict[str, int]) -> str:

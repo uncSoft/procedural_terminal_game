@@ -38,14 +38,14 @@ def test_same_seed_same_run(content):
     assert floor(42, 3, content).model_dump() == floor(42, 3, content).model_dump()
 
 
-def test_each_floor_is_a_different_theme():
+def test_each_floor_is_a_different_theme_and_the_fourth_is_always_norfel():
     for seed in SEEDS:
         state = generate(seed)
-        assert len(set(state.themes)) == 3 and state.theme == state.themes[0]
+        assert len(set(state.themes)) == 4 and state.theme == state.themes[0] and state.themes[3] == "norfel"
 
 
 @pytest.mark.parametrize("seed", SEEDS)
-@pytest.mark.parametrize("number", [1, 2, 3])
+@pytest.mark.parametrize("number", [1, 2, 3, 4])
 def test_floors_are_well_formed(seed, number, content):
     state = floor(seed, number, content)
     theme = content.themes[state.theme]
@@ -159,12 +159,12 @@ def test_a_room_finds_a_spot_for_every_item(content):
 
 
 def test_one_of_a_kind_creatures_turn_up_once_a_run(content):
-    """A creature with a name of its own (Serpentis, Baby Joey) or tagged unique (the Rat King) is met once a run at
-    most, however many floors and rooms there are (run 59 met the Rat King on two floors)."""
+    """A creature with a name of its own (Baby Joey) or tagged unique (the Rat King) is met once a run at most,
+    however many floors and rooms there are (run 59 met the Rat King on two floors)."""
     from collections import Counter
 
     once = {m.key for m in content.monsters.values() if m.once and m.roams}
-    assert {"serpentis", "rat_king", "baby_joey"} <= once
+    assert {"rat_king", "baby_joey"} <= once
     for seed in range(40):
         state = generate(seed, content=content)
         seen = Counter()
@@ -191,25 +191,66 @@ def test_serpentis_leaves_its_old_sword(content):
     assert _kept(state, content, random.Random(0), serpent) == []  # (once a run, like any rare thing)
 
 
-def test_a_floor_4_monster_waits_for_floor_4_but_lairs_now_and_then_on_floor_3(content):
-    """Serpentis came with its maker's numbers for a deeper floor (tier 4): it never roams floors 1-3, but now and
-    then lairs in floor 3's secret room, cut down to that floor's size (npcs.SERPENTIS_SIZE), its sword with it."""
-    from ptg import npcs, testrooms
+def test_serpentis_is_norfels_boss_and_the_last_dungeons_boss_guards_the_stairs(content):
+    """A run is four floors: floor 3's boss, beaten, opens the way down (its room has the stairs), and Serpentis
+    waits at the bottom of Norfel at its maker's numbers. It never roams, and nor does it lair on floor 3 now."""
+    from ptg import testrooms
 
-    deep = {m.key for m in content.monsters.values() if m.roams and m.tier > 3}
-    assert "serpentis" in deep
-    lairs = 0
-    for seed in range(60):
+    assert not content.monster("serpentis").roams and content.monster("serpentis").hp == 75
+    for seed in range(20):
         state = generate(seed, content=content)
-        for floor in range(1, state.floors_total + 1):
-            if floor > 1:
-                state.floor = floor
+        for number in range(1, state.floors_total + 1):
+            if number > 1:
+                state.floor = number
                 build_floor(state, content)
-            for room in state.rooms:
-                if room.monster and room.monster.key in deep:
-                    assert room.secret and floor == 3 and room.monster.max_hp == npcs.SERPENTIS_SIZE[3][0]
-                    lairs += 1
-    assert 0 < lairs < 30  # (a rare find: a quarter of the runs, about)
+            bosses = [r for r in state.rooms if r.is_boss]
+            assert len(bosses) == (number >= 3)
+            assert all(r.monster.key != "serpentis" for r in state.rooms if r.monster and not r.is_boss)
+            if number == 3:
+                assert bosses[0].fixture == "stairs" and bosses[0].monster.key == content.themes[state.theme].boss
+            if number == 4:
+                assert bosses[0].monster.key == "serpentis" and bosses[0].fixture == ""
+                assert len([r for r in state.rooms if not (r.secret or r.shop)]) == 10
+                assert any(r.fixture == "shrine" for r in state.rooms)  # (poison's free cure)
     state = testrooms.build(content, "serpentis", "strong", seed=3)
     lair = testrooms.target(state)
-    assert lair.secret and state.floor == 3 and state.player.bombs >= 1
+    assert lair.is_boss and state.floor == 4 and "watchers_orb" in state.player.inventory
+
+
+def test_beating_floor_3s_boss_opens_the_stairs_and_serpentis_ends_the_run(content):
+    from conftest import put_monster
+
+    from ptg.rules import available_actions, perform
+
+    state = floor(4, 3, content)
+    boss = next(r for r in state.rooms if r.is_boss)
+    state.room_id = boss.id
+    put_monster(state, content, key=boss.monster.key, hp=1)
+    state.player.might = 50
+    while state.room.monster and not state.over:
+        events = perform(state, content, "attack")
+    state.pending_perks = []  # (a level up, as like as not)
+    assert not state.over and any(e.kind == "conquered" and "stairs lead further down" in e.text for e in events)
+    assert "descend" in [a.id for a in available_actions(state, content)]
+    perform(state, content, "descend")
+    assert state.floor == 4 and state.theme == "norfel"
+    lair = next(r for r in state.rooms if r.is_boss)
+    state.room_id = lair.id
+    put_monster(state, content, key="serpentis", hp=1)
+    while state.room.monster and not state.over:
+        events = perform(state, content, "attack")
+    assert state.status == "won" and any(e.kind == "victory" for e in events)
+
+
+def test_norfels_monsters_are_stronger_and_half_of_them_venomous(content):
+    venomous = deeper = 0
+    for seed in range(30):
+        state = floor(seed, 4, content)
+        for room in state.rooms:
+            monster = room.monster
+            if monster and not room.is_boss:
+                base = content.monster(monster.key)
+                deeper += monster.attack_mod >= 1 and monster.max_hp >= round(base.hp * 1.3)
+                venomous += "venom" in monster.tricks
+                assert ("venom" in monster.tricks) == ("Venomous" in monster.name)
+    assert deeper > 100 and 0.35 < venomous / deeper < 0.65

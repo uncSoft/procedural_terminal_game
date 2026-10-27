@@ -1,6 +1,8 @@
 # kind: weapon | armor | consumable | key | trinket
 # Weapons roll `damage` and add the player's might. Armor adds `defense`.
-# Consumables restore `heal` HP, or let you escape a fight if `escape = true`.
+# Consumables restore `heal` HP, let you escape a fight if `escape = true`, or cure what ails you (`cures`, with
+# `guards` against the next of it: see statuses.toml). Anything can ward a status off for good while it works for you
+# (`wards`: worn, for armor and weapons; carried, for anything else).
 # `tags` matter for creative actions: using a tagged thing earns a flair bonus,
 # and a tag a monster is weak to gives advantage and bigger effects.
 
@@ -111,6 +113,16 @@ tier = 1
 tags = ["smoke", "throwable"]
 desc = "Throw it, then leave dramatically. Guaranteed escape."
 
+# an antidote, by its Final Fantasy name (a recolour of jptjptjpt's Healing Potion)
+[item.pure]
+name = "Pure"
+kind = "consumable"
+tier = 1
+tags = ["glass", "liquid", "throwable"]
+desc = "A little blue bottle labelled PURE in very serious letters. Cures poison, and what stays in your blood stops the next poisoning taking hold. Tastes like licking a battery."
+cures = ["poison"]
+guards = {poison = 1}
+
 # drawn by JT (2026-10-23)
 [item.oil_flask]
 name = "Flask of Lamp Oil"
@@ -155,6 +167,25 @@ name = "Barnacled Reliquary Key"
 kind = "key"
 tags = ["metal"]
 desc = "Opens the Abbot's sanctum. Crusted with things that used to be alive."
+
+# Serpentis's, though nobody says so: Granny brings it out on floor 3, asked what she knows (a recolour of JT's
+# Leather Jerkin)
+[item.shed_snakeskin]
+name = "Shed Snakeskin"
+kind = "armor"
+defense = 2
+tier = 3
+tags = ["smelly", "leather"]
+desc = "An old snakeskin, HUGE, smelly, and stained purple all over. Worn as a cloak it's thinner than good armor, but poison can't take hold of you: not a bite, not a river, not a vent's gas."
+wards = ["poison"]
+found = ["quest"]
+
+# Norfel's key: an old bird-headed statue's offering (the one in the Old Watcher's alcove)
+[item.watchers_orb]
+name = "Watcher's Orb"
+kind = "key"
+tags = ["stone"]
+desc = "An orb from an old bird-headed statue's hands, as if it had been waiting just for you. It hums near Serpentis's lair, and opens it."
 
 # drawn by JT (2026-10-23)
 [item.warren_key]

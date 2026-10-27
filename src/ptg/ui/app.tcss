@@ -31,37 +31,40 @@ Toast {
     text-style: bold;
 }
 
+#splash.lit {
+    color: #ffffff;
+}
+
+#title-scene {
+    width: auto;
+    height: auto;
+}
+
 #tagline {
     width: auto;
-    margin: 1 0;
     color: $text-muted;
 }
 
 #menu {
-    width: 32;
+    width: auto;
     height: auto;
 }
 
 #menu Button {
-    width: 100%;
-    margin-bottom: 1;
+    min-width: 14;
+    margin: 0 1;
 }
 
 #run-info {
-    width: 100%;
+    width: auto;
     text-align: center;
     color: $text-muted;
-    margin-bottom: 1;
 }
 
-#menu.with-run #continue {
-    margin-bottom: 0;
-}
 
 #narrator-info {
     width: auto;
     color: $text-muted;
-    margin-top: 1;
 }
 
 #intro-box {

@@ -1,0 +1,17 @@
+# Statuses: what stays with you between turns and does something on its own (see ptg/statuses.py).
+# ticks: when it does its thing ("step": a room walked into, each room passed on quick travel; "round": a fight's turn)
+# damage: HP each tick. lethal: false never takes you below 1 HP. penalty: off every roll of yours while it lasts
+# (disadvantage = true: two dice, the worse kept, instead). shrine: a shrine's prayer cures it. cured_by: what the
+# warning says cures it.
+
+[status.poison]
+name = "Poisoned"
+icon = "☠"
+colour = "#b55088"
+ticks = ["step", "round"]
+damage = 2
+lethal = false
+penalty = 2
+shrine = true
+cured_by = "pray at a shrine, or drink Pure"
+blurb = "Venom in your blood: your hands shake (-2 to your rolls), and every step and every turn of a fight costs you health. It never kills you on its own."

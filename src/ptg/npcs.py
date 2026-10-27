@@ -52,17 +52,11 @@ from .text import cap, the
 LENNY, BAD_TOOTH, GOOD_TOOTH = "lucky_lenny", "lenny_s_bad_tooth", "lenny_s_good_tooth"
 SWOOGY, DIAPER = "swoogy_the_gooey", "swoogy_s_diaper"
 KING_MOUSE = "king_mouse"
-SERPENTIS = "serpentis"
-ODDS = {LENNY: 0.5, SWOOGY: 0.5, KING_MOUSE: 0.15, SERPENTIS: 0.25, "npc": 0.3}  # a run, a secret room, a staircase,
-# a floor-3 secret room (if Swoogy isn't in it), a floor
+ODDS = {LENNY: 0.5, SWOOGY: 0.5, KING_MOUSE: 0.15, "npc": 0.3}  # a run, a secret room, a staircase, a floor
 PLACED = {LENNY, SWOOGY}  # (and the shopkeepers have their shops)
 # Cut down to size for the floor they're on: (HP, attack, defense, damage taken off their dice).
 SWOOGY_SIZE = {1: (40, 5, 13, -4), 2: (55, 6, 14, -3), 3: (70, 7, 15, -2)}  # more than the boss, far less than 100
 KING_MOUSE_SIZE = {2: (30, 4, 12, -5)}  # about the usual floor-2 guard: bigger, and the bot won 3 points fewer runs
-# Serpentis is a floor-4 monster (its maker's numbers: 75 HP, 2d8); until there's a floor 4 it lairs, now and then,
-# in floor 3's secret room: the floor's hidden boss, optional. Sized to the plan's boss fight (8 rounds or so, half
-# your health, a potion or two): the bot, with a floor-3 kit, won 81% and kept 56% of its HP.
-SERPENTIS_SIZE = {3: (52, 6, 15, -1)}
 SWOOGY_PRICE = 10  # gold a floor, to calm him down
 HINT_DC = 12  # Lenny remembering which room his tooth flew into (wits)
 TOOTH_SPOTS = ["a crack between the flagstones", "a heap of old rubbish", "a dark corner"]
@@ -101,10 +95,6 @@ def place(state: GameState, content: Content, rooms: list[Room], end_id: int) ->
     if secret and floor in SWOOGY_SIZE and dice.stream(seed, SWOOGY, floor).random() < ODDS[SWOOGY] \
             and DIAPER not in state.rares:  # (once his diaper's gone, won or beaten out of him, so is he)
         secret.monster = sized(content, SWOOGY, floor, SWOOGY_SIZE, hostile=False, mood="challenge")
-    if secret and floor in SERPENTIS_SIZE and not (secret.monster and secret.monster.key == SWOOGY) \
-            and SERPENTIS not in state.met and dice.stream(seed, SERPENTIS, floor).random() < ODDS[SERPENTIS]:
-        secret.monster = sized(content, SERPENTIS, floor, SERPENTIS_SIZE)  # (whatever else got there first, gone)
-        state.met.append(SERPENTIS)
     if rooms[end_id].fixture == "stairs" and floor in KING_MOUSE_SIZE \
             and dice.stream(seed, KING_MOUSE, floor).random() < ODDS[KING_MOUSE]:
         rooms[end_id].monster = sized(content, KING_MOUSE, floor, KING_MOUSE_SIZE, warden=True)

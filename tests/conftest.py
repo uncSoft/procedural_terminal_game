@@ -23,9 +23,16 @@ class Recorder:
 
     def __init__(self) -> None:
         self.played: list[tuple[str, float]] = []
+        self.looping: str = ""  # the music playing, if any
 
     def play(self, clip, gain: float) -> None:
         self.played.append((clip.moment, round(gain, 3)))
+
+    def loop(self, clip, gain: float) -> None:
+        self.looping = clip.moment
+
+    def stop_loop(self, fade: float = 0.0) -> None:
+        self.looping = ""
 
     def close(self) -> None:
         pass

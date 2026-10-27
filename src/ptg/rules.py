@@ -14,7 +14,7 @@ from __future__ import annotations
 import random
 from collections import deque
 
-from . import dice, interactions, inventory, layout, loot, npcs, powers
+from . import dice, hazards, interactions, inventory, layout, loot, npcs, powers, statuses
 from .combat import (bomb_monster, discover, distract, dodge, flee, flee_direction, fortune, holds_its_ground,
                      monster_turn, player_attack, stand_firm_warning, telegraph, throw, what_is_left)
 from .content import Content, ItemDef
@@ -22,7 +22,7 @@ from .creative import perform_creative as _creative
 from .events import Action, Event
 from .intent import Intent
 from .inventory import PICKUPS
-from .models import DELTA, DIRECTIONS, OPPOSITE, Exit, Feature, GameState, MonsterState, Room
+from .models import DELTA, DIRECTIONS, OPPOSITE, Exit, Feature, GameState, MonsterState, Room, Ware
 from .scene import RoomView
 from .text import a, cap, the
 from .world import build_floor, monster_for, tier_for
@@ -50,6 +50,12 @@ TRAITS = {
 def heal_verb(item: ItemDef) -> str:
     """Food is eaten; anything else that heals is drunk."""
     return "Eat" if "food" in item.tags else "Drink"
+
+
+def _cures(state: GameState, item: ItemDef) -> str:
+    """What a thing would cure you of now, as its hint ("cures poison"), or "" if nothing it cures ails you."""
+    ailing = [statuses.WORDS.get(k, (k, k))[1].removeprefix("the ") for k in item.cures if k in state.player.statuses]
+    return f"cures {' and '.join(ailing)}" if ailing else ""
 
 
 FIXTURE_FACTS = {
@@ -87,9 +93,10 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
         firm = holds_its_ground(state, content, monster)  # (no scaring it off, no smoke hiding you: a warning says)
         for item in consumables:
             glows = "dazzle" in item.powers and not firm
-            if item.escape or player.hp < player.max_hp or glows:
+            cures = _cures(state, item)
+            if item.escape or (item.heal and player.hp < player.max_hp) or glows or cures:
                 verb = "Throw" if item.escape else heal_verb(item)
-                hints = [how_many(player, item.key), "it glows!" if glows else "",
+                hints = [how_many(player, item.key), "it glows!" if glows else "", cures,
                          "no sure escape: a run for it" if item.escape and firm else ""]
                 actions.append(Action(f"use:{item.key}", f"{verb} {the(item.name)}", " · ".join(filter(None, hints))))
         for item in (content.item(k) for k in _distinct(player.inventory)):
@@ -111,8 +118,15 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
     actions += inventory.choices(state, content)  # better gear in your pack, to put on
     for index, feature in room.visible_features():
         if not feature.searched:
-            actions.append(Action(f"search:{index}", f"Search {the(feature.name)}", TIP if feature.told else ""))
+            gassed = "the vent's live: it'll gas you" if feature.trapped and room.vent == "live" else ""
+            actions.append(Action(f"search:{index}", f"Search {the(feature.name)}",
+                                  gassed or (TIP if feature.told else "")))
     actions += _fixture_actions(state, content)
+    if room.vent == "live":
+        careful = powers.roll_bonuses(state, content, "disarm")
+        actions.append(Action("disarm", "Disarm the gas vent",
+                              " · ".join(["wits", *(f"{name} +{n}" for name, n in careful)])))
+    actions += hazards.crossings(state, content) if any(hazards.blocked(state, d) for d in room.exits) else []
     theme = content.themes[state.theme]
     for direction in DIRECTIONS:
         exit_ = room.exits.get(direction)
@@ -129,21 +143,25 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
                                       f"cracked! · {bombs}" if exit_.cracked else f"two bombs break it · {bombs}"))
             continue
         if exit_.locked:
-            if theme.key_item in player.inventory:
+            if theme.key_item in player.inventory and not hazards.blocked(state, direction):
                 actions.append(Action(f"go:{direction}", f"Unlock the door {direction}", "boss"))
+            continue
+        if hazards.blocked(state, direction):  # (across the river: cross it first)
             continue
         hint = ""
         if dest.fixture and not dest.fixture_used:
             hint = {"stairs": "stairs down"}.get(dest.fixture, dest.fixture)
         elif dest.visited and dest.monster and dest.monster.hostile:
             hint = "danger"
+        if dest.visited and (dest.river and not dest.stones or dest.vent == "live"):
+            hint = " · ".join(filter(None, [hint, "poison river" if dest.river else "live gas vent"]))
         where = f" to {the(dest.name)}" if dest.visited else ""
         actions.append(Action(f"go:{direction}", f"Go {direction}{where}", hint))
-    if player.hp < player.max_hp:
-        for item in consumables:
-            if item.heal:
-                actions.append(Action(f"use:{item.key}", f"{heal_verb(item)} {the(item.name)}",
-                                      how_many(player, item.key)))
+    for item in consumables:
+        cures = _cures(state, item)
+        if (item.heal and player.hp < player.max_hp) or cures:
+            actions.append(Action(f"use:{item.key}", f"{heal_verb(item)} {the(item.name)}",
+                                  " · ".join(filter(None, [how_many(player, item.key), cures]))))
     if not room.room_searched and not room.shop:  # (her shop is hers: nothing hidden for you to find)
         actions.append(Action("search_room", "Search the room for secrets"))
         for item in (content.item(k) for k in _distinct(player.inventory)):
@@ -157,7 +175,7 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
             sign = TIP if direction == told else ("a draft!" if room.draft == direction else "")
             actions.append(Action(f"bomb:{direction}", f"Bomb the {direction} wall",
                                   f"{sign} · {count}" if sign else count))
-    if not room.rested and player.hp < player.max_hp:
+    if not room.rested and player.hp < player.max_hp and room.vent != "live":
         actions.append(Action("rest", "Rest a while", "safe here" if safe_to_rest(state) else "risky"))
     if room.monster:  # last of all: it isn't fighting you (and one click shouldn't end a quest)
         monster = room.monster
@@ -265,15 +283,18 @@ def _fixture_actions(state: GameState, content: Content) -> list[Action]:
     if not room.fixture or (room.monster and room.monster.hostile):
         return []
     cursed = [content.item(k).name for k in inventory.carried_keys(state) if inventory.sticky(state, content, k)]
-    pray = [Action("shrine_pray", f"Pray at the shrine to lift your curse{'s' * (len(cursed) > 1)}", ", ".join(cursed))]
+    ailing = [statuses.DEFS[k].name.lower() for k in player.statuses if statuses.DEFS[k].shrine]
+    why = " and ".join(([f"lift your curse{'s' * (len(cursed) > 1)}"] if cursed else []) +
+                       ([f"cure you ({', '.join(ailing)})"] if ailing else []))
+    pray = [Action("shrine_pray", f"Pray at the shrine to {why}", ", ".join(cursed) or "free")] if why else []
     if room.fixture_used:  # (a shrine you've bled or paid at still hears a prayer: it isn't one of its uses)
-        return pray if room.fixture == "shrine" and cursed else []
+        return pray if room.fixture == "shrine" else []
     if room.fixture == "shop":  # (her wares are hers to offer: _character_actions)
         return []
     if room.fixture == "stairs":
         return [Action("descend", f"Descend the stairs to floor {state.floor + 1}", "no way back")]
     if room.fixture == "shrine":
-        actions = pray if cursed else []
+        actions = list(pray)
         if player.hp > 6:
             actions.append(Action("shrine_blood", "Offer blood at the shrine", "-6 HP, +1 Fate"))
         if player.gold >= 10 and player.hp < player.max_hp:  # (at full health it would take your gold for nothing)
@@ -295,7 +316,16 @@ def _fixture_actions(state: GameState, content: Content) -> list[Action]:
 # --- resolving actions -----------------------------------------------------
 
 def perform(state: GameState, content: Content, action_id: str) -> list[Event]:
-    """Resolve one engine action. Unknown or impossible actions return an info event saying why, and cost nothing."""
+    """Resolve one engine action. Unknown or impossible actions return an info event saying why, and cost nothing.
+    A status that hinders you (poison) is off every roll of yours this turn (dice.HINDERED)."""
+    token = dice.HINDERED.set(statuses.hindrance(state))
+    try:
+        return _perform(state, content, action_id)
+    finally:
+        dice.HINDERED.reset(token)
+
+
+def _perform(state: GameState, content: Content, action_id: str) -> list[Event]:
     if state.over:
         return []
     use = interactions.parse(action_id)
@@ -349,6 +379,10 @@ def perform(state: GameState, content: Content, action_id: str) -> list[Event]:
         events = flee(state, content, rng)
     elif verb == "rest":
         events = _rest(state, content, rng)
+    elif verb == "disarm":
+        events = hazards.disarm(state, content, rng) + check_level(state, content)
+    elif verb == "cross":
+        events = hazards.cross(state, content, rng, arg)
     elif verb == "ask":
         events, took_turn = _ask(state, content, rng)
     elif verb == "talk":  # their own words, for nothing: no roll, no turn
@@ -410,6 +444,14 @@ def perform_creative(state: GameState, content: Content, intent: Intent) -> tupl
     not, it's a stunt (creative.py), which wastes nothing."""
     if state.over:
         return intent, []
+    token = dice.HINDERED.set(statuses.hindrance(state))
+    try:
+        return _perform_creative(state, content, intent)
+    finally:
+        dice.HINDERED.reset(token)
+
+
+def _perform_creative(state: GameState, content: Content, intent: Intent) -> tuple[Intent, list[Event]]:
     action = interactions.from_intent(state, content, intent)
     talk = npcs.talk_action(state, content)  # (talking down someone who isn't fighting you is just talking to them)
     if not action and talk and intent.success_effects and set(intent.success_effects) <= {"pacify"}:
@@ -444,6 +486,8 @@ def finish_turn(state, content, rng, events, took_turn, was_in_combat, room_befo
         state.reroll = 0
         if was_in_combat and state.room_id == room_before and state.in_combat and not state.over:
             events += monster_turn(state, content, rng)
+        if was_in_combat and state.room_id == room_before and not state.over:  # (a fight's turn: poison burns)
+            events += statuses.tick(state, "round")
     if not state.in_combat:  # the fight's over: no vines left to hold you, nothing to dodge
         state.player.tangled = state.player.dodging = False
     events = npcs.react(state, content, events)  # what the characters say to it all, each right after what it's about
@@ -591,7 +635,8 @@ def travel(state: GameState, content: Content, direction: str, to: int) -> list[
                           "journal": journal, "direction": direction})]
     if room.monster and room.monster.hostile:
         events += telegraph(state, content) + stand_firm_warning(state, content)
-    return events
+    hazards.came_in(state, direction)
+    return events + statuses.tick(state, "step")
 
 
 # Quick travel: back to a room you've been in, from the map. Now and then something's wandered into a room on the way
@@ -601,8 +646,8 @@ TRAVEL_ODDS, TRAVEL_MEETINGS = 0.2, 2
 
 def journey(state: GameState, target: int) -> list[tuple[str, int]] | None:
     """The way to `target` as (direction, room) steps, through rooms you've been in, by doors standing open, past
-    nothing hostile (nor into it). None if there's no such way, or you can't set off now (a fight, a scene, a perk to
-    pick)."""
+    nothing hostile (nor into it), and not over a river you haven't crossed yet. None if there's no such way, or you
+    can't set off now (a fight, a scene, a perk to pick)."""
     if state.in_combat or state.scene or state.pending_perks or state.over:
         return None
     if not 0 <= target < len(state.rooms) or target == state.room_id or not state.rooms[target].visited:
@@ -622,8 +667,11 @@ def journey(state: GameState, target: int) -> list[tuple[str, int]] | None:
                 steps.append((direction, room_id))
                 room_id = back
             return steps[::-1]
-        for direction, exit_ in state.rooms[room_id].exits.items():
-            if not exit_.locked and exit_.to not in came and clear(state.rooms[exit_.to]):
+        room = state.rooms[room_id]
+        far = room.far if came[room_id] is None else OPPOSITE[came[room_id][0]] == room.across  # (its river's bank)
+        for direction, exit_ in room.exits.items():
+            wet = room.river and not room.stones and (direction == room.across) != far
+            if not exit_.locked and not wet and exit_.to not in came and clear(state.rooms[exit_.to]):
                 came[exit_.to] = (direction, room_id)
                 queue.append(exit_.to)
     return None
@@ -636,24 +684,26 @@ def _journey(state: GameState, content: Content, rng: random.Random, target: int
     floor = str(state.floor)
     meet = len(steps) > 1 and state.wandered.get(floor, 0) < TRAVEL_MEETINGS and rng.random() < TRAVEL_ODDS
     stop = rng.randrange(len(steps) - 1) if meet else len(steps) - 1
+    ticks = []  # (poison burns all the way: each room passed is a step)
     for direction, to in steps[:stop + 1]:
-        travel(state, content, direction, to)
+        ticks += [e for e in travel(state, content, direction, to) if e.kind == "status_tick"]
+    ticks = statuses.summed(ticks)
     room, goal = state.room, state.rooms[target]
     if meet:
         state.wandered[floor] = state.wandered.get(floor, 0) + 1
         deepest = max(r.distance for r in state.rooms)
         room.monster = monster_for(rng, content, state.theme, tier_for(room.distance, deepest, state.floor),
-                                   met=state.met)
+                                   met=state.met, floor=state.floor)
         who = room.monster.name if content.monster(room.monster.key).named else a(room.monster.name)
         return [Event("ambush", f"You set off for {the(goal.name)}, but in {the(room.name)} {who} blocks the way!",
                       data={"monster": room.monster.key, "room": room.id,
                             "journal": f"On the way to {the(goal.name)}, {who} stopped you in {the(room.name)}."})] \
-            + telegraph(state, content) + stand_firm_warning(state, content)
+            + telegraph(state, content) + stand_firm_warning(state, content) + ticks
     through = [the(state.rooms[to].name) for _, to in steps[:-1]]
     via = f", through {inventory.listing(through, 'and')}" if through else ""
     told = f"You make your way back to {the(goal.name)}{via}."
     return [Event("travel", f"{told} {arrival_facts(state, content, history=False)}".strip(),
-                  data={"quiet": True, "room": goal.id, "journal": told})]
+                  data={"quiet": True, "room": goal.id, "journal": told})] + ticks
 
 
 def exit_notes(state: GameState) -> str:
@@ -682,6 +732,7 @@ gone: run 59's Swoogy), and on a return what happened here since. (room_facts is
     for a question about it.)"""
     room = state.room
     lines = ["A secret room, walled off until a bomb opened it."] if room.secret else []
+    lines += hazards.facts(state)  # (a river to cross, a vent: seen as you come in)
     if room.shop:
         lines.append(shop_facts(room.shop, content))
     monster = room.monster
@@ -714,6 +765,7 @@ def room_facts(state: GameState, content: Content) -> str:
         lines.append(shop_facts(room.shop, content))
     elif room.fixture and not room.fixture_used:
         lines.append(FIXTURE_FACTS[room.fixture])
+    lines += hazards.facts(state)
     lines.append(f"Exits: {exit_notes(state)}.")
     monster = room.monster
     if monster:
@@ -766,7 +818,7 @@ def _descend(state: GameState, content: Content) -> list[Event]:
     build_floor(state, content)
     theme = content.themes[state.theme]
     room = state.room
-    goal = f"Your goal: {theme.goal}" if state.final_floor else ""
+    goal = f"Your goal: {theme.goal}" if state.boss_floor else ""
     told = [f"You go down the stairs to floor {state.floor}, {theme.name}, and arrive in {the(room.name)}.",
             arrival_facts(state, content), goal]  # (the floor's header has its blurb, the HUD its souls)
     text = " ".join(part for part in told if part)
@@ -789,6 +841,11 @@ def _descend(state: GameState, content: Content) -> list[Event]:
 # --- items and searching -----------------------------------------------------
 
 def _search_feature(state: GameState, content: Content, feature: Feature) -> list[Event]:
+    gassed = hazards.grabbed(state, content) if feature.trapped and state.room.vent == "live" else []
+    return _searched(state, content, feature) + gassed
+
+
+def _searched(state: GameState, content: Content, feature: Feature) -> list[Event]:
     feature.searched = True
     state.player.bump("searched")
     events = []
@@ -860,10 +917,12 @@ def _ask(state: GameState, content: Content, rng: random.Random) -> tuple[list[E
     room, player = state.room, state.player
     if npcs.tooth_first(state):
         return npcs.talk(state, content, npcs.LENNY), False
+    offer = []
     if room.monster is None and room.shop:  # (she's no monster, but she knows her floor as well as any)
         keeper = content.monster(room.shop.keeper)
         monster = MonsterState(key=keeper.key, name=keeper.name, hp=keeper.hp, max_hp=keeper.hp, hostile=False)
         room.shop.asked = True
+        offer = _snakeskin(state, content)
     else:
         monster = room.monster
         monster.asked = True
@@ -872,16 +931,17 @@ def _ask(state: GameState, content: Content, rng: random.Random) -> tuple[list[E
               if not (monster.key == npcs.LENNY and f and npcs.BAD_TOOTH in f.loot)]
     weak = _weak_spots(state, content) if talks else []
     if not (hidden or weak):  # nothing it could tell you, so nothing to roll for
-        return [Event("ask", f"{cap(the(monster.name))} doesn't know anything about this floor that you don't." if talks
-                      else f"You watch {the(monster.name)} for a while. It doesn't lead you anywhere new.")], True
+        return offer + [Event("ask", f"{cap(the(monster.name))} doesn't know anything about this floor that you don't."
+                              if talks else f"You watch {the(monster.name)} for a while. It doesn't lead you anywhere "
+                                            "new.")], True
     bonuses = [("wits", player.wits)] + powers.roll_bonuses(state, content, "ask")
     roll = dice.check(rng, "wits (ask)" if talks else "wits (watch it)", bonuses, ASK_DC,
                       advantage=int(talks and "silver_tongue" in player.traits))
     events = fortune(state, roll)
     if not roll.success:
-        return [Event("ask", f"{cap(the(monster.name))} hums and haws, and tells you nothing you can use." if talks
-                      else f"You watch {the(monster.name)} for a while, but it never goes anywhere that matters.",
-                      dice=roll, data={"rerollable": True})] + events, True
+        return offer + [Event("ask", f"{cap(the(monster.name))} hums and haws, and tells you nothing you can use."
+                              if talks else f"You watch {the(monster.name)} for a while, but it never goes anywhere "
+                                            "that matters.", dice=roll, data={"rerollable": True})] + events, True
     if hidden:
         room, feature = rng.choice(hidden)
         told = (_tell_feature(state, content, monster, talks, room, feature) if feature
@@ -893,7 +953,24 @@ def _ask(state: GameState, content: Content, rng: random.Random) -> tuple[list[E
         told = [Event("tip", f"{cap(the(monster.name))} tells you a thing or two about {the(target.name)} "
                              f"{where}.")] + discover(state, target, tag)
     told[0].dice, told[0].data["rerollable"] = roll, True
-    return told + events, True
+    return offer + told + events, True
+
+
+def _snakeskin(state: GameState, content: Content) -> list[Event]:
+    """Asked what she knows on the floor above one with poison of its own, a shopkeeper brings out the old snakeskin
+    she found (Serpentis's, though she doesn't know it), once a run, and puts it on her counter: a bargain, she says.
+    It doesn't take the place of anything she has."""
+    shop, below = state.room.shop, state.themes[state.floor] if state.floor < len(state.themes) else ""
+    if not below or not content.themes[below].status or loot.SNAKESKIN in state.rares \
+            or loot.SNAKESKIN not in content.items:
+        return []
+    state.rares.append(loot.SNAKESKIN)
+    shop.wares.append(Ware(item=loot.SNAKESKIN, price=loot.SNAKESKIN_PRICE))
+    keeper = content.monster(shop.keeper).name
+    return npcs.say(state, content, shop.keeper, "snakeskin") + [
+        Event("ask", f"{keeper} drags an old snakeskin out from under her counter. Her fingers tingle where they "
+                     f"touch it, but she doesn't say a word. It's on her counter now: {loot.SNAKESKIN_PRICE} gold.",
+              data={"item": loot.SNAKESKIN})]
 
 
 def _hidden_things(state: GameState) -> list[tuple[Room, Feature | None]]:
@@ -1069,7 +1146,8 @@ def off_the_list(state: GameState, content: Content, action_id: str) -> bool:
     """What may be done now that isn't one of the numbered choices: picking up any one thing lying here (by its card
     in the story, or by saying so), equipping, taking off, leaving or selling what you carry (inventory.moves),
     trying a door that's locked, buying or haggling at a shop's counter (its own screen does those), handing an
-    angry Swoogy anything you carry, and blowing a chest open with a bomb (the interaction grid's)."""
+    angry Swoogy anything you carry, blowing a chest open with a bomb (the interaction grid's), and drinking a Pure
+    with nothing to cure, for the guard it leaves."""
     verb, _, arg = action_id.partition(":")
     if verb == "take":
         return arg in state.room.items and not state.in_combat
@@ -1083,6 +1161,9 @@ def off_the_list(state: GameState, content: Content, action_id: str) -> bool:
         return arg.isdigit() and journey(state, int(arg)) is not None
     if verb == "breach":  # (a wall worth a bomb, with no bomb: the interaction grid's)
         return arg.partition(":")[0] in bombable_walls(state) and not state.in_combat and not state.room.shop
+    if verb == "use" and arg in state.player.inventory and arg in content.items:  # Pure ahead of time, for its guard
+        item = content.item(arg)
+        return bool(item.cures) and not item.heal and not _guarded(state, item)
     if verb == "chest_bomb":
         room = state.room
         return room.fixture == "chest" and not room.fixture_used and state.player.bombs > 0 and not state.in_combat
@@ -1160,10 +1241,18 @@ def why_not(state: GameState, content: Content, action_id: str) -> str:
     if verb == "use" and item:
         if item.escape and not state.in_combat:
             return f"You decide to save {the(item.name)} for an emergency."
-        if item.heal and player.hp >= player.max_hp:
+        if item.cures and not item.heal and not _cures(state, item) and _guarded(state, item):
+            return f"Nothing ails you, and what's in your blood still guards you, so you keep {the(item.name)}."
+        if item.heal and player.hp >= player.max_hp and not _cures(state, item):
             return f"You're not hurt, so you keep {the(item.name)}."
         if item.kind != "consumable":
             return f"{cap(the(item.name))} is no use on its own: try it on something."
+    if verb == "go" and arg in room.exits and hazards.blocked(state, arg):
+        return f"The way {arg} is across the poison river: leap it, wade it, or vault it first."
+    if verb == "cross" and not hazards.crossings(state, content):
+        return "There's no river here to cross." if not room.river else "You know its stepping stones: just walk."
+    if verb == "disarm" and room.vent != "live":
+        return "There's no live gas vent here."
     if verb in ("attack", "throw", "distract") or (verb == "bomb" and not arg):
         if verb == "bomb" and not player.bombs:
             return "You have no bombs."
@@ -1222,6 +1311,8 @@ def why_not(state: GameState, content: Content, action_id: str) -> str:
             return "You've rested here already."
         if player.hp >= player.max_hp:
             return "You're not hurt: there's nothing to rest off."
+        if room.vent == "live":
+            return "Not with a gas vent hissing beside you: disarm it first."
     if verb == "search_room":
         if state.in_combat:
             return "Not in the middle of a fight."
@@ -1241,7 +1332,7 @@ def why_not(state: GameState, content: Content, action_id: str) -> str:
         if monster and monster.hostile:
             return f"{name} stands in your way." if verb == "descend" else f"Not with {the(monster.name)} at you."
         if verb == "shrine_pray":
-            return "You carry nothing cursed: there's no curse here to lift."
+            return "You carry nothing cursed and nothing ails you: there's nothing here to lift."
         if room.fixture_used:
             return {"chest": "The chest is open already.", "fountain": "You've drunk from the fountain already.",
                     "shrine": "The shrine has given all it will."}.get(fixture, "")
@@ -1284,7 +1375,9 @@ def _buy(state: GameState, content: Content, index: int) -> list[Event]:
         return [Event("info", f"{cap(the(item.name))} is {ware.price} gold, and you have {player.gold}.",
                       data={"quiet": True})]
     player.gold -= ware.price
-    shop.wares.pop(index)
+    ware.count -= 1
+    if ware.count <= 0:
+        shop.wares.pop(index)
     says = f"You buy {the(item.name)} for {ware.price} gold ({player.gold} left)"
     return quietly(inventory.gain(state, content, ware.item, "buy", "shop", says=says, kind="buy"))
 
@@ -1322,7 +1415,9 @@ def _use(state: GameState, content: Content, rng: random.Random, key: str) -> tu
     if glows and player.hp >= player.max_hp and holds_its_ground(state, content, state.room.monster):
         return [Event("info", f"{cap(the(state.room.monster.name))} won't be scared off by a glow, so you keep "
                               f"{the(item.name)}.")], False
-    if player.hp >= player.max_hp and not glows:
+    if item.cures and not item.heal:
+        return _drink_cure(state, content, item)
+    if player.hp >= player.max_hp and not glows and not _cures(state, item):
         return [Event("info", f"You're not hurt, so you keep {the(item.name)}.")], False
     heal = round(item.heal * (1.5 if "alchemist" in player.perks else 1))
     healed = min(heal, player.max_hp - player.hp)
@@ -1331,7 +1426,35 @@ def _use(state: GameState, content: Content, rng: random.Random, key: str) -> tu
     verb = heal_verb(item).lower()
     recover = f" and recover {healed} HP ({player.hp}/{player.max_hp})" if healed else ""  # (eaten for its glow)
     events = [Event("heal", f"You {verb} {the(item.name)}{recover}.{what_is_left(player, key)}", data=used)]
+    for status in item.cures:
+        events += statuses.cure(state, status, "It burns going down")
     return events + (_dazzle(state, content) if glows else []), True
+
+
+def _guarded(state: GameState, item: ItemDef) -> bool:
+    """Whether what a thing guards against is guarded against as well already (its guards don't stack)."""
+    return all(state.player.guards.get(k, 0) >= n for k, n in item.guards.items())
+
+
+def _drink_cure(state: GameState, content: Content, item: ItemDef) -> tuple[list[Event], bool]:
+    """Pure: what ails you of what it cures is gone, and it guards you against the next of it (its guards topping
+    yours up, not piling on). With nothing to cure and your guard as good, it's kept."""
+    player, key = state.player, item.key
+    ailing = [k for k in item.cures if k in player.statuses]
+    if not ailing and _guarded(state, item):
+        return [Event("info", f"Nothing ails you, and what's in your blood still guards you, so you keep "
+                              f"{the(item.name)}.")], False
+    used = inventory.consume(state, key, "use")
+    events = [Event("use", f"You {heal_verb(item).lower()} {the(item.name)}.{what_is_left(player, key)}", data=used)]
+    for status in ailing:
+        events += statuses.cure(state, status, "It burns going down, then your hands stop shaking")
+    for status, charges in item.guards.items():
+        if player.guards.get(status, 0) < charges:
+            player.guards[status] = charges
+            word = statuses.WORDS.get(status, (status,))[0]
+            events.append(Event("guarded", f"What's left of it in your blood will stop the next {charges} times "
+                                           f"you'd be {word}.", data={"status": status, "guards": charges}))
+    return events, True
 
 
 def _dazzle(state: GameState, content: Content) -> list[Event]:
@@ -1409,22 +1532,29 @@ def _rest(state: GameState, content: Content, rng: random.Random) -> list[Event]
     if not safe_to_rest(state) and rng.random() < 0.25:
         max_distance = max(r.distance for r in state.rooms)
         room.monster = monster_for(rng, content, state.theme, tier_for(room.distance, max_distance, state.floor),
-                                   met=state.met)
+                                   met=state.met, floor=state.floor)
         who = room.monster.name if content.monster(room.monster.key).named else a(room.monster.name)
         events = [Event("ambush", f"While you rest, {who} creeps up on you!",
                         data={"monster": room.monster.key})] + stand_firm_warning(state, content)
         events += monster_turn(state, content, rng)
         return events
     cook = powers.holders(state, content, "cook")
-    healed = min(dice.roll("1d6", rng) + player.wits + state.floor + 4 * bool(cook), player.max_hp - player.hp)
+    rested = dice.roll("1d6", rng) + player.wits + state.floor + 4 * bool(cook)
+    sick = statuses.hindered(state)
+    if sick:  # (it's hard to rest with venom in you)
+        rested //= 2
+    healed = min(rested, player.max_hp - player.hp)
     player.hp += healed
     meal = f" A hot meal cooked in your {cook[0].name} helps." if cook else ""
-    return [Event("rest", f"You rest for a while and recover {healed} HP ({player.hp}/{player.max_hp}).{meal}")]
+    uneasy = f" Being {sick}, you barely sleep: it does you half the good." if sick else ""
+    events = [Event("rest", f"You rest for a while and recover {healed} HP ({player.hp}/{player.max_hp}).{meal}"
+                            f"{uneasy}")]
+    return events
 
 
 def _fixture(state: GameState, content: Content, rng: random.Random, verb: str) -> list[Event]:
-    """A fixture's use. Each is the fixture's one use, but a prayer: a shrine lifts a curse whenever you ask, used or
-    not (so blood or gold first never leaves you stuck with one)."""
+    """A fixture's use. Each is the fixture's one use, but a prayer: a shrine lifts a curse and cures poison whenever
+    you ask, used or not (so blood or gold first never leaves you stuck with one)."""
     room, player = state.room, state.player
     room.fixture_used = room.fixture_used or verb != "shrine_pray"
     room.remember({"shrine_blood": "you bled on the shrine", "shrine_gold": "you gave gold to the shrine",
@@ -1444,9 +1574,16 @@ def _fixture(state: GameState, content: Content, rng: random.Random, verb: str) 
         return [Event("shrine", "You bleed on the shrine. Your Fate is already full, so it gives you 8 souls instead.")]
     if verb == "shrine_pray":
         lifted = inventory.lift_curses(state, content)
-        names, its = " and ".join(the(name) for name in lifted), "it's" if len(lifted) == 1 else "they're"
-        return [Event("shrine", f"You kneel at the shrine and pray. Its light washes over {names}, and the curse "
-                                f"lifts: {its} yours to keep or leave now.")]
+        events = []
+        if lifted:
+            names, its = " and ".join(the(name) for name in lifted), "it's" if len(lifted) == 1 else "they're"
+            events.append(Event("shrine", f"You kneel at the shrine and pray. Its light washes over {names}, and the "
+                                          f"curse lifts: {its} yours to keep or leave now."))
+        how = "Its light runs through you too" if lifted else \
+            "You kneel at the shrine and pray, and its light runs through you"
+        for key in [k for k in player.statuses if statuses.DEFS[k].shrine]:  # (as often as you like)
+            events += statuses.cure(state, key, how)
+        return events
     if verb == "shrine_gold":
         player.gold -= 10
         healed = player.max_hp - player.hp

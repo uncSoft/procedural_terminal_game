@@ -88,14 +88,15 @@ def rating(state: GameState, content: Content, key: str) -> float:
     shown = powers.powers_of(state, item)
     base = dice.average(item.damage) if item.kind == "weapon" else item.defense
     stats = sum(change / 5 if stat == "max_hp" else change for stat, change in item.stats.items())
-    return base + 0.5 * (len([p for p in shown if p != "cursed"]) + stats) - 5 * ("cursed" in shown)
+    return base + 0.5 * (len([p for p in shown if p != "cursed"]) + len(item.wards) + stats) - 5 * ("cursed" in shown)
 
 
 def gear_words(state: GameState, content: Content, key: str) -> str:
     """A piece of gear in a few words: "1d10", "1d8+1 & goblin-bane", "+2"."""
     item = content.item(key)
     base = item.damage if item.kind == "weapon" else f"+{item.defense}"
-    return " & ".join([base] + [powers.SHORT[p] for p in powers.powers_of(state, item) if p in powers.SHORT])
+    return " & ".join([base] + [powers.SHORT[p] for p in powers.powers_of(state, item) if p in powers.SHORT]
+                      + powers.ward_words(item))
 
 
 def versus(state: GameState, content: Content, key: str) -> str:

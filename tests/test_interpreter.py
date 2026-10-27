@@ -531,3 +531,18 @@ async def test_words_that_come_to_nothing_are_told_as_tried_not_done(content, pr
     game = Game(quiet(content), Config(backend="offline"), None, profile=profile)
     result = await game.act("I do a little dance", lambda _: None)
     assert result.narration == "You try to do a little dance, but nothing comes of it. The dungeon is unimpressed."
+
+
+def test_a_plain_getaway_is_fleeing_without_asking_the_model(content):
+    """'get out of here, run!' was a dodge to a small on-device model: said plainly in a fight, naming nothing in the
+    room, a getaway is fled at once. Naming something, it's the model's to read."""
+    from ptg.llm.interpreter import offline_interpret
+    from ptg.scene import RoomView
+
+    state = generate(1)
+    put_monster(state, content, "goblin")
+    actions, view = available_actions(state, content), RoomView(state, content)
+    for said in ("get out of here, run!", "get away from it", "let's run for it now", "flee"):
+        intent, sure = offline_interpret(said, actions, view)
+        assert (intent.action_id, sure) == ("flee", True), said
+    assert offline_interpret("run past the goblin to the door", actions, view)[1] is False

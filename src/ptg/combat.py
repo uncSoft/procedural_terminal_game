@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import random
 
-from . import dice, inventory, loot, powers
+from . import dice, hazards, inventory, loot, powers, statuses
 from .content import Content, ItemDef
 from .events import Event
 from .models import GameState, MonsterState
@@ -15,10 +15,18 @@ INTENT_WEIGHTS = {
     "elite": {"strike": 55, "heavy": 30, "guard": 15},
     "normal": {"strike": 65, "heavy": 22, "guard": 13},
 }
+VENOM = 0.25  # how often a venomous bite poisons you (a deadly one always does)
+PURE_DROP = 0.25  # how often a venomous monster, slain, leaves a Pure
+VENOMOUS = {"venom", "venom_spit", "deadly_venom"}
 
 
 def monster_defense(monster: MonsterState, content: Content) -> int:
     return content.monster(monster.key).defense + monster.defense_mod + (4 if monster.guarding else 0)
+
+
+def tricks_of(monster: MonsterState, content: Content) -> set[str]:
+    """Its maker's tricks, and any it has here (Norfel's venom)."""
+    return {*content.monster(monster.key).tricks, *monster.tricks}
 
 
 def tier_of(monster: MonsterState, content: Content) -> int:
@@ -319,12 +327,14 @@ def monster_turn(state: GameState, content: Content, rng: random.Random) -> list
     if player.hp == 0:
         events += _death_or_reprieve(state, monster)
     if not state.over:
-        events += _tricks(state, content, rng, monster, monster_def)
+        events += _tricks(state, content, rng, monster, monster_def, heavy=intent == "heavy")
     return events + ([] if state.over else telegraph(state, content))
 
 
-def _tricks(state: GameState, content: Content, rng: random.Random, monster: MonsterState, monster_def) -> list[Event]:
-    """What a monster with tricks does when it hits you (see content.TRICKS): grab something, or tangle you up."""
+def _tricks(state: GameState, content: Content, rng: random.Random, monster: MonsterState, monster_def,
+            heavy: bool = False) -> list[Event]:
+    """What a monster with tricks does when it hits you (see content.TRICKS): grab something, tangle you up, or
+    poison you."""
     player, events = state.player, []
     if "steal" in monster_def.tricks and not (monster.stolen_item or monster.stolen_gold):
         food = [k for k in player.inventory
@@ -346,7 +356,13 @@ def _tricks(state: GameState, content: Content, rng: random.Random, monster: Mon
         player.tangled = True
         events.append(Event("tangle", f"{cap(the(monster.name))}'s vines wrap round your legs: no running away "
                                       "until it's had its next go."))
+    tricks = tricks_of(monster, content)
+    spat = "venom_spit" in tricks and heavy
+    if "deadly_venom" in tricks or spat or ("venom" in tricks and rng.random() < VENOM):
+        events += statuses.inflict(state, "poison", cap(the(monster.name)) + ("'s spit" if spat else "'s bite"),
+                                   content)
     return events
+
 
 
 def _getaway(state: GameState, content: Content, monster: MonsterState) -> list[Event]:
@@ -390,7 +406,7 @@ def dodge(state: GameState, content: Content, rng: random.Random) -> list[Event]
 
 
 def flee_direction(state: GameState) -> str | None:
-    open_exits = [(d, e) for d, e in state.room.exits.items() if not e.locked]
+    open_exits = [(d, e) for d, e in state.room.exits.items() if not e.locked and not hazards.blocked(state, d)]
     for direction, exit_ in open_exits:
         if exit_.to == state.prev_room_id:
             return direction
@@ -470,12 +486,17 @@ def defeat(state: GameState, content: Content, rng: random.Random, how: str = "s
         state.souls += 15
         events.append(Event("ghost_rest", f"The ghost of {monster.ghost_of}, your own earlier life, finally rests. "
                                           "Their belongings are yours to take. +15 souls.", data=data))
-    if monster_def.boss:
+    if monster_def.boss and state.final_floor:
         theme = content.themes[state.theme]
         state.status = "won"
         state.cause = f"conquered {theme.name}"
         events.append(Event("victory", f"You have conquered {theme.name}. {theme.goal} Done.", data=data))
         return events
+    if monster_def.boss:  # the last dungeon's: behind it, the way down (its room's stairs)
+        theme = content.themes[state.theme]
+        events.append(Event("conquered", f"You have conquered {theme.name}. {theme.goal} Done. But it isn't over: "
+                                         "behind where it stood, stairs lead further down, and the air coming up "
+                                         "them stings your throat.", data=data))
     if "vampiric" in player.perks and player.hp < player.max_hp:
         healed = min(3, player.max_hp - player.hp)
         player.hp += healed
@@ -511,13 +532,17 @@ def _give_back(state: GameState, content: Content, monster: MonsterState) -> lis
 
 
 def _drops(state: GameState, content: Content, rng: random.Random, monster: MonsterState) -> list[str]:
-    """What a slain monster leaves: sometimes a potion, a small key or a bomb, and whatever it was keeping (_kept)."""
+    """What a slain monster leaves: sometimes a potion, a small key or a bomb, a Pure from a venomous one, and
+    whatever it was keeping (_kept)."""
     drops = [loot.pick(rng, content, loot.DROP)] if rng.random() < 0.3 else []
     drops += _kept(state, content, rng, monster)
     if rng.random() < (0.5 if monster.elite else 0.25):
         drops.append("small_key")
     if rng.random() < (0.25 if monster.elite else 0.12):
         drops.append("bomb")
+    tricks = tricks_of(monster, content)
+    if tricks & VENOMOUS and "pure" in content.items and rng.random() < PURE_DROP:
+        drops.append("pure")  # (what it bit you with, it carries the cure for)
     return [d for d in drops if d]
 
 

@@ -36,6 +36,7 @@ from PIL.PngImagePlugin import PngInfo
 
 from . import integrity
 from .content import ContentError, build_content, load_content
+from .models import DUNGEONS
 from .sprites import SMALL, count_frames
 
 ALPHABET = string.ascii_lowercase + string.ascii_uppercase + string.digits
@@ -212,11 +213,12 @@ def credits(folder: Path | None = None) -> dict[str, dict[str, dict]]:
             for kind in ("monster", "item")}
 
 
-def lives(key: str, tags: list[str], ghost: bool, themes) -> list[str]:
+def lives(key: str, tags: list[str], ghost: bool, themes, tier: int = 1) -> list[str]:
     """The dungeons a monster turns up in: the one it rules as boss, or every one that calls for its tags (never, for
-    a ghost or an `npc` such as a shopkeeper)."""
+    a ghost or an `npc` such as a shopkeeper; a floor of its own, such as Norfel, only draws tier 3 and up)."""
     return ([t.name for t in themes if t.boss == key] or
-            [t.name for t in themes if set(tags) & set(t.monster_tags) and not ghost and "npc" not in tags])
+            [t.name for t in themes if set(tags) & set(t.monster_tags) and not ghost and "npc" not in tags
+             and (not t.floor or tier >= DUNGEONS)])
 
 
 def reference(monsters: dict, items: dict) -> dict:
@@ -256,7 +258,7 @@ def export_library(folder: Path | None = None) -> dict:
             out["small"] = encode_art(read_frames(small_file(key, folder)))
         out.update(credits[kind].get(key, {}))
         if kind == "monster":
-            out["lives"] = lives(key, fields.get("tags", []), fields.get("ghost", False), themes)
+            out["lives"] = lives(key, fields.get("tags", []), fields.get("ghost", False), themes, fields.get("tier", 1))
             out["special"] = ("boss" if fields.get("boss") else "ghost" if fields.get("ghost")
                               else "shopkeeper" if "shopkeeper" in fields.get("tags", []) else "")
         return out
@@ -478,8 +480,9 @@ def apply(creations: list[dict], folder: Path | None = None, dry_run: bool = Fal
         if kind == "monster" and "npc" in fields.get("tags", []):
             where = ", who keeps out of fights (tagged npc)"
         elif kind == "monster":
-            lives = [t.name for t in load_content().themes.values() if set(fields.get("tags", [])) & set(t.monster_tags)]
-            where = f", lives in {' and '.join(lives)}" if lives else ", but no dungeon has its kind of creature"
+            homes = lives(key, fields.get("tags", []), fields.get("ghost", False), load_content().themes.values(),
+                          fields.get("tier", 1))
+            where = f", lives in {' and '.join(homes)}" if homes else ", but no dungeon has its kind of creature"
         messages.append(f"{verb} {kind} {name} ({key}){' by ' + by if by else ''}{where}{with_small}.{stale_note}")
         if custom:  # (a message of its own: a thank-you comment only ever quotes the Added/Updated ones)
             messages.append(_palette_note(name, custom))

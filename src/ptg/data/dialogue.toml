@@ -148,6 +148,7 @@ thanks = ["Pleasure doing business, dearie!", "Ooh, good choice. Try not to die 
 buys = ["Granny'll take that off your hands, dearie.", "Hm! A bit grubby. Granny's had worse."]
 haggle_won = "Grrr. You drive a hard bargain, dearie. FINE."
 haggle_lost = "Cheeky! For that, it costs MORE."
+snakeskin = "Ooh, dearie, look what Granny found by the stairs! An old smelly snakeskin. It's HUGE! Purple stains all over it, too. Granny'll let it go for a bargain."
 
 # Granny Kamultruk, by JT: Granny Gristle's cousin from the deep tunnels. She'll sell you anything except the candle.
 [granny_kamultruk]
@@ -162,6 +163,7 @@ thanks = ["Good buy! Very shiny. Candle stays.", "Is yours now! Not candle. Cand
 buys = ["Granny Kamultruk pays good! Better than cousin.", "Hm. Is not candle, but okay."]
 haggle_won = "Hmph! Okay, okay. Cheaper. But not candle!"
 haggle_lost = "No! Now is MORE. You want candle too? NO TAKE CANDLE!"
+snakeskin = "Look! Snake skin! Is very big. Is very smelly. Purple spots all over. Is bargain! Is not candle."
 
 # Anyone the maker tagged npc who has no lines of their own yet.
 [npc]

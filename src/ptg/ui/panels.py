@@ -187,7 +187,8 @@ RULES = (
     ("⚠", "HEAVY", "When a monster winds up a heavy blow, Dodge (or stun it) to turn the tables."),
     ("✦", "FATE", "Spend Fate to reroll a failed check. Earn it with flair, perfect dodges and natural 20s."),
     ("♥", "WEAK", "Monsters have weaknesses (fire, holy, shiny, food...). Find them, and the bestiary remembers."),
-    ("↓", "FLOORS", "Three floors, each a different dungeon. Find the stairs, then the key, then the boss."),
+    ("↓", "FLOORS", "Three dungeons, then Norfel. Find the stairs; on the third, the key and its boss, who "
+                    "guards the way down; at the bottom, Serpentis."),
     ("☽", "SOULS", "Souls carry over when you die. Spend them at the campfire on blessings and gifts."),
     ("●", "BOMBS", "Every floor hides a sealed secret room, in a gap that touches two rooms or more: bomb the wall to "
                    "it (search next to it for a draft). ⚷ Small keys open chests; or pick the lock, or smash it."),
@@ -544,7 +545,8 @@ class ShopScreen(Panel):
         text = Text()
         text.append(item.name + "\n", style="bold #4cff8a")
         text.append(item_note(content, ware.item) + "\n", style=WORDS)
-        text.append(f"\n¤ {ware.price} gold", style="bold #ffd166")
+        text.append(f"\n¤ {ware.price} gold" + (f" each · {ware.count} left" if ware.count > 1 else ""),
+                    style="bold #ffd166")
         text.append({"down": "  talked down", "up": "  dearer since you haggled"}.get(ware.haggled, ""), style=SOFT)
         if item.kind in inventory.GEAR:  # against what you have on, and whether it'd only be a spare
             state = self.game.state
@@ -608,8 +610,9 @@ class ShopScreen(Panel):
 
 
 def price_note(ware) -> str:
-    """A ware's price on its tile: talked down (↓), or dearer since you haggled (↑)."""
-    return f"¤ {ware.price}" + {"down": " ↓", "up": " ↑"}.get(ware.haggled, "")
+    """A ware's price on its tile: talked down (↓), or dearer since you haggled (↑), and how many she has (×2)."""
+    return f"¤ {ware.price}" + {"down": " ↓", "up": " ↑"}.get(ware.haggled, "") + \
+        (f" ×{ware.count}" if ware.count > 1 else "")
 
 
 def whereabouts(game: Game, key: str) -> list[str]:

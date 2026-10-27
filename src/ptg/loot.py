@@ -46,12 +46,15 @@ FLOORS = {  # each floor spreads these through its rooms (see world._place_loot)
     1: ["gear 1", "potion 1", "potion 1", "food 0", "bomb", "small_key"],
     2: ["gear 2", "potion 1", "escape 1+", "food 1+", "bomb", "small_key"],  # loot spread out is found more: a potion less
     3: ["potion 2+", "potion 1", "potion 1", "gear 2", "small_key"],
+    4: ["potion 2+", "potion 2+", "potion 1", "gear 3", "small_key", "pure"],  # (Pure: in an egg, a shed skin...)
 }
-DUNGEON_TRINKETS = {"sunken_crypt": "holy_water", "goblin_warren": "bag_of_marbles", "overgrown_ruins": "oil_flask"}
+DUNGEON_TRINKETS = {"sunken_crypt": "holy_water", "goblin_warren": "bag_of_marbles", "overgrown_ruins": "oil_flask",
+                    "norfel": "holy_water"}  # (Serpentis hates it)
 STASH = {  # each floor's hidden stash holds one of its floor's ("rare -1": a rare thing of tier 1 or less)
     1: ["weapon 2", "armor 2", "potion 2", "lucky_charm", "rare -1"],
     2: ["weapon 2", "armor 2", "potion 2", "lucky_charm", "rare -2"],
     3: ["weapon 3+", "armor 3+", "potion 2+", "lucky_charm", "rare"],
+    4: ["weapon 3+", "armor 3+", "potion 3+", "lucky_charm", "rare"],
 }
 MOST_PER_ROOM = 2  # things in a room's hiding places, at most (a quest's own thing aside): more is a treasure trove
 ESSENTIAL = ("small_key", "bomb")  # placed first, and always: a chest and a cracked wall wait on them
@@ -59,11 +62,12 @@ CHESTS = {  # a chest holds one of its floor's ("rare -1": a rare thing of tier 
     1: ["armor 1", "trinket", "escape 1", "potion 1", "rare -1"],
     2: ["armor 2", "weapon 2", "potion 2", "lucky_charm", "rare -2"],
     3: ["armor 3+", "weapon 3+", "potion 2+", "lucky_charm", "rare"],
+    4: ["armor 3+", "weapon 3+", "potion 3+", "lucky_charm", "rare"],
 }
 SECRET = ["rare"]  # what a floor's secret room keeps, any tier: it's hard to find
 # What the warden by the stairs always drops, and an elite sometimes: rare things, tier capped by the floor (so the
 # best of them come from the elites of the last floor, and secret rooms).
-WARDEN = {1: ["rare -1"], 2: ["rare -2"], 3: ["rare"]}
+WARDEN = {1: ["rare -1"], 2: ["rare -2"], 3: ["rare"], 4: ["rare"]}
 WARDEN_DROP, ELITE_DROP = 1.0, 0.2  # how often
 # What a place gives once there's no rare thing left for it: a strong potion, but a warden carries a small key (so
 # floor 1's, with nothing rare that weak to give, always does). A strong potion there won the bot 11% more runs.
@@ -72,29 +76,34 @@ INSTEAD_OF_RARE = "potion 2+"
 DROP = "potion 1"  # what a slain monster sometimes leaves
 SHOPKEEPER, SHINY = "granny_gristle", "granny_kamultruk"  # the shiny one: rarer, dearer, better stocked
 SHOP_CHANCE, SHINY_CHANCE = 0.25, 0.15  # a floor has a shop; of the shops, how many are Granny Kamultruk's
+STATUS_SHOP_CHANCE = 0.5  # a floor with a status of its own (Norfel's poison) has a shop more often
 GRISTLE_RARE = 1 / 3  # how often Granny Gristle has something rare where her trinket would be
+STOCK = {"potion": 2, "cure": 2}  # how many of a ware she has: one of anything else
+# On the floor above one with poison of its own, a shop always (rules._ask: asked, she brings out the snakeskin).
+BEFORE_STATUS_SHOP_CHANCE = 1.0
+SNAKESKIN, SNAKESKIN_PRICE = "shed_snakeskin", 80
 SHINY_WARES = ["potion 2+", "gear 3+", "rare", "rare"]
 FINDS = ["food 0", "food 0", "potion 1", "escape 1", "trinket"]  # what a stunt that pays off can turn up
 EVERYDAY = "floor"  # the place of a floor's scattered loot, a monster's drop or a find: no rare things here
 
-PLACES = [("floor 1", FLOORS[1], EVERYDAY), ("floor 2", FLOORS[2], EVERYDAY), ("floor 3", FLOORS[3], EVERYDAY),
-          ("floor 1 stashes", STASH[1], "stash"), ("floor 2 stashes", STASH[2], "stash"),
-          ("floor 3 stashes", STASH[3], "stash"), ("floor 1 chests", CHESTS[1], "chest"),
-          ("floor 2 chests", CHESTS[2], "chest"), ("floor 3 chests", CHESTS[3], "chest"),
+PLACES = [*[(f"floor {f}", FLOORS[f], EVERYDAY) for f in FLOORS],
+          *[(f"floor {f} stashes", STASH[f], "stash") for f in STASH],
+          *[(f"floor {f} chests", CHESTS[f], "chest") for f in CHESTS],
           ("secret rooms", SECRET, "secret"), ("wardens and elites", WARDEN[3], "warden"),
           ("shops", ["potion 1+", "gear 1+", "trinket", "bomb", "small_key"] + SHINY_WARES, "shop"),
           ("slain monsters", [DROP], EVERYDAY), ("lucky finds", FINDS, EVERYDAY)]
 
 
 def role(item: ItemDef) -> str:
-    """The part an item plays in loot: weapon, armor, potion, food, escape, trinket or key."""
+    """The part an item plays in loot: weapon, armor, potion, food, escape, cure (Pure: a slain venomous monster's,
+    and floor 4's shops), trinket or key."""
     if item.kind != "consumable":
         return item.kind
     if item.escape:
         return "escape"
     if "food" in item.tags:
         return "food"
-    return "potion" if item.heal else "other"
+    return "potion" if item.heal else "cure" if item.cures else "other"
 
 
 def _tiers(text: str) -> tuple[int, float]:
@@ -171,18 +180,24 @@ def produce(rng: random.Random, content: Content, rares: list[str], slots: list[
     return key
 
 
-def wares(rng: random.Random, content: Content, rares: list[str], keeper: str, floor: int) -> list[tuple[str, int]]:
-    """What a shopkeeper lays out on her counter (rare things noted in `rares`, as anywhere), with their prices."""
+def wares(rng: random.Random, content: Content, rares: list[str], keeper: str, floor: int,
+          cure_for: str = "") -> list[tuple[str, int, int]]:
+    """What a shopkeeper lays out on her counter (rare things noted in `rares`, as anywhere), with their prices and
+    how many: potions come in twos (STOCK). On a floor with a status of its own (`cure_for`: floor 4's poison), she
+    always has its cure, two of it."""
     if keeper == SHINY:
         slots = SHINY_WARES
     else:
         slots = [f"potion -{floor}", f"gear {min(floor, 3)}", rng.choice(["bomb", "small_key"]),
                  f"rare -{floor}" if rng.random() < GRISTLE_RARE else "trinket"]
-    out: list[tuple[str, int]] = []
+    out: list[tuple[str, int, int]] = []
     for slot in slots:
         key = produce(rng, content, rares, [slot], "shop")
-        if key and key not in [k for k, _ in out]:
-            out.append((key, price(content.item(key), floor, keeper == SHINY)))
+        if key and key not in [k for k, _, _ in out]:
+            out.append((key, price(content.item(key), floor, keeper == SHINY), STOCK.get(role(content.item(key)), 1)))
+    for item in sorted(content.items.values(), key=lambda i: i.key):
+        if cure_for and cure_for in item.cures and not item.heal:
+            out.append((item.key, price(item, floor, keeper == SHINY), STOCK["cure"]))
     return out
 
 
@@ -191,7 +206,7 @@ def price(item: ItemDef, floor: int, shiny: bool = False) -> int:
     a quarter more again at Granny Kamultruk's. In fives, rounded up (she's a shopkeeper)."""
     base = {"bomb": 12, "small_key": 15}.get(item.key)
     if base is None:
-        base = {"potion": 15 + 20 * (item.tier - 1), "food": 6 + 6 * item.tier, "escape": 20,
+        base = {"potion": 15 + 20 * (item.tier - 1), "food": 6 + 6 * item.tier, "escape": 20, "cure": 45,
                 "weapon": 5 + 20 * item.tier, "armor": 5 + 20 * item.tier}.get(role(item), 20 + 10 * item.tier)
         base *= 1.6 if rare(item) else 1
     cost = base * (1 + 0.1 * (floor - 1)) * (1.25 if shiny else 1)

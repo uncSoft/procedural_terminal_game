@@ -52,4 +52,4 @@ async def test_the_game_screen_gets_no_stand_in_for_a_recap(content, profile):
 
 def test_a_run_in_short(content, profile):
     who, where, how = run_summary(start_run(profile, content, "Back", seed=5))
-    assert who == "Back, level 1" and where.startswith("Floor 1/3 · The ") and how.endswith("HP · turn 0")
+    assert who == "Back, level 1" and where.startswith("Floor 1/4 · The ") and how.endswith("HP · turn 0")

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 
-from .. import layout
+from .. import layout, statuses
 from ..content import Content
 from ..creative import available_props
 from ..events import Action, Event
@@ -187,7 +187,14 @@ def player_status(state: GameState, content: Content) -> str:
     return (f"Player {player.name}: level {player.level}, HP {player.hp}/{player.max_hp}, might {player.might}, "
             f"agility {player.agility}, wits {player.wits}. Weapon: {weapon.name}. Armor: {armor}. "
             f"Carrying: {carrying}. Gold: {player.gold}. Bombs: {player.bombs}. Small keys: {player.keys}. "
-            f"Fate tokens: {player.fate}.")
+            f"Fate tokens: {player.fate}.{ailing(state)}")
+
+
+def ailing(state: GameState) -> str:
+    """What ails the player, for the narrator (" Poisoned: ..."), or ""."""
+    player = state.player
+    told = [f" {statuses.DEFS[k].name}: {statuses.DEFS[k].blurb}" for k in player.statuses if k in statuses.DEFS]
+    return "".join(told)
 
 
 def suggestion_situation(state: GameState, content: Content) -> str:

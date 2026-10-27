@@ -1,6 +1,7 @@
 """Shops (ptg/world.py _shop, rules.py, loot.py): rare, behind a door a small key opens or two bombs break, kept by
 Granny Gristle or now and then Granny Kamultruk, with wares to buy or haggle over."""
 
+import random
 from collections import Counter
 
 from ptg import inventory, loot
@@ -40,13 +41,16 @@ def in_the_shop(content, keeper: str = loot.SHOPKEEPER):
     return state, room.shop
 
 
-def test_shops_are_rare_and_kamultruks_rarer(content):
-    keepers, count = Counter(), 0
+def test_shops_are_rare_and_kamultruks_rarer_but_always_above_the_poison(content):
+    keepers, count, above = Counter(), 0, 0
     for state in floors(content, range(300)):
+        if state.floor == 3:  # (the floor above Norfel: always a shop, for Granny's snakeskin)
+            above += any(r.shop for r in state.rooms)
+            continue
         count += 1
         keepers.update(r.shop.keeper for r in state.rooms if r.shop)
     shops = sum(keepers.values())
-    assert 0.18 < shops / count < 0.35 and 0.05 < keepers[loot.SHINY] / shops < 0.25
+    assert 0.18 < shops / count < 0.35 and 0.05 < keepers[loot.SHINY] / shops < 0.25 and above == 300
 
 
 def test_a_shop_changes_nothing_else_on_its_floor(content, monkeypatch):
@@ -111,12 +115,24 @@ def test_buying(content):
     ware = shop.wares[0]
     state.player.gold = ware.price - 1
     assert perform(state, content, "buy:0")[0].kind == "info" and shop.wares[0] is ware
-    state.player.gold = ware.price + 10
+    state.player.gold, count = ware.price + 10, ware.count
     events = perform(state, content, "buy:0")
     assert events[0].kind == "buy" and events[0].data["quiet"] and state.player.gold == 10
-    assert ware not in shop.wares and events[0].data["item"] == ware.item and events[0].data["how"] == "buy"
+    assert ware.count == count - 1 and (ware in shop.wares) == (count > 1)  # (her last one: gone from the counter)
+    assert events[0].data["item"] == ware.item and events[0].data["how"] == "buy"
     assert events[0].text.count("You ") == 1  # one line for it: not "You buy it... You take it."
     assert perform(state, content, "buy:9")[0].text == "You can't do that right now."
+
+
+def test_potions_come_in_twos_and_a_poison_floors_shop_has_two_pure(content):
+    rng = random.Random(1)
+    for keeper in (loot.SHOPKEEPER, loot.SHINY):
+        wares = loot.wares(rng, content, [], keeper, 4, cure_for="poison")
+        counts = {key: count for key, _, count in wares}
+        assert counts["pure"] == 2 and all(n == 2 for k, n in counts.items() if loot.role(content.item(k)) == "potion")
+        assert all(n == 1 for k, n in counts.items() if loot.role(content.item(k)) not in ("potion", "cure"))
+    assert loot.price(content.item("pure"), 4) == 60 and loot.price(content.item("pure"), 4, shiny=True) == 75
+    assert "pure" not in [k for k, _, _ in loot.wares(rng, content, [], loot.SHOPKEEPER, 2)]  # (no poison up there)
 
 
 def test_haggling(content):

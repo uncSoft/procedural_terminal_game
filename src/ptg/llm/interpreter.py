@@ -37,6 +37,7 @@ DIRECTION_ALIASES = {"n": "north", "s": "south", "e": "east", "w": "west"}
 MOVE_WORDS = {"go", "walk", "head", "move", "travel", "enter", "proceed"}
 ATTACK_WORDS = {"attack", "hit", "strike", "stab", "fight", "kill", "swing", "slash", "smack", "punch", "kick"}
 FLEE_WORDS = {"flee", "run", "escape", "retreat"}
+FLEE_PHRASES = ("get out", "get away", "run for it", "run away", "back off")  # (said whole, they're a getaway)
 REST_WORDS = {"rest", "sleep", "nap", "camp", "sit"}
 TAKE_WORDS = {"take", "grab", "pick", "get", "loot", "collect"}
 USE_WORDS = {"drink", "quaff", "eat", "use", "consume", "chug"}  # as it is, or on yourself: never "throw"
@@ -245,8 +246,11 @@ def _match(raw: str, text: str, words: list[str], actions: list[Action],
     fixture = _fixture(words, ids, view)
     if fixture:
         return _action(fixture), True
-    if FLEE_WORDS & set(words) and "flee" in ids:
-        return _action("flee"), short
+    if (FLEE_WORDS & set(words) or any(p in text for p in FLEE_PHRASES)) and "flee" in ids:
+        # Sure of it when it's short, or plainly a getaway naming nothing in the room ("get out of here, run!"
+        # was a dodge to a small model): "run past the goblin to the chest" is the model's to read.
+        return _action("flee"), short or (len(words) <= 6 and view is not None and not named_by(text) & {
+            w for ref in view.refs for w in named_by(ref.name)})
     if words[0] in REST_WORDS and "rest" in ids:
         return _action("rest"), short
     carried = _carried(raw, words, actions)

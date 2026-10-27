@@ -52,7 +52,7 @@ def test_arrival_tells_of_someone_calm_who_is_here(content):
 async def test_the_opening_and_a_descent_are_short(content, profile):
     game = Game(generate(3), Config(backend="offline"), None, profile=profile)
     opening = await game.opening(lambda _: None)
-    assert "floor 1 of 3" not in opening.narration and not [x for x in LISTINGS if x in opening.narration]
+    assert "floor 1 of 4" not in opening.narration and not [x for x in LISTINGS if x in opening.narration]
     state = game.state
     state.room.monster, state.room.fixture, state.room.fixture_used = None, "stairs", False
     events = perform(state, content, "descend")

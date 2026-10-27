@@ -14,7 +14,8 @@ OPPOSITE: dict[str, Direction] = {"north": "south", "south": "north", "east": "w
 DELTA: dict[str, tuple[int, int]] = {"north": (0, -1), "south": (0, 1), "east": (1, 0), "west": (-1, 0)}
 
 LEVEL_XP = [0, 20, 55, 110, 200, 320, 480, 700]
-FLOORS = 3
+FLOORS = 4  # a run: three dungeons, then Norfel (themes.toml)
+DUNGEONS = 3  # the run's first floors, a dungeon each: the last of them has its boss, and the way down behind it
 MAX_FATE = 3
 
 Intent = Literal["strike", "heavy", "guard"]
@@ -46,6 +47,7 @@ class MonsterState(BaseModel):
     stolen_gold: int = 0
     tier: int = 0  # its tier here, if not its maker's: a character cut down to size for its floor (npcs.sized)
     warden: bool = False  # the one guarding the stairs (or standing in for it): it always leaves something
+    tricks: list[str] = Field(default_factory=list)  # tricks it has here beyond its maker's (Norfel's venom)
     rewarded: bool = False  # talked down already, and paid for it: killing it now pays nothing more
 
 
@@ -58,6 +60,7 @@ class Feature(BaseModel):
     pos: tuple[int, int] = (0, 0)
     used: str = ""  # what a stunt did with it; once used, it's spent as a prop
     told: str = ""  # who told you something's hidden here (it's on your map)
+    trapped: bool = False  # right over a live gas vent (hazards.py): searched before it's disarmed, it gasses you
 
 
 class Exit(BaseModel):
@@ -69,8 +72,9 @@ class Exit(BaseModel):
 
 class Ware(BaseModel):
     item: str
-    price: int
+    price: int  # each
     haggled: str = ""  # "down" or "up" once you've bartered over it (once a ware)
+    count: int = 1  # how many she has of it (potions and Pure come in twos)
 
 
 class Shop(BaseModel):
@@ -108,6 +112,11 @@ class Room(BaseModel):
     draft: str = ""  # the wall you felt a draft through: the secret room is behind it
     told: str = ""  # who told you about this secret room (it's on your map)
     shop: Shop | None = None  # a shopkeeper and her wares, behind a locked door (fixture "shop")
+    vent: Literal["", "live", "dead"] = ""  # a gas vent in the floor, under a cache, until it's disarmed (hazards.py)
+    river: bool = False  # a poison river across it (hazards.py): the way on, `across`, is on its far bank
+    across: str = ""
+    far: bool = False  # you're on the river's far bank
+    stones: bool = False  # you've crossed it once, and know its stepping stones: no crossing it needs now
 
     @model_validator(mode="after")
     def _mark_warden(self) -> Room:
@@ -158,6 +167,8 @@ class Player(BaseModel):
     lifted: list[str] = Field(default_factory=list)  # cursed things whose curse a shrine has lifted (inventory.py)
     coating: str = ""  # what your weapon's coated in, as a tag its hits count as: "holy", "fire" (interactions.RECIPES)
     coated: int = 0  # hits the coating has left
+    statuses: dict[str, int] = Field(default_factory=dict)  # what's afflicting you, and how strongly (statuses.py)
+    guards: dict[str, int] = Field(default_factory=dict)  # charges against a status: the next ones don't take
 
     @property
     def attack_bonus(self) -> int:
@@ -253,3 +264,9 @@ class GameState(BaseModel):
     @property
     def final_floor(self) -> bool:
         return self.floor >= self.floors_total
+
+    @property
+    def boss_floor(self) -> bool:
+        """A floor with a boss behind a locked door: the last dungeon's (floor 3: beaten, its stairs go down), and
+        every floor after it (Norfel, the last)."""
+        return self.floor >= min(DUNGEONS, self.floors_total)

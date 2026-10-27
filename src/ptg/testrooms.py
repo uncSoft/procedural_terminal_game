@@ -20,7 +20,7 @@ import random
 
 from . import loot, npcs, powers
 from .content import Content
-from .models import DELTA, LEVEL_XP, GameState, MonsterState, Player, Room
+from .models import DELTA, DUNGEONS, FLOORS, LEVEL_XP, GameState, MonsterState, Player, Room
 from .world import build_floor, generate
 
 # Who you can test besides the bosses and the monsters, and the floor each is tried on unless you say.
@@ -28,14 +28,14 @@ SPECIAL = {"lenny": ("Lucky Lenny, with his bad tooth in your pack", 1),
            "lenny_quest": ("Lucky Lenny, still missing his bad tooth: it's hidden on his floor", 1),
            "swoogy": ("Swoogy, behind a wall for you to bomb", 1),
            "king_mouse": ("King Mouse, guarding the floor-2 stairs", 2),
-           "serpentis": ("Serpentis in its lair, floor 3's secret room, behind a wall to bomb", 3),
+           "poison": ("Poisoned already, with a Pure in your pack and a shrine next door", 1),
            "shop": ("Granny Gristle's shop, at its door, with gold to spend", 1),
            "shiny_shop": ("Granny Kamultruk's shop, at its door, with gold to spend", 1)}
 LENNYS = {"lenny": npcs.LENNY, "lenny_quest": npcs.LENNY}  # the rooms with Lucky Lenny next door
 SHOP_GOLD = 100
 LOADOUTS = {"new": "a new adventurer", "random": "random gear, as a run would have it on that floor",
             "strong": "the best of everything"}
-LEVELS = {1: 1, 2: 3, 3: 5}  # about where a run is on each floor
+LEVELS = {1: 1, 2: 3, 3: 5, 4: 6}  # about where a run is on each floor
 STRONG = {"weapon": "silvered_blade", "armor": "scale_hauberk", "level": 5, "gold": 200, "bombs": 3, "keys": 2,
           "items": ["superior_healing_potion"] * 3 + ["holy_water", "smoke_bomb"]}
 FIELDS = ("weapon", "armor", "items", "level", "gold", "bombs", "keys")  # a kit of your own
@@ -57,18 +57,20 @@ def choices(content: Content) -> dict[str, str]:
 
 
 def floor_for(content: Content, who: str) -> int:
-    """The floor `who` is tried on unless you say (the bosses only ever on 3, King Mouse on 2)."""
+    """The floor `who` is tried on unless you say (a dungeon's boss only ever on 3, Serpentis on 4, King Mouse on
+    2)."""
     if who in SPECIAL:
         return SPECIAL[who][1]
-    if any(theme.boss == who for theme in content.themes.values()):
-        return 3
-    return max(1, min(3, content.monster(who).tier))
+    boss_of = next((theme for theme in content.themes.values() if theme.boss == who), None)
+    if boss_of:
+        return boss_of.floor or DUNGEONS
+    return max(1, min(DUNGEONS, content.monster(who).tier))
 
 
 def fixed_floor(content: Content, who: str) -> int:
     """The one floor `who` can be on, or 0 if it's up to you."""
-    return floor_for(content, who) if who in ("king_mouse", "serpentis") or \
-        any(t.boss == who for t in content.themes.values()) else 0
+    return floor_for(content, who) if who == "king_mouse" or any(t.boss == who for t in content.themes.values()) \
+        else 0
 
 
 def build(content: Content, who: str, loadout: str = "random", floor: int = 0, name: str = "Tester",
@@ -78,7 +80,7 @@ def build(content: Content, who: str, loadout: str = "random", floor: int = 0, n
         raise ValueError(f"no test room {who!r}: try {', '.join(choices(content))}")
     rng = random.Random(seed)
     seed = rng.randrange(1_000_000) if seed is None else seed
-    floor = fixed_floor(content, who) or max(1, min(3, floor or floor_for(content, who)))
+    floor = fixed_floor(content, who) or max(1, min(FLOORS, floor or floor_for(content, who)))
     boss_of = next((t.key for t in content.themes.values() if t.boss == who), None)
     if boss_of:
         state, start = _boss(content, seed, boss_of)
@@ -88,8 +90,8 @@ def build(content: Content, who: str, loadout: str = "random", floor: int = 0, n
         state, start = _shop(content, seed, floor, loot.SHINY if who == "shiny_shop" else loot.SHOPKEEPER)
     elif who == "king_mouse":
         state, start = _king_mouse(content, seed)
-    elif who == "serpentis":
-        state, start = _lair(content, seed)
+    elif who == "poison":
+        state, start = _shrine_floor(content, seed, floor)
     else:
         state, start = _next_door(content, seed, floor, LENNYS.get(who, who))
     state.test_room, state.run_id, state.daily, state.ghost = who, None, "", None
@@ -105,8 +107,11 @@ def build(content: Content, who: str, loadout: str = "random", floor: int = 0, n
         lenny = target(state)
         npcs.hide_tooth(state, [r for r in state.rooms if r.id not in (start, lenny.id) and not (r.secret or r.shop)]
                         or [lenny])
-    elif who in ("swoogy", "serpentis"):
+    elif who == "swoogy":
         player.bombs = max(player.bombs, 1)
+    elif who == "poison":
+        player.statuses["poison"] = 1
+        player.inventory.append("pure")
     elif who in ("shop", "shiny_shop"):
         player.keys, player.bombs, player.gold = max(player.keys, 1), max(player.bombs, 2), max(player.gold, SHOP_GOLD)
     elif boss_of:
@@ -115,6 +120,8 @@ def build(content: Content, who: str, loadout: str = "random", floor: int = 0, n
     powers.settle_stats(state, content)
     room = state.rooms[start]
     state.room_id, room.visited = start, True
+    room.far = room.river and room.exits.get(room.across) is not None \
+        and room.exits[room.across].to == target(state).id  # (by the river's bank next door: no crossing first)
     if room.monster and room.monster.hostile:
         room.monster = None  # (somewhere safe to stand)
     return state
@@ -127,9 +134,10 @@ def kit(content: Content, state, loadout: str, floor: int, rng: random.Random, n
     if loadout == "strong":
         spec = dict(STRONG)
     elif loadout == "random":
+        gear = min(floor, DUNGEONS)  # (no tier-4 gear but the rare)
         spec = {"level": LEVELS[floor], "gold": 20 * floor + rng.randint(0, 20),
-                "weapon": loot.pick(rng, content, f"weapon {floor}") or "rusty_sword",
-                "armor": loot.pick(rng, content, f"armor {floor}"),
+                "weapon": loot.pick(rng, content, f"weapon {gear}") or "rusty_sword",
+                "armor": loot.pick(rng, content, f"armor {gear}"),
                 "items": [k for k in [loot.pick(rng, content, f"potion {max(1, floor - 1)}"), "healing_potion",
                                       loot.pick(rng, content, "food 1+" if floor > 1 else "food 0"),
                                       loot.pick(rng, content, "trinket")] if k]}
@@ -174,11 +182,12 @@ def custom(spec: str) -> dict:
 
 
 def target(state: GameState) -> Room:
-    """The room whoever you're testing is in (a shop, for a shop)."""
+    """The room whoever you're testing is in (a shop, for a shop; the shrine, poisoned)."""
     who = {**LENNYS, "swoogy": npcs.SWOOGY}.get(state.test_room, state.test_room)
     keeper = {"shop": loot.SHOPKEEPER, "shiny_shop": loot.SHINY}.get(who)
     here = state.room
-    return min((r for r in state.rooms if (r.shop.keeper == keeper if keeper and r.shop else
+    return min((r for r in state.rooms if (r.fixture == "shrine" if who == "poison" else
+                                          r.shop.keeper == keeper if keeper and r.shop else
                                           r.monster is not None and r.monster.key == who)),
                key=lambda r: abs(r.x - here.x) + abs(r.y - here.y))
 
@@ -187,7 +196,8 @@ def describe(content: Content, state: GameState) -> list[tuple[str, str]]:
     """What a test run is, in a few lines: who's where, and your kit."""
     room, player = target(state), state.player
     way = next((d for d, (dx, dy) in DELTA.items() if (state.room.x + dx, state.room.y + dy) == (room.x, room.y)), "")
-    name = content.monster(room.shop.keeper).name + "'s shop" if room.shop else room.monster.name
+    name = content.monster(room.shop.keeper).name + "'s shop" if room.shop else \
+        "A shrine" if state.test_room == "poison" else room.monster.name
     gear = [content.item(k).name for k in (player.weapon, player.armor) if k]
     pack = {}
     for key in player.inventory:
@@ -257,13 +267,14 @@ def _swoogy(content: Content, seed: int, floor: int):
     return state, beside.id
 
 
-def _lair(content: Content, seed: int):
-    """Serpentis, at its lair's size, in floor 3's secret room: you start beside its wall."""
-    state, secret = _first(content, seed, 3, lambda s: next((r for r in s.rooms if r.secret), None))
-    secret.monster = npcs.sized(content, npcs.SERPENTIS, 3, npcs.SERPENTIS_SIZE)
-    beside = next(r for r in state.rooms
-                  if not r.secret and not r.shop and abs(r.x - secret.x) + abs(r.y - secret.y) == 1)
-    return state, beside.id
+def _shrine_floor(content: Content, seed: int, floor: int):
+    """A floor with a shrine on it: you start next door (the step in burns)."""
+    def beside(s):
+        shrine = next((r for r in s.rooms if r.fixture == "shrine"), None)
+        return next((s.rooms[e.to] for e in shrine.exits.values() if not e.locked and not s.rooms[e.to].secret
+                     and not s.rooms[e.to].shop), None) if shrine else None
+    state, start = _first(content, seed, floor, beside)
+    return state, start.id
 
 
 def _shop(content: Content, seed: int, floor: int, keeper: str):
@@ -280,7 +291,8 @@ def _king_mouse(content: Content, seed: int):
 
 
 def _boss(content: Content, seed: int, theme: str):
-    state, boss = _first(content, seed, 3, lambda s: next((r for r in s.rooms if r.is_boss), None)
-                         if s.themes[2] == theme else None)
+    floor = content.themes[theme].floor or DUNGEONS
+    state, boss = _first(content, seed, floor, lambda s: next((r for r in s.rooms if r.is_boss), None)
+                         if s.themes[floor - 1] == theme else None)
     gate = next(r for r in state.rooms if any(e.to == boss.id for e in r.exits.values()))
     return state, gate.id

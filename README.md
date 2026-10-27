@@ -356,6 +356,15 @@ gold (21)") and light up their counter on the status bar. Here wears a ● while
 has someone or something in it. Click a room on the map you've been in to **travel** back to it, past nothing hostile;
 now and then something that's wandered in stops you on the way (twice a floor at most).
 
+Or choose **Grid** (Settings, Game screen), laid out like an old CRPG's screen, every box a fixed size that lines up
+with the one beside it, so nothing moves as choices come and go: on the left the room's picture, the story and the
+decision; on the right the map (each room a box with its name), Here and a button for each panel. The decision is six
+big buttons in fixed places, in a fight Attack, Dodge, Heal, Throw, Use and Flee, out of one Search, Rest, Heal, Bomb,
+Use and Gear, each lit, opened, urgent (Dodge as a heavy blow comes) or greyed out with why, and beside them a compass
+of the ways out (the arrow keys move too). One with several things to do it with opens their row under it (pick with a
+click or a letter); Here's things wear their own verbs, so Take is one click; in a fight Here is the foe's card, big.
+The Map panel is the floor as a chart: every room's whole name and what's in it, the goal, the quests and the tips.
+
 With a model narrating, you needn't wait for it: a move made while it's still talking cuts it short (what it has
 said whole stays) and is made at once, and walking back into a room you've been in, with nothing waiting there, is
 told in the game's own line rather than the narrator's.

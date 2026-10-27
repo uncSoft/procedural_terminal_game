@@ -303,8 +303,9 @@ class SetupScreen(Screen):
                 yield Select([("Pixel sprites", "sprites"), ("ASCII art", "ascii")], value=config.art,
                              allow_blank=False, id="art", compact=True)
                 yield Label("Game screen")
-                yield Select([("Tabs beside the story", "tabs"), ("Classic", "classic")], value=config.layout,
-                             allow_blank=False, id="layout", compact=True)
+                yield Select([("Tabs beside the story", "tabs"), ("Grid: map, Here and big buttons", "grid"),
+                              ("Classic", "classic")], value=config.layout, allow_blank=False, id="layout",
+                             compact=True)
                 yield Label("Dice")
                 yield Select([("Press Space to roll (dramatic)", "manual"), ("Roll automatically", "auto")],
                              value="auto" if config.auto_roll else "manual", allow_blank=False, id="dice",

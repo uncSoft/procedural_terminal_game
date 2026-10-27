@@ -142,12 +142,16 @@ rewind. Tests rely on this (`tests/bot.py` games are compared run to run).
 
 - **Textual app** (`ui/app.py`, `PTGApp`): title, settings, campfire hub, the game screen, panels and the debug app.
   Styles in `ui/app.tcss`, palette in `ui/theme.py`.
-- **Two game screens**, chosen by `Config.layout` and the terminal's size (`ui/tabs.game_screen`):
+- **Three game screens**, chosen by `Config.layout` and the terminal's size (`ui/tabs.game_screen`):
   - `ui/game_screen.py` **GameScreen**, the classic layout, laid out by `ui/plan.py` for any size (one column on a
     phone);
   - `ui/tabs.py` **TabsScreen**, the desktop layout (story and decision on the left; the room, Here and tabbed panes
     on the right). It subclasses GameScreen: turns, dice, animations and the story are shared; only layout and
     panes differ.
+  - `ui/grid.py` **GridScreen**, a fixed grid (every box sized from the screen alone, `grid.share`, and lined up with
+    the one beside it): the picture, the story and the decision on the left (six big buttons, a fight's or the room's,
+    and a compass); the map, Here and the panels' buttons on the right. Its Map panel, **ChartScreen**, draws the floor
+    as a chart (`grid.chart`). Also a GameScreen underneath.
 - **Widgets** (`ui/widgets.py`): the HUD, `Picture` (the one way anything with a sprite is drawn), choices, the dice
   line. `ui/here.py` builds the Here tiles; `ui/panels.py` the pop-up panels (inventory, sheet, map, bestiary,
   journal, shop, cards).
@@ -229,13 +233,13 @@ not by xterm.js as textual-serve ships it.
 | `uv run ptg export` / `ptg import …` | the Maker's library out and creations in |
 | `uv run python -m ptg.integrity [--sign]` | check or accept the data files |
 | `uv run python -m ptg.story` | check the story files |
-| `uv run pytest -q` | the tests (about 1,150; ten minutes) |
+| `uv run pytest -q` | the tests (about 1,300; ten minutes) |
 
 ## Tests
 
 - **Rules and content** are tested directly on `GameState` (fast).
 - **UI** tests drive the real app headless with Textual's `run_test` (`tests/test_ui.py`, `test_screen.py`,
-  `test_tabs.py`); classic-screen tests pin `layout="classic"`.
+  `test_tabs.py`, `test_grid.py`); classic-screen tests pin `layout="classic"`.
 - **Balance**: `tests/bot.py` is an action-only player; `test_rules.py` plays 100 seeds and keeps its win rate
   between 20% and 75%, and checks bot games are deterministic.
 - **Narration** is tested offline (no model), with a fake model where the shape of a model call matters.

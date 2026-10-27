@@ -17,8 +17,8 @@ the last few things that happened.
 Everything a turn does (the story, the dice, the animations, the border's flash) is GameScreen's: this only lays the
 screen out differently and fills the pane. The footer has every key, and at its end who's narrating.
 
-Chosen by Config.layout ("tabs", the default, or "classic"); a touch screen, or one too small for it when the game
-begins, gets the classic one (see game_screen).
+Chosen by Config.layout ("tabs", the default, "grid" for ui/grid.py's, or "classic"); a touch screen, or one too
+small for the one chosen when the game begins, gets the classic one (see game_screen).
 """
 
 from __future__ import annotations
@@ -82,9 +82,16 @@ WORDS, DIM, FAINT, ACCENT, PINK, GOLD = "#c8c8e0", "#6c6f99", "#2a2d4a", "#ffb00
 
 
 def game_screen(game, fresh: bool, width: int, height: int) -> GameScreen:
-    """The game screen to play `game` on: the tabs, unless the player chose the classic one, plays by touch, or the
-    terminal is too small for tabs."""
-    if game.config.layout == "tabs" and not config.touch() and width >= MIN_COLUMNS and height >= MIN_ROWS:
+    """The game screen to play `game` on: the one the player chose (the tabs, or the grid: ui/grid.py), unless they
+    play by touch or the terminal is too small for it, and then the classic one."""
+    if config.touch():
+        return GameScreen(game, fresh)
+    if game.config.layout == "grid":
+        from .grid import MIN_COLUMNS as GRID_COLUMNS, MIN_ROWS as GRID_ROWS, GridScreen  # (grid builds on this module)
+
+        if width >= GRID_COLUMNS and height >= GRID_ROWS:
+            return GridScreen(game, fresh)
+    elif game.config.layout == "tabs" and width >= MIN_COLUMNS and height >= MIN_ROWS:
         return TabsScreen(game, fresh)
     return GameScreen(game, fresh)
 

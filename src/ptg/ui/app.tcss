@@ -617,6 +617,72 @@ TabsScreen .secret-banner { border-top: none; border-bottom: none; background: #
 TabsScreen .secret-banner.shop { border-top: none; border-bottom: none; background: #0c2a18; }
 TabsScreen .continued { border-top: none; border-bottom: none; background: #141a3c; padding: 0; }
 
+/* The grid (ui/grid.py GridScreen): every box's height is set from the screen as it's laid out (grid.share); these
+   are their looks. The big buttons' frames and urgent or open shades are set as they're made (BigButton); hovered,
+   each takes a tint of its own colour (grid.tint(colour, 0.12)). */
+GridScreen #play { width: 1fr; }
+GridScreen #stage-box { width: 100%; }
+GridScreen #stage { width: 100%; height: 100%; padding: 0; }
+GridScreen #story { width: 100%; border: double $primary-darken-2; padding: 0 2 0 1; }
+GridScreen #decide { width: 100%; border: round $secondary; border-title-color: $secondary; border-title-style: bold;
+                     padding: 0 1; }
+GridScreen #decide.fight { border: heavy #ff4b4b; border-title-color: #ff4b4b; }
+GridScreen #decide.scene { border: round $accent; border-title-color: $accent; }
+GridScreen #top-row { width: 100%; }
+GridScreen #bar { width: 1fr; }
+GridScreen .big-button { width: 1fr; margin: 0 1 0 0; content-align: center middle; text-align: center;
+                         border-title-align: left; border-subtitle-align: center; padding: 0; }
+GridScreen .big-button.live.k-attack:hover { background: #281420; }
+GridScreen .big-button.live.k-dodge:hover, GridScreen .big-button.live.k-rest:hover { background: #171b35; }
+GridScreen .big-button.live.k-heal:hover { background: #132927; }
+GridScreen .big-button.live.k-throw:hover, GridScreen .big-button.live.k-bomb:hover { background: #28191e; }
+GridScreen .big-button.live.k-use:hover { background: #282423; }
+GridScreen .big-button.live.k-flee:hover, GridScreen .big-button.live.k-gear:hover { background: #1c1d2e; }
+GridScreen .big-button.live.k-search:hover { background: #152635; }
+GridScreen #compass { height: 100%; margin: 0 0 0 1; }
+GridScreen .compass-row { width: 100%; height: auto; }
+GridScreen .compass-cell { content-align: center middle; text-align: center; }
+GridScreen .compass-cell.way { background: #12142a; }
+GridScreen .compass-cell.middle { background: #171a38; }
+GridScreen .compass-cell.way:hover, GridScreen .compass-cell.middle:hover { background: #23284e; }
+GridScreen #below { width: 100%; padding: 0; margin: 1 0 0 0; scrollbar-size-vertical: 1; }
+GridScreen .chip-line { height: 1; width: 100%; }
+GridScreen .tray-head { width: auto; padding: 0 1 0 0; }
+GridScreen .choice-chip { width: auto; margin: 0 2 0 0; }
+GridScreen .choice-chip:hover { background: #1c2040; }
+GridScreen #command { border: none; height: 1; background: #1c2040; padding: 0 1; }
+GridScreen #command:focus { background: #23284e; }
+GridScreen #side { height: 1fr; padding: 0 0 0 1; }
+GridScreen #map { width: 100%; border: round #6c8cff; border-title-color: #6c8cff; border-title-style: bold;
+                  border-subtitle-color: #6c6f99; padding: 0 1; }
+GridScreen #map-holder { height: 1fr; align: center middle; }
+GridScreen #map-art { width: auto; height: auto; text-wrap: nowrap; text-overflow: clip; }
+GridScreen #map-notes { width: 100%; }
+GridScreen #here { width: 100%; border: round #ffb000; border-title-color: #ffb000; border-title-style: bold;
+                   padding: 0 1; overflow: hidden hidden; }
+GridScreen #here.fight { border: heavy #ff4b4b; border-title-color: #ff4b4b; }
+GridScreen .here-you { height: 1; }
+GridScreen .duel { height: auto; margin: 1 0 1 0; }
+GridScreen .duel-art { margin: 0 2 0 0; }
+GridScreen .duel-words { width: 1fr; }
+GridScreen .here-verbs .verb { width: auto; margin-right: 1; }
+GridScreen #strip { width: 100%; }
+GridScreen .panel-row { height: 3; width: 100%; }
+GridScreen .panel-button { width: 1fr; height: 3; border: round #2e3566; border-title-color: #6c6f99;
+                           border-title-align: right; content-align: center middle; text-align: center; margin: 0; }
+GridScreen .panel-button:hover { border: round #ffb000; border-title-color: #ffb000; background: #1c2040; }
+GridScreen #shims { display: none; }
+
+/* The grid's Map panel (ui/grid.py ChartScreen): the floor's name, the chart and the notes, each centred. */
+ChartScreen .chart-box { padding: 1 2; align-horizontal: center; }
+ChartScreen .chart-name { width: 100%; text-align: center; }
+ChartScreen .chart-goal { width: 100%; text-align: center; margin: 0 0 1 0; }
+ChartScreen .chart-rule { width: 100%; text-align: center; }
+ChartScreen .chart-holder { height: 1fr; width: 100%; align: center middle; }
+ChartScreen #chart { width: auto; height: auto; text-wrap: nowrap; text-overflow: clip; }
+ChartScreen .chart-notes-holder { height: auto; width: 100%; align-horizontal: center; }
+ChartScreen .chart-notes { width: auto; max-width: 110; }
+
 .player-line {
     margin-top: 1;
     color: $secondary;

@@ -42,6 +42,9 @@ floor = 4
 status = "poison"
 blurb = "Under everything, the rock turns purple and soft and full of bubbles, as if it's boiling very slowly. Rivers of glowing poison wind between the caves, vents hiss in the floor, and the air stings your throat. Something old and coiled waits at the bottom of it all."
 goal = "Put an end to Serpentis, the fiend below."
+# Told on the floor's card, under its splash art (data/splash/norfel/). Its hints: her weaknesses, her rule (poison
+# makes her bite harder), and where the Watcher's Orb is.
+lore = "Serpentis was already old when the stars got their names. She fought in the war of the third billionth year, back before Zeus, and she has not forgotten one bit of it. Afterwards she crawled under everything to sulk, and she's sulking still: the rock went soft and purple around her, her spit runs between the caves in glowing rivers, and every vent is her breathing. She hates water. She hates anything holy. She can smell venom in your blood from three caves off, and she likes it. The old bird-headed watchers know the way to her door."
 archetypes = ["bubbling_cavern", "pillar_hall", "egg_chamber", "statue_alcove"]  # (and one river crossing, one vent field: hazards.py)
 monster_tags = ["ooze", "giant", "beast", "undead", "goblinoid"]
 boss = "serpentis"

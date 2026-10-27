@@ -23,6 +23,9 @@ Poses are made from a sprite's own frames at draw time, so every sprite gets the
     death    dissolves in an ordered dither, frame by frame (0-5)
 
     uv run python -m ptg.sprites goblin troll      # preview sprites in your terminal
+
+A floor can have splash art too, a picture for its card (ui/panels.py FloorScreen): data/splash/<theme>/ holds it in
+several sizes, each made from the original picture by tools/make_splash.py (see splash).
 """
 
 from __future__ import annotations
@@ -250,6 +253,57 @@ def side_by_side(texts: list[Text], gap: int = 3) -> Text:
         if row < max(len(c) for c in columns) - 1:
             out.append("\n")
     return out
+
+
+# --- splash art: a floor's picture, on its card -------------------------------------
+
+SPLASH_LEAST = 32  # the narrowest a splash is drawn, shrunk: on a screen too small for that, a card is words only
+
+
+@lru_cache(maxsize=16)
+def _splashes(key: str) -> tuple:
+    """A theme's splash art in every size it comes in, widest first: the PNGs in data/splash/<key>/ (any names)."""
+    folder = resources.files("ptg") / "data" / "splash" / key
+    if Image is None or not folder.is_dir():
+        return ()
+    found = []
+    for path in folder.iterdir():
+        if path.name.endswith(".png"):
+            with path.open("rb") as f:
+                img = Image.open(f).convert("RGBA")
+                img.load()
+            found.append(img)
+    return tuple(sorted(found, key=lambda img: img.width, reverse=True))
+
+
+def splash_sizes(key: str) -> tuple:
+    """The sizes, (width, height) in pixels, a theme's splash art comes in, widest first (none without any)."""
+    return tuple(img.size for img in _splashes(key))
+
+
+@lru_cache(maxsize=8)
+def splash(key: str, width: int):
+    """A theme's splash art `width` pixels across, or None: that size if it comes in it, else the next size up
+    averaged down and snapped back to the palette. That's blurrier than a size made from the picture itself, so a card
+    asks for one of splash_sizes when it can, and this only when the screen's too small for all of them."""
+    for img in reversed(_splashes(key)):
+        if img.width == width:
+            return img
+        if img.width > width:
+            small = img.resize((width, max(2, round(width * img.height / img.width / 2) * 2)), Image.BOX)
+            pixels = small.load()
+            for y in range(small.height):
+                for x in range(small.width):
+                    r, g, b, alpha = pixels[x, y]
+                    pixels[x, y] = (*_nearest((r, g, b)), 255 if alpha >= 128 else 0)
+            return small
+    return None
+
+
+def splash_text(key: str, width: int) -> Text | None:
+    """A theme's splash art `width` pixels across as half-block text (see splash), or None."""
+    art = splash(key, width)
+    return image_text(art, snap=True) if art is not None else None
 
 
 # --- pixel helpers ------------------------------------------------------------------

@@ -122,24 +122,46 @@ Clickable:hover {
     margin-top: 0;
 }
 
-/* A new floor: the card on arrival (ui/panels.py FloorScreen) and the banner left in the story. */
+/* A new floor: the card on arrival (ui/panels.py FloorScreen) and the banner left in the story. Its splash art and
+   the words' widths are set as it opens, for the screen (floor_card_fit): the words under the picture, or beside. */
 .panel-box.floor-box {
     border: double $accent;
     border-title-color: $accent;
     border-title-style: bold;
+    align-horizontal: center;
 }
 
-.floor-box > Static {
+.panel-box.floor-box.beside {
+    layout: horizontal;
+}
+
+#floor-art {
+    width: auto;
+    height: auto;
+}
+
+.floor-words {
+    width: 100%;
+    height: auto;
+    align-horizontal: center;
+}
+
+.floor-box.beside .floor-words {
+    margin-left: 2;
+    align-vertical: middle;
+}
+
+.floor-words > Static {
     width: 100%;
     text-align: center;
     margin-bottom: 1;
 }
 
-.-tiny .floor-box > Static {
+.-tiny .floor-words > Static {
     margin-bottom: 0;
 }
 
-.floor-box > .floor-name {
+.floor-words > .floor-name {
     margin: 1 0;
 }
 

@@ -8,6 +8,8 @@ that panel instead.
 
 from __future__ import annotations
 
+import textwrap
+
 from rich.console import Group
 from rich.style import Style
 from rich.table import Table
@@ -30,7 +32,8 @@ from ..room_picture import picture_text
 from ..events import Action
 from ..rules import TRAITS
 from ..text import cap, the
-from ..sprites import DEFAULT_WIDTH, SMALL, SPENT, frame_count
+from ..sprites import (DEFAULT_WIDTH, SMALL, SPENT, SPLASH_LEAST, frame_count, splash, splash_sizes,
+                       splash_text)
 from .theme import PERK_COLORS
 from .widgets import (TALL, Clickable, Picture, StoryLine, highlight, item_note, item_words, map_text, power_lines,
                       room_text)
@@ -49,6 +52,8 @@ KEEPER = {DEFAULT_WIDTH: 28, SMALL: 16}  # the shopkeeper's column, with its pad
 SIDE = 26  # the least a shop's side column needs: a full-size ware, and words beside the shelf
 USES = ("use", "throw", "distract", "reveal")  # the actions that do something with a thing you carry
 SOFT, DIM, WORDS = "#9a9cc0", "#6c6f99", "#c8c8e0"  # a panel's quieter lines: notes, hints, plain words
+FLOOR_WORDS = 64  # how wide a floor card's words run under its picture: lines you can read at a glance
+FLOOR_BESIDE = 40  # how wide they run beside it, on a screen with more room across than down
 
 
 def panel_rows(height: int) -> int:
@@ -999,8 +1004,54 @@ class JournalScreen(Panel):
 
 # --- moments: a new floor, a level-up ---------------------------------------------------------------------------------
 
+def floor_name(name: str, width: int) -> str:
+    """A floor's name for its card: in capitals, letter-spaced if that fits on one line `width` wide."""
+    spaced = "  ".join(" ".join(word) for word in name.upper().split())
+    return spaced if len(spaced) <= width else name.upper()
+
+
+def floor_words_rows(theme: Theme, final: bool, width: int) -> int:
+    """About how many rows a floor card's words take `width` wide: its name with a blank line round it, its story,
+    the goal and the way on, each with a line under it (a short screen drops those, but counting them is safe)."""
+    rows = len(textwrap.wrap(floor_name(theme.name, width), width)) + 2
+    rows += len(textwrap.wrap(theme.lore or theme.blurb, width)) + 1
+    if final:
+        rows += len(textwrap.wrap(f"Your goal: {theme.goal}", width)) + 1
+    return rows + 2
+
+
+def floor_card_fit(columns: int, rows: int, theme: Theme, final: bool) -> tuple[int, bool]:
+    """How a floor's card sits on a screen this size: (its picture's width, 0 for none; whether its words go beside
+    the picture rather than under it). The picture is the widest of its splash art's sizes (sprites.splash_sizes)
+    that fits round the words, under it or beside it, whichever lets it be bigger: beside, on a screen with more room
+    across than down. On a screen too small for all of them, the smallest is shrunk to fit, down to SPLASH_LEAST."""
+    sizes = splash_sizes(theme.key)
+    if not sizes:
+        return 0, False
+    frame_columns, frame_rows = box_frame(rows)
+    across = columns - 4 - frame_columns  # (and room round the box, to click outside it)
+    down = rows - (4 if rows >= TALL else 2) - frame_rows
+
+    def widest(width: int, height: int) -> int:
+        fits = [w for w, h in sizes if w <= width and h // 2 <= height]
+        if fits:
+            return fits[0]
+        smallest, tall = sizes[-1]
+        shrunk = min(width, smallest - 1, int(2 * height * smallest / tall))
+        while shrunk >= SPLASH_LEAST and round(shrunk * tall / smallest / 2) > height:
+            shrunk -= 1
+        return shrunk if shrunk >= SPLASH_LEAST else 0
+
+    under = widest(across, down - floor_words_rows(theme, final, min(FLOOR_WORDS, across)))
+    beside = (widest(across - FLOOR_BESIDE - 2, down)
+              if floor_words_rows(theme, final, FLOOR_BESIDE) <= down else 0)
+    return (beside, True) if beside > under else (under, False)
+
+
 class FloorScreen(Panel):
-    """Arriving on a new floor: its name and what it's like, until you're ready to go on."""
+    """Arriving on a new floor: its splash art if it has some, its name and its story (its lore, or else what it's
+    like), until you're ready to go on. The picture's as big as the screen has room for round the words (see
+    floor_card_fit), sized as the card opens and again only if the screen is resized."""
 
     BINDINGS = [Binding("escape,enter,space,q", "close", "Continue")]
     size_class = "small"
@@ -1009,17 +1060,51 @@ class FloorScreen(Panel):
     def __init__(self, floor: int, total: int, theme: Theme, final: bool) -> None:
         super().__init__()
         self.floor, self.total, self.theme, self.final = floor, total, theme, final
+        self.shown: tuple | None = None  # (columns, rows, picture's width, beside) as the card was last laid out
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="panel-box floor-box") as box:
             box.border_title = f"Floor {self.floor} of {self.total}"
-            yield Static(Text("  ".join(" ".join(word) for word in self.theme.name.upper().split()),
-                              style="bold #ff4f9a"), classes="floor-name")
-            yield Static(Text(self.theme.blurb, style=f"italic {WORDS}"))
-            if self.final:
-                yield Static(Text(f"Your goal: {self.theme.goal}", style="bold #ffd166"))
-            yield Clickable(Text(" ▶ [enter] continue ", style="#ffb000"), action="screen.close",
-                            classes="panel-action")
+            yield Static(id="floor-art")
+            with Vertical(classes="floor-words"):
+                yield Static(classes="floor-name")
+                yield Static(Text(self.theme.lore or self.theme.blurb, style=f"italic {WORDS}"))
+                if self.final:
+                    yield Static(Text(f"Your goal: {self.theme.goal}", style="bold #ffd166"))
+                yield Clickable(Text(" ▶ [enter] continue ", style="#ffb000"), action="screen.close",
+                                classes="panel-action")
+
+    def fit(self) -> None:
+        super().fit()
+        columns, rows = self.app.size
+        width, beside = floor_card_fit(columns, rows, self.theme, self.final)
+        if self.shown == (columns, rows, width, beside):
+            return
+        self.shown = (columns, rows, width, beside)
+        frame = box_frame(rows)[0]
+        if not width:  # words only, as wide as a small panel says
+            words_width, art_rows = 64 - frame, 0
+        else:
+            words_width = FLOOR_BESIDE if beside else min(FLOOR_WORDS, columns - 4 - frame)
+            art_rows = splash(self.theme.key, width).height // 2
+        art = self.query_one("#floor-art", Static)
+        art.display = bool(width)
+        if width:
+            art.update(splash_text(self.theme.key, width))
+        # Under the picture, the words' column is the box's width and its lines are centred in it (a box centres what's
+        # in it as one block, as wide as the picture); beside it, the column is as wide as the words.
+        words = self.query_one(".floor-words")
+        words.styles.width = words_width if beside else None
+        for line in words.children:
+            line.styles.width = words_width if width and not beside else None
+        # Beside the picture, the words sit halfway down it (if they're shorter: else the box grows to them).
+        short = beside and floor_words_rows(self.theme, self.final, words_width) <= art_rows
+        words.styles.height = art_rows if short else None
+        self.query_one(".floor-name", Static).update(Text(floor_name(self.theme.name, words_width),
+                                                          style="bold #ff4f9a"))
+        self.box.set_class(beside, "beside")
+        self.box.styles.width = ((width + 2 + words_width if beside else max(width, words_width)) + frame
+                                 if width else None)
 
     def on_click(self, event: Click) -> None:
         event.prevent_default()  # instead of Panel's: anywhere closes it, it's a title card

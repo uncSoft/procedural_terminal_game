@@ -6,7 +6,7 @@ from PIL import Image
 from ptg.dice_art import CRIMSON, DIGITS, EDGE, FACE, GOLD, INK, LIT, OUTLINE, SHADED, SIZE, d20, die_image
 from ptg.library import data_folder, read_frames
 from ptg.sprites import (DEATH_FRAMES, DEFAULT_WIDTH, SMALL, SPENT, count_frames, engrave, frame_count, frames,
-                         idle_frames, palette, posed, sprite_text)
+                         idle_frames, palette, posed, splash, splash_sizes, splash_text, sprite_text)
 from ptg.ui.dice import dice_row
 from ptg.ui.widgets import portrait
 
@@ -33,6 +33,28 @@ def test_frames_differ_and_flash_changes_colours():
 def test_sprites_scale_to_any_width():
     assert frames("goblin", 12)[0].size == (12, 12)
     assert len(sprite_text("goblin", width=12).plain.split("\n")) == 6
+
+
+def test_norfel_has_splash_art_in_every_size_its_card_draws():
+    """Its card's picture (data/splash/norfel/, made by tools/make_splash.py), widest first, every size in whole rows
+    of cells and in the sprites' own colours (a terminal caches each pair of colours it meets)."""
+    sizes = splash_sizes("norfel")
+    assert sizes[0] == (160, 90) and len(sizes) >= 3
+    assert [w for w, _ in sizes] == sorted((w for w, _ in sizes), reverse=True)
+    colours = set(palette())
+    for width, height in sizes:
+        art = splash("norfel", width)
+        assert art.size == (width, height) and height % 2 == 0
+        assert {pixel[:3] for pixel in art.get_flattened_data()} <= colours
+    assert splash_sizes("no_such_floor") == () and splash("no_such_floor", 64) is None
+
+
+def test_splash_art_shrinks_to_a_size_it_doesnt_come_in():
+    art = splash("norfel", 50)  # (from the next size up, 64)
+    assert art.size == (50, 28) and {pixel[:3] for pixel in art.get_flattened_data()} <= set(palette())
+    text = splash_text("norfel", 50)
+    assert len(text.plain.split("\n")) == 14 and set(text.plain) <= {"▀", "\n"}
+    assert splash("norfel", 400) is None  # (never drawn bigger than it was made)
 
 
 def test_missing_sprites_fall_back_to_ascii(content):

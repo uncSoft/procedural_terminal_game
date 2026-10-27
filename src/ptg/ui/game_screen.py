@@ -23,7 +23,7 @@ from ..game import Game
 from ..models import LogEntry
 from ..outcome import AWFUL, BAD, GOOD, GREAT, overall, tone, verdict
 from ..room_picture import look_of, picture_text
-from ..sprites import DEATH_FRAMES
+from ..sprites import DEATH_FRAMES, splash_sizes
 from ..text import cap, mid_sentence, the
 from . import effects
 from ..llm.interpreter import looks
@@ -796,6 +796,8 @@ class GameScreen(Screen):
         state = self.game.state
         marker = self._mark_turn()
         self.add_floor_header(f"Floor {state.floor} of {state.floors_total}", self.game.theme.name)
+        if splash_sizes(self.game.theme.key) and not state.test_room:  # a first floor with art has its card too
+            self.app.push_screen(FloorScreen(state.floor, state.floors_total, self.game.theme, state.boss_floor))
         narration, on_text = self._narration_sink()
         result = await self.game.opening(on_text)
         narration.update(highlight(result.narration, self.lexicon()))

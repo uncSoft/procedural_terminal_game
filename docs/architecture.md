@@ -181,7 +181,9 @@ its background to the bottom pixel's: one cell, two pixels, and since a cell is 
 the pixels come out square. A 24×24 sprite is 24 columns × 12 rows; a small 12px one is 12 × 6. A transparent pixel
 has no colour (`▀` with no background, `▄` alone, or a space). Sprites are PNG strips in `data/sprites/` (48×24 is two
 frames), with hand-made small versions in `data/sprites/small/`. Effects (a hit's flash, a lunge's red, the death
-dissolve's ordered dither) recolour pixels in a few fixed shades.
+dissolve's ordered dither) recolour pixels in a few fixed shades. A floor's **splash art** (its card's picture,
+`ui/panels.py` FloorScreen) is in `data/splash/<theme>/` in several widths up to 160, each made from the original
+picture by `tools/make_splash.py`; the card draws the widest that fits the screen round its words.
 
 **Room pictures are drawn in code** (`room_picture.py`), fresh for each room at whatever size the stage has: one-point
 perspective from the doorway you came in by; the dungeon's own look (`Look`: bricks and candles, timber and torches,
@@ -243,6 +245,7 @@ not by xterm.js as textual-serve ships it.
 | To add | Touch |
 |---|---|
 | An item, monster, theme, perk, unlock | `data/*.toml` (or the Maker and `ptg import`), then sign and export |
+| A floor's card: its picture and story | `uv run python tools/make_splash.py picture.png --floor <theme>`; its `lore` in `themes.toml` |
 | What an item does | a power in `powers.py`, named in the item's `powers` |
 | A way to use one thing on another | a row in `interactions.py`'s grid |
 | A free-text effect the model may ask for | the effect sets in `creative.py`, and its line in the interpreter's prompt (`llm/prompts.py`) |

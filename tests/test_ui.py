@@ -16,7 +16,7 @@ from ptg.ui.game_screen import GameScreen, shown
 from ptg.ui.hub import CROWN_GLINT, EndScreen, HubScreen
 from ptg.ui.effects import Popup
 from ptg.ui.panels import (BestiaryScreen, CharacterScreen, FloorScreen, HelpScreen, InfoScreen, InventoryScreen,
-                           JournalScreen, LevelUpScreen, LookScreen, MapScreen, ShopScreen)
+                           JournalScreen, LevelUpScreen, LookScreen, MapScreen, ShopScreen, floor_card_fit)
 from ptg.meta import start_run
 from ptg.ui.screens import AbandonScreen, IntroScreen, SetupScreen, TitleScreen
 from ptg.ui.widgets import ChoiceItem, Picture, PictureClock, roll_text
@@ -582,6 +582,60 @@ async def test_rolls_light_up_the_story():
         assert len(screen.query(Popup)) == 2 and screen.query_one("#hud").has_class("hurt")
         await pilot.pause(1.4)
         assert not screen.query(Popup) and not story.has_class("tone-neutral")
+
+
+def test_a_floor_card_draws_its_picture_as_big_as_the_screen_has_room_for(content):
+    """The widest of its splash art's sizes that fits round its words, under the picture or beside it, whichever
+    lets it be bigger; words only on a screen too small for both, or for a floor with no art."""
+    import dataclasses
+    norfel = content.themes["norfel"]
+    assert floor_card_fit(240, 70, norfel, True) == (160, False)  # a big screen: all of it, the words under
+    assert floor_card_fit(200, 55, norfel, True) == (128, True)  # a wide, short one: the words beside
+    assert floor_card_fit(80, 24, norfel, True) == (0, False)  # 80x24: words only, as ever
+    assert floor_card_fit(240, 70, dataclasses.replace(norfel, key="no_such_floor"), True) == (0, False)
+    widths = [floor_card_fit(columns, columns // 3, norfel, True)[0] for columns in range(80, 260, 10)]
+    assert widths == sorted(widths)  # (a bigger screen never gets a smaller picture)
+
+
+async def test_norfels_card_shows_its_splash_art_and_fits_the_screen(content):
+    for size, drawn in (((240, 70), 160), ((200, 55), 128), ((80, 24), 0)):
+        app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
+        async with app.run_test(size=size) as pilot:
+            await pilot.pause()
+            await app.push_screen(FloorScreen(4, 4, content.themes["norfel"], True))
+            await pilot.pause(0.2)
+            card = app.screen
+            art = card.query_one("#floor-art", Static)
+            assert art.display == bool(drawn) and (not drawn or art.region.width == drawn), size
+            box = card.box.region
+            assert box.right <= size[0] and box.bottom <= size[1], size
+            assert box.contains_region(card.query_one(".panel-action").region), size  # (nothing cut off)
+            words = " ".join(str(w.render()) for w in card.query(".floor-words > Static"))
+            assert "Serpentis was already old" in words and "Your goal" in words
+            await pilot.press("enter")
+            assert not isinstance(app.screen, FloorScreen)
+
+
+async def test_a_first_floor_with_splash_art_opens_on_its_card(monkeypatch):
+    """A run's first floor gets its card too, if it has art (the descents always have theirs)."""
+    monkeypatch.setattr("ptg.ui.game_screen.splash_sizes", lambda key: ((160, 90),))
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        await pilot.pause()
+        app.show_campfire()
+        await pilot.pause(0.3)
+        app.profile.set("intro_seen", 1)
+        app.start_descent()
+        for _ in range(50):
+            await pilot.pause(0.1)
+            if isinstance(app.screen, IntroScreen):
+                await pilot.press("enter")
+            elif isinstance(app.screen, FloorScreen):
+                break
+        assert isinstance(app.screen, FloorScreen) and app.screen.floor == 1
+        await pilot.press("enter")
+        await settle(app, pilot)
+        assert isinstance(app.screen, GameScreen)
 
 
 async def test_a_new_floor_waits_for_you():

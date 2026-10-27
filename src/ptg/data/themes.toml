@@ -36,8 +36,8 @@ key_item = "seed_key"
 
 # Always the fourth floor, under whichever dungeon the run had third: Metroid's Norfair, by way of a poison cavern.
 [[theme]]
-key = "norfell"
-name = "Norfell"
+key = "norfel"
+name = "Norfel, Domain of Serpentis"
 floor = 4
 status = "poison"
 blurb = "Under everything, the rock turns purple and soft and full of bubbles, as if it's boiling very slowly. Rivers of glowing poison wind between the caves, vents hiss in the floor, and the air stings your throat. Something old and coiled waits at the bottom of it all."
@@ -46,4 +46,4 @@ archetypes = ["bubbling_cavern", "river_crossing", "vent_field", "pillar_hall", 
 monster_tags = ["ooze", "giant", "beast", "undead", "goblinoid"]
 boss = "serpentis"
 boss_room = "serpents_lair"
-key_item = "chozo_orb"
+key_item = "watchers_orb"

@@ -167,9 +167,9 @@ kind = "key"
 tags = ["metal"]
 desc = "Opens the Abbot's sanctum. Crusted with things that used to be alive."
 
-# Norfell's key (a Metroid nod: a Chozo statue's item ball)
-[item.chozo_orb]
-name = "Chozo Orb"
+# Norfel's key: an old bird-headed statue's offering (the one in the Old Watcher's alcove)
+[item.watchers_orb]
+name = "Watcher's Orb"
 kind = "key"
 tags = ["stone"]
 desc = "An orb from an old bird-headed statue's hands, as if it had been waiting just for you. It hums near Serpentis's lair, and opens it."

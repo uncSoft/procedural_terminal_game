@@ -125,7 +125,7 @@ numbers, not code.
 
 **Waiting for floor 4.** Some of the kids' creations are made for deeper floors, with numbers from there, and are
 kept as made: tier 4, so floors 1–3 never draw them as ordinary monsters.
-- **Serpentis** (BelleDaBest): 75 HP, defense 15, 2d8, weak to holy and water; one of a kind. It is **Norfell's
+- **Serpentis** (BelleDaBest): 75 HP, defense 15, 2d8, weak to holy and water; one of a kind. It is **Norfel's
   boss**, the bottom of floor 4, at its maker's numbers (docs/plans/floor-4-and-statuses.md): its bite poisons now
   and then, and its heavy blow is a spit of venom. Its old sword, **Bloodbath** (2d7+2, tier 4), still names it as
   the one that drops it, which can't happen now that beating it ends the run: it needs a new home. Its test room is

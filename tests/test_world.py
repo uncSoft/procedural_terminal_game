@@ -38,10 +38,10 @@ def test_same_seed_same_run(content):
     assert floor(42, 3, content).model_dump() == floor(42, 3, content).model_dump()
 
 
-def test_each_floor_is_a_different_theme_and_the_fourth_is_always_norfell():
+def test_each_floor_is_a_different_theme_and_the_fourth_is_always_norfel():
     for seed in SEEDS:
         state = generate(seed)
-        assert len(set(state.themes)) == 4 and state.theme == state.themes[0] and state.themes[3] == "norfell"
+        assert len(set(state.themes)) == 4 and state.theme == state.themes[0] and state.themes[3] == "norfel"
 
 
 @pytest.mark.parametrize("seed", SEEDS)
@@ -191,9 +191,9 @@ def test_serpentis_leaves_its_old_sword(content):
     assert _kept(state, content, random.Random(0), serpent) == []  # (once a run, like any rare thing)
 
 
-def test_serpentis_is_norfells_boss_and_the_last_dungeons_boss_guards_the_stairs(content):
+def test_serpentis_is_norfels_boss_and_the_last_dungeons_boss_guards_the_stairs(content):
     """A run is four floors: floor 3's boss, beaten, opens the way down (its room has the stairs), and Serpentis
-    waits at the bottom of Norfell at its maker's numbers. It never roams, and nor does it lair on floor 3 now."""
+    waits at the bottom of Norfel at its maker's numbers. It never roams, and nor does it lair on floor 3 now."""
     from ptg import testrooms
 
     assert not content.monster("serpentis").roams and content.monster("serpentis").hp == 75
@@ -214,7 +214,7 @@ def test_serpentis_is_norfells_boss_and_the_last_dungeons_boss_guards_the_stairs
                 assert any(r.fixture == "shrine" for r in state.rooms)  # (poison's free cure)
     state = testrooms.build(content, "serpentis", "strong", seed=3)
     lair = testrooms.target(state)
-    assert lair.is_boss and state.floor == 4 and "chozo_orb" in state.player.inventory
+    assert lair.is_boss and state.floor == 4 and "watchers_orb" in state.player.inventory
 
 
 def test_beating_floor_3s_boss_opens_the_stairs_and_serpentis_ends_the_run(content):
@@ -233,7 +233,7 @@ def test_beating_floor_3s_boss_opens_the_stairs_and_serpentis_ends_the_run(conte
     assert not state.over and any(e.kind == "conquered" and "stairs lead further down" in e.text for e in events)
     assert "descend" in [a.id for a in available_actions(state, content)]
     perform(state, content, "descend")
-    assert state.floor == 4 and state.theme == "norfell"
+    assert state.floor == 4 and state.theme == "norfel"
     lair = next(r for r in state.rooms if r.is_boss)
     state.room_id = lair.id
     put_monster(state, content, key="serpentis", hp=1)
@@ -242,7 +242,7 @@ def test_beating_floor_3s_boss_opens_the_stairs_and_serpentis_ends_the_run(conte
     assert state.status == "won" and any(e.kind == "victory" for e in events)
 
 
-def test_norfells_monsters_are_stronger_and_half_of_them_venomous(content):
+def test_norfels_monsters_are_stronger_and_half_of_them_venomous(content):
     venomous = deeper = 0
     for seed in range(30):
         state = floor(seed, 4, content)

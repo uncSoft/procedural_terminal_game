@@ -181,7 +181,7 @@ names = ["Shop"]
 blurb = "A shopkeeper has set up in a nook of the dungeon: a counter of old planks, and everything she owns behind it."
 features = ["the counter"]
 
-# --- Norfell (floor 4: Metroid's Norfair, poisoned) ------------------------
+# --- Norfel (floor 4: Metroid's Norfair, poisoned) ------------------------
 
 [archetype.bubbling_cavern]
 decor = "pool"

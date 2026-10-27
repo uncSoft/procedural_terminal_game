@@ -74,8 +74,8 @@ class Theme:
     boss: str
     boss_room: str
     key_item: str
-    floor: int = 0  # the one floor it's always on (Norfell: 4), or 0: one of a run's first three, shuffled
-    status: str = ""  # its own status (Norfell's poison): its shops sell the cure, and it always has a shrine
+    floor: int = 0  # the one floor it's always on (Norfel: 4), or 0: one of a run's first three, shuffled
+    status: str = ""  # its own status (Norfel's poison): its shops sell the cure, and it always has a shrine
 
 
 @dataclass(frozen=True)

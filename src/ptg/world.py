@@ -1,5 +1,5 @@
 """Seeded dungeon generation. A run is four floors: three dungeons, each a different theme (the third's boss guards
-the stairs down), then Norfell, always the fourth, with Serpentis at its bottom. The same seed always builds the same
+the stairs down), then Norfel, always the fourth, with Serpentis at its bottom. The same seed always builds the same
 run. Floors are built one at a time as you descend."""
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ def generate(seed: int, player_name: str = "Adventurer", content: Content | None
     rng = dice.stream(seed, "run")
     themes = sorted(k for k, t in content.themes.items() if not t.floor)  # (the dungeons, shuffled)
     rng.shuffle(themes)
-    fixed = {t.floor: t.key for t in content.themes.values() if t.floor}  # (Norfell, always the fourth)
+    fixed = {t.floor: t.key for t in content.themes.values() if t.floor}  # (Norfel, always the fourth)
     themes = [fixed.get(floor) or themes[(floor - 1) % len(themes)] for floor in range(1, FLOORS + 1)]
     state = GameState(seed=seed, theme=themes[0], themes=themes, rooms=[],
                       player=player or Player(name=player_name), ghost=ghost)

@@ -124,7 +124,7 @@ LOOKS = {
         moss=_ramp("#193c3e", "#265c42", "#3e8948", "#63c74d"),
         walls="marble", ground="mosaic", above="vault", ambient=0.30, lantern=0.45, sconces="", fog=0.30,
         accent="#63c74d"),
-    "norfell": Look(  # Metroid's Norfair: purple rock all bubbles, lit from below by pools of glowing poison
+    "norfel": Look(  # Metroid's Norfair: purple rock all bubbles, lit from below by pools of glowing poison
         wall=_ramp("#181425", "#68386c", "#b55088", "#f6757a", "#e8b796"),
         wall_warm=_ramp("#181425", "#68386c", "#b55088", "#f6757a", "#e8b796"),
         floor=_ramp("#181425", "#3e2731", "#68386c", "#b55088"),

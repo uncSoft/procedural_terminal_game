@@ -1,4 +1,4 @@
-"""Norfell's hazards (hazards.py): poison puddles in its doorways, rivers across its rooms, gas vents in its floors."""
+"""Norfel's hazards (hazards.py): poison puddles in its doorways, rivers across its rooms, gas vents in its floors."""
 
 from conftest import put_monster
 
@@ -8,7 +8,7 @@ from ptg.rules import available_actions, perform
 from ptg.world import build_floor, generate
 
 
-def norfell(content, seed=7):
+def norfel(content, seed=7):
     state = generate(seed, content=content)
     state.floor = 4
     build_floor(state, content)
@@ -57,7 +57,7 @@ def test_only_a_poison_floor_has_them_and_never_where_youd_be_cornered(content):
 
 def test_a_puddle_is_jumped_or_landed_in(content):
     for agility, poisoned in ((50, False), (-50, True)):
-        state = norfell(content)
+        state = norfel(content)
         state.player.agility = agility
         direction, _ = doorway(state)
         events = perform(state, content, f"go:{direction}")
@@ -68,7 +68,7 @@ def test_a_puddle_is_jumped_or_landed_in(content):
 
 
 def test_poisoned_already_nothing_more_can_happen_so_theres_no_roll(content):
-    state = norfell(content)
+    state = norfel(content)
     statuses.inflict(state, "poison")
     direction, there = doorway(state, river=True, vent="hidden")
     events = perform(state, content, f"go:{direction}")
@@ -76,7 +76,7 @@ def test_poisoned_already_nothing_more_can_happen_so_theres_no_roll(content):
 
 
 def test_pure_in_your_blood_stops_what_would_have_poisoned_you(content):
-    state = norfell(content)
+    state = norfel(content)
     state.player.agility = -50
     statuses.guard(state, "poison", 1)
     direction, _ = doorway(state)
@@ -85,7 +85,7 @@ def test_pure_in_your_blood_stops_what_would_have_poisoned_you(content):
 
 
 def test_a_river_is_crossed_coming_in(content):
-    state = norfell(content)
+    state = norfel(content)
     state.player.agility = -50
     direction, _ = doorway(state, puddle=False, river=True)
     events = perform(state, content, f"go:{direction}")
@@ -95,7 +95,7 @@ def test_a_river_is_crossed_coming_in(content):
 
 def test_a_vent_spotted_or_not_is_seen_after_and_walked_wide_of(content):
     for wits, poisoned in ((50, False), (-50, True)):
-        state = norfell(content)
+        state = norfel(content)
         state.player.wits = wits
         direction, there = doorway(state, puddle=False, vent="hidden")
         events = perform(state, content, f"go:{direction}")
@@ -108,7 +108,7 @@ def test_a_vent_spotted_or_not_is_seen_after_and_walked_wide_of(content):
 
 
 def test_no_resting_beside_a_vent_until_its_disarmed(content):
-    state = norfell(content)
+    state = norfel(content)
     state.room.vent, state.player.hp = "seen", 10
     assert "rest" not in ids(state, content) and "disarm it first" in rules.why_not(state, content, "rest")
     disarm = next(a for a in available_actions(state, content) if a.id == "disarm")
@@ -126,7 +126,7 @@ def test_no_resting_beside_a_vent_until_its_disarmed(content):
 
 
 def test_a_vent_you_never_saw_finds_you_asleep(content):
-    state = norfell(content)
+    state = norfel(content)
     put_monster(state, content, key="goblin").hostile = False  # (keeping watch: nothing creeps up on you instead)
     state.room.vent, state.player.hp = "hidden", 10
     events = perform(state, content, "rest")
@@ -134,7 +134,7 @@ def test_a_vent_you_never_saw_finds_you_asleep(content):
 
 
 def test_the_way_through_says_whats_in_it(content):
-    state = norfell(content)
+    state = norfel(content)
     direction, there = doorway(state, river=True)
     there.visited = True
     go = next(a for a in available_actions(state, content) if a.id == f"go:{direction}")
@@ -145,7 +145,7 @@ def test_the_way_through_says_whats_in_it(content):
 
 
 def test_quick_travel_crosses_them_all_on_the_way(content):
-    state = norfell(content)
+    state = norfel(content)
     state.player.agility = 50  # (there and back, safely)
     direction, there = doorway(state)
     perform(state, content, f"go:{direction}")

@@ -25,7 +25,7 @@ def monster_defense(monster: MonsterState, content: Content) -> int:
 
 
 def tricks_of(monster: MonsterState, content: Content) -> set[str]:
-    """Its maker's tricks, and any it has here (Norfell's venom)."""
+    """Its maker's tricks, and any it has here (Norfel's venom)."""
     return {*content.monster(monster.key).tricks, *monster.tricks}
 
 

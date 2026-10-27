@@ -215,7 +215,7 @@ def credits(folder: Path | None = None) -> dict[str, dict[str, dict]]:
 
 def lives(key: str, tags: list[str], ghost: bool, themes, tier: int = 1) -> list[str]:
     """The dungeons a monster turns up in: the one it rules as boss, or every one that calls for its tags (never, for
-    a ghost or an `npc` such as a shopkeeper; a floor of its own, such as Norfell, only draws tier 3 and up)."""
+    a ghost or an `npc` such as a shopkeeper; a floor of its own, such as Norfel, only draws tier 3 and up)."""
     return ([t.name for t in themes if t.boss == key] or
             [t.name for t in themes if set(tags) & set(t.monster_tags) and not ghost and "npc" not in tags
              and (not t.floor or tier >= DUNGEONS)])

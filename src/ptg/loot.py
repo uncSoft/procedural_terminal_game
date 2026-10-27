@@ -49,7 +49,7 @@ FLOORS = {  # each floor spreads these through its rooms (see world._place_loot)
     4: ["potion 2+", "potion 2+", "potion 1", "gear 3", "small_key", "pure"],  # (Pure: in an egg, a shed skin...)
 }
 DUNGEON_TRINKETS = {"sunken_crypt": "holy_water", "goblin_warren": "bag_of_marbles", "overgrown_ruins": "oil_flask",
-                    "norfell": "holy_water"}  # (Serpentis hates it)
+                    "norfel": "holy_water"}  # (Serpentis hates it)
 STASH = {  # each floor's hidden stash holds one of its floor's ("rare -1": a rare thing of tier 1 or less)
     1: ["weapon 2", "armor 2", "potion 2", "lucky_charm", "rare -1"],
     2: ["weapon 2", "armor 2", "potion 2", "lucky_charm", "rare -2"],
@@ -76,7 +76,7 @@ INSTEAD_OF_RARE = "potion 2+"
 DROP = "potion 1"  # what a slain monster sometimes leaves
 SHOPKEEPER, SHINY = "granny_gristle", "granny_kamultruk"  # the shiny one: rarer, dearer, better stocked
 SHOP_CHANCE, SHINY_CHANCE = 0.25, 0.15  # a floor has a shop; of the shops, how many are Granny Kamultruk's
-STATUS_SHOP_CHANCE = 0.5  # a floor with a status of its own (Norfell's poison) has a shop more often
+STATUS_SHOP_CHANCE = 0.5  # a floor with a status of its own (Norfel's poison) has a shop more often
 GRISTLE_RARE = 1 / 3  # how often Granny Gristle has something rare where her trinket would be
 STOCK = {"potion": 2, "cure": 2}  # how many of a ware she has: one of anything else
 SHINY_WARES = ["potion 2+", "gear 3+", "rare", "rare"]

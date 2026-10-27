@@ -1,4 +1,4 @@
-"""Hazards: what a floor with poison of its own (Norfell) has waiting in its doorways and its rooms, after Metroid's
+"""Hazards: what a floor with poison of its own (Norfel) has waiting in its doorways and its rooms, after Metroid's
 Norfair (docs/plans/floor-4-and-statuses.md §3.1).
 
     a poison puddle across a doorway   jump it going through (agility), or land in it: poisoned

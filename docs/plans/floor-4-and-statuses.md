@@ -1,6 +1,6 @@
 # Floor 4 and statuses
 
-Status: **steps 1 and 2 built (poison, then floor 4: Norfell, its hazards and look, Serpentis as its boss), with your
+Status: **steps 1 and 2 built (poison, then floor 4: Norfel, its hazards and look, Serpentis as its boss), with your
 second round of answers in.** Marked **✅** where it's decided, **❓** where it's still a choice for you. One new floor
 and one new status at a time: this is floor 4 and poison.
 
@@ -132,7 +132,7 @@ inflicts = { poison = 1 }   # its hits poison what they hit (its maker wrote tha
 
 | Ward | What | Where from |
 |---|---|---|
-| **Varia Cloak** (armor, +1) | rivers and puddles can't poison you (bites and vents still can) | floor 4's secret room, or a warden |
+| **Riverwalker Cloak** (armor, +1) | rivers and puddles can't poison you (bites and vents still can) | floor 4's secret room, or a warden |
 | **Bezoar** (rare trinket) | a guard back at every shrine you pray at | chests on floor 4 |
 | **Serpentis's shed skin** (trinket) | venomous bites poison you half as often | floor 3's secret room: a warning of what's below, and a help |
 
@@ -166,7 +166,7 @@ bigger, or the target smaller. Floor 4 will tell.
 
 ---
 
-## 4. Floor 4: Norfell ❓ (the name)
+## 4. Floor 4: Norfel, Domain of Serpentis ✅ (the name)
 
 ### 4.1 Where it sits in a run
 
@@ -189,16 +189,18 @@ liquid, light) like the other three, and the title's palette already has every c
 
 - **Rooms**: a bubbling cavern, a river crossing, a vent field, a pillar hall, an egg chamber, the lair.
 - **Features**: bubble clusters, pillars, vents (traps), shed skins (search: bitterroot, sometimes Pure), old
-  chozo-ish statues holding an orb (a Metroid nod: search it for something good).
+  old bird-headed statues holding an orb (a Metroid nod, by its look, not its name: search it for something good).
 - **Light**: dim magenta from the rivers. The narrator gets "the air stings your throat" as a fact.
 
 ### 4.4 Nods to Metroid and Final Fantasy 1
 
+✅ Nods by look and by what things do, never by their trademarked names: the Watcher's Orb, not a Chozo one.
+
 | Nod | In the game |
 |---|---|
 | Norfair | the floor itself: purple rock, poison rivers |
-| Varia suit | the Varia Cloak: rivers can't hurt you |
-| Energy Tank | a rare find: +10 max HP ("ENERGY TANK" on its card) |
+| Varia suit | the Riverwalker Cloak: rivers can't hurt you |
+| Energy Tank | a rare find: the Life Canister, +10 max HP |
 | Maru Mari | a narrow crack in a wall you can squeeze through rolled up: a shortcut between two rooms |
 | Zoomers, Rippers, Squeepts | monsters: a spiky crawler on the walls, a flyer that only goes left and right, a jumper out of the river |
 | Ridley's lair | Serpentis's room |
@@ -252,20 +254,20 @@ things before you went down?
    the story's burn lines and the narrator's facts. Pure (its own pale-blue bottle) and its guards, the shrine's
    cure. The `venom` trick (Serpentis has it). The bot cures itself; the simulator reports poison (and `--venom` to
    try it on anything). A test room: `ptg --test-room poison`. Statuses on monsters wait for Bloodbath (step 3).
-2. ✅ **Floor 4** (built): four-floor runs (floor 3's boss, beaten, opens the stairs in its own room), Norfell
+2. ✅ **Floor 4** (built): four-floor runs (floor 3's boss, beaten, opens the stairs in its own room), Norfel
    (`themes.toml`: always the fourth floor, `status = "poison"`), seven room kinds in `rooms.toml` (a bubbling cavern,
    a poison ford, a vent field, a pillar hall, an egg chamber, a bird-headed statue's alcove, Serpentis's lair), its
    look (`room_picture.py`: purple bubbled rock, glowing pink pools, grey pillars), 10 rooms, always a shrine, a shop
-   half the time with two Pure, the Chozo Orb for its key, holy water for its trinket. Hazards (`hazards.py`): a
+   half the time with two Pure, the Watcher's Orb for its key (an old bird-headed statue's: Nintendo's own names stay out of the game), holy water for its trinket. Hazards (`hazards.py`): a
    quarter of its doorways have a puddle to jump (agility 10), a ford's river to cross (agility 12), gas vents in a
    quarter of its rooms and every vent field (wits 12 to spot coming in; seen, no resting beside one until it's
    disarmed, wits 13, a ten-foot pole +2, 15 XP). Each a roll you can spend Fate on; no roll if you're poisoned
    already. The floor-3 lair is gone. Test rooms: `ptg --test-room serpentis` (its lair, floor 4).
-3. **Monsters and the boss** (started): ✅ Norfell's monsters for now are the dungeons' tier 3, deeper (x1.3 HP, +1
+3. **Monsters and the boss** (started): ✅ Norfel's monsters for now are the dungeons' tier 3, deeper (x1.3 HP, +1
    to hit and damage; the plan's x1.6 and +1 defense killed the bot three times in ten there), half of them
    venomous ("Venomous Troll"), elites a quarter of the time. ✅ Serpentis at its maker's numbers: its bite poisons a
    quarter of the time, and its heavy blow ("SSSSSS...") is a **spit of venom** that always does: dodge it. Still to
-   come: the kids' roster, Bloodbath (it says Serpentis drops it, but beating Serpentis ends the run: Norfell's secret
+   come: the kids' roster, Bloodbath (it says Serpentis drops it, but beating Serpentis ends the run: Norfel's secret
    room?) and its poisoning monsters, the floor-3 shed skin, more nods.
 4. **The eggplant.**
 5. **Balance**: the bot against §3.6's targets, and the whole run's curve with a fourth floor.
@@ -276,11 +278,10 @@ Each step ships on its own, and the game stays playable in between.
 
 ## 6. Still open
 
-1. The floor's name: Norfell? (§4)
-2. Serpentis: at its maker's numbers it wins 41% of fights against a floor-4 kit (bite and spit; 26% with no
+1. Serpentis: at its maker's numbers it wins 41% of fights against a floor-4 kit (bite and spit; 26% with no
    venom at all). Keep it the hardest thing in the game, or trim its HP or its 2d8? (§4.6)
-3. The roster: drawn by the kids in the Maker? (§4.5) Until then, the deeper dungeons' own.
-4. How rare is the eggplant? (§3.5)
+2. The roster: drawn by the kids in the Maker? (§4.5) Until then, the deeper dungeons' own.
+3. How rare is the eggplant? (§3.5)
 
 ## 7. The numbers now (300 seeds, `tools/simulate.py`)
 

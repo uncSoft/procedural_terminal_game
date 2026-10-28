@@ -72,6 +72,15 @@ def test_claude_is_told_the_games_colours_and_rules():
         assert rule in maker.SYSTEM, rule
 
 
+def test_claude_picks_the_floors_a_monster_shows_up_on():
+    """Kept to no floors, a monster is on every one its creature type fits, so Claude is told to pick them, and its
+    details tool takes them (the page checks them against the game's floors)."""
+    details = next(t for t in maker.TOOLS if t["name"] == "details")
+    assert "dungeons" in details["input_schema"]["properties"] and "dungeons" in details["description"]
+    assert "Pick its floors every time" in maker.SYSTEM and "Norfel" in maker.SYSTEM
+    assert re.search(r'const allowed = monster \? \[[^\]]*"dungeons"', PAGE.read_text(encoding="utf-8"))
+
+
 def test_every_tool_is_one_the_page_runs_and_streams_its_input():
     page = PAGE.read_text(encoding="utf-8")
     tools = re.search(r"const STUDIO_TOOLS = \{(.*?)\n\};", page, re.DOTALL).group(1)
@@ -280,8 +289,10 @@ def test_checks_previews_and_adding_to_the_game(served):
     nameless = monster(by="")
     assert not json.loads(call(server, "POST", "/api/add", {"creation": nameless}, token=studio.token)[1])["ok"]
     real = (library.data_folder() / "monsters.toml").read_text(encoding="utf-8")
-    added = json.loads(call(server, "POST", "/api/add", {"creation": monster()}, token=studio.token)[1])
-    assert added["ok"] and added["said"][0].startswith("Added monster Moss Blob")
+    kept = monster()
+    kept["fields"]["dungeons"] = ["overgrown_ruins"]
+    added = json.loads(call(server, "POST", "/api/add", {"creation": kept}, token=studio.token)[1])
+    assert added["ok"] and added["said"][0] == "Added monster Moss Blob (moss_blob) by Lily, lives in The Overgrown Ruins."
     assert "[monster.moss_blob]" in (data / "monsters.toml").read_text(encoding="utf-8")
     assert (data / "sprites" / "moss_blob.png").is_file()
     assert (library.data_folder() / "monsters.toml").read_text(encoding="utf-8") == real  # the game's own: untouched

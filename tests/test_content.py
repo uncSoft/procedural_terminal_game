@@ -23,6 +23,8 @@ def edited(file: str, old: str, new: str):
     ("items.toml", 'damage = "1d6"\ntier = 0', "tier = 0", "a weapon needs damage"),
     ("perks.toml", 'name = "Brawler"', 'name = "Brawler', "perks.toml: Illegal character"),
     ("themes.toml", 'boss = "goblin_king"', 'boss = "goblin_emperor"', "unknown boss 'goblin_emperor'"),
+    ("monsters.toml", "[monster.goblin]\n", '[monster.goblin]\ndungeons = ["sunken_crypts"]\n',
+     "[monster.goblin]: unknown dungeon 'sunken_crypts' (did you mean 'sunken_crypt'?)"),
     ("tags.toml", 'cauldron = ["heavy", "fire", "food"]', 'cauldron = "heavy"', "tags.toml [keywords] cauldron"),
 ])
 def test_bad_edits_are_explained(file, old, new, message):

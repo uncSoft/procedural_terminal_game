@@ -199,9 +199,10 @@ Pages so friends can contribute. It works on a laptop, a tablet or a phone, with
   tools, frames and undo. Once it's hand-made it stops following the drawing, says so if the drawing changes after,
   and "Start again from the drawing" goes back. Only a hand-made one is sent, and imported.
 - **Set everything**: tier (with typical values for it, one click to apply), HP, defense, attack, damage dice and XP;
-  creature type, which decides which dungeons it appears in; weaknesses; any extra tags; whether it can be reasoned
-  with; its heavy-attack tell; and a description, which the in-game narrator reads so it describes the thing the way
-  its creator imagined. Items get their kind, tier, damage, defense, healing or escape, tags and description.
+  creature type; the floors it shows up on (pick none and it's every floor its creature type fits, which for a beast
+  is most of them; Norfel, the fourth, only has tier 3 and up); weaknesses; any extra tags; whether it can be
+  reasoned with; its heavy-attack tell; and a description, which the in-game narrator reads so it describes the thing
+  the way its creator imagined. Items get their kind, tier, damage, defense, healing or escape, tags and description.
 - **Save**: put your name in "Created by" and press Save. The creation goes into the library straight away, whether
   or not it ever goes into the game (for everyone once the shared library below is set up; until then, just in that
   browser). Saving again updates it, a reminder shows when it's changed since, and deleting it from "My work" takes it
@@ -222,9 +223,9 @@ a small Apps Script web app (free, about five minutes to set up, nothing to run 
    warns that the app isn't verified: it's yours, so Advanced → Go to …).
 3. Put the web app URL (it ends in `/exec`) in `docs/maker/config.json` as `"saves": {"url": "…"}`, commit and push.
 
-When `tools/maker_saves.gs` changes (it learned to keep an item's small version, for one), paste it in again and
-publish it: Deploy → Manage deployments → Edit → Version: New version → Deploy. The URL stays the same. Until then
-the old script quietly leaves out what it doesn't know, and links and downloads still carry everything.
+When `tools/maker_saves.gs` changes (it learned to keep an item's small version, and a monster's floors), paste it in
+again and publish it: Deploy → Manage deployments → Edit → Version: New version → Deploy. The URL stays the same.
+Until then the old script quietly leaves out what it doesn't know, and links and downloads still carry everything.
 
 Each saved creation is a row in the sheet: its number, name, type, who created it and when. The number (#1, #2, …)
 never changes and is never reused; it shows on the creation's card in the library and when it's saved. Type anything
@@ -292,12 +293,12 @@ locally: `python3 -m http.server --directory docs`, then open http://localhost:8
 
 **Claude at the drawing board**: `uv run ptg maker` serves the maker on this computer with a Claude panel beside the
 boards. Ask for a monster or an item and Claude draws it on the maker's own boards, frame by frame (you watch each
-stroke land, and can undo it or draw over it), gives it fair numbers for its tier, looks at it the way a fight shows
-it (the game's own poses: idle, windup, dizzy, lunge, shake, hit, death) and at an item's small version, and runs the
-checks: the maker's rules, the game's own art tests (an outline, filling its frame, idle frames that keep their feet,
-a small version that matches, the floors' splash colours) and the importer, as a dry run. Then save it as usual, or
-press "Add to the game…", which does what `uv run ptg import` would once you've seen what that is. The art rules are
-in its instructions (`src/ptg/maker.py`), so what it makes goes in as it is.
+stroke land, and can undo it or draw over it), gives it fair numbers for its tier and the floors that suit it, looks
+at it the way a fight shows it (the game's own poses: idle, windup, dizzy, lunge, shake, hit, death) and at an item's
+small version, and runs the checks: the maker's rules, the game's own art tests (an outline, filling its frame, idle
+frames that keep their feet, a small version that matches, the floors' splash colours) and the importer, as a dry run.
+Then save it as usual, or press "Add to the game…", which does what `uv run ptg import` would once you've seen what
+that is. The art rules are in its instructions (`src/ptg/maker.py`), so what it makes goes in as it is.
 
 ```bash
 uv run ptg maker                        # opens http://127.0.0.1:8770
@@ -598,7 +599,7 @@ tools/             build_sprites.py: the hand-drawn sprite maps; build_sounds.py
 legacy/            the v1 curses prototype, kept for reference
 ```
 
-Add a theme with a `[[theme]]` block in `themes.toml`, its room archetypes in `rooms.toml`, and tagged monsters in `monsters.toml`. Give a room feature new powers by adding its keyword to `tags.toml`. No code changes needed. A theme with a `floor` is always that floor (Norfel: `floor = 4`) instead of one of the three shuffled dungeons, and one with a `status` (Norfel's `"poison"`) makes it that status's floor: its shops sell the cure, it always has a shrine, and Granny brings out something against it on the floor above. A new status is a row in `statuses.toml`; items `cures`, `guards` and `wards` it.
+Add a theme with a `[[theme]]` block in `themes.toml`, its room archetypes in `rooms.toml`, and tagged monsters in `monsters.toml`: a monster turns up in every theme whose `monster_tags` it has, unless its `dungeons` keep it to some (`dungeons = ["sunken_crypt", "norfel"]`, theme keys). Give a room feature new powers by adding its keyword to `tags.toml`. No code changes needed. A theme with a `floor` is always that floor (Norfel: `floor = 4`) instead of one of the three shuffled dungeons, and one with a `status` (Norfel's `"poison"`) makes it that status's floor: its shops sell the cure, it always has a shrine, and Granny brings out something against it on the floor above. A new status is a row in `statuses.toml`; items `cures`, `guards` and `wards` it.
 
 ## Tests
 

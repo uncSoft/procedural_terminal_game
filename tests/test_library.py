@@ -143,6 +143,47 @@ def test_changing_a_monster_leaves_the_rest_alone(data):
     assert after.split("[monster.skeleton]")[1] == before.split("[monster.skeleton]")[1]
 
 
+def test_a_monster_can_be_kept_to_some_floors(data):
+    """Its dungeons keep a monster to those floors, whatever its creature types: Sir Squeaks is undead, which the
+    Crypt calls for, but kept to the Goblin Warren he lives there. Sent back without them (a save or a link from
+    before floors could be picked) he stays where he was kept; sent back with none, he's let out again."""
+    message = apply([monster(dungeons=["goblin_warren"])], data)[0]
+    assert message == "Added monster Sir Squeaks (sir_squeaks) by Lily, lives in The Goblin Warren."
+    assert 'dungeons = ["goblin_warren"]' in (data / "monsters.toml").read_text()
+    content = load(data)
+    assert [t for t in content.themes.values() if content.monsters["sir_squeaks"].lives_in(t)] == \
+        [content.themes["goblin_warren"]]
+    entry = next(m for m in export_library(data)["monsters"] if m["key"] == "sir_squeaks")
+    assert entry["lives"] == ["The Goblin Warren"] and entry["fields"]["dungeons"] == ["goblin_warren"]
+
+    older, let_out = monster(tell="sneezes twice"), monster(dungeons=[])
+    older["base"] = let_out["base"] = "sir_squeaks"
+    assert apply([older], data)[0].endswith("lives in The Goblin Warren.")
+    assert apply([let_out], data)[0].endswith("lives in The Sunken Crypt.")
+    assert "dungeons" not in (data / "monsters.toml").read_text().split("[monster.sir_squeaks]")[1]
+    with pytest.raises(ValueError, match="unknown dungeon 'goblin_warrens'"):
+        apply([monster(dungeons=["goblin_warrens"])], data)
+
+
+def test_only_a_strong_enough_monster_is_kept_to_norfel(data):
+    """Norfel, a floor of its own, only draws tier 3 and up: a weaker monster kept to it hears it won't turn up."""
+    assert apply([monster(dungeons=["norfel"])], data)[0].endswith(
+        "by Lily, but Norfel, Domain of Serpentis only draws tier 3 and up.")
+    assert apply([monster(name="Sir Stomps", tier=3, dungeons=["norfel"])], data)[0].endswith(
+        "lives in Norfel, Domain of Serpentis.")
+
+
+def test_the_maker_knows_the_games_floors():
+    """The floors a monster can be kept to, in library.json and in the page's own FALLBACK (for when that can't be
+    read), are the game's."""
+    themes = [(t.key, t.name, t.monster_tags, t.floor) for t in build_content().themes.values()]
+    assert [(d["key"], d["name"], d["tags"], d["floor"]) for d in export_library()["dungeons"]] == themes
+    page = (library.maker_folder() / "index.html").read_text(encoding="utf-8")
+    fallback = re.search(r"\n  dungeons: \[(.*?)\]\};", page, re.DOTALL).group(1)
+    shown = re.findall(r'\{key: "(\w+)", name: "([^"]+)", tags: \[([^\]]*)\], floor: (\d+)\}', fallback)
+    assert [(k, n, re.findall(r'"(\w+)"', t), int(f)) for k, n, t, f in shown] == themes
+
+
 def test_a_boss_stays_a_boss(data):
     edit = monster(name="The Goblin King", boss=False)
     edit["base"] = "goblin_king"

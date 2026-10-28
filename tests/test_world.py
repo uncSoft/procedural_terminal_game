@@ -6,7 +6,8 @@ import pytest
 from ptg import layout
 from ptg.models import OPPOSITE
 from ptg.ui.theme import CELL_STYLES
-from ptg.world import build_floor, generate, render_map
+from ptg.content import _read, build_content
+from ptg.world import build_floor, generate, monster_for, render_map
 
 SEEDS = range(80)
 
@@ -179,6 +180,19 @@ def test_one_of_a_kind_creatures_turn_up_once_a_run(content):
                 seen[room.monster.key] += 1
         assert all(n == 1 for n in seen.values()), (seed, seen)
         assert set(seen) <= set(state.met)
+
+
+def test_a_monster_kept_to_some_floors_turns_up_only_on_those():
+    """A monster's dungeons keep it to those floors, whatever its tags: the Goblin, kept to the Sunken Crypt, is met
+    there and nowhere else, though the crypt doesn't call for goblinoids."""
+    def read(name: str) -> str:
+        text = _read(name)
+        return text.replace("[monster.goblin]\n", '[monster.goblin]\ndungeons = ["sunken_crypt"]\n', 1) \
+            if name == "monsters.toml" else text
+    content = build_content(read)
+    for theme in content.themes:
+        met = {monster_for(random.Random(seed), content, theme, 1).key for seed in range(200)}
+        assert ("goblin" in met) == (theme == "sunken_crypt"), (theme, sorted(met))
 
 
 def test_serpentis_leaves_its_old_sword(content):

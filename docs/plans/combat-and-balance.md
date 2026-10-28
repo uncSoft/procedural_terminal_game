@@ -301,6 +301,7 @@ sting on the frame he lands, his name is spelled out on a crimson card under him
 Goblin Warren"; every boss gets one), and he fights in his 3D idle at the biggest size the stage fits. The swing at
 the end of his fall is his `attack` clip, played each time he goes for you in place of the lunge, and the pan held
 high before it his `windup`, how he stands while a heavy blow is coming. Any monster with an `entrance` and an `idle`
-gets the same; the others sweep in. Still to come: attack, hurt and death clips, a second
-act's, and the hero (the body sprite on the stage's edge, facing the foe, and the portrait beside the hearts on the
-status bar), which wait on the files and their format.
+gets the same; the others sweep in. King Mouse followed, with all four clips in four sizes (standing 21, 25, 32 and 42
+pixels tall, what the stage picks from), and guardians are called out by name as bosses are ("GUARDIAN OF THE
+STAIRS"). Still to come: hurt and death clips, a second act's, the other bosses' clips, and the hero (the body sprite
+on the stage's edge, facing the foe, and the portrait beside the hearts on the status bar), which wait on the files.

@@ -175,8 +175,10 @@ uv run python tools/make_clip.py spikes/goblin3d/king/frames_48/Entrance/0 gobli
 uv run python tools/make_clip.py spikes/goblin3d/king/frames_48/Entrance/0 goblin_king windup --fps 24 --frames 46:57
 ```
 
-Every boss is called out by name as it lands, clip or not: spelled out on a crimson card where its banner will be,
-with what it's boss of under it.
+Every boss (and guardian: King Mouse) is called out by name as it lands, clip or not: spelled out on a crimson card
+where its banner will be, with what it's boss of (or guarding) under it. King Mouse has clips too, from the same
+pipeline: he drops in, flexes and roars, swipes with his claw and raises it for a heavy blow. Make a clip's sizes so
+the standing figure is about 21, 25, 32 and (for big screens) 42 pixels tall: that's what the stage picks from.
 
 **Small versions.** Where there isn't room for full size (the inventory's and the shop's tiles on a smaller screen,
 a short sidebar, the things lying in a room's picture) a sprite is drawn small, 12 pixels wide, and pixel art

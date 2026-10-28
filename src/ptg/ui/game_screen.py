@@ -1268,7 +1268,8 @@ class GameScreen(Screen):
         state, content = self.game.state, self.game.content
         if not state.in_combat or (fighting and state.room_id == room_before):
             return
-        boss = content.monster(state.room.monster.key).boss
+        known = content.monster(state.room.monster.key)
+        boss = known.boss or "guardian" in known.tags  # (a guardian is met as a boss is: encounter.Fight.called)
         plan = self.plan
         fight = self.fight_view(plan.stage_width, 2 * plan.stage_rows) if plan and plan.stage_rows else None
         if fight is None:

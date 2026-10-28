@@ -221,6 +221,11 @@ def test_the_goblin_king_has_an_entrance_and_an_idle_in_three_sizes():
     assert entrance.frames[0].getbbox() is None  # (he drops in from above: nothing there at first)
     assert len(clips["idle"][0].frames) == 24
     assert sprites.clips("goblin") == {}
+    mouse = sprites.clips("king_mouse")
+    assert set(mouse) == {"entrance", "idle", "attack", "windup"} and [c.size for c in mouse["idle"]] == [40, 48, 64, 84]
+    assert (mouse["entrance"][0].land, mouse["attack"][0].land) == (10, 8)
+    stands = [(box := sprites.art_box(c.frames))[3] - box[1] for c in mouse["idle"]]
+    assert stands == [21, 25, 32, 42]  # (the heights the stage picks from: docs/plans/combat-and-balance.md §9)
 
 
 def test_a_boss_with_an_entrance_clip_drops_in_and_stands_in_its_idle(content):
@@ -264,6 +269,10 @@ def test_a_boss_is_called_out_by_name_as_it_lands(content):
     abbot = put_monster(state, content, key="drowned_abbot")
     swept = list(encounter.Fight(state, content, abbot, 110, 16).entrance())
     assert [cue for _, _, cue in swept][7] == "boss_encounter" and "D R O W N E D" in swept[-2][0].plain
+    mouse = state.room.monster = npcs.sized(content, npcs.KING_MOUSE, 2, npcs.KING_MOUSE_SIZE, warden=True)
+    guarded = list(encounter.Fight(state, content, mouse, 110, 16).entrance())  # (a guardian is called out too)
+    assert "K I N G   M O U S E" in guarded[-2][0].plain and "GUARDIAN OF THE STAIRS" in guarded[-2][0].plain
+    assert [cue for _, _, cue in guarded].count("boss_encounter") == 1
     goblin = put_monster(state, content, key="goblin")
     plain = list(encounter.Fight(state, content, goblin, 110, 16).entrance())
     assert [cue for _, _, cue in plain] == [""] * 7 + ["encounter"] and "✦" not in plain[-1][0].plain

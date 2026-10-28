@@ -122,12 +122,14 @@ class Fight:
     danger: int = 1
     clips: dict = field(default_factory=dict)  # its own clips at the size the stage takes (sprites.clips), if any
     boss: bool = False
+    guardian: bool = False  # one that guards the way on (King Mouse, at the stairs): called out by name as a boss is
     realm: str = ""  # where it's boss of, for its name card
 
     def __post_init__(self, state: GameState) -> None:
         self.banner_rows = 2 if self.rows >= 10 else 1
         self.top_rows = 1 if self.rows >= 7 else 0
-        self.boss = self.content.monster(self.monster.key).boss
+        known = self.content.monster(self.monster.key)
+        self.boss, self.guardian = known.boss, "guardian" in known.tags and not known.boss
         self.realm = self.content.themes[state.theme].name if state.theme in self.content.themes else ""
         self.back = self._backdrop(state)
         room = 2 * (self.rows - self.banner_rows) - 1  # (as tall as it is, its next move over its head)
@@ -269,15 +271,26 @@ class Fight:
             self._banner(lines)
         return Text("\n", no_wrap=True, overflow="crop").join(lines)
 
+    @property
+    def called(self) -> bool:
+        """Whether it's called out by name as it arrives, to the boss sting: a boss, or a guardian."""
+        return self.boss or self.guardian
+
+    def subtitle(self) -> str:
+        """What its name card says it is, under its name: boss of the floor, or guardian of the way on."""
+        if self.guardian:
+            return "GUARDIAN OF THE STAIRS" if self.monster.warden else f"GUARDIAN OF {self.realm.upper()}"
+        return f"BOSS OF {self.realm.upper()}" if self.realm else ""
+
     def title(self) -> str:
         """A boss's name as its card spells it: in capitals, spaced out if there's room."""
         name = plain_name(self.monster).upper()
         return " ".join(name) if 2 * len(name) + 10 <= self.width else name
 
     def _card(self, lines: list[Text], shown: int, glint: int | None = None) -> None:
-        """A boss's name called out under it as it arrives, on a crimson band where its banner will be: spelled out
-        letter by letter between two ✦, gilt rules running out to the stage's edges, and what it's boss of under it
-        once it's all there; then a glint runs along the letters, as off gold."""
+        """A boss's (or a guardian's) name called out under it as it arrives, on a crimson band where its banner will
+        be: spelled out letter by letter between two ✦, gilt rules running out to the stage's edges, and what it is
+        under it once it's all there (subtitle); then a glint runs along the letters, as off gold."""
         first = len(lines) - self.banner_rows
         for row in range(first, len(lines)):
             lines[row] = Text(" " * self.width, style=Style(bgcolor=CARD))
@@ -289,8 +302,8 @@ class Fight:
         rule = "━" * max(0, (self.width - len(letters) - 8) // 2)
         _write(lines, first, _on_band(Text.assemble((rule + " ", GILT), ("✦  ", RED), name, ("  ✦", RED),
                                                     (" " + rule, GILT)), CARD))
-        if self.banner_rows == 2 and shown >= len(letters) and self.realm:
-            _write(lines, first + 1, _on_band(Text(f"BOSS OF {self.realm.upper()}", style=f"bold {GREY}"), CARD))
+        if self.banner_rows == 2 and shown >= len(letters) and self.subtitle():
+            _write(lines, first + 1, _on_band(Text(self.subtitle(), style=f"bold {GREY}"), CARD))
 
     def _called(self, beats: int) -> tuple[int, int | None, str]:
         """The name card `beats` frames after the boss lands: how many of its letters show (SPELL more a frame), where
@@ -299,7 +312,7 @@ class Fight:
         letters = len(self.title())
         spelled = -(-letters // SPELL)
         glint = SPELL * (beats - spelled) if beats >= spelled else None
-        cue = STINGS[self.boss] if beats == 0 else "dice_tick" if beats < spelled else ""
+        cue = STINGS[self.called] if beats == 0 else "dice_tick" if beats < spelled else ""
         return min(letters, SPELL * (beats + 1)), glint, cue
 
     def _intent(self, lines: list[Text], foe, offset: int) -> None:
@@ -346,7 +359,7 @@ class Fight:
         its name called out after: the card spelled out to ticks, a glint along it); then its banner."""
         if self.back is None:
             return
-        sting = STINGS[self.boss]
+        sting = STINGS[self.called]
         clip = self.clips.get("entrance")
         if clip is not None:
             every = max(1, round(clip.fps / sprites.CLIP_FPS))
@@ -354,7 +367,7 @@ class Fight:
             for i in range(0, len(clip.frames), every):
                 lands = bool(clip.land) and i <= clip.land < i + every
                 landed = 0 if lands else landed + 1 if landed is not None else None
-                if self.boss and landed is not None:
+                if self.called and landed is not None:
                     shown, glint, cue = self._called(landed)
                     yield self.still(i, clip="entrance", card=shown, glint=glint), every / clip.fps, cue
                 else:
@@ -366,7 +379,7 @@ class Fight:
         for i in range(steps):
             eased = 1 - (1 - (i + 1) / steps) ** 3
             yield self.still(offset=round(side * start * (1 - eased)), banner=False), 0.035, ""
-        if self.boss:  # (its name called out once it's there)
+        if self.called:  # (its name called out once it's there)
             for beat in range(-(-len(self.title()) // SPELL) + 10):
                 shown, glint, cue = self._called(beat)
                 yield self.still(beat // 4 % 2, card=shown, glint=glint), 0.07, cue

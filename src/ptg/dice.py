@@ -28,6 +28,16 @@ def average(expr: str) -> float:
     return count * (sides + 1) / 2 + (int(bonus.replace(" ", "")) if bonus else 0)
 
 
+def span(expr: str) -> tuple[int, int]:
+    """The least and the most a roll can come to: "2d6+2" is (4, 14)."""
+    match = _DICE.match(expr)
+    if not match:
+        raise ValueError(f"bad dice expression: {expr!r}")
+    count, sides, bonus = int(match.group(1)), int(match.group(2)), match.group(3)
+    flat = int(bonus.replace(" ", "")) if bonus else 0
+    return count + flat, count * sides + flat
+
+
 def d20(rng: random.Random) -> int:
     return rng.randint(1, 20)
 

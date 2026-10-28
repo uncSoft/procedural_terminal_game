@@ -152,6 +152,32 @@ uv run python -m ptg.sprites goblin troll                # preview sprites in yo
 To use your own art (Aseprite, Piskel, an image model), drop a PNG named after the monster's key
 (`goblin.png`, `drowned_abbot.png`...) into that folder.
 
+**Clips.** A monster can also have animations made for it elsewhere, frame by frame: a boss's entrance, say. The
+Blender pipeline in `spikes/goblin3d` turns a sprite into a model, animates it and renders it back into pixels in the
+sprite's own colours (the Goblin King's entrance was made that way). Its frames become clips with
+`tools/make_clip.py`, one folder of numbered PNGs (one direction's) at a time, in a few sizes:
+
+```bash
+uv run python tools/make_clip.py spikes/goblin3d/king/frames_48/Entrance/0 goblin_king entrance --fps 24
+uv run python tools/make_clip.py spikes/goblin3d/king/frames_48/Idle/0 goblin_king idle --fps 24
+```
+
+That writes `src/ptg/data/clips/goblin_king/entrance.48.png` (the frames side by side, their count, speed and the
+frame the feet land on kept in the PNG). When a fight with the monster starts, the stage plays its `entrance` (at
+most 12 frames a second, with the fight's sting as it lands) and keeps it in its `idle` for the rest of the fight, at
+the biggest size whose standing art fits the stage; a monster without clips sweeps in from the side instead. So a
+clip-made monster needs both, and 40, 48 and 64 pixels cover a laptop's screen to a big one. Two more are optional:
+an `attack`, played each time it goes for you, and a `windup`, how it stands while a heavy blow is coming. `--frames`
+cuts one from part of a folder: the King's are the swing at the end of his fall, and the pan held high before it.
+
+```bash
+uv run python tools/make_clip.py spikes/goblin3d/king/frames_48/Entrance/0 goblin_king attack --fps 24 --frames 53:73 --land 6
+uv run python tools/make_clip.py spikes/goblin3d/king/frames_48/Entrance/0 goblin_king windup --fps 24 --frames 46:57
+```
+
+Every boss is called out by name as it lands, clip or not: spelled out on a crimson card where its banner will be,
+with what it's boss of under it.
+
 **Small versions.** Where there isn't room for full size (the inventory's and the shop's tiles on a smaller screen,
 a short sidebar, the things lying in a room's picture) a sprite is drawn small, 12 pixels wide, and pixel art
 doesn't shrink well. So each item can have a hand-made small version: a 12×12 PNG strip with the same frames, in
@@ -577,7 +603,7 @@ src/ptg/
   models.py        game state (pydantic; a save file is just this as JSON)
   dice.py          d20 checks with advantage, as data the UI can animate
   rules.py         available actions, movement, items, fixtures, chests, bombs, perks, traits
-  combat.py        attacks, telegraphed intents, dodging, fleeing, defeat
+  combat.py        attacks, intents shown a turn ahead (foresee), danger, dodging, fleeing, defeat and its style
   scene.py         what's here to act on, as typed refs (the room's view): monster, fixture, exits, pack, gold...
   interactions.py  the interaction grid: what (verb, thing, target) comes to, each thing's verbs, pickers
   creative.py      free-text stunts the grid has no row for: props, flair, weaknesses, clamped effects
@@ -585,8 +611,10 @@ src/ptg/
   profile.py       SQLite: souls, unlocks, Hall of Legends, bestiary, ghosts, turn log
   meta.py          building the adventurer from unlocks, starting runs, scoring the end
   testrooms.py     test rooms: next door to anyone, with any kit, counting for nothing
-  sprites.py       PNG sprites rendered as half-block pixel art, and their poses
+  sprites.py       PNG sprites rendered as half-block pixel art, their poses, and monsters' clips
   room_picture.py  pictures of rooms, seen from the doorway, drawn in code from the room itself
+  encounter.py     a fight on the stage: the foe big in the dimmed room, its intent and banner, its entrance, its
+                   shatter, the spoils card, and the wipe back to the room
   dice_art.py      the pixel-art d20
   sound.py         sound effects and music: the sound bank, your own sounds, and playing them
   library.py       the Monster & Item Maker's library: export it, and import what's made there
@@ -602,7 +630,8 @@ src/ptg/
 tests/             world, rules, profile, interpreter and UI tests, plus a bot that plays whole runs
 docs/maker/        the Monster & Item Maker page and its library.json (GitHub Pages serves docs/)
 tools/             build_sprites.py: the hand-drawn sprite maps; build_sounds.py: the synthesized sounds;
-                   maker_saves.gs: the maker's shared library (a Google Apps Script)
+                   make_clip.py: a monster's clips from rendered frames; maker_saves.gs: the maker's shared library
+                   (a Google Apps Script)
 legacy/            the v1 curses prototype, kept for reference
 ```
 
@@ -615,7 +644,7 @@ uv run pytest
 ```
 
 It runs in parallel, one worker a core (about a minute); add `-n0` to run tests one at a time, for a debugger or
-`print()`. The suite includes a bot that plays 100 seeded runs using only the listed actions. It never improvises, shops or buys blessings, and wins about three runs in ten of the four floors; that win rate is a guard against balance regressions.
+`print()`. The suite includes a bot that plays 100 seeded runs using only the listed actions. It never improvises, shops or bombs a wall; as a newcomer (no blessings) it wins about one run in seven of the four floors, and as a veteran (every blessing, picking its perks well) about three in five. Those win rates guard against balance regressions (docs/plans/combat-and-balance.md).
 
 For balance, `tools/simulate.py` plays many seeds and reports each floor (who reached it, who died there and of
 what, what they took down the stairs) and how poison went:
@@ -623,5 +652,6 @@ what, what they took down the stairs) and how poison went:
 ```bash
 uv run python tools/simulate.py 300                  # the plain bot (tests/bot.py)
 uv run python tools/simulate.py 200 --compare        # every player, from the careful to the sloppy
+uv run python tools/simulate.py 600 --veteran --fights  # a veteran's adventurer, and what each fight cost
 uv run python tools/simulate.py 300 --venom orc,troll   # as if they bit with venom
 ```

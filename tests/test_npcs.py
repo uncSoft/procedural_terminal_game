@@ -10,7 +10,7 @@ from conftest import put_monster
 from ptg import combat, npcs, powers
 from ptg.models import OPPOSITE, GameState, MonsterState
 from ptg.rules import available_actions, perform, room_facts
-from ptg.world import build_floor, generate
+from ptg.world import build_floor, generate, warden_tier
 
 
 def ids(state, content):
@@ -699,7 +699,7 @@ def test_swoogy_is_as_tough_as_his_maker_made_him_on_floor_one(content):
     souls = state.souls
     defeat(state, content, random.Random(1))
     assert state.souls - souls == 36  # 3 a tier, three times over
-    assert npcs.sized(content, npcs.KING_MOUSE, 2, npcs.KING_MOUSE_SIZE).tier == 3  # (raised to the warden's)
+    assert npcs.sized(content, npcs.KING_MOUSE, 2, npcs.KING_MOUSE_SIZE).tier == warden_tier(2)  # (raised to it)
 
 
 def test_the_map_marks_lenny_while_he_waits(content):

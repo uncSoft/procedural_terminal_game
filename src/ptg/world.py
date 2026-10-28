@@ -4,6 +4,7 @@ run. Floors are built one at a time as you descend."""
 
 from __future__ import annotations
 
+import math
 import random
 from collections import deque
 
@@ -20,9 +21,10 @@ ELITES = {
     "Cursed": {"reward_mult": 2.0},
 }
 ROOMS = {1: 7, 2: 7, 3: 8, 4: 10}  # rooms on each floor (and a secret one, and maybe a shop)
-# Below the dungeons, the same monsters are stronger: lighter than docs/plans/progression-loot-difficulty.md §3.2's
-# depth bonus (x1.6 HP, +1 defense), which the bot died of on floor 4 three times in ten (its player's curve isn't in).
-DEPTH = {4: {"hp_mult": 1.3, "attack_mod": 1, "defense_mod": 0, "damage_mod": 1}}
+# The deeper, the stronger the same monsters are, past where their tiers stop (tier_for): from floor 3, so it isn't
+# where they stop growing (docs/plans/combat-and-balance.md §2). A floor deeper than the table has its deepest row.
+DEPTH = {3: {"hp_mult": 1.1, "attack_mod": 0, "defense_mod": 0, "damage_mod": 1},
+         4: {"hp_mult": 1.25, "attack_mod": 1, "defense_mod": 0, "damage_mod": 1}}
 VENOMOUS = 0.5  # on a floor with poison of its own, how many of its monsters bite with venom (combat.VENOM)
 
 def generate(seed: int, player_name: str = "Adventurer", content: Content | None = None,
@@ -78,7 +80,7 @@ def build_floor(state: GameState, content: Content) -> None:
     for room, fixture in zip(spots, fixtures):
         room.fixture = fixture
 
-    _place_monsters(rng, content, state, theme, rooms, max_distance, end_id, boss)
+    _place_monsters(rng, content, state, theme, rooms, end_id, boss)
     _place_loot(rng, content, state, theme, rooms, end_id, max_distance, boss)
     if ghost and ghost.get("floor", 1) == state.floor:
         _place_ghost(rng, content, state, rooms, end_id, ghost)
@@ -194,10 +196,11 @@ def monster_for(rng: random.Random, content: Content, theme_key: str, tier: int,
     if chosen.once and met is not None:
         met.append(chosen.key)
     monster = MonsterState(key=chosen.key, name=chosen.name, hp=chosen.hp, max_hp=chosen.hp)
-    if theme.status == "poison" and "venom" not in chosen.tricks and rng.random() < VENOMOUS:
+    named = "venom" in chosen.name.lower()  # (a Venom Toad always has it there, and isn't "Venomous Venom Toad")
+    if theme.status == "poison" and "venom" not in chosen.tricks and (rng.random() < VENOMOUS or named):
         monster.tricks.append("venom")
-        monster.name = f"Venomous {chosen.name}"
-    deep = DEPTH.get(floor, {})
+        monster.name = chosen.name if named else f"Venomous {chosen.name}"
+    deep = depth(floor)
     if deep:
         monster.max_hp = monster.hp = round(chosen.hp * deep["hp_mult"])
         monster.attack_mod, monster.defense_mod, monster.damage_mod = \
@@ -214,27 +217,34 @@ def monster_for(rng: random.Random, content: Content, theme_key: str, tier: int,
     return monster
 
 
-def tier_for(distance: int, max_distance: int, floor: int = 1) -> int:
-    """Floor 1 ramps from tier 1 to 2, floor 2 from 2 to 3, floor 3 is tier 3 nearly everywhere."""
-    depth = distance / max(1, max_distance)
-    return max(1, min(3, floor + (1 if depth > 0.6 else 0)))
+def depth(floor: int) -> dict:
+    """How much stronger monsters are this far down (DEPTH): nothing above its first row, its deepest row below it."""
+    if floor in DEPTH:
+        return DEPTH[floor]
+    return DEPTH[max(DEPTH)] if DEPTH and floor > max(DEPTH) else {}
 
 
-def warden_tier(floor: int) -> int:
+def tier_for(floor: int, floors: int = FLOORS) -> int:
+    """The tier of a floor's monsters, by how far down the run it is: the top tier (3) from three quarters of the way
+    down. A run of four floors is 1, 2, 3, 3; a newcomer met tier 3 on floor 2 and died there half the time."""
+    return max(1, min(3, math.ceil(3 * floor / max(1, floors))))
+
+
+def warden_tier(floor: int, floors: int = FLOORS) -> int:
     """The tier of a floor's toughest: the warden by its stairs, whatever's in its secret room, and a character cut
-    down to size for it (npcs.sized)."""
-    return min(3, floor + 1)
+    down to size for it (npcs.sized). Tier 2 at least: floor 1's is the first real fight."""
+    return max(2, tier_for(floor, floors))
 
 
-def _place_monsters(rng, content, state, theme, rooms: list[Room], max_distance: int, end_id: int, boss: bool) -> None:
+def _place_monsters(rng, content, state, theme, rooms: list[Room], end_id: int, boss: bool) -> None:
     if boss:
         boss = content.monster(theme.boss)
         rooms[end_id].monster = MonsterState(key=boss.key, name=boss.name, hp=boss.hp, max_hp=boss.hp)
     else:
         # Every staircase has a warden; from floor 2 on, it's an elite.
         elite = rng.choice(sorted(ELITES)) if state.floor > 1 else ""
-        rooms[end_id].monster = monster_for(rng, content, theme.key, warden_tier(state.floor), elite=elite,
-                                             met=state.met, floor=state.floor)
+        rooms[end_id].monster = monster_for(rng, content, theme.key, warden_tier(state.floor, state.floors_total),
+                                             elite=elite, met=state.met, floor=state.floor)
         rooms[end_id].monster.warden = True
 
     candidates = [r for r in rooms if r.id not in (0, end_id) and r.fixture != "shrine"]
@@ -242,7 +252,7 @@ def _place_monsters(rng, content, state, theme, rooms: list[Room], max_distance:
     elite_chance = {1: 0.0, 2: 0.25, 3: 0.4, 4: 0.25}.get(state.floor, 0.4)  # (floor 4: deeper already)
     for room in candidates[:max(2, round(len(candidates) * 0.5))]:
         elite = rng.choice(sorted(ELITES)) if rng.random() < elite_chance else ""
-        room.monster = monster_for(rng, content, theme.key, tier_for(room.distance, max_distance, state.floor), elite,
+        room.monster = monster_for(rng, content, theme.key, tier_for(state.floor, state.floors_total), elite,
                                    met=state.met, floor=state.floor)
 
 
@@ -335,7 +345,8 @@ def _secret_room(rng: random.Random, content: Content, state: GameState, theme, 
     if prize:
         room.items.append(prize)
     if rng.random() < 0.3:  # something got here first, and won't share
-        room.monster = monster_for(rng, content, theme.key, warden_tier(state.floor), elite=rng.choice(sorted(ELITES)),
+        room.monster = monster_for(rng, content, theme.key, warden_tier(state.floor, state.floors_total),
+                                   elite=rng.choice(sorted(ELITES)),
                                    met=state.met, floor=state.floor)
     return room
 

@@ -37,6 +37,11 @@ from .text import the
 JOURNAL_SKIP = {"miss", "monster_miss", "stunned", "check", "info", "spend", "story_seen", "story_mark", "story_context"}
 JOURNAL_KEEP = 400  # lines
 QUIET_KINDS = {"perk"}  # resolved without asking the narrator
+# A fight's blow for blow: with only these in a turn, mid-fight, the engine says it in a line and the narrator keeps its
+# prose for how the fight began and how it ends, and for anything out of the ordinary between (a crit, a perfect dodge,
+# a trick, a weakness found: docs/plans/combat-and-balance.md §3.7).
+EXCHANGE = {"hit", "miss", "monster_hit", "monster_miss", "dodge_ready", "dodge_fail", "dodge", "evade", "guard",
+            "telegraph", "stunned", "heal"}
 MECHANICS = {"fate_spent", "level", "trait", "warning", "status_tick"}  # the screen says these (a line, the level-up
 # screen, a banner, a warning's line, poison's burn): not told
 
@@ -297,6 +302,8 @@ class Game:
     async def finish(self, on_text: Callable[[str], None], stop: asyncio.Event | None = None) -> TurnResult:
         """The turn told (the narrator, cut short if `stop` is set: see narrate), logged and saved."""
         pending, state = self.pending, self.state
+        before = self._snapshot
+        fought = before is not None and before.in_combat and before.room_id == state.room_id  # (and fights on, now?)
         self.pending, self._snapshot = None, None
         state.log.append(LogEntry(kind="player", text=pending.shown))
         for event in pending.events:
@@ -316,6 +323,10 @@ class Game:
             on_text(text)
         elif self._going_back(pending, told):  # (no waiting on the narrator to walk back through the floor)
             text = " ".join([*(e.text for e in told), arrival_facts(state, self.content, history=False)]).strip()
+            on_text(text)
+        elif self.llm is not None and fought and state.in_combat and pending.intent.kind == "action" and told \
+                and all(e.kind in EXCHANGE for e in told):  # (a fight's blow for blow, in a line)
+            text = " ".join(e.text for e in told)
             on_text(text)
         elif pending.events and not told:
             text = ""  # an authored moment (or a character's own words): its cards say it all

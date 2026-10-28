@@ -1,0 +1,391 @@
+"""Combat as an event (docs/plans/combat-and-balance.md §2-3): the balance pass's rules, what a monster will do next
+and how dangerous it looks, winning in style, the stage's fight view, and how a fight is told."""
+
+import random
+
+import pytest
+
+from conftest import put_monster
+from ptg import combat, encounter, interactions, loot, npcs
+from ptg.config import Config
+from ptg.events import Action, Event
+from ptg.game import Game
+from ptg.models import MonsterState
+from ptg.rules import perform
+from ptg.world import DEPTH, build_floor, depth, generate, tier_for, warden_tier
+
+
+# --- the balance pass ---------------------------------------------------------------------------------------------
+
+def test_monster_tiers_follow_how_far_down_the_run_is():
+    """Floor 1 is all tier 1 and floor 2 all tier 2 (a newcomer met tier 3 on floor 2 and died there half the time);
+    the top tier from three quarters of the way down, on runs of any length."""
+    assert [tier_for(f, 4) for f in range(1, 5)] == [1, 2, 3, 3]
+    assert [tier_for(f, 6) for f in range(1, 7)] == [1, 1, 2, 2, 3, 3]
+    assert [tier_for(f, 12) for f in (1, 4, 5, 9, 12)] == [1, 1, 2, 3, 3]
+    assert [warden_tier(f, 4) for f in range(1, 5)] == [2, 2, 3, 3]
+
+
+def test_the_deeper_floors_make_monsters_stronger_and_a_longer_run_keeps_the_deepest():
+    assert depth(1) == depth(2) == {}
+    assert depth(3)["damage_mod"] == 1 and depth(4)["attack_mod"] == 1
+    assert depth(9) == DEPTH[max(DEPTH)]
+
+
+def test_ruthless_doubles_the_weapons_dice_not_every_bonus(content):
+    """The run's Ruthless doubled +5 might, +3 Glass Cannon and the rest too: 36-44 a swing."""
+    state = generate(3)
+    player = state.player
+    player.perks, player.might, player.hits_landed = ["ruthless", "glass_cannon"], 50, 2  # (the third hit lands)
+    put_monster(state, content, key="troll", hp=500)
+    events = combat.player_attack(state, content, random.Random(9))
+    hit = next(e for e in events if e.kind == "hit")
+    parts = dict(hit.dice.damage)
+    weapon = content.item(player.weapon).damage
+    dice_rolled = parts[weapon] + parts.get(f"crit {weapon}", 0)
+    assert parts["ruthless ×2"] == dice_rolled  # (not might, nor glass cannon)
+
+
+def test_acrobatics_doesnt_take_a_heavy_blow(content):
+    state = generate(3)
+    state.player.perks = ["acrobatics"]
+    state.player.agility = -50
+    put_monster(state, content, key="hobgoblin", intent="heavy")
+    events = combat.monster_turn(state, content, random.Random(1))
+    assert any(e.kind == "monster_hit" for e in events) and not any(e.kind == "evade" for e in events)
+    state.room.monster.intent = "strike"
+    assert any(e.kind == "evade" for e in combat.monster_turn(state, content, random.Random(1)))
+
+
+def test_a_character_cut_down_to_size_pays_xp_for_its_size(content):
+    """Swoogy on floor 1 paid his full 120 XP: two levels at once."""
+    state = generate(3)
+    state.room.monster = npcs.sized(content, npcs.SWOOGY, 1, npcs.SWOOGY_SIZE, hostile=True, mood="angry")
+    xp = state.player.xp
+    combat.defeat(state, content, random.Random(1))
+    hp = npcs.SWOOGY_SIZE[1][0]
+    assert state.player.xp - xp == round(content.monster(npcs.SWOOGY).xp * hp / content.monster(npcs.SWOOGY).hp)
+
+
+def test_a_chest_doesnt_hand_you_a_second_of_your_gear_while_it_has_anything_else(content):
+    """A chest's "weapon 3+" with your Silvered Blade the only one gave a second (the 10-28 run)."""
+    have = ["silvered_blade"]
+    for seed in range(40):
+        key = loot.produce(random.Random(seed), content, [], ["weapon 3+", "potion 1"], "chest", have)
+        assert key != "silvered_blade", seed
+
+
+def test_a_monster_named_for_its_venom_isnt_called_venomous_twice(content):
+    from ptg.world import monster_for
+
+    norfel = next(k for k, t in content.themes.items() if t.status == "poison")
+    for seed in range(60):
+        monster = monster_for(random.Random(seed), content, norfel, 3, floor=4)
+        assert "Venomous Venom" not in monster.name
+        assert ("venom" in monster.tricks) == ("venom" in monster.name.lower())
+
+
+def test_rarer_rare_things_from_wardens(content, monkeypatch):
+    """A warden leaves something rare a third of the time, a small key or a bomb otherwise."""
+    state = generate(5)
+    state.floor = 2
+    build_floor(state, content)
+    stairs = next(r for r in state.rooms if r.fixture == "stairs")
+    state.room_id = stairs.id
+    rng = random.Random(1)
+    rng.random = lambda: 0.5  # (over WARDEN_DROP: no rare thing; and no potion, key or bomb from its pockets)
+    dropped = [e.data["item"] for e in combat.defeat(state, content, rng) if e.kind == "drop"]
+    assert loot.WARDEN_DROP < 0.5 and dropped and set(dropped) <= {*loot.WARDEN_ELSE}
+
+
+# --- what it'll do next, and how dangerous it looks ---------------------------------------------------------------
+
+def test_a_monsters_next_move_is_shown_with_what_it_would_cost(content):
+    state = generate(3)
+    goblin = put_monster(state, content, key="goblin")
+    seen = combat.foresee(state, content)
+    assert (seen.kind, seen.low, seen.high) == ("strike", 1, 6) and seen.said() == "⚔ 1–6"
+    goblin.intent = "heavy"
+    goblin.damage_mod = 1
+    seen = combat.foresee(state, content)
+    assert (seen.kind, seen.low, seen.high, seen.words) == ("heavy", 3, 13, "HEAVY")  # its dice twice, +1
+    goblin.intent = "guard"
+    assert combat.foresee(state, content).kind == "guard"
+    goblin.stunned = 1
+    assert combat.foresee(state, content).said() == "✶ REELING"
+    toad = put_monster(state, content, key="serpentis", intent="heavy")
+    assert "spit" in combat.foresee(state, content).tricks and "venom" in combat.foresee(state, content).tricks
+    toad.hostile = False
+    assert combat.foresee(state, content) is None
+
+
+def test_how_dangerous_a_fight_looks(content):
+    state = generate(3)
+    put_monster(state, content, key="giant_rat")
+    assert combat.danger(state, content) == 1
+    put_monster(state, content, key="goblin_king")
+    assert combat.danger(state, content) == 3
+    state.player.level, state.player.might, state.player.max_hp = 8, 9, 90
+    assert combat.danger(state, content) < 3  # (against you: stronger, it's less)
+
+
+# --- winning in style -----------------------------------------------------------------------------------------------
+
+def test_a_flawless_win_and_one_with_its_weakness_pay_more(content):
+    state = generate(3)
+    goblin = put_monster(state, content, key="goblin", hp=1)
+    goblin.swings = 2  # (it went for you twice, and never drew blood)
+    xp, gold = state.player.xp, state.player.gold
+    events = combat.defeat(state, content, random.Random(1), exploited=True)
+    styles = [e.data["style"] for e in events if e.kind == "style"]
+    assert styles == ["flawless", "exploited"]
+    base = next(e for e in events if e.kind == "defeat").data["xp"]
+    assert state.player.xp - xp == base + 2 * max(1, round(base * combat.STYLE_XP))
+    assert state.player.style["flawless"] == 1
+
+    hurt = put_monster(state, content, key="goblin", hp=1)
+    hurt.swings, hurt.dealt = 1, 3
+    assert not [e for e in combat.defeat(state, content, random.Random(1)) if e.kind == "style"]
+    never = put_monster(state, content, key="goblin", hp=1)  # (one it never had a go at you: nothing to boast of)
+    assert not [e for e in combat.defeat(state, content, random.Random(1)) if e.kind == "style"]
+    assert never.swings == 0
+
+
+def test_the_killing_blow_with_a_weakness_is_exploited(content):
+    state = generate(3)
+    state.player.might = 50
+    put_monster(state, content, key="skeleton", hp=1)  # (weak to heavy and holy)
+    state.player.weapon = next(k for k, i in content.items.items() if i.kind == "weapon" and "heavy" in i.tags)
+    events = perform(state, content, "attack")
+    while state.room.monster:
+        events = perform(state, content, "attack")
+    assert any(e.kind == "style" and e.data["style"] == "exploited" for e in events)
+
+
+def test_the_spoils_are_read_from_the_kill(content):
+    state = generate(3)
+    goblin = put_monster(state, content, key="goblin", hp=1)
+    goblin.swings = 1
+    events = combat.defeat(state, content, random.Random(2))
+    spoils = encounter.Spoils.of(events, "Goblin")
+    assert spoils.xp == content.monster("goblin").xp and spoils.styles and spoils.gold > 0
+    assert spoils.all_xp > spoils.xp and spoils.all_gold > spoils.gold
+    assert encounter.Spoils.of([Event("hit", "")], "Goblin") is None
+
+
+# --- the stage's pictures -----------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("rows", [8, 15, 30])
+def test_the_fight_view_fits_its_stage(content, rows):
+    state = generate(7)
+    monster = put_monster(state, content, key="troll", intent="heavy")
+    fight = encounter.Fight(state, content, monster, 90, rows, known=["fire"])
+    still = fight.still()
+    lines = still.plain.split("\n")
+    assert len(lines) == rows and all(len(line) == 90 for line in lines)
+    assert "Troll" in still.plain and "☠" in still.plain
+    assert ("HEAVY" in still.plain) == (rows >= 7)
+    assert fight.scale in ((1.5, 2.0) if rows >= 30 else (1.0,) if rows >= 12 else (0.5,))
+    frames = [frame for frame, _, _ in fight.entrance()]
+    assert len(frames) == 8 and "Troll" not in frames[0].plain and "Troll" in frames[-1].plain
+    assert len(fight.shatter()) == encounter.SHATTER_FRAMES
+
+
+def test_the_spoils_card_and_the_wipe(content):
+    state = generate(7)
+    monster = put_monster(state, content, key="goblin")
+    fight = encounter.Fight(state, content, monster, 80, 16)
+    spoils = encounter.Spoils("Goblin", xp=10, souls=3, gold=4, styles=[("Flawless", 2, 3)],
+                              drops=["healing_potion", next(k for k, i in content.items.items() if loot.rare(i))],
+                              levels=[2])
+    card = encounter.spoils_text(fight.empty(), spoils, content, 2, 40).plain
+    assert "SPOILS" in card and "LEVEL 2" in card and "+7 gold" in card and "FLAWLESS" in card
+    assert "Healing Potion" in card
+    assert "Healing Potion" not in encounter.spoils_text(fight.empty(), spoils, content, 2, 40, step=1).plain
+    room = fight.empty()
+    frames = encounter.wipe(card_text := encounter.spoils_text(fight.empty(), spoils, content, 2, 40), room)
+    assert frames[-1].plain == room.plain and card_text.plain != room.plain
+
+
+# --- a boss's own entrance ---------------------------------------------------------------------------------------
+
+def test_the_goblin_king_has_an_entrance_and_an_idle_in_three_sizes():
+    from ptg import sprites
+
+    clips = sprites.clips("goblin_king")
+    assert set(clips) == {"entrance", "idle", "attack", "windup"}
+    assert {tuple(c.size for c in sizes) for sizes in clips.values()} == {(40, 48, 64)}
+    assert (len(clips["attack"][0].frames), clips["attack"][0].land, len(clips["windup"][0].frames)) == (20, 6, 11)
+    entrance = clips["entrance"][1]
+    assert len(entrance.frames) == 73 and entrance.fps == 24 and entrance.land == 8
+    assert entrance.frames[0].getbbox() is None  # (he drops in from above: nothing there at first)
+    assert len(clips["idle"][0].frames) == 24
+    assert sprites.clips("goblin") == {}
+
+
+def test_a_boss_with_an_entrance_clip_drops_in_and_stands_in_its_idle(content):
+    """The stage plays the clip (at most 12 frames a second: every other of its 24), the sting on the frame its feet
+    land, then its banner; and it fights in the clip's idle, at the biggest size whose standing art fits."""
+    state = generate(7)
+    king = put_monster(state, content, key="goblin_king")
+    fight = encounter.Fight(state, content, king, 110, 16)
+    assert fight.clips["idle"].size == 48 and fight.scale == 1.0
+    frames = list(fight.entrance())
+    assert len(frames) == 37 + 1
+    assert [i for i, (_, _, cue) in enumerate(frames) if cue in encounter.STINGS] == [4]  # (frame 8 of the clip)
+    assert frames[4][2] == "boss_encounter"
+    assert all(seconds == pytest.approx(2 / 24) for _, seconds, _ in frames[:-1])
+    assert "Goblin King" not in frames[0][0].plain and "Goblin King" in frames[-1][0].plain
+    assert fight.foe(0).tobytes() != fight.foe(1).tobytes()  # (it breathes: its idle's first and middle)
+    assert len(fight.shatter()) == encounter.SHATTER_FRAMES
+
+    big = encounter.Fight(state, content, king, 120, 24)
+    assert big.clips["idle"].size == 64
+    tiny = encounter.Fight(state, content, king, 60, 8)  # (no room for even the smallest: the sprite, sweeping in)
+    assert not tiny.clips and [s for _, s, _ in list(tiny.entrance())[:7]] == [0.035] * 7
+
+
+def test_a_boss_is_called_out_by_name_as_it_lands(content):
+    """After it lands, a boss's name is spelled out on a card where its banner will be, a tick for each frame of it,
+    and what it's boss of under it; then the banner. One that sweeps in (no clip) gets its card once it's there."""
+    state = generate(7)
+    state.theme = "goblin_warren"
+    king = put_monster(state, content, key="goblin_king")
+    fight = encounter.Fight(state, content, king, 110, 16)
+    frames = list(fight.entrance())
+    cues = [cue for _, _, cue in frames]
+    spelled = -(-len("T H E   G O B L I N   K I N G") // encounter.SPELL)
+    assert cues[4:4 + spelled] == ["boss_encounter"] + ["dice_tick"] * (spelled - 1) and not any(cues[4 + spelled:])
+    assert "✦" not in frames[3][0].plain and "✦  T H" in frames[4][0].plain  # (SPELL letters a frame, from landing)
+    card = frames[4 + spelled][0].plain
+    assert "T H E   G O B L I N   K I N G" in card and "BOSS OF THE GOBLIN WARREN" in card
+    assert "✦" not in frames[-1][0].plain and "The Goblin King" in frames[-1][0].plain
+
+    abbot = put_monster(state, content, key="drowned_abbot")
+    swept = list(encounter.Fight(state, content, abbot, 110, 16).entrance())
+    assert [cue for _, _, cue in swept][7] == "boss_encounter" and "D R O W N E D" in swept[-2][0].plain
+    goblin = put_monster(state, content, key="goblin")
+    plain = list(encounter.Fight(state, content, goblin, 110, 16).entrance())
+    assert [cue for _, _, cue in plain] == [""] * 7 + ["encounter"] and "✦" not in plain[-1][0].plain
+
+
+def test_the_kings_own_swing_and_his_pan_held_high_for_a_heavy_blow(content):
+    """His attack clip (the swing at the end of his fall) plays when he goes for you, in place of the lunge; and with
+    a heavy blow coming he holds the pan high (his windup clip), glowing as any monster does."""
+    state = generate(7)
+    king = put_monster(state, content, key="goblin_king")
+    fight = encounter.Fight(state, content, king, 110, 16)
+    swing = list(fight.swing())
+    assert len(swing) == 10 and all(seconds == pytest.approx(2 / 24) for _, seconds in swing)
+    assert fight.foe(0, "windup").tobytes() != sprites_posed(fight, "windup")
+    goblin = encounter.Fight(state, content, put_monster(state, content, key="goblin"), 110, 16)
+    assert list(goblin.swing()) == []
+
+
+def sprites_posed(fight, pose):
+    """The King's idle frame in a pose, without his windup clip: what he'd look like without it."""
+    from ptg import sprites
+
+    return sprites.posed(fight.clips["idle"].frames[0], pose, 0).tobytes()
+
+
+def test_make_clip_writes_a_strip_with_its_count_speed_and_landing(tmp_path):
+    import sys
+
+    from PIL import Image
+
+    sys.path.insert(0, "tools")
+    from make_clip import make
+    from ptg import sprites
+
+    folder = tmp_path / "frames"
+    folder.mkdir()
+    for i, top in enumerate([None, None, 0, 4, 8, 8]):  # (empty, empty, falling, falling, landed, standing)
+        frame = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+        if top is not None:
+            frame.paste((200, 60, 60, 255), (6, top, 10, top + 8))
+        frame.save(folder / f"{i:04d}.png")
+    made = make(folder, "test_monster", "entrance", 24, out=tmp_path / "clips")
+    strip = Image.open(made)
+    assert made.name == "entrance.16.png" and strip.size == (96, 16)
+    assert (strip.info["frames"], strip.info["fps"], strip.info["land"]) == ("6", "24", "4")
+    assert sprites.count_frames(strip) == 6
+    swing = Image.open(make(folder, "test_monster", "attack", 24, out=tmp_path / "clips", spans="2:4,5:", land=1))
+    assert (swing.size, swing.info["frames"], swing.info["land"]) == ((48, 16), "3", "1")
+
+
+# --- what a click is told as ----------------------------------------------------------------------------------------
+
+def test_a_pickers_option_is_told_as_the_whole_use(content):
+    """The run's first move threw its potion at a Lantern Moth, told only as "Healing Potion"."""
+    state = generate(3)
+    put_monster(state, content, key="lantern_moth")
+    option = next(a for a in interactions.choices(state, content, "use:@monster:lantern_moth")
+                  if a.id.startswith("use:healing_potion"))
+    assert option.label == "Healing Potion"
+    assert interactions.said(state, content, option) == "Throw the Healing Potion at the Lantern Moth"
+    assert interactions.said(state, content, Action("attack", "Attack the Lantern Moth")) == "Attack the Lantern Moth"
+
+
+def test_one_click_in_a_fight_never_throws_away_what_heals(content):
+    from ptg.ui.grid import wasted
+
+    assert wasted(content, "use:healing_potion@monster:lantern_moth")
+    assert not wasted(content, "use:holy_water@monster:lantern_moth")
+    assert not wasted(content, "use:healing_potion")  # (drinking it, from Heal, is another thing)
+
+
+# --- how a fight is told ----------------------------------------------------------------------------------------------
+
+async def test_a_fights_blow_for_blow_goes_by_in_a_line(content, fake_llm, profile):
+    """With a narrator, the opening and the end of a fight are told in prose; the blows between, in a line."""
+    from ptg.world import generate as fresh
+
+    llm = fake_llm(text="Prose.")
+    game = Game(fresh(3), Config(backend="offline"), llm, profile=profile)
+    troll = put_monster(game.state, game.content, key="troll", hp=200)
+    player = game.state.player
+    player.max_hp = player.hp = 10_000
+    told = []
+    for _ in range(3):
+        troll.intent, player.fate = "strike", player.max_fate()  # (no perfect dodge, no Fate for a 20: nothing new)
+        await game.begin("1", Action("dodge", "Dodge"))
+        told.append((await game.finish(lambda _: None)).narration)
+    assert "Prose." not in told and all(told)  # (a dodge and its blow: in a line)
+    game.state.player.might = 500
+    await game.begin("1", Action("attack", "Attack the Troll"))
+    assert (await game.finish(lambda _: None)).narration == "Prose."  # (the end of it: told)
+
+
+# --- on the screen ------------------------------------------------------------------------------------------------
+
+async def test_a_fight_comes_in_on_the_stage_and_ends_with_its_spoils(monkeypatch):
+    """A foe walked in on sweeps onto the dimmed stage, its next move over it and its banner under it; slain, it breaks
+    apart, its spoils come up, and the room sweeps back in."""
+    from test_ui import into_a_run, take_choice
+
+    from ptg.ui.app import PTGApp
+
+    entrances, spoiled = [], []
+    entrance, shatter = encounter.Fight.entrance, encounter.Fight.shatter
+    monkeypatch.setattr(encounter.Fight, "entrance", lambda self, *a: entrances.append(1) or entrance(self, *a))
+    monkeypatch.setattr(encounter.Fight, "shatter", lambda self, *a: spoiled.append(1) or shatter(self, *a))
+    app = PTGApp(Config(backend="offline", layout="grid", player_name="T", auto_roll=True), seed=1)
+    async with app.run_test(size=(160, 50)) as pilot:
+        screen = await into_a_run(app, pilot)
+        state = screen.game.state
+        direction = next(d for d, e in state.room.exits.items() if not e.locked)
+        there = state.rooms[state.room.exits[direction].to]
+        there.monster = MonsterState(key="goblin", name="Goblin", hp=8, max_hp=8)
+        await take_choice(app, pilot, screen, f"go:{direction}")
+        stage = str(screen.query_one("#stage-art").render())
+        assert entrances and screen.fight is not None
+        assert "Goblin" in stage and "☠" in stage and "⚔" in stage
+
+        state.player.might = 50
+        for _ in range(4):
+            if not state.room.monster:
+                break
+            await take_choice(app, pilot, screen, "attack")
+        assert state.room.monster is None and spoiled and screen.fight is None
+        assert "Goblin" not in str(screen.query_one("#stage-art").render())  # (the room again)

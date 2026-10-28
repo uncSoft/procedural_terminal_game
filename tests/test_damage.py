@@ -104,8 +104,10 @@ def test_a_natural_20_searching_a_room_always_finds_something(content, always):
     """A critical search of a room with nothing hidden in it found nothing: now it's at least a few coins."""
     from ptg.world import generate
 
+    from ptg.rules import hidden_room_beside
+
     always(20)
-    state = generate(1)
+    state = next(s for s in map(generate, range(1, 40)) if not hidden_room_beside(s))  # (no secret room next door)
     state.room.monster = None
     state.room.features = [f for f in state.room.features if not f.hidden]
     state.room.draft = ""

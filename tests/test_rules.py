@@ -1,13 +1,14 @@
+import dataclasses
 from collections import Counter
 
 import pytest
 
-from bot import PLAYERS, play
+from bot import PLAYERS, VETERAN, play, veteran
 from conftest import put_monster
 from ptg.creative import available_props, clamp_intent, match_props, spends
 from ptg.intent import Intent
 from ptg.llm.prompts import player_status
-from ptg.models import Feature
+from ptg.models import LEVEL_XP, Feature
 from ptg.inventory import gain
 from ptg.rules import TRAITS, available_actions, check_traits, perform, perform_creative, room_facts
 from ptg.world import build_floor, generate
@@ -186,7 +187,7 @@ def test_shrine_trades_blood_for_fate(content):
 def test_level_up_offers_three_perks(content):
     state = generate(1)
     put_monster(state, content, key="goblin", hp=1)
-    state.player.xp = 19
+    state.player.xp = LEVEL_XP[1] - 1
     state.player.might = 50
     while state.room.monster:
         perform(state, content, "attack")
@@ -200,7 +201,7 @@ def test_level_up_offers_three_perks(content):
 def test_two_level_ups_queue_two_perk_picks(content):
     state = generate(1)
     put_monster(state, content, key="orc", hp=1)
-    state.player.xp = 19
+    state.player.xp = LEVEL_XP[2] - content.monster("orc").xp  # (the orc's XP takes you past two levels)
     state.player.might = 50
     while state.room.monster:
         perform(state, content, "attack")
@@ -409,22 +410,27 @@ def test_self_harm_never_kills(content):
 # --- whole games -------------------------------------------------------------
 
 def test_bot_games_finish_without_errors(content):
-    results = Counter()
+    """Balance guard (docs/plans/combat-and-balance.md §2): an action-only bot that never improvises, shops or bombs a
+    wall wins some and loses some. As a newcomer (no blessings) it gets far but wins a run in ten or so; as a veteran
+    (every blessing, the Rabbit's Foot, its perks picked well) about half."""
+    results, veterans = Counter(), Counter()
     for seed in range(100):
-        state = play(generate(seed), content)
-        results[state.status] += 1
-    assert results["playing"] == 0
-    # Balance guard: an action-only bot that never improvises should win some and lose some.
-    assert 0.2 <= results["won"] / 100 <= 0.75, results
+        results[play(generate(seed), content).status] += 1
+        veterans[play(generate(seed, content=content, player=veteran(content)), content, habits=VETERAN).status] += 1
+    assert results["playing"] == veterans["playing"] == 0
+    assert 0.03 <= results["won"] / 100 <= 0.35, results
+    assert 0.35 <= veterans["won"] / 100 <= 0.8 and veterans["won"] > results["won"], veterans
 
 
 def test_bots_with_a_persons_habits_finish_and_win_less(content):
     """The players with habits (tests/bot.py PLAYERS: missed warnings, hoarded potions, things walked past) finish
-    their runs like the plain bot, and win less: the plain bot is the steadiest player there is, not a person."""
+    their runs like the plain bot, and win less: the plain bot is the steadiest player there is, not a person. (As
+    veterans: a newcomer with habits wins too seldom to tell.)"""
     wins = {}
     for name in ("bot", "average"):
-        results = Counter(play(generate(seed), content, max_turns=900, habits=PLAYERS[name]).status
-                          for seed in range(80))
+        habits = dataclasses.replace(PLAYERS[name], perks=VETERAN.perks)
+        results = Counter(play(generate(seed, content=content, player=veteran(content)), content, max_turns=900,
+                               habits=habits).status for seed in range(80))
         assert results["playing"] == 0, name
         wins[name] = results["won"]
     assert 0 < wins["average"] < wins["bot"], wins
@@ -583,15 +589,17 @@ def test_king_mouse_is_as_hard_to_get_past_as_the_warden_he_stands_in_for(conten
 
     from ptg import npcs
     from ptg.combat import defeat, dodge, flee
+    from ptg.world import warden_tier
 
+    tier = warden_tier(2)
     state = generate(3)
     mouse = state.room.monster = npcs.sized(content, npcs.KING_MOUSE, 2, npcs.KING_MOUSE_SIZE, warden=True)
-    assert mouse.tier == 3 and content.monster(npcs.KING_MOUSE).tier == 1  # the floor-2 warden's, not his maker's
-    assert next(e for e in dodge(state, content, random.Random(1)) if e.dice).dice.dc == 12
-    assert next(e for e in flee(state, content, random.Random(1)) if e.dice).dice.dc == 13
+    assert mouse.tier == tier > content.monster(npcs.KING_MOUSE).tier == 1  # the floor-2 warden's, not his maker's
+    assert next(e for e in dodge(state, content, random.Random(1)) if e.dice).dice.dc == 9 + tier
+    assert next(e for e in flee(state, content, random.Random(1)) if e.dice).dice.dc == 10 + tier
     state.room.monster, souls = mouse, state.souls  # (wherever that left you)
     defeat(state, content, random.Random(1))
-    assert state.souls - souls == 27  # 3 a tier, three times over
+    assert state.souls - souls == 3 * tier * 3  # 3 a tier, three times over
 
 
 def test_running_out_of_a_tangle_leaves_the_vines_behind(content):

@@ -458,12 +458,17 @@ class InventoryScreen(Panel):
         return next((a for a in buttons if a.id.partition(":")[0] in (*USES, "equip") and
                      not interactions.is_picker(a.id)), None)
 
+    def named(self, action: Action) -> Action:
+        """A button's words are bare ("Use"): the story says what it was done to ("Use · Pure")."""
+        key = self.items[self.current][0]
+        return Action(action.id, f"{action.label} · {self.game.content.item(key).name}", action.hint)
+
     def action_use(self) -> None:
         action = self.default(self.items[self.current][2])
         if self.peek:
             self.notify("Choose your perk first: then it's yours to use.", timeout=3)
         elif action:
-            self.dismiss(action)
+            self.dismiss(self.named(action))
         else:
             self.notify("Not usable on its own. Try typing what you want to do with it.", timeout=3)
 
@@ -474,7 +479,7 @@ class InventoryScreen(Panel):
             self.notify("Choose your perk first: then it's yours to use.", timeout=3)
         elif 0 <= index < len(buttons) and self.app.screen is self:
             sound.play("select")
-            self.dismiss(buttons[index])
+            self.dismiss(self.named(buttons[index]))
 
 
 class ShopScreen(Panel):

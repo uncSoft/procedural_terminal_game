@@ -16,7 +16,7 @@ from .world import generate
 EPITHETS = {
     "pacify": "the Silver-Tongued", "flair": "the Showboat", "kills": "the Butcher", "fled": "the Swift",
     "searched": "the Nosy", "fumbles": "the Unlucky", "weakness": "the Scholar", "dodged": "the Nimble",
-    "creative_win": "the Clever", "stuns": "the Bewildering",
+    "creative_win": "the Clever", "stuns": "the Bewildering", "flawless": "the Untouched", "exploited": "the Cunning",
 }
 
 

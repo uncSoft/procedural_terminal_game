@@ -4,7 +4,11 @@ The plain bot is thorough and steady: it picks up everything, searches every fea
 every room before the stairs, dodges every heavy blow it's warned of, and drinks a potion at a third of its health.
 Poisoned, it drinks a Pure if it has one, or else prays at the nearest shrine it's seen (walking there). It never
 improvises, shops, bombs a wall or flees. Habits make it more like a person (see PLAYERS): it misses some
-warnings, forgets or hoards its potions, leaves things behind and heads for the stairs once it's seen them."""
+warnings, forgets or hoards its potions, leaves things behind and heads for the stairs once it's seen them.
+
+The plain bot plays a newcomer's adventurer: no blessings, and the first perk it's offered. A veteran (veteran) has
+what the campfire gave the owner's run of 2026-10-28, all eight blessings and the Rabbit's Foot, and picks its perks
+as that run did (docs/plans/combat-and-balance.md §1)."""
 
 from __future__ import annotations
 
@@ -13,7 +17,9 @@ from collections import deque
 from dataclasses import dataclass
 
 from ptg.content import Content
+from ptg.meta import make_player
 from ptg.models import GameState
+from ptg.models import Player as Adventurer
 from ptg.rules import available_actions, perform
 
 
@@ -76,6 +82,28 @@ class Habits:
     drinks: float = 1.0  # ...if it remembers to (run 59 drank none of its eight)
     thorough: float = 1.0  # picks up, searches and opens what it finds rather than walking past
     explores: float = 1.0  # sees the whole floor before going down, rather than heading for the stairs once seen
+    perks: tuple[str, ...] = ()  # the perks it picks first, in this order (a veteran's); else the first it's offered
+
+
+VETERAN_BLESSINGS = ("sharp_start", "fortune", "lorekeeper", "soul_siphon", "keen_eye", "vigor_2", "last_breath",
+                     "vigor")
+VETERAN_PERKS = ("ruthless", "glass_cannon", "brawler", "acrobatics", "iron_skin", "tough", "vampiric", "second_wind",
+                 "alchemist", "nimble", "bully", "lucky", "sharp_mind", "improviser", "scavenger")
+VETERAN = Habits(perks=VETERAN_PERKS)  # (it plays as steadily as the plain bot: it's the adventurer that differs)
+
+
+class _Campfire:
+    """What meta.make_player asks of a profile, for a veteran: everything unlocked, and the Rabbit's Foot to take."""
+
+    gift = "lucky_charm"
+
+    def unlocked(self) -> list[str]:
+        return [*VETERAN_BLESSINGS, self.gift]
+
+
+def veteran(content: Content, name: str = "Veteran") -> Adventurer:
+    """A veteran's adventurer, made as the campfire makes one: all its blessings, and the Rabbit's Foot."""
+    return make_player(name, _Campfire(), content, gift=_Campfire.gift)
 
 
 PLAYERS = {
@@ -109,7 +137,8 @@ def choose(state: GameState, content: Content, who: Player | None = None) -> str
     player = state.player
     habits = who.habits if who else PLAYERS["bot"]
     if state.pending_perks:
-        return who.rng.choice(list(actions)) if who else next(iter(actions))
+        liked = next((f"perk:{k}" for k in habits.perks if f"perk:{k}" in actions), None)
+        return liked or (who.rng.choice(list(actions)) if who else next(iter(actions)))
     if state.in_combat:
         heal = next((a for a in actions if a.startswith("use:") and "potion" in a), None)
         if player.hp <= player.max_hp * habits.heals_at and heal and (not who or who.does(habits.drinks)):

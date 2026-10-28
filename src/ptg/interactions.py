@@ -899,6 +899,19 @@ def verbs(state: GameState, content: Content, ref_id: str) -> list[Action]:
 NO = "won't work"  # a picker's hint for an option that's refused (it's still shown, greyed out)
 
 
+def said(state: GameState, content: Content, action: Action) -> str:
+    """How the story tells an option picked from a picker: as the whole use it is ("Throw the Healing Potion at the
+    Lantern Moth", "Sell the Stale Bread for 5 gold"), not the thing it's listed by ("Healing Potion"). One that's
+    neither, as it is."""
+    from .rules import unlisted
+
+    use = parse(action.id)
+    row = plan(state, content, use, RoomView(state, content)) if use else None
+    if row is not None and row.label:
+        return row.label
+    return next((a.label for a in unlisted(state, content) if a.id == action.id), action.label)
+
+
 def choices(state: GameState, content: Content, picker_id: str) -> list[Action]:
     """What a picker offers: for "give:@monster:lucky_lenny", one Action for each thing you could give him (named by
     the thing: "Lenny's Bad Tooth", "10 gold"); for "use:holy_water@", one for each thing here you could use it on

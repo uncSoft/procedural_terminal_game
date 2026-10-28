@@ -162,6 +162,13 @@ def kind_of(action: Action, content, fight: bool) -> str:
             "reveal": "use", "distract": "use", "throw": "use"}.get(verb, "")
 
 
+def wasted(content, action_id: str) -> bool:
+    """Whether a use would throw away something that heals, on whatever it's used on: at full HP a potion's only use
+    in a fight is to be thrown (for 1d4), and one click shouldn't do that. Typed, it still can be."""
+    key, at, _ = action_id.partition(":")[2].partition("@")
+    return action_id.startswith("use:") and bool(at) and key in content.items and bool(content.item(key).heal)
+
+
 def short(action: Action) -> str:
     """An option's words in a row: the thing, not the whole sentence ("Healing Potion", not "Drink the...")."""
     label = action.label
@@ -1373,7 +1380,8 @@ class GridScreen(GameScreen):
             if interactions.is_picker(picker):
                 options += [a for a in interactions.choices(state, content, picker)
                             if a.hint not in ("NO", "won't work") and a.id not in listed
-                            and a.id.partition(":")[2].split("@")[0] not in taken]
+                            and a.id.partition(":")[2].split("@")[0] not in taken
+                            and not (fight and wasted(content, a.id))]
         return options
 
     def button_state(self, kind: str, group: list[Action], fight: bool) -> tuple[bool, str]:
@@ -1469,9 +1477,12 @@ class GridScreen(GameScreen):
         super().press(action)
 
     def action_pick(self, index: int) -> None:
-        """One of the options under the buttons (yours, or the open ones), by its letter."""
+        """One of the options under the buttons (yours, or the open ones), by its letter: a picker's, told as the whole
+        use it is (told)."""
         if 0 <= index < len(self.offered):
-            self.press(self.offered[index])
+            option = self.offered[index]
+            picked = (self.tray and not self.tray[2]) or "@" in option.id
+            self.press(self.told(option) if picked else option)
         self.query_one("#command", Input).focus()
 
     def action_close_tray(self) -> None:

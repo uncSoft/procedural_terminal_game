@@ -23,12 +23,12 @@ color = "magenta"
 
 [perk.ruthless]
 name = "Ruthless"
-desc = "Every 3rd attack that hits deals double damage."
+desc = "Every 3rd attack that hits rolls your weapon's damage twice."
 color = "red"
 
 [perk.acrobatics]
 name = "Acrobatics"
-desc = "Evade the first damaging hit you take in every room."
+desc = "Evade the first damaging hit you take in every room (not a heavy blow: dodge those)."
 color = "green"
 
 [perk.lucky]

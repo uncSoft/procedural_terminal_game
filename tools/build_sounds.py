@@ -614,6 +614,30 @@ SOUNDS: dict[str, list[list[Tone]]] = {
              + arp(["C5", "G4", "C4"], 0.07, duty=0.25, volume=0.25, hold=0.1),
              [Tone("noise", WHITE, length=0.45, volume=0.6, release=0.3, cutoff=1300, cutoff_to=120)]
              + arp(["A4", "E4", "A3"], 0.08, wave="triangle", volume=0.34, hold=0.14, cutoff=1600)],
+    # a fight beginning (the foe sweeps onto the stage): a stab and a rising minor run, then the battle music
+    "encounter": [[Tone("noise", WHITE, length=0.18, volume=0.5, release=0.14, cutoff=5200, cutoff_to=1600),
+                   Tone("square", 98, to=49, length=0.2, duty=0.5, volume=0.3, release=0.12)]
+                  + arp(["E4", "G4", "B4", "E5"], 0.045, at=0.04, duty=0.25, volume=0.3)
+                  + [note("D#5", 0.32, 0.22, duty=0.125, volume=0.24, vibrato=0.35, vibrato_rate=9, release=0.2)],
+                  [Tone("noise", WHITE, length=0.2, volume=0.55, release=0.16, cutoff=2400, cutoff_to=600),
+                   Tone("triangle", 110, to=52, length=0.22, volume=0.42, release=0.14, cutoff=800)]
+                  + arp(["E4", "G4", "B4", "E5"], 0.05, at=0.04, wave="triangle", volume=0.36, cutoff=3000)
+                  + [note("D#5", 0.36, 0.24, duty=0.25, volume=0.22, vibrato=0.3, vibrato_rate=8, release=0.24,
+                          cutoff=2200)]],
+    # a boss's: toms rolling in, a falling tritone over a boom, the crash
+    "boss_encounter": [_tom(0.0, 140, 0.45) + _tom(0.09, 120, 0.45) + _tom(0.18, 100, 0.5) + _boom(0.45, 1200, 0.3, 1.2)
+                       + [note("A#4", 0.5, 0.3, duty=0.25, volume=0.3, vibrato=0.3, release=0.3),
+                          note("E4", 0.7, 0.3, duty=0.5, volume=0.26, vibrato=0.3, release=0.45),
+                          note("E3", 0.8, 0.3, wave="triangle", volume=0.4, release=0.5)]
+                       + _crash(0.3, 0.3)],
+    # a foe breaking apart: glass, then its bits tinkling down
+    "shatter": [[Tone("noise", 6500, length=0.12, volume=0.4, metallic=True, release=0.1),
+                 Tone("noise", WHITE, length=0.4, volume=0.35, release=0.3, cutoff=7000, cutoff_to=2500)]
+                + _sparkle(["E7", "B6", "G6", "E6", "B5"], 0.045, volume=0.22, at=0.08)],
+    # something rare drops: a bright run up, and a glitter on top
+    "rare_drop": [arp(["C6", "E6", "G6", "C7"], 0.05, duty=0.25, volume=0.3)
+                  + _sparkle(["G7", "E7", "C7"], 0.05, volume=0.2, at=0.2)
+                  + [note("C7", 0.5, 0.2, wave="triangle", volume=0.26, vibrato=0.2, release=0.4)]],
     "bomb": [[Tone("noise", 4000, length=0.06, volume=0.35),
               Tone("noise", 1100, to=40, length=0.7, volume=0.45, release=0.45),
               Tone("square", 110, to=28, length=0.45, duty=0.5, volume=0.3, release=0.3)],

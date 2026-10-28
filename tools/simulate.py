@@ -4,13 +4,16 @@
     uv run --frozen python tools/simulate.py 1000 --start 5000
     uv run --frozen python tools/simulate.py --player average   # a bot with a person's habits (tests/bot.py PLAYERS)
     uv run --frozen python tools/simulate.py --compare          # every player, a line each
+    uv run --frozen python tools/simulate.py --veteran --fights # a veteran's adventurer, and how each fight went
     uv run --frozen python tools/simulate.py --venom dire_wolf,orc  # as if they bit with venom: what poison does
 
 Per floor: how many runs reached it, died on it, and what they took down the stairs (HP, level, gold, potions). Then
 what killed them, and the run as a whole. The plain bot is thorough and never misses a warning, but never improvises,
 shops or bombs a wall; the players with habits miss warnings, hoard potions, walk past things and rush the stairs.
-Between them they bracket a person, they don't forecast one: compare a change's report with the last one (docs/plans/progression-loot-
-difficulty.md has the baseline)."""
+Between them they bracket a person, they don't forecast one: compare a change's report with the last one (docs/plans/
+combat-and-balance.md has the baseline). The plain bot plays a newcomer's adventurer; --veteran gives it a veteran's
+(tests/bot.py veteran: every blessing, the Rabbit's Foot, perks picked as the owner's run picked them). --fights adds
+how the fights went, by floor and kind of foe: how many rounds, the HP they cost, and how hard you hit."""
 
 from __future__ import annotations
 
@@ -23,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
 
-from bot import PLAYERS, Player, choose
+from bot import PLAYERS, VETERAN, Player, choose, veteran
 
 from ptg.content import load_content
 from ptg.rules import perform
@@ -34,20 +37,46 @@ def potions(state) -> int:
     return sum(1 for key in state.player.inventory if "potion" in key)
 
 
-def run(seed: int, content, player: str = "bot", max_turns: int = 900) -> dict:
-    """One bot run: where it ended, and a row for each floor it left by the stairs."""
-    state = generate(seed, content=content)
-    who = Player(PLAYERS[player], seed) if player != "bot" else None
+def kind_of(monster, content) -> str:
+    """What sort of foe, for the fights' report: the boss, a character (Swoogy, King Mouse), the warden by the stairs,
+    an elite, or an everyday monster."""
+    known = content.monster(monster.key)
+    if known.boss:
+        return "boss"
+    if known.npc or monster.tier:
+        return "character"
+    return "warden" if monster.warden else "elite" if monster.elite else "normal"
+
+
+def run(seed: int, content, player: str = "bot", max_turns: int = 900, veteran_run: bool = False) -> dict:
+    """One bot run: where it ended, a row for each floor it left by the stairs, and each fight it had."""
+    state = generate(seed, content=content, player=veteran(content) if veteran_run else None)
+    habits = PLAYERS[player] if not veteran_run else VETERAN if player == "bot" else \
+        dataclasses.replace(PLAYERS[player], perks=VETERAN.perks)
+    who = Player(habits, seed) if habits != PLAYERS["bot"] else None
     left: dict[int, dict] = {}
     turns_in: Counter = Counter()
     killer = ""
+    fights: list[dict] = []
+    fight: dict | None = None
     poison = Counter()  # what poison did: times, the HP it took (and all the HP hits took), cures, guards spent
     for _ in range(max_turns):
         if state.over:
             break
         floor, monster = state.floor, state.room.monster
+        if state.in_combat and (fight is None or fight["monster"] is not monster):
+            fight = {"monster": monster, "floor": floor, "kind": kind_of(monster, content), "rounds": 0, "taken": 0,
+                     "max_hp": state.player.max_hp, "hits": []}
         action = choose(state, content, who)
         events = perform(state, content, action)
+        if fight is not None:
+            fight["rounds"] += 1
+            fight["taken"] += sum(e.data.get("damage", 0) for e in events if e.kind == "monster_hit")
+            fight["hits"] += [e.data["damage"] for e in events
+                              if e.kind == "hit" and action == "attack" and e.data.get("damage")]
+            if not state.in_combat or state.room.monster is not fight["monster"] or state.floor != floor:
+                fights.append(fight)
+                fight = None
         for e in events:
             if e.kind == "status" and e.data.get("on"):
                 poison["poisoned"] += 1
@@ -70,14 +99,14 @@ def run(seed: int, content, player: str = "bot", max_turns: int = 900) -> dict:
     return {"seed": seed, "status": state.status, "floor": state.floor, "level": state.player.level,
             "turns": state.turn, "left": left, "killer": killer, "gold": state.player.gold,
             "potions": potions(state), "kills": state.player.kills, "poison": poison,
-            "died_poisoned": state.status == "dead" and bool(state.player.statuses)}
+            "died_poisoned": state.status == "dead" and bool(state.player.statuses), "fights": fights}
 
 
 def median(values: list[float]) -> float:
     return statistics.median(values) if values else 0.0
 
 
-def report(results: list[dict], floors: int) -> str:
+def report(results: list[dict], floors: int, fights: bool = False) -> str:
     n = len(results)
     won = sum(r["status"] == "won" for r in results)
     stuck = sum(r["status"] == "playing" for r in results)
@@ -113,7 +142,36 @@ def report(results: list[dict], floors: int) -> str:
                  f"median gold unspent {median([r['gold'] for r in results]):.0f} · "
                  f"median potions left {median([r['potions'] for r in results]):.1f}")
     lines += poison_lines(results, floors)
+    lines += fight_lines(results, floors) if fights else []
     return "\n".join(lines)
+
+
+def fight_lines(results: list[dict], floors: int) -> list[str]:
+    """How the fights went, by floor and kind of foe: how many, their rounds and the HP they cost (as a share of your
+    most: the median, and the worst tenth's), and your hits (the median, and the best tenth's). A floor-4 fight that
+    costs nothing is one nobody remembers (docs/plans/combat-and-balance.md §1)."""
+    def tenth(values: list[float]) -> float:
+        values = sorted(values)
+        return values[min(len(values) - 1, int(0.9 * len(values)))] if values else 0.0
+
+    by: dict[tuple[int, str], list[dict]] = defaultdict(list)
+    for r in results:
+        for f in r["fights"]:
+            by[(f["floor"], f["kind"])].append(f)
+    lines = ["", "fights: how many · rounds (median, worst tenth) · HP lost (median, worst tenth) · your hit (median, "
+                 "best tenth)"]
+    for floor in range(1, floors + 1):
+        for kind in ("normal", "elite", "warden", "character", "boss"):
+            group = by.get((floor, kind))
+            if not group:
+                continue
+            rounds = [f["rounds"] for f in group]
+            lost = [100 * f["taken"] / f["max_hp"] for f in group]
+            hits = [h for f in group for h in f["hits"]]
+            lines.append(f"  F{floor} {kind:<9} {len(group):>5} · rounds {median(rounds):>4.1f} "
+                         f"({tenth(rounds):>2.0f}) · HP lost {median(lost):>3.0f}% ({tenth(lost):>3.0f}%) · "
+                         f"hit {median(hits):>4.1f} ({tenth(hits):>2.0f})")
+    return lines
 
 
 def poison_lines(results: list[dict], floors: int) -> list[str]:
@@ -158,6 +216,9 @@ def main() -> None:
     parser.add_argument("--start", type=int, default=0, help="the first seed")
     parser.add_argument("--player", choices=sorted(PLAYERS), default="bot", help="whose habits (tests/bot.py)")
     parser.add_argument("--compare", action="store_true", help="every player, a line each")
+    parser.add_argument("--veteran", action="store_true", help="a veteran's adventurer: every blessing, the Rabbit's "
+                                                               "Foot, its perks picked as the owner's run did")
+    parser.add_argument("--fights", action="store_true", help="how the fights went, by floor and kind of foe")
     parser.add_argument("--venom", default="", help="monsters (keys, comma separated) to give a venomous bite, to "
                                                     "see what poison would do (\"all\": every roaming one)")
     args = parser.parse_args()
@@ -170,9 +231,10 @@ def main() -> None:
     seeds = range(args.start, args.start + args.seeds)
     floors = generate(0, content=content).floors_total
     if args.compare:
-        print(compare({name: [run(seed, content, name) for seed in seeds] for name in PLAYERS}, floors))
+        print(compare({name: [run(seed, content, name, veteran_run=args.veteran) for seed in seeds]
+                       for name in PLAYERS}, floors))
         return
-    print(report([run(seed, content, args.player) for seed in seeds], floors))
+    print(report([run(seed, content, args.player, veteran_run=args.veteran) for seed in seeds], floors, args.fights))
 
 
 if __name__ == "__main__":

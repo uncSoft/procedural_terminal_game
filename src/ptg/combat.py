@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+from dataclasses import dataclass
 
 from . import dice, hazards, inventory, loot, powers, statuses
 from .content import Content, ItemDef
@@ -18,6 +19,28 @@ INTENT_WEIGHTS = {
 VENOM = 0.25  # how often a venomous bite poisons you (a deadly one always does)
 PURE_DROP = 0.25  # how often a venomous monster, slain, leaves a Pure
 VENOMOUS = {"venom", "venom_spit", "deadly_venom"}
+# What a monster's tricks look like over its head, with its next blow (foresee): the words for each.
+TRICK_WORDS = {"steal": "grabs", "tangle": "vines", "venom": "venom", "venom_spit": "spit", "deadly_venom": "venom!"}
+# Winning in style pays (docs/plans/combat-and-balance.md §3.6): each a fifth more XP (1 at least) and 3 gold a tier.
+STYLES = {"flawless": ("Flawless", "not a scratch on you"), "exploited": ("Exploited", "finished with its weakness")}
+STYLE_XP, STYLE_GOLD = 0.2, 3
+
+
+@dataclass(frozen=True)
+class Foresight:
+    """What a monster will do on its next go, as it's shown over its head (docs/plans/combat-and-balance.md §3.2): a
+    mark, a word, and the damage it does if it lands, least to most (a strike's or a heavy blow's), with its tricks."""
+    kind: str  # strike, heavy, guard, reeling (stunned: it loses its go), running (off with what it grabbed)
+    mark: str
+    words: str = ""
+    low: int = 0
+    high: int = 0
+    tricks: tuple[str, ...] = ()
+
+    def said(self) -> str:
+        """In a few words: "‼ 8-20 HEAVY · venom"."""
+        hurt = f"{self.low}–{self.high}" if self.high else ""
+        return " · ".join(filter(None, [" ".join(filter(None, [self.mark, hurt, self.words])), *self.tricks]))
 
 
 def monster_defense(monster: MonsterState, content: Content) -> int:
@@ -68,6 +91,53 @@ def telegraph(state: GameState, content: Content) -> list[Event]:
         stop = "" if wind_up.endswith(("!", "?", '"')) else "."  # (out of the f-string: Python 3.11 allows no \ in one)
         return [Event("telegraph", f"{wind_up}{stop} A heavy blow is coming!")]
     return []
+
+
+def foresee(state: GameState, content: Content, monster: MonsterState | None = None) -> Foresight | None:
+    """What the monster here will do on its next go (it's chosen a turn ahead: choose_intent), and what it would cost
+    you: a strike's damage, a heavy blow's (its dice twice), less what keeps it at bay. None out of a fight."""
+    monster = monster or state.room.monster
+    if not (monster and monster.hostile and monster.hp > 0):
+        return None
+    if monster.stunned > 0:
+        return Foresight("reeling", "✶", "REELING")
+    if monster.stolen_item or monster.stolen_gold:
+        return Foresight("running", "»", "RUNNING OFF")
+    if monster.intent == "guard":
+        return Foresight("guard", "⛨", "GUARDS")
+    heavy = monster.intent == "heavy"
+    low, high = dice.span(content.monster(monster.key).damage)
+    flat = monster.damage_mod - (2 if powers.holders(state, content, "reeks") else 0)
+    times = 2 if heavy else 1
+    tricks = tuple(words for trick, words in TRICK_WORDS.items()
+                   if trick in tricks_of(monster, content) and (trick != "venom_spit" or heavy))
+    return Foresight("heavy" if heavy else "strike", "‼" if heavy else "⚔", "HEAVY" if heavy else "",
+                     max(1, times * low + flat), max(1, times * high + flat), tricks)
+
+
+def danger(state: GameState, content: Content, monster: MonsterState | None = None) -> int:
+    """How dangerous a fight looks, 1 to 3 (☠, ☠☠, ☠☠☠): the share of your health beating it toe to toe would
+    cost, from your chance to hit it and your blows against its health, its chance to hit you and its blows (its
+    heavy ones as often as its kind swings them). Under a quarter is one; under three fifths, two."""
+    monster = monster or state.room.monster
+    player, known = state.player, content.monster(monster.key)
+    weapon = content.item(player.weapon)
+
+    def chance(bonus: int, dc: int) -> float:
+        return max(0.05, min(0.95, (21 - (dc - bonus)) / 20))
+
+    bonus = player.might + player.level + sum(n for _, n in powers.roll_bonuses(state, content, "attack"))
+    weak = 2 if set(weapon.tags + ([player.coating] if player.coated else [])) & set(known.weak) else 0
+    flat = player.might + weak + ("brute" in player.traits) + 3 * ("glass_cannon" in player.perks)
+    blow = chance(bonus, monster_defense(monster, content)) * (dice.average(weapon.damage) + flat)
+    rounds = max(1, monster.hp) / max(0.5, blow)
+    weights = INTENT_WEIGHTS["boss" if known.boss else "elite" if monster.elite else "normal"]
+    average = dice.average(known.damage)
+    hurt = chance(known.attack + monster.attack_mod, player.defense(content)) * (
+        weights["strike"] * (average + monster.damage_mod) + weights["heavy"] * (2 * average + monster.damage_mod)
+    ) / sum(weights.values())
+    share = rounds * max(0.0, hurt) / max(1, player.max_hp)
+    return 1 if share < 0.25 else 2 if share < 0.6 else 3
 
 
 def state_known(state: GameState, monster_key: str) -> list[str]:
@@ -134,8 +204,8 @@ def player_attack(state: GameState, content: Content, rng: random.Random) -> lis
     if "monster_scholar" in player.traits and state_known(state, monster.key):
         parts.append(("scholar", 1))
     player.hits_landed += 1
-    if "ruthless" in player.perks and player.hits_landed % 3 == 0:
-        parts.append(("ruthless ×2", sum(v for _, v in parts)))
+    if "ruthless" in player.perks and player.hits_landed % 3 == 0:  # (the weapon's dice again, a crit's too)
+        parts.append(("ruthless ×2", sum(v for name, v in parts if name in (weapon.damage, f"crit {weapon.damage}"))))
         extras.append("Ruthless x2")
     roll.damage = [(name, value) for name, value in parts if value]
     damage = sum(value for _, value in parts)
@@ -149,7 +219,7 @@ def player_attack(state: GameState, content: Content, rng: random.Random) -> lis
         events += discover(state, monster, tag)
     events += events_on_roll
     if monster.hp <= 0:
-        events += defeat(state, content, rng)
+        events += defeat(state, content, rng, exploited=bool(weak))
     return events
 
 
@@ -213,7 +283,7 @@ def throw(state: GameState, content: Content, rng: random.Random, key: str) -> l
                            data={"damage": damage, "rerollable": True, **thrown}))
     for tag in weak:
         events += discover(state, monster, tag)
-    return events + (defeat(state, content, rng) if monster.hp <= 0 else [])
+    return events + (defeat(state, content, rng, exploited=bool(weak)) if monster.hp <= 0 else [])
 
 
 def distract(state: GameState, content: Content, key: str) -> list[Event]:
@@ -241,7 +311,7 @@ def bomb_monster(state: GameState, content: Content, rng: random.Random) -> list
                     data={"damage": damage, "bomb": True})]
     for tag in weak[:1]:
         events += discover(state, monster, tag)
-    return events + (defeat(state, content, rng) if monster.hp <= 0 else [])
+    return events + (defeat(state, content, rng, exploited=bool(weak)) if monster.hp <= 0 else [])
 
 
 def fortune(state: GameState, roll: dice.Roll) -> list[Event]:
@@ -281,6 +351,7 @@ def monster_turn(state: GameState, content: Content, rng: random.Random) -> list
         events = [Event("guard", f"{cap(the(monster.name))} hunkers down and guards itself (+4 defense).")]
         return events + telegraph(state, content)
 
+    monster.swings += 1
     if dodging:
         perfect = intent == "heavy"
         events = [Event("dodge", f"You slip aside and {the(monster.name)}'s "
@@ -301,7 +372,7 @@ def monster_turn(state: GameState, content: Content, rng: random.Random) -> list
         return [Event("monster_miss", f"{cap(the(monster.name))} attacks you and misses.", dice=roll)] + telegraph(state, content)
 
     room_key = f"{state.floor}:{room.id}"
-    if "acrobatics" in player.perks and room_key not in player.evaded_rooms:
+    if "acrobatics" in player.perks and room_key not in player.evaded_rooms and intent != "heavy":
         player.evaded_rooms.append(room_key)
         return [Event("evade", f"Acrobatics! You tumble clear of {the(monster.name)}'s blow.", dice=roll)] + telegraph(state, content)
 
@@ -319,6 +390,7 @@ def monster_turn(state: GameState, content: Content, rng: random.Random) -> list
     roll.damage = [(name, value) for name, value in parts if value]
     damage = sum(value for _, value in parts)
     player.hp = max(0, player.hp - damage)
+    monster.dealt += damage
     how = "lands a crushing heavy blow on you" if intent == "heavy" else (
         "lands a vicious critical hit on you" if roll.crit else "hits you")
     held_off = f" ({cap(the(reek[0].name))} keeps it at arm's length.)" if reek else ""
@@ -445,10 +517,12 @@ def flee(state: GameState, content: Content, rng: random.Random, guaranteed: boo
     return events + travel(state, content, direction, state.room.exits[direction].to)
 
 
-def defeat(state: GameState, content: Content, rng: random.Random, how: str = "slain") -> list[Event]:
+def defeat(state: GameState, content: Content, rng: random.Random, how: str = "slain",
+           exploited: bool = False) -> list[Event]:
     """The monster in this room is gone: slain or talked down. Rewards, drops, and maybe the win. One you'd talked
     down already has had its reward: killing it after (or calming it again) pays nothing more. A character talked
-    down isn't a monster beaten: it's npcs.calm's to say how it takes it (no reward, and it keeps what it has)."""
+    down isn't a monster beaten: it's npcs.calm's to say how it takes it (no reward, and it keeps what it has). Slain
+    in style pays more (styled): without a scratch, or `exploited`, finished with a weakness."""
     from .rules import check_level
 
     room, player = state.room, state.player
@@ -471,14 +545,17 @@ def defeat(state: GameState, content: Content, rng: random.Random, how: str = "s
             done = Event("pacify", f"{cap(the(monster.name))} stops fighting you again.", data=data)
         return [done] + _give_back(state, content, monster)  # (what it grabbed since is still yours)
     monster.rewarded = how != "slain"
-    xp = round(monster_def.xp * (0.6 if how == "pacified" else 1.0) * (1.5 if monster.elite else 1.0))
+    sized = min(1.0, monster.max_hp / monster_def.hp) if monster.tier and monster_def.hp else 1.0  # (npcs.sized)
+    xp = round(monster_def.xp * sized * (0.6 if how == "pacified" else 1.0) * (1.5 if monster.elite else 1.0))
     souls = round((40 if monster_def.boss else 3 * tier_of(monster, content)) * monster.reward_mult)
     player.xp += xp
     state.souls += souls
+    data = {**data, "xp": xp, "souls": souls}
     if how == "slain":
         player.kills += 1
         player.bump("kills")
         events = [Event("defeat", f"{cap(the(monster.name))} is defeated. +{xp} XP, +{souls} souls.", data=data)]
+        events += styled(state, content, monster, xp, exploited)
     else:
         player.bump("pacify")
         events = [Event("pacify", f"{cap(the(monster.name))} stops fighting you. +{xp} XP, +{souls} souls.", data=data)]
@@ -506,7 +583,7 @@ def defeat(state: GameState, content: Content, rng: random.Random, how: str = "s
     if how == "slain":
         gold = rng.randint(1, 6) * tier_of(monster, content) * (2 if monster.elite else 1)
         player.gold += gold
-        events.append(Event("loot", f"You find {gold} gold on the body."))
+        events.append(Event("loot", f"You find {gold} gold on the body.", data={"gold": gold}))
         for dropped in _drops(state, content, rng, monster):
             # (a bomb or small key is yours at once, in the next event; anything else lies there until it's taken)
             lies = "" if dropped in inventory.PICKUPS else "; it lies on the floor (not picked up)"
@@ -517,6 +594,23 @@ def defeat(state: GameState, content: Content, rng: random.Random, how: str = "s
             events.append(Event("drop", f"{cap(the(monster.name))} leaves {a(content.item(kept).name)} at your feet.",
                                 data=inventory.lay(state, kept, "drop", monster.key)))
     return events + check_level(state, content)
+
+
+def styled(state: GameState, content: Content, monster: MonsterState, xp: int, exploited: bool) -> list[Event]:
+    """What winning in style pays (STYLES): Flawless, if it had a go at you and never drew blood; Exploited, if the
+    killing blow found its weakness. Each a fifth more of its XP (1 at least) and 3 gold a tier."""
+    won = [key for key, earned in (("flawless", monster.swings and not monster.dealt), ("exploited", exploited))
+           if earned]
+    events = []
+    for key in won:
+        name, why = STYLES[key]
+        more, gold = max(1, round(xp * STYLE_XP)), STYLE_GOLD * tier_of(monster, content)
+        state.player.xp += more
+        state.player.gold += gold
+        state.player.bump(key)
+        events.append(Event("style", f"{name}: {why}. +{more} XP, +{gold} gold.",
+                            data={"style": key, "name": name, "xp": more, "gold": gold}))
+    return events
 
 
 def _give_back(state: GameState, content: Content, monster: MonsterState) -> list[Event]:
@@ -549,7 +643,8 @@ def _drops(state: GameState, content: Content, rng: random.Random, monster: Mons
 
 def _kept(state: GameState, content: Content, rng: random.Random, monster: MonsterState) -> list[str]:
     """What a monster was keeping, which it leaves slain or talked down: the rare thing that names it as the one that
-    drops it, or else (sometimes, from an elite; always, from the warden by the stairs) something rare."""
+    drops it, or else (now and then, from an elite; a third of the time, from the warden by the stairs) something
+    rare. A warden always leaves something: a small key or a bomb, if not that."""
     own = [i.key for i in content.items.values() if monster.key in i.found and i.key not in state.rares]
     warden = monster.warden  # (not whatever crept up on you while you rested by the stairs)
     if own:
@@ -559,4 +654,4 @@ def _kept(state: GameState, content: Content, rng: random.Random, monster: Monst
         kept = loot.produce(rng, content, state.rares, loot.WARDEN[min(state.floor, 3)], "warden",
                             loot.owned(state, content))
         return [kept] if kept else []
-    return []
+    return [rng.choice(loot.WARDEN_ELSE)] if warden else []

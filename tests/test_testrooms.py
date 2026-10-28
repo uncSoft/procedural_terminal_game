@@ -8,7 +8,7 @@ from ptg.cli import main
 from ptg.config import Config, save_path
 from ptg.game import Game
 from ptg.meta import record_end
-from ptg.models import DELTA, Player
+from ptg.models import DELTA, LEVEL_XP, Player
 from ptg.rules import bombable_walls
 
 
@@ -76,7 +76,7 @@ def test_the_kits(content):
     assert (strong.weapon, strong.armor, strong.level, len(strong.perks)) == ("silvered_blade", "scale_hauberk", 5, 4)
     assert strong.inventory.count("superior_healing_potion") == 3 and (strong.bombs, strong.keys) == (3, 2)
     random_one = testrooms.build(content, "goblin", "random", floor=2, seed=4).player
-    assert random_one.level == 3 and len(random_one.perks) == 2 and random_one.xp == 55
+    assert random_one.level == 3 and len(random_one.perks) == 2 and random_one.xp == LEVEL_XP[2]
     own = testrooms.build(content, "goblin", "weapon=war_pick, items=pickle+pickle+holy_water, level=2, gold=9",
                           seed=4).player
     assert (own.weapon, own.inventory, own.level, own.gold) == ("war_pick", ["pickle", "pickle", "holy_water"], 2, 9)

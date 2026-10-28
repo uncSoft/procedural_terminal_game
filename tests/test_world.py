@@ -7,7 +7,7 @@ from ptg import layout
 from ptg.models import OPPOSITE
 from ptg.ui.theme import CELL_STYLES
 from ptg.content import _read, build_content
-from ptg.world import build_floor, generate, monster_for, render_map
+from ptg.world import DEPTH, build_floor, generate, monster_for, render_map
 
 SEEDS = range(80)
 
@@ -264,7 +264,7 @@ def test_norfels_monsters_are_stronger_and_half_of_them_venomous(content):
             monster = room.monster
             if monster and not room.is_boss:
                 base = content.monster(monster.key)
-                deeper += monster.attack_mod >= 1 and monster.max_hp >= round(base.hp * 1.3)
+                deeper += monster.attack_mod >= 1 and monster.max_hp >= round(base.hp * DEPTH[4]["hp_mult"])
                 venomous += "venom" in monster.tricks
-                assert ("venom" in monster.tricks) == ("Venomous" in monster.name)
+                assert ("venom" in monster.tricks) == ("venom" in monster.name.lower())  # (its name says so)
     assert deeper > 100 and 0.35 < venomous / deeper < 0.65

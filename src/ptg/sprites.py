@@ -26,12 +26,18 @@ Poses are made from a sprite's own frames at draw time, so every sprite gets the
 
 A floor can have splash art too, a picture for its card (ui/panels.py FloorScreen): data/splash/<theme>/ holds it in
 several sizes, each made from the original picture by tools/make_splash.py (see splash).
+
+And a monster can have clips: animations made for it elsewhere, frame by frame (the Blender pipeline in
+spikes/goblin3d turns a sprite into a model, animates it and renders it back into pixels), in data/clips/<monster>/,
+each in several sizes (see clips; tools/make_clip.py writes them). The stage plays a boss's entrance from one when a
+fight with it starts (encounter.Fight).
 """
 
 from __future__ import annotations
 
 import sys
 import warnings
+from dataclasses import dataclass
 from functools import lru_cache
 from importlib import resources
 
@@ -304,6 +310,59 @@ def splash_text(key: str, width: int) -> Text | None:
     """A theme's splash art `width` pixels across as half-block text (see splash), or None."""
     art = splash(key, width)
     return image_text(art, snap=True) if art is not None else None
+
+
+# --- clips: a monster's own animations, made elsewhere --------------------------------
+
+CLIP_FPS = 12  # the most frames a second the stage plays a clip at: each frame is the whole stage, sent to a browser
+
+
+@dataclass(frozen=True)
+class Clip:
+    """One of a monster's animations at one size: its frames, the frames a second it was made for, and (for an
+    entrance) the frame its feet land on, where the fight's sting goes (0: none)."""
+
+    frames: tuple
+    fps: float = CLIP_FPS
+    land: int = 0
+
+    @property
+    def size(self) -> int:
+        return self.frames[0].height
+
+
+@lru_cache(maxsize=32)
+def clips(key: str) -> dict[str, tuple[Clip, ...]]:
+    """A monster's clips by name ("entrance", "idle"), each in every size it comes in, smallest first: the PNG strips
+    in data/clips/<key>/, named <clip>.<size>.png, their frame count, frames a second and landing frame kept in the
+    PNG's text. Most monsters have none: a clip is for the moments worth the work (docs/plans/combat-and-balance.md
+    §4), and the code's own poses do for the rest."""
+    folder = resources.files("ptg") / "data" / "clips" / key
+    if Image is None or not folder.is_dir():
+        return {}
+    found: dict[str, list[Clip]] = {}
+    for path in folder.iterdir():
+        if not path.name.endswith(".png"):
+            continue
+        with path.open("rb") as f:
+            sheet = Image.open(f)
+            info = dict(sheet.info)
+            count = count_frames(sheet, name=f"clips/{key}/{path.name}")
+            sheet = sheet.convert("RGBA")
+            sheet.load()
+        width = sheet.width // count
+        frames = tuple(sheet.crop((i * width, 0, (i + 1) * width, sheet.height)) for i in range(count))
+        clip = Clip(frames, float(info.get("fps") or CLIP_FPS), int(info.get("land") or 0))
+        found.setdefault(path.name.split(".")[0], []).append(clip)
+    return {name: tuple(sorted(sizes, key=lambda c: c.size)) for name, sizes in found.items()}
+
+
+def art_box(frames) -> tuple | None:
+    """The box round the art in all of `frames` together (left, top, right, bottom), or None if they're empty."""
+    boxes = [box for frame in frames if (box := frame.getbbox())]
+    if not boxes:
+        return None
+    return (min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes))
 
 
 # --- pixel helpers ------------------------------------------------------------------

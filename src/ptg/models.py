@@ -13,7 +13,9 @@ DIRECTIONS: tuple[Direction, ...] = ("north", "south", "east", "west")
 OPPOSITE: dict[str, Direction] = {"north": "south", "south": "north", "east": "west", "west": "east"}
 DELTA: dict[str, tuple[int, int]] = {"north": (0, -1), "south": (0, 1), "east": (1, 0), "west": (-1, 0)}
 
-LEVEL_XP = [0, 20, 55, 110, 200, 320, 480, 700]
+# Leave floor 1 at level 2, floor 2 at 3-4, floor 3 at 5, and meet Serpentis at 6 (docs/plans/combat-and-balance.md
+# §2); 8 is for anyone who grinds, and for the longer runs to come.
+LEVEL_XP = [0, 30, 80, 150, 280, 460, 720, 1100]
 FLOORS = 4  # a run: three dungeons, then Norfel (themes.toml)
 DUNGEONS = 3  # the run's first floors, a dungeon each: the last of them has its boss, and the way down behind it
 MAX_FATE = 3
@@ -49,6 +51,8 @@ class MonsterState(BaseModel):
     warden: bool = False  # the one guarding the stairs (or standing in for it): it always leaves something
     tricks: list[str] = Field(default_factory=list)  # tricks it has here beyond its maker's (Norfel's venom)
     rewarded: bool = False  # talked down already, and paid for it: killing it now pays nothing more
+    swings: int = 0  # how many times it's gone for you this fight, hit or miss (a flawless win needs one: combat.STYLES)
+    dealt: int = 0  # the damage it's done you this fight
 
 
 class Feature(BaseModel):

@@ -544,7 +544,7 @@ class TabsScreen(GameScreen):
         self.set_class(fight, "combat")
         shown = (plan.stage_width, plan.stage_rows, state.floor, state.room_id, tuple(room.items),
                  (monster.key, monster.hostile) if monster and monster.hp > 0 else None, room.fixture_used,
-                 tuple(f.searched for f in room.features), self._sprites_on())
+                 tuple(f.searched for f in room.features), self._sprites_on(), self.fight_state())
         if shown != self.stage_shown:
             self.stage_shown = shown
             self.draw_stage(plan.stage_width, 2 * plan.stage_rows)
@@ -735,7 +735,8 @@ class TabsScreen(GameScreen):
         item = next((i for i in self.pack_items if i[0] == self.focus["pack"]), None) or \
             (self.pack_items[0] if self.pack_items else None)
         if item and 0 <= index < len(item[2]):
-            self.press(item[2][index])
+            action, name = item[2][index], self.game.content.item(item[0].removeprefix("pack:")).name
+            self.press(Action(action.id, f"{action.label} · {name}", action.hint))  # ("Use · Pure", not "Use")
 
     def draw_pane(self, force: bool = False) -> None:
         """Fill the pane for its tab, if what it would show has changed (a rebuild swaps it under the mouse)."""

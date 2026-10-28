@@ -65,19 +65,21 @@ CHESTS = {  # a chest holds one of its floor's ("rare -1": a rare thing of tier 
     4: ["armor 3+", "weapon 3+", "potion 3+", "lucky_charm", "rare"],
 }
 SECRET = ["rare"]  # what a floor's secret room keeps, any tier: it's hard to find
-# What the warden by the stairs always drops, and an elite sometimes: rare things, tier capped by the floor (so the
-# best of them come from the elites of the last floor, and secret rooms).
+# What the warden by the stairs drops a third of the time, and an elite now and then: rare things, tier capped by the
+# floor (so the best of them come from the elites of the last floor, and secret rooms). A rare thing a floor, about,
+# from its secret room: more, and nothing felt rare (docs/plans/combat-and-balance.md §2).
 WARDEN = {1: ["rare -1"], 2: ["rare -2"], 3: ["rare"], 4: ["rare"]}
-WARDEN_DROP, ELITE_DROP = 1.0, 0.2  # how often
-# What a place gives once there's no rare thing left for it: a strong potion, but a warden carries a small key (so
-# floor 1's, with nothing rare that weak to give, always does). A strong potion there won the bot 11% more runs.
+WARDEN_DROP, ELITE_DROP = 0.35, 0.1  # how often
+WARDEN_ELSE = ["small_key", "bomb"]  # what a warden leaves when it isn't something rare: it always leaves something
+# What a place gives once there's no rare thing left for it: a potion, but a warden carries a small key (so floor 1's,
+# with nothing rare that weak to give, always does). Not a strong potion: the run that hoarded ten never needed them.
 INSTEAD = {"warden": "small_key"}
-INSTEAD_OF_RARE = "potion 2+"
+INSTEAD_OF_RARE = "potion 1"
 DROP = "potion 1"  # what a slain monster sometimes leaves
 SHOPKEEPER, SHINY = "granny_gristle", "granny_kamultruk"  # the shiny one: rarer, dearer, better stocked
 SHOP_CHANCE, SHINY_CHANCE = 0.25, 0.15  # a floor has a shop; of the shops, how many are Granny Kamultruk's
 STATUS_SHOP_CHANCE = 0.5  # a floor with a status of its own (Norfel's poison) has a shop more often
-GRISTLE_RARE = 1 / 3  # how often Granny Gristle has something rare where her trinket would be
+GRISTLE_RARE = 0.2  # how often Granny Gristle has something rare where her trinket would be
 STOCK = {"potion": 2, "cure": 2}  # how many of a ware she has: one of anything else
 # On the floor above one with poison of its own, a shop always (rules._ask: asked, she brings out the snakeskin).
 BEFORE_STATUS_SHOP_CHANCE = 1.0
@@ -170,8 +172,13 @@ def owned(state, content: Content) -> list[str]:
 def produce(rng: random.Random, content: Content, rares: list[str], slots: list[str], place: str,
             have: list[str] = ()) -> str | None:
     """One of a special place's slots, filled; a rare thing it gives is noted in `rares` so it never comes twice, and
-    gear you `have` already isn't given again if anything else fits."""
-    key = one_of(rng, content, slots, place, [*rares, *have]) if have else None
+    gear you `have` already isn't given again if anything else fits: if the slot drawn has only what you have, the
+    others are tried first (a chest's "weapon 3+" with your Silvered Blade the only one gave a second)."""
+    key = None
+    if have:
+        taken = [*rares, *have]
+        key = one_of(rng, content, slots, place, taken) or \
+            next((k for slot in slots for k in [pick(rng, content, slot, place, taken)] if k), None)
     key = key or one_of(rng, content, slots, place, rares)
     if key is None and any(s.startswith("rare") for s in slots):  # no rare thing left for here
         key = pick(rng, content, INSTEAD.get(place, INSTEAD_OF_RARE), place, rares)

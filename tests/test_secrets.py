@@ -125,9 +125,11 @@ def test_a_chest_opens_three_ways(content):
     assert state.player.hp < hp
 
 
-def test_the_warden_always_drops_something_good(content):
-    """Something rare where the floor allows it (tier capped: the best come later), or a small key."""
-    def warden_drop(floor):
+def test_the_warden_always_drops_something_good(content, monkeypatch):
+    """Something rare a third of the time, where the floor allows it (tier capped: the best come later); otherwise, or
+    with nothing rare for it, a small key (or a bomb)."""
+    def warden_drop(floor, rare=True):
+        monkeypatch.setattr(loot, "WARDEN_DROP", 1.0 if rare else 0.0)
         state = generate(5)
         if floor > 1:
             state.floor = floor
@@ -144,6 +146,8 @@ def test_the_warden_always_drops_something_good(content):
     assert first.key == "small_key"  # nothing rare of tier 1 or less for a warden: a key for a chest instead
     second, state = warden_drop(2)
     assert loot.rare(second) and second.tier <= 2 and second.key in state.rares
+    third, state = warden_drop(2, rare=False)
+    assert third.key in loot.WARDEN_ELSE and not loot.rare(third)
 
 
 def test_something_heavy_breaks_through_a_wall_worth_a_bomb_without_one(content):

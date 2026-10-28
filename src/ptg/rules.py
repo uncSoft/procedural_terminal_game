@@ -691,8 +691,7 @@ def _journey(state: GameState, content: Content, rng: random.Random, target: int
     room, goal = state.room, state.rooms[target]
     if meet:
         state.wandered[floor] = state.wandered.get(floor, 0) + 1
-        deepest = max(r.distance for r in state.rooms)
-        room.monster = monster_for(rng, content, state.theme, tier_for(room.distance, deepest, state.floor),
+        room.monster = monster_for(rng, content, state.theme, tier_for(state.floor, state.floors_total),
                                    met=state.met, floor=state.floor)
         who = room.monster.name if content.monster(room.monster.key).named else a(room.monster.name)
         return [Event("ambush", f"You set off for {the(goal.name)}, but in {the(room.name)} {who} blocks the way!",
@@ -1530,8 +1529,7 @@ def _rest(state: GameState, content: Content, rng: random.Random) -> list[Event]
     room, player = state.room, state.player
     room.rested = True
     if not safe_to_rest(state) and rng.random() < 0.25:
-        max_distance = max(r.distance for r in state.rooms)
-        room.monster = monster_for(rng, content, state.theme, tier_for(room.distance, max_distance, state.floor),
+        room.monster = monster_for(rng, content, state.theme, tier_for(state.floor, state.floors_total),
                                    met=state.met, floor=state.floor)
         who = room.monster.name if content.monster(room.monster.key).named else a(room.monster.name)
         events = [Event("ambush", f"While you rest, {who} creeps up on you!",

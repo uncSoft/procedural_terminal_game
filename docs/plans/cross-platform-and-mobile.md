@@ -192,6 +192,10 @@ Each keypress is a round trip to the host, which is fine on Wi-Fi or a tailnet.
     Audio.
 
   iOS needs a first tap to unlock audio, and the silent switch may mute it.
+
+  **Built on 2026-10-28** along these lines: `sound.Browser` (the game runs with `PTG_SOUND=web`), `on_meta` in
+  `serve.py`'s `PlayerService`, and the page's last script. The sounds had grown to 7.9 MB by then, so the page
+  loads the short ones in the background and each piece of music when it's first wanted.
 - **Saves and profile:** stay in `PTG_HOME` on the host. They're durable, backed up with the Mac, and the same
   profile you play in the terminal. Phones drop background connections, which ends the session ("Session ended
   -> Restart"). The game autosaves every turn, so serving it with `--continue` resumes where you were.

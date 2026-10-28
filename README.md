@@ -318,7 +318,8 @@ the stairs, level-ups, a natural 20. A terminal can only beep, so the game plays
 thread of its own streams to your speakers through [sounddevice](https://python-sounddevice.readthedocs.io)
 (PortAudio, bundled on macOS and Windows; on Linux install `libportaudio2`), with the system's player (`afplay`,
 `pw-play`, `paplay`, `aplay`) as a fallback. Sound never blocks or crashes the game. F8 turns it on and off,
-Settings has the volume, and `PTG_SOUND=0` keeps it quiet (the tests do).
+Settings has the volume, and `PTG_SOUND=0` keeps it quiet (the tests do). Played in a browser, the page plays it
+(see "Play it in a browser").
 
 The built-in sounds are synthesized, like the sprites: `tools/build_sounds.py` describes each one as a few
 chip-style tones (square, triangle and noise waves, pitch slides, arpeggios, and a low-pass filter to soften one) and
@@ -457,8 +458,14 @@ a terminal app (Terminal, iTerm2, Ghostty, WezTerm, kitty).
 `ptg serve` puts the game on a web page for a few people to share: one link, a page that asks who's playing, and
 each name its own saves (profile, souls, settings and autosave). Typing the same name later picks up where that
 player left off. A second tab with the same name ends the first, so a run is never played in two places. It's built
-on Textual's `textual-serve`, which runs one game for each browser tab. Laptops and tablets play it fully. Sound is
-off, since it would play on the server.
+on Textual's `textual-serve`, which runs one game for each browser tab. Laptops and tablets play it fully.
+
+Sound and music play in each player's browser, not on the server: the game tells the page which sound to play, and
+the page plays it. Browsers only allow sound once the page has been clicked, tapped or typed in, so it starts with
+your first move. An iPhone set to silent may keep it quiet. F8 or Settings turns it off, and so does the ☰ menu on
+a phone. The page loads the short sounds in the background once the game first asks for one (1.4 MB) and each piece of
+music when it's first wanted (up to 2 MB each), and the browser keeps them. A player's own sounds (below) play only
+in a terminal.
 
 The game's page is made for phones too (`src/ptg/web/app_index.html`). It picks a font size that fits at least 40
 columns, keeps the game above the phone's keyboard, and scrolls with a swipe. Taps play the game, so the keyboard

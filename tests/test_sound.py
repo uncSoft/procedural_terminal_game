@@ -1,3 +1,4 @@
+import asyncio
 import builtins
 import sys
 import threading
@@ -189,3 +190,45 @@ def test_loud_moments_are_squeezed_not_clipped_and_music_resamples_smoothly():
     ramp = array("h", [0, 1000, 2000, 3000])
     assert list(resample(ramp, 2, 4, smooth=True))[:6] == [0, 500, 1000, 1500, 2000, 2500]
     assert list(resample(ramp, 2, 4))[:4] == [0, 0, 1000, 1000]  # (the effects keep their crunch)
+
+
+async def test_served_the_sound_plays_in_the_browser_not_on_the_server(monkeypatch, tmp_path):
+    """Under ptg serve (PTG_SOUND=web) the server's own speakers never open: each sound is a message for the page,
+    through the web driver (its write_meta), with how loud and, for music, its fades. Only the built-in sounds, which
+    the page can load; a player's own music stops whatever was playing rather than leave it on in its place."""
+    from ptg.sound import Browser, Clip
+
+    monkeypatch.setenv("PTG_SOUND", "web")
+    monkeypatch.setattr(sound, "_sound", Sound(False))
+    assert sound.in_browser() and sound.open_player() is None and Sound(True, 0.5).enabled
+    sent = []
+    sound.to_browser(sent.append)
+    engine = sound.configure(True, 0.5)
+    assert isinstance(engine.player, Browser) and isinstance(sound.configure(True, 0.5).player, Browser)
+    assert sound.play("coin", variant=1) and sound.music("title_music", fade_in=1.0)
+    sound.stop_music(0.3)
+    assert sent == [
+        {"type": "ptg_sound", "do": "play", "file": "coin_2.wav", "gain": 0.5},
+        {"type": "ptg_sound", "do": "loop", "file": "title_music.wav", "gain": 0.3, "fade_in": 1.0, "fade_out": 0.8},
+        {"type": "ptg_sound", "do": "stop", "fade": 0.3},
+    ]
+    sent.clear()
+    yours = Clip("explore_music", wav(tmp_path / "explore_music.wav"), builtin=False)
+    engine.player.play(Clip("coin", yours.source, builtin=False), 0.5)
+    engine.player.loop(yours, 0.3, fade_out=1.5)
+    assert sent == [{"type": "ptg_sound", "do": "stop", "fade": 1.5}]
+
+
+async def test_a_sound_from_another_thread_waits_for_the_games_own():
+    """The debug screen plays sounds from a thread of its own: its message is written on the game's thread, where
+    the driver writes the screen, or it could land in the middle of the screen's writing."""
+    from ptg.sound import Browser
+
+    sent = []
+    browser = Browser(lambda message: sent.append((message["file"], threading.get_ident())))
+    thread = threading.Thread(target=browser.play, args=(sound.engine().bank["coin"][0], 0.5))
+    thread.start()
+    thread.join()
+    assert sent == []
+    await asyncio.sleep(0)
+    assert sent == [("coin.wav", threading.get_ident())]

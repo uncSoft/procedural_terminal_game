@@ -3,7 +3,7 @@
 from textual.widgets import Footer
 
 from test_ui import into_a_run, settle, take_choice
-from ptg import interactions, npcs, testrooms
+from ptg import interactions, npcs, sound, testrooms
 from ptg.config import Config
 from ptg.ui.app import PTGApp
 from ptg.ui.game_screen import GameScreen
@@ -163,6 +163,22 @@ async def test_the_menu_on_a_short_screen_opens_the_panels():
         app.screen.action_choose("inventory")
         await pilot.pause(0.4)
         assert isinstance(app.screen, InventoryScreen)
+
+
+async def test_the_menu_turns_the_sound_off_and_on_without_an_f8(speakers):
+    """A phone has no F8: the ☰ menu has the sound's switch, and says it's there to turn it back on."""
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=3)
+    async with app.run_test(size=(60, 34), notifications=True) as pilot:
+        screen = await into_a_run(app, pilot)
+        for now, then in (("on", False), ("off", True)):
+            screen.action_menu()
+            await pilot.pause(0.3)
+            rows = [str(row.render()) for row in app.screen.query(".menu-row")]
+            assert rows[-1].strip() == f"Sound: {now}" and len(rows) == len(MenuScreen.PANELS) + 1
+            app.screen.action_choose("sound")
+            await pilot.pause(0.3)
+            assert app.screen is screen and app.config.sound is then and sound.engine().enabled is then
+        assert any(n.message == "The ☰ menu turns it back on." for n in app._notifications)
 
 
 async def test_the_stage_shows_the_room_and_a_click_on_it_looks_around():

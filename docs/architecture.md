@@ -170,7 +170,11 @@ rewind. Tests rely on this (`tests/bot.py` games are compared run to run).
   text measures and lays it out again every time, and the rain hiccupped. `tools/build_sprites.py` and
   `tools/build_sounds.py` generate the built-in art and 8-bit sounds (`sound.py` plays them without blocking, and loops a moment's sound as music, crossfading from one to the next: the title's, a floor's, a fight's).
 - **Browser**: `ptg serve` (`serve.py`, on textual-serve) runs one game per tab behind a page that asks who's
-  playing; `web/app_index.html` fits phones. Deployed with the `Dockerfile` (Render).
+  playing; `web/app_index.html` fits phones. Deployed with the `Dockerfile` (Render). Sound plays in the page, not
+  on the server. Each game runs with `PTG_SOUND=web`, so its sound engine sends each sound as a message through
+  Textual's web driver (`sound.Browser`). `serve.py` passes those messages on to the page (textual-serve would drop
+  them) and serves the WAVs at `/sounds/<stamp>/`, whose address changes when any sound does, so browsers keep
+  them. The page plays them with Web Audio, decoded as the mixer decodes them.
 - **Plain text mode**: `ptg --plain` drives the same `Game` from a prompt loop in `cli.py`.
 
 ## Drawing: text and pixel art in a terminal

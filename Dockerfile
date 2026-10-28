@@ -13,7 +13,8 @@ RUN uv sync --frozen --no-dev --no-install-project --extra web --extra claude
 COPY src ./src
 RUN uv sync --frozen --no-dev --extra web --extra claude
 
-# Players' saves go in /data (Render's disk); the server is quiet, since its sound would play on the server.
+# Players' saves go in /data (Render's disk). The server itself is quiet: each game's sound plays in its player's
+# browser (see ptg/serve.py).
 ENV PATH="/app/.venv/bin:$PATH" PTG_DATA=/data PTG_SOUND=0
 EXPOSE 10000
 CMD ["ptg", "serve", "--host", "0.0.0.0"]

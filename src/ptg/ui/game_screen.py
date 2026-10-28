@@ -552,12 +552,14 @@ class GameScreen(Screen):
         self.action_panel("look")
 
     def action_menu(self) -> None:
-        """A short screen's ☰: the panels the footer's F-keys open."""
+        """A short screen's ☰: the panels the footer's F-keys open, and sound on or off."""
         if self.busy:
             return
 
         def done(name: str | None) -> None:
-            if name:
+            if name == "sound":
+                self.app.action_toggle_sound(again="The ☰ menu")
+            elif name:
                 self.action_panel(name)
 
         self.app.push_screen(MenuScreen(), done)

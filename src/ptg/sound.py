@@ -27,10 +27,15 @@ files (8- or 16-bit PCM, any rate) in ~/.ptg/sounds:
     uv run python -m ptg.sound great coin   # play some
 
 The debug screen (F12) lists them too, with a play button for each.
+
+Served to a web browser (`ptg serve`, which sets PTG_SOUND=web), the sound plays in the player's browser instead of
+on the server: the game tells the page which file to play (Browser, below), and the page plays it with Web Audio
+(ptg/web/app_index.html). Only the built-in sounds play there; the page can't reach a player's own.
 """
 
 from __future__ import annotations
 
+import asyncio
 import os
 import random
 import re
@@ -96,6 +101,8 @@ MOMENTS = {
 }
 MUSIC_LEVEL = 0.6  # music sits under the sounds
 LEAD = 0.12  # how long a sound takes to reach the speakers (the mixer's queue): play it this early to land on time
+WEB = "web"  # PTG_SOUND=web: served (ptg serve), the sound plays in the player's browser (Browser)
+MESSAGE = "ptg_sound"  # a sound for the page to play: the game's message to ptg serve, passed on to the page
 
 BUILTIN_CREDIT = "made for ptg (tools/build_sounds.py)"
 VARIANT = re.compile(r"^(.+?)(?:_(\d+))?$")
@@ -471,8 +478,54 @@ class Winsound:
         pass
 
 
+class Browser:
+    """Plays sound in the web browser the game is served to (`ptg serve`). Each sound is a message to the page,
+    sent through Textual's web driver and passed on by ptg serve, and the page plays the file with Web Audio,
+    loading it from the server the first time (web/app_index.html). Only the built-in sounds: the page can't reach
+    a player's own."""
+
+    name = "browser"
+
+    def __init__(self, write) -> None:
+        self.write = write  # the web driver's write_meta
+        self.game_loop = asyncio.get_running_loop()  # (made on the game's own thread, where the driver writes)
+        self.game_thread = threading.get_ident()
+
+    def _send(self, **message) -> None:
+        message = {"type": MESSAGE, **message}
+        if threading.get_ident() == self.game_thread:
+            self.write(message)
+        else:  # (written from another thread, it could land in the middle of the screen's own writing)
+            self.game_loop.call_soon_threadsafe(self.write, message)
+
+    def play(self, clip: Clip, gain: float) -> None:
+        if clip.builtin:
+            self._send(do="play", file=clip_name(clip), gain=round(gain, 3))
+
+    def loop(self, clip: Clip, gain: float, fade_in: float = 0.0, fade_out: float = 0.8) -> None:
+        """Music: the page loops it, fading it in while the music before fades out (or just changes how loud it
+        is, if it's the same music)."""
+        if clip.builtin:
+            self._send(do="loop", file=clip_name(clip), gain=round(gain, 3), fade_in=fade_in, fade_out=fade_out)
+        else:  # (the music before mustn't carry on in its place)
+            self.stop_loop(fade_out)
+
+    def stop_loop(self, fade: float = 0.8) -> None:
+        self._send(do="stop", fade=fade)
+
+    def close(self) -> None:
+        pass
+
+
+def in_browser() -> bool:
+    """Served to a web browser (`ptg serve` sets PTG_SOUND=web): the sound's the page's to play, not this machine's."""
+    return os.environ.get("PTG_SOUND") == WEB
+
+
 def open_player():
     """The best way to play sound here, or None."""
+    if in_browser():
+        return None  # (the app hands the engine a Browser: the server's own speakers never play)
     try:
         import sounddevice
 
@@ -579,6 +632,12 @@ class Silent:
 
 
 _sound = Sound(enabled=False)
+
+
+def to_browser(write) -> None:
+    """Play the game's sound in the web browser it's served to (Browser), `write` being the web driver's write_meta.
+    Called on the game's own thread, before the first sound."""
+    _sound.player = Browser(write)
 
 
 def configure(enabled: bool, volume: float) -> Sound:

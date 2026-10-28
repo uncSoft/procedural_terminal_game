@@ -15,7 +15,10 @@ button is tapped. A browser whose pointer is a finger opens its game's websocket
 with PTG_TOUCH=1 (see config.touch): touch mode follows the input, not the screen's size.
 
 The narrator is Claude when ANTHROPIC_API_KEY is set (PTG_MODEL picks the model, Haiku by default) and offline
-otherwise. Every game runs hosted (PTG_HOSTED=1, see config.hosted) and quiet: its sound would play on the server.
+otherwise. Every game runs hosted (PTG_HOSTED=1, see config.hosted), and its sound plays in the player's browser, not
+on the server (PTG_SOUND=web): the game sends each sound to the page as a message (sound.Browser), passed on here, and
+the page loads the file from /sounds and plays it. A sound's address has a stamp of them all in it, so a browser
+keeps each one for good, and a sound changed is a new address.
 """
 
 from __future__ import annotations
@@ -25,15 +28,18 @@ import asyncio
 import hashlib
 import hmac
 import html
+import json
 import logging
 import os
 import re
 import shlex
 import sys
 import unicodedata
+from importlib import resources
 from pathlib import Path
 from urllib.parse import quote
 
+from . import sound
 from .config import Config
 
 DEFAULT_MODEL = "claude-haiku-5-5"  # a few cents a run (docs/plans/cross-platform-and-mobile.md)
@@ -74,6 +80,16 @@ def command(test: tuple[str, str, int] | None = None) -> str:
 def pass_token(password: str) -> str:
     """What the browser keeps once the password was right (the password itself never sits in a cookie)."""
     return hashlib.sha256(f"ptg:{password}".encode()).hexdigest()
+
+
+def sound_files() -> tuple[str, dict[str, Path]]:
+    """The built-in sounds, by file name, for the game's page to play, and a stamp of them all for their address."""
+    folder = resources.files("ptg").joinpath("data", "sounds")
+    files = {item.name: Path(str(item)) for item in folder.iterdir() if item.name.endswith(".wav")}
+    stamp = hashlib.sha256()
+    for name in sorted(files):
+        stamp.update(name.encode() + files[name].read_bytes())
+    return stamp.hexdigest()[:12], files
 
 
 HEAD = """<!doctype html>
@@ -205,6 +221,7 @@ def make_server(data: Path, host: str, port: int, public_url: str, password: str
     from textual_serve.server import Server, to_int
 
     token = pass_token(password) if password else ""
+    stamp, sounds = sound_files()
 
     class PlayerService(AppService):
         """One player's game, in their own folder."""
@@ -217,9 +234,18 @@ def make_server(data: Path, host: str, port: int, public_url: str, password: str
         def _build_environment(self, width: int = 80, height: int = 24) -> dict[str, str]:
             environment = super()._build_environment(width, height)
             # (textual-serve asks for 60 frames a second; the game's animations step every 70 ms or more)
-            environment.update(PTG_HOME=str(self.home), PTG_HOSTED="1", PTG_SOUND="0", TEXTUAL_FPS="30",
+            environment.update(PTG_HOME=str(self.home), PTG_HOSTED="1", PTG_SOUND=sound.WEB, TEXTUAL_FPS="30",
                                PTG_TOUCH="1" if self.touch else "0")
             return environment
+
+        async def on_meta(self, data: bytes) -> None:
+            """The game's messages to textual-serve, and its sounds, which textual-serve doesn't know (it would
+            drop them): those go on to the page, for it to play (sound.Browser)."""
+            meta = json.loads(data)
+            if meta.get("type") == sound.MESSAGE:
+                await self.remote_write_str(json.dumps([sound.MESSAGE, meta]))
+            else:
+                await super().on_meta(data)
 
         async def stop(self) -> None:
             await super().stop()
@@ -243,6 +269,7 @@ def make_server(data: Path, host: str, port: int, public_url: str, password: str
                 web.get("/play/{player}/ws", self.handle_websocket, name="websocket"),
                 web.get("/play/{player}/ws/touch", self.handle_websocket, name="websocket-touch"),
                 web.get("/download/{key}", self.handle_download, name="download"),
+                web.get("/sounds/{stamp}/{name}", self.handle_sound, name="sound"),
                 web.static("/static", self.statics_path, name="static"),
             ])
             if test_rooms:
@@ -349,9 +376,19 @@ def make_server(data: Path, host: str, port: int, public_url: str, password: str
                 "font_size": int(font_size) if font_size.isdigit() else "",  # (none: the page picks one)
                 "app_websocket_url": socket(name),
                 "touch_websocket_url": socket(f"{name}-touch"),
+                "sounds_url": f"/sounds/{stamp}/",
+                "sounds": " ".join(sorted(n for n in sounds if "_music" not in n)),  # (loaded ahead; music as asked)
                 "config": {"static": {"url": f"{self.public_url}/static/"}},
                 "application": {"name": self.title},
             })
+
+        async def handle_sound(self, request: web.Request) -> web.StreamResponse:
+            """A built-in sound, for the game's page to play (sound.Browser). Its address changes with any of them,
+            so the browser keeps it for good."""
+            path = sounds.get(request.match_info["name"])
+            if path is None or request.match_info["stamp"] != stamp:
+                raise web.HTTPNotFound()
+            return web.FileResponse(path, headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
         async def handle_websocket(self, request: web.Request) -> web.WebSocketResponse:
             """A player's game, for as long as their tab is open (textual-serve's, in their folder, and by touch at

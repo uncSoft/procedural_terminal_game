@@ -3,7 +3,8 @@
     as its templates): the same terminal and dialogs, made for phones too. On a phone it fits at least 40 columns,
     the terminal is only what's visible above the keyboard, a swipe scrolls, the keyboard stays down until the
     keyboard button asks for it (taps play the game), and the game is told it's played by touch (its websocket ends
-    in /touch, and serve.py gives it PTG_TOUCH=1). -#}
+    in /touch, and serve.py gives it PTG_TOUCH=1). It plays the game's sound, too, as the game asks (the last
+    script). -#}
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -207,6 +208,8 @@
       data-session-websocket-url="{{ app_websocket_url }}"
       data-touch-websocket-url="{{ touch_websocket_url }}"
       data-font-size="{{ font_size }}"
+      data-sounds-url="{{ sounds_url }}"
+      data-sounds="{{ sounds }}"
     >
       <button type="button" id="keyboard" tabindex="-1" aria-label="Keyboard" aria-pressed="false">
         <svg width="26" height="18" viewBox="0 0 26 18" fill="none" aria-hidden="true">
@@ -359,6 +362,258 @@
             if (touch) keyboardButton();
           });
         });
+      })();
+    </script>
+
+    <script>
+      // The game's sound. The game says which of its sounds to play, in a message on its websocket (ptg/sound.py's
+      // Browser, passed on by serve.py), and this plays it with Web Audio, loading each file from the server the first
+      // time: the short ones all in the background once the game first asks for a sound (none with sound off), the
+      // music as it's asked for. The files are decoded here as the terminal's mixer decodes them: an 8-bit sound is
+      // stretched to the speakers' rate by holding each sample, which keeps its crunch, a 16-bit one smoothly, and a
+      // loud mix is squeezed rather than clipped. A browser plays nothing until the page is first tapped, clicked or
+      // typed in: until then sounds are skipped, and the music waits. Out of sight, it all pauses.
+      (() => {
+        const terminal = document.getElementById("terminal");
+        const address = terminal.dataset.soundsUrl;
+        if (!address || !window.AudioContext) return;
+        const VOICES = 8; // sounds at once: a ninth stops the oldest
+        const LATE = 0.3; // seconds a sound may still start after it was asked for, if its file was still loading
+        const LIMIT = 24000 / 32768; // a mix louder than this is squeezed into what's left above it, not clipped
+
+        let context = null;
+        let mix = null; // where every sound goes: squeezed, then to the speakers
+        const files = new Map(); // each file asked for (a promise of its bytes)...
+        const buffers = new Map(); // ...and ready to play, at the speakers' rate
+        let voices = [];
+        let music = null; // the music playing: { file, source, level }
+        let wanted = null; // the music asked for: { file, gain, fadeIn, fadeOut }
+        let preloading = false;
+        let played = 0;
+        const heard = []; // the last few messages (window.ptgSound, for a look from the browser's console)
+        const running = () => context !== null && context.state === "running";
+
+        // A WAV file (8- or 16-bit PCM, as the game's are) as samples from -1 to 1, its rate, and how to stretch it.
+        function decode(data) {
+          const view = new DataView(data);
+          let channels = 1;
+          let rate = 22050;
+          let width = 1;
+          for (let at = 12; at + 8 <= view.byteLength; ) {
+            const id = String.fromCharCode(...new Uint8Array(data, at, 4));
+            const size = view.getUint32(at + 4, true);
+            if (id === "fmt ") {
+              channels = view.getUint16(at + 10, true);
+              rate = view.getUint32(at + 12, true);
+              width = view.getUint16(at + 22, true) / 8;
+            } else if (id === "data" && (width === 1 || width === 2)) {
+              const count = Math.floor(Math.min(size, view.byteLength - at - 8) / width / channels);
+              const samples = new Float32Array(count);
+              for (let i = 0, from = at + 8; i < count; i++) {
+                let sum = 0;
+                for (let c = 0; c < channels; c++, from += width) {
+                  sum += width === 1 ? (view.getUint8(from) - 128) / 128 : view.getInt16(from, true) / 32768;
+                }
+                samples[i] = sum / channels;
+              }
+              return { samples, rate, smooth: width === 2 };
+            }
+            at += 8 + size + (size % 2);
+          }
+          throw new Error("not an 8- or 16-bit WAV file");
+        }
+
+        // Samples at another rate, as sound.py's resample: each one held, or, `smooth`, between neighbours.
+        function stretch({ samples, rate, smooth }, target) {
+          if (rate === target) return samples;
+          const step = rate / target;
+          const out = new Float32Array(Math.floor(samples.length / step));
+          const last = samples.length - 1;
+          for (let i = 0; i < out.length; i++) {
+            const at = i * step;
+            const j = Math.floor(at);
+            const k = smooth && j < last ? j + 1 : j;
+            out[i] = samples[j] + (samples[k] - samples[j]) * (at - j);
+          }
+          return out;
+        }
+
+        function load(file) {
+          if (!files.has(file)) {
+            files.set(file, fetch(address + file).then((response) => {
+              if (!response.ok) throw new Error(`${file}: ${response.status}`);
+              return response.arrayBuffer();
+            }).catch((error) => {
+              files.delete(file); // (tried again the next time it's wanted)
+              throw error;
+            }));
+          }
+          return files.get(file);
+        }
+
+        function buffer(file) {
+          if (!buffers.has(file)) {
+            buffers.set(file, load(file).then((data) => {
+              const samples = stretch(decode(data), context.sampleRate);
+              const made = context.createBuffer(1, Math.max(1, samples.length), context.sampleRate);
+              made.getChannelData(0).set(samples);
+              return made;
+            }).catch((error) => {
+              buffers.delete(file);
+              throw error;
+            }));
+          }
+          return buffers.get(file);
+        }
+
+        // The short sounds, two at a time in the background, so each is ready the first time it's wanted.
+        function preload() {
+          if (preloading) return;
+          preloading = true;
+          const waiting = (terminal.dataset.sounds || "").split(" ").filter(Boolean);
+          const next = () => {
+            const file = waiting.shift();
+            if (file) load(file).catch(() => {}).then(next);
+          };
+          next();
+          next();
+        }
+
+        function play(file, gain) {
+          if (!running()) return; // (not allowed to yet, or out of sight)
+          const asked = context.currentTime;
+          buffer(file).then((made) => {
+            if (!running() || context.currentTime - asked > LATE) return;
+            const source = context.createBufferSource();
+            const level = context.createGain();
+            source.buffer = made;
+            level.gain.value = gain;
+            source.connect(level).connect(mix);
+            source.onended = () => {
+              voices = voices.filter((voice) => voice !== source);
+            };
+            if (voices.length >= VOICES) voices.shift().stop();
+            voices.push(source);
+            source.start();
+            played += 1;
+          }, () => {});
+        }
+
+        // Music: looped until other music or a stop. It comes in over its fade while the music before goes out over
+        // its own; the same music asked for again just changes how loud it is.
+        function loop(file, gain, fadeIn, fadeOut) {
+          wanted = { file, gain, fadeIn, fadeOut };
+          if (running()) start(wanted);
+          else load(file).catch(() => {}); // (ready for when it can start)
+        }
+
+        function start(want) {
+          buffer(want.file).then((made) => {
+            if (wanted !== want || !running()) return; // (other music, or none, asked for since)
+            const now = context.currentTime;
+            if (music && music.file === want.file) {
+              music.level.gain.cancelScheduledValues(now);
+              music.level.gain.setValueAtTime(want.gain, now);
+              return;
+            }
+            if (music) fade(music, want.fadeOut);
+            const source = context.createBufferSource();
+            const level = context.createGain();
+            source.buffer = made;
+            source.loop = true;
+            level.gain.setValueAtTime(want.fadeIn ? 0 : want.gain, now);
+            if (want.fadeIn) level.gain.linearRampToValueAtTime(want.gain, now + want.fadeIn);
+            source.connect(level).connect(mix);
+            source.start(now);
+            music = { file: want.file, source, level };
+          }, () => {});
+        }
+
+        function fade(track, seconds) {
+          const now = context.currentTime;
+          track.level.gain.cancelScheduledValues(now);
+          track.level.gain.setValueAtTime(track.level.gain.value, now);
+          track.level.gain.linearRampToValueAtTime(0, now + seconds);
+          track.source.stop(now + seconds + 0.05);
+        }
+
+        function stop(seconds) {
+          wanted = null;
+          if (music) fade(music, seconds);
+          music = null;
+        }
+
+        function hear(message) {
+          heard.push(message);
+          if (heard.length > 20) heard.shift();
+          const gain = Number(message.gain) || 0;
+          if (message.do === "play") play(message.file, gain);
+          else if (message.do === "loop") loop(message.file, gain, Number(message.fade_in) || 0,
+                                               Number(message.fade_out) || 0);
+          else if (message.do === "stop") stop(Number(message.fade) || 0);
+          if (message.do !== "stop") preload();
+        }
+
+        // The first tap, click or key opens the speakers. Everything goes through a squeeze on the way: a mix can go
+        // past 1, so it's halved first, and the curve, which covers a mix from -2 to 2, doubles it back.
+        function wake() {
+          if (!context) {
+            context = new AudioContext({ latencyHint: "interactive" });
+            const half = context.createGain();
+            half.gain.value = 0.5;
+            const squeeze = context.createWaveShaper();
+            const curve = new Float32Array(4097);
+            const room = 1 - LIMIT;
+            for (let i = 0; i < curve.length; i++) {
+              const x = (4 * i) / (curve.length - 1) - 2;
+              const over = Math.abs(x) - LIMIT;
+              curve[i] = over <= 0 ? x : Math.sign(x) * (LIMIT + (room * over) / (over + room));
+            }
+            squeeze.curve = curve;
+            half.connect(squeeze).connect(context.destination);
+            mix = half;
+            context.onstatechange = () => {
+              if (running() && wanted) start(wanted); // (the music waiting, or the same, back from out of sight)
+            };
+          }
+          if (context.state !== "running" && !document.hidden) context.resume().catch(() => {});
+        }
+        for (const kind of ["pointerdown", "touchend", "keydown", "click"]) {
+          addEventListener(kind, wake, { capture: true, passive: true });
+        }
+        document.addEventListener("visibilitychange", () => {
+          if (!context) return;
+          if (document.hidden) context.suspend().catch(() => {});
+          else context.resume().catch(() => {});
+        });
+
+        // textual.js opens the game's websocket: this hears the game's sounds on it too (textual.js passes over them),
+        // and the music fades when the game's gone.
+        const Socket = window.WebSocket;
+        window.WebSocket = class extends Socket {
+          constructor(...args) {
+            super(...args);
+            this.addEventListener("message", (event) => {
+              if (typeof event.data === "string" && event.data.startsWith('["ptg_sound"')) {
+                hear(JSON.parse(event.data)[1]);
+              }
+            });
+            this.addEventListener("close", () => stop(0.5));
+          }
+        };
+
+        window.ptgSound = {
+          heard,
+          get state() {
+            return context ? context.state : "waiting for a first tap, click or key";
+          },
+          get music() {
+            return music && music.file;
+          },
+          get played() {
+            return played;
+          },
+        };
       })();
     </script>
   </body>

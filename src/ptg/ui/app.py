@@ -66,6 +66,8 @@ class PTGApp(App):
     def on_mount(self) -> None:
         self.register_theme(CRT)
         self.theme = "crt"
+        if sound.in_browser() and self.is_web:  # (ptg serve: the player's browser plays it)
+            sound.to_browser(self._driver.write_meta)
         sound.configure(self.config.sound, self.config.volume / 100)
         self.push_screen(TitleScreen())
         if self.needs_setup:
@@ -79,11 +81,6 @@ class PTGApp(App):
         if self.open_debug:
             self.push_screen(DebugScreen())
 
-    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        if action == "toggle_sound" and hosted():  # (it would play on the server)
-            return False
-        return True
-
     def save_settings(self, config: Config) -> None:
         self.config = config
         save_config(config)
@@ -91,14 +88,15 @@ class PTGApp(App):
         self.pop_screen()
         self.notify(f"Narrator: {describe_backend(config)}", title="Settings saved")
 
-    def action_toggle_sound(self) -> None:
+    def action_toggle_sound(self, again: str = "F8") -> None:
+        """Sound on or off (F8, or the ☰ menu on a short screen: `again` is the one to say turns it back on)."""
         self.config = self.config.model_copy(update={"sound": not self.config.sound})
         save_config(self.config)
         engine = sound.configure(self.config.sound, self.config.volume / 100)
         if self.config.sound and not engine.enabled:
             self.notify("PTG_SOUND=0 is keeping it off.", title="Sound on")
         else:
-            self.notify("" if self.config.sound else "F8 to turn it back on.",
+            self.notify("" if self.config.sound else f"{again} turns it back on.",
                         title="Sound on" if self.config.sound else "Sound off", timeout=3)
 
     def action_redraw(self) -> None:

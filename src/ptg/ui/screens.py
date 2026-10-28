@@ -310,8 +310,8 @@ class SetupScreen(Screen):
                 yield Select([("Press Space to roll (dramatic)", "manual"), ("Roll automatically", "auto")],
                              value="auto" if config.auto_roll else "manual", allow_blank=False, id="dice",
                              compact=True)
-                yield Label("Sound (F8 turns it on and off)", classes="local")
-                with Horizontal(id="setup-sound", classes="local"):
+                yield Label("Sound (F8 turns it on and off)")
+                with Horizontal(id="setup-sound"):
                     yield Select([("On", "on"), ("Off", "off")], value="on" if config.sound else "off",
                                  allow_blank=False, id="sound", compact=True)
                     yield Select([(f"{v}%", v) for v in (25, 50, 70, 100)],
@@ -325,7 +325,7 @@ class SetupScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
-        if hosted():  # the narrator is the server's (not a player's to point elsewhere), and sound would play there
+        if hosted():  # the narrator is the server's (not a player's to point elsewhere)
             for widget in self.query(".local"):
                 widget.display = False
             return

@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 
 from aiohttp import WSMsgType
 from aiohttp.test_utils import TestClient, TestServer
@@ -161,3 +162,45 @@ def test_touch_mode_follows_the_page(monkeypatch):
     assert not config.touch()
     monkeypatch.setenv("PTG_TOUCH", "1")
     assert config.touch()
+
+
+async def test_a_served_games_sound_plays_in_its_players_browser(tmp_path, monkeypatch):
+    """The game's sound goes to the page (PTG_SOUND=web), not the server's speakers: its title music, as a message on
+    the game's websocket for the page to play. The game's other messages still go to textual-serve as before."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)  # (the game is narrated offline)
+    server = serve.make_server(tmp_path, "localhost", 8000, "http://localhost:8000")
+    async with TestClient(TestServer(await server._make_app())) as client:
+        await client.get("/play?name=Ava", allow_redirects=False)
+        socket = await client.ws_connect("/play/ava/ws?width=120&height=40")
+        message = await socket.receive(timeout=30)
+        while message.type == WSMsgType.BINARY:  # (the game, drawing its title screen)
+            message = await socket.receive(timeout=30)
+        assert json.loads(message.data) == ["ptg_sound", {"type": "ptg_sound", "do": "loop", "file": "title_music.wav",
+                                                          "gain": 0.42, "fade_in": 0.0, "fade_out": 0.8}]
+        game = server.playing["ava"]
+        assert game._build_environment()["PTG_SOUND"] == "web"
+        await game.on_meta(json.dumps({"type": "open_url", "url": "https://example.com", "new_tab": True}).encode())
+        message = await socket.receive(timeout=30)
+        while message.type == WSMsgType.BINARY or "ptg_sound" in message.data:
+            message = await socket.receive(timeout=30)
+        assert json.loads(message.data) == ["open_url", {"url": "https://example.com", "new_tab": True}]
+        await socket.close()
+
+
+async def test_the_page_loads_the_sounds_once_and_keeps_them(tmp_path):
+    """The game's page knows where the sounds are, and which to load ahead (all but the music, loaded when it's
+    asked for). A sound's address has a stamp of them all in it, so the browser keeps it for good."""
+    server = serve.make_server(tmp_path, "localhost", 8000, "http://localhost:8000")
+    stamp, files = serve.sound_files()
+    async with TestClient(TestServer(await server._make_app())) as client:
+        await client.get("/play?name=Ava", allow_redirects=False)
+        game = await (await client.get("/play/ava")).text()
+        assert f'data-sounds-url="/sounds/{stamp}/"' in game and "new AudioContext" in game
+        ahead = re.search(r'data-sounds="([^"]*)"', game).group(1).split()
+        assert "coin.wav" in ahead and "thunder_3.wav" in ahead and not any("_music" in name for name in ahead)
+        assert len(ahead) + 5 == len(files)  # (the five music tracks)
+        reply = await client.get(f"/sounds/{stamp}/coin.wav")
+        assert reply.status == 200 and await reply.read() == files["coin.wav"].read_bytes()
+        assert reply.headers["Cache-Control"] == "public, max-age=31536000, immutable"
+        for wrong in (f"/sounds/{stamp}/nothing.wav", "/sounds/0123456789ab/coin.wav", f"/sounds/{stamp}/..%2Fserve.py"):
+            assert (await client.get(wrong)).status == 404, wrong

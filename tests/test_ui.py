@@ -245,7 +245,8 @@ async def test_a_room_is_the_stage_and_what_lies_in_it_is_heres(monkeypatch):
 
 async def test_a_hosted_game_keeps_its_narrator_and_debug_screen_to_itself(monkeypatch):
     """Served to several players (ptg serve), Settings can't point the server's narrator elsewhere, and the debug
-    screen, which shows the model log, stays shut."""
+    screen, which shows the model log, stays shut. Sound plays in the player's browser, so F8 and Settings' sound
+    row are there as ever."""
     from textual.widgets import Input
 
     from ptg.ui.debug import DebugScreen
@@ -256,10 +257,11 @@ async def test_a_hosted_game_keeps_its_narrator_and_debug_screen_to_itself(monke
         await pilot.pause(0.3)
         await pilot.press("f12")
         await pilot.pause(0.2)
-        assert not isinstance(app.screen, DebugScreen) and app.check_action("toggle_sound", ()) is False
+        assert not isinstance(app.screen, DebugScreen) and app.check_action("toggle_sound", ())
         await pilot.press("s")
         await pilot.pause(0.3)
         assert isinstance(app.screen, SetupScreen) and not any(w.display for w in app.screen.query(".local"))
+        assert app.screen.query_one("#setup-sound").display
         app.screen.query_one("#name", Input).value = "Ava Rose"
         app.screen.action_save()
         await pilot.pause(0.2)

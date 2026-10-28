@@ -1419,7 +1419,8 @@ class PickScreen(Panel):
 
 
 class MenuScreen(Panel):
-    """A short screen's ☰: the panels the footer's F-keys open, as buttons (three rows tall for a finger)."""
+    """A short screen's ☰: the panels the footer's F-keys open, as buttons (three rows tall for a finger), and
+    sound on or off, as F8 has it."""
 
     size_class = "small"
     opening_sound = None
@@ -1429,7 +1430,7 @@ class MenuScreen(Panel):
     def compose(self) -> ComposeResult:
         with Vertical(classes="panel-box menu-box") as box:
             box.border_title = "Menu"
-            for label, name in self.PANELS:
+            for label, name in (*self.PANELS, (f"Sound: {'on' if self.app.config.sound else 'off'}", "sound")):
                 yield Clickable(Text(f" {label} ", style="bold #0b0b14 on #6c8cff" if config.touch() else "#c8c8e0"),
                                 f"screen.choose('{name}')", classes="menu-row")
 

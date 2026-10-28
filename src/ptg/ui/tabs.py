@@ -189,7 +189,7 @@ def big_map(state, width: int, height: int) -> Text | None:
         name = room.name if room.visited else "unexplored" + (f": a {room.fixture}" if room.fixture else "")
         reachable = not here and journey(state, room.id) is not None
         tip = Style(meta={"tip": name + (" (you're here)" if here else " (click to travel there)" if reachable else ""),
-                          **({"@click": f"screen.travel({room.id})"} if reachable else {})})
+                          **({"travel": room.id} if reachable else {})})
         left, right = "{}" if room.secret else "[]"
         for dx, ch in ((-1, left), (0, glyph), (1, right)):
             grid[cy][cx + dx] = (ch, Style.parse(f"bold {ACCENT}" if here else MAP_STYLES.get(ch, DIM)) + tip)
@@ -243,7 +243,7 @@ def small_map(state) -> Text:
         reachable = not here and journey(state, room.id) is not None
         text.stylize(Style(meta={"tip": name + (" (you're here)" if here else " (click to travel there)" if reachable
                                                  else ""),
-                                 **({"@click": f"screen.travel({room.id})"} if reachable else {})}), at, at + 3)
+                                 **({"travel": room.id} if reachable else {})}), at, at + 3)
     return text
 
 

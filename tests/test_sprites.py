@@ -3,7 +3,8 @@ import warnings
 import pytest
 from PIL import Image
 
-from ptg.dice_art import CRIMSON, DIGITS, EDGE, FACE, GOLD, INK, LIT, OUTLINE, SHADED, SIZE, d20, die_image
+from ptg.dice_art import (CRIMSON, DIGITS, EDGE, FACE, GOLD, INK, LETTERS, LIT, OUTLINE, SHADED, SIZE, SPARK, d20,
+                          die_image, lettering, lettering_width)
 from ptg.library import data_folder, read_frames
 from ptg.sprites import (DEATH_FRAMES, DEFAULT_WIDTH, SMALL, SPENT, count_frames, engrave, frame_count, frames,
                          idle_frames, palette, posed, splash, splash_sizes, splash_text, sprite_text)
@@ -239,6 +240,38 @@ def test_the_d20_keeps_to_a_few_fixed_colours():
                         seen |= drawn
     assert {FACE, LIT, SHADED, EDGE, OUTLINE, INK, GOLD, CRIMSON} <= seen
     assert len(seen) <= 26
+
+
+def test_a_critical_bursts_with_light_round_the_die():
+    """The room round the die (pad) is clear till a critical's burst: gold rays and sparkles that spread frame by
+    frame, outside the die, in two fixed colours."""
+    plain = die_image(20, glow=GOLD, pad=4)
+    assert plain.size == (SIZE + 2 + 8, SIZE + 3 + 8)
+    assert {len(line) for line in d20(20, glow=GOLD, pad=4).plain.split("\n")} == {SIZE + 2 + 8}
+    spread = []
+    for frame in (1, 2, 3):
+        lit = die_image(20, glow=GOLD, pad=4, burst=frame)
+        changed = [(x, y) for y in range(lit.height) for x in range(lit.width)
+                   if lit.getpixel((x, y)) != plain.getpixel((x, y))]
+        assert changed and {lit.getpixel(p)[:3] for p in changed} <= {GOLD, SPARK}, frame
+        assert all(plain.getpixel(p)[3] == 0 or plain.getpixel(p)[:3] == GOLD for p in changed)  # (round the die
+        # and from its glow, never over it)
+        spread.append(len(changed))
+    assert spread == sorted(spread) and spread[0] < spread[-1]
+
+
+@pytest.mark.parametrize("scale", [1, 2])
+def test_lettering_is_as_big_as_it_says(scale):
+    """The verdict's pixel letters: as wide as lettering_width says (it decides whether they fit big), five pixels
+    tall and one for the shadow; M, N and W wider than the rest, so they read as themselves."""
+    for words in ("HIT", "FOUND IT", "CRITICAL!", "NOTHING SPECIAL", "11", "it's 2-1."):
+        for shadow in (None, (16, 18, 42)):
+            lines = lettering(words, (76, 255, 138), scale, shadow).plain.split("\n")
+            assert {len(line) for line in lines} == {lettering_width(words, scale)}, (words, scale)
+            assert len(lines) == (5 * scale + 2) // 2
+    assert lettering_width("M") == lettering_width("W") > lettering_width("N") > lettering_width("H")
+    for ch, rows in LETTERS.items():
+        assert len(rows) == 5 and len({len(row) for row in rows}) == 1, ch
 
 
 def test_dice_row_puts_dice_side_by_side():

@@ -21,6 +21,7 @@ from textual.message import Message
 from textual.screen import Screen
 from textual.timer import Timer
 from textual.types import NoActiveAppError
+from textual.visual import VisualType
 from textual.widgets import Static
 
 from .. import layout, loot, powers, sound, statuses
@@ -39,6 +40,10 @@ TERM_STYLES = {
     "monster": "bold #ff4b4b", "character": "bold #ffd166", "item": "bold #4cff8a", "feature": "bold #ffb000",
     "fixture": "bold #ff4f9a", "room": "#8fa8ff", "rule": "bold #5fe3ff",
 }
+INK_STYLES = {  # the same, as inks that read on parchment (the journal: see panels.JournalScreen)
+    "monster": "bold #a22633", "character": "bold #be4a2f", "item": "bold #265c42", "feature": "bold #733e39",
+    "fixture": "bold #68386c", "room": "bold #124e89", "rule": "bold #124e89",
+}
 
 # How big the screen is. Every screen, a pop-up's too, gets a class for its width and one for its height (PTGApp's
 # breakpoints) to style itself by in app.tcss: -narrow or -wide, and -tiny, -short or -tall. Code that sizes things
@@ -48,36 +53,69 @@ TALL = 34  # rows from which a screen is -tall: room for a blank line between th
 TINY = 28  # rows below which a screen is -tiny (from there to TALL, -short): the smaller pictures, nothing to spare
 
 
-def highlight(text: str, lexicon: Lexicon | None, style: str = "") -> Text:
-    """Colour the monsters, items, features and rooms in a piece of narration, and make them clickable."""
+def highlight(text: str, lexicon: Lexicon | None, style: str = "", styles: dict[str, str] = TERM_STYLES) -> Text:
+    """Colour the monsters, items, features and rooms in a piece of narration (in `styles`' colours), and make them
+    clickable."""
     out = Text(text, style=style)
     if lexicon is None:
         return out
     for start, end, term in lexicon.find(text):
         # Not a Textual "@click" link: those get repainted in the theme's link colour.
         meta = {"term": term.id, "tip": term.summary}
-        out.stylize(Style.parse(TERM_STYLES.get(term.kind, "bold")) + Style(meta=meta), start, end)
+        out.stylize(Style.parse(styles.get(term.kind, "bold")) + Style(meta=meta), start, end)
     return out
 
 
 class StoryLine(Static):
-    """A line of the story whose highlighted terms explain themselves on hover and open a card on click."""
+    """A line of the story whose highlighted terms explain themselves on hover and open a card on click; or a map,
+    whose rooms you can get back to take you there on click ("travel": its id), and tell its screen as the mouse
+    comes to one and leaves it (the screen's hover_room, if it has one: the map lights the room up). Neither is a
+    Textual "@click" link: those get repainted in the theme's link colour, underlined, a room's frame and all."""
+
+    hovered: int | None = None  # the room the mouse is on, if it's one you can get back to
 
     def _meta_at(self, x: int, y: int) -> dict:
         return getattr(self.get_style_at(x, y), "meta", None) or {}
 
     def on_mouse_move(self, event: MouseMove) -> None:
-        tip = self._meta_at(event.x, event.y).get("tip")
+        meta = self._meta_at(event.x, event.y)
+        tip = meta.get("tip")
         if tip != self.tooltip:
             self.tooltip = tip
+        self._hover(meta.get("travel"))
+
+    def _hover(self, room: int | None) -> None:
+        if room != self.hovered:
+            self.hovered = room
+            if hasattr(self.screen, "hover_room"):
+                self.screen.hover_room(self, room)
 
     def on_click(self, event: Click) -> None:
-        term = self._meta_at(event.x, event.y).get("term")
-        if term and hasattr(self.screen, "action_lookup"):
-            self.screen.action_lookup(term)
+        meta = self._meta_at(event.x, event.y)
+        if meta.get("term") and hasattr(self.screen, "action_lookup"):
+            self.screen.action_lookup(meta["term"])
+        elif "travel" in meta and hasattr(self.screen, "action_travel"):
+            self.screen.action_travel(meta["travel"])
+
+    def update(self, content: VisualType = "", *, layout: bool = True) -> None:
+        super().update(content, layout=layout)
+        self.call_after_refresh(self.fit)
+
+    def on_resize(self) -> None:
+        self.fit()
+
+    def fit(self) -> None:
+        """As tall as its words. Now and then a line keeps a height it was laid out at before all its words came, and
+        the rest of them are lost under the next line (the narrator's "Lucky Lenny is here, not hostile", once in a
+        playthrough, its words in before the line had finished mounting): measured afresh, it's laid out again."""
+        width = self.content_region.width
+        if width and self.styles.height is not None and self.styles.height.is_auto and \
+                self.visual.get_height(self.styles, width) > self.content_region.height:
+            self.refresh(layout=True)
 
     def on_leave(self, event: Leave) -> None:
         self.tooltip = None
+        self._hover(None)
 
 
 def bar(value: int, maximum: int, width: int = 14) -> str:
@@ -100,15 +138,29 @@ def hearts(hp: int, max_hp: int, tint: str = "") -> Text:
 
 
 def roll_text(event: Event) -> Text:
-    """A finished roll for the story log: the sum, then a coloured badge saying how it went for you, then what a hit
-    did ("→ 18 damage (4d6 14 + crit 4d6 4)"): the narration tells the blow, this line the numbers."""
-    roll, how = event.dice, tone(event)
-    text = Text("  ⚄ ", style=effects.COLORS[how])
-    text.append(roll.describe(verdict=False), style="#c8c8e0" if roll.actor == "player" else "#9a9cc0")
-    text.append("  ")
-    text.append_text(effects.badge(how, verdict(event)))
-    if roll.told():
-        text.append(f"  → {roll.told()}", style="bold #ffb000" if roll.actor == "player" else "bold #ff7b7b")
+    """A finished roll for the story log, how it went first, where the eye starts: a coloured badge ("✔ HIT", "✘ HIT
+    YOU"), what came of it in bold beside it ("→ 18 damage", "+1 Fate"), then, dim, the sum and where the damage came
+    from ("⚄ attack: d20 17 + 2 might = 19 vs 11 · 4d6 14 + crit 4d6 4"): the narration tells the blow, this line the
+    numbers, the ones that matter before the ones that add up to them."""
+    roll = event.dice
+    text = Text("  ")
+    text.append_text(roll_headline(event))
+    text.append(f"   ⚄ {roll.describe(verdict=False)}", style="#7a7da8" if roll.actor == "player" else "#6c6f99")
+    if roll.damage:
+        text.append(" · " + roll.hurt().partition("(")[2].rstrip(")"), style="#6c6f99")
+    return text
+
+
+def roll_headline(event: Event) -> Text:
+    """How a roll went, and what came of it, without the sum: "✔ HIT  → 8 damage  +1 Fate"."""
+    roll = event.dice
+    text = Text()
+    text.append_text(effects.badge(tone(event), verdict(event)))  # (its colour, its own: not under what follows)
+    total = sum(v for _, v in roll.damage)
+    if total:
+        text.append(f"  → {total} damage", style="bold #ffb000" if roll.actor == "player" else "bold #ff7b7b")
+    for effect in roll.effects:
+        text.append(f"  {effect}", style="bold #ffd166")
     return text
 
 

@@ -60,6 +60,20 @@ class Roll:
         return self.kept + sum(v for _, v in self.bonuses)
 
     @property
+    def needed(self) -> int:
+        """The least the die has to show to succeed, from 2 (a 1 always fails) to 20 (a 20 always succeeds); 21 if
+        nothing will do (an impossible check)."""
+        if self.impossible:
+            return 21
+        return max(2, min(20, self.dc - sum(v for _, v in self.bonuses)))
+
+    @property
+    def chance(self) -> float:
+        """How likely it was to succeed, before it was rolled: on one die, or the better (or worse) of two."""
+        one = max(0, 21 - self.needed) / 20
+        return 1 - (1 - one) ** 2 if self.advantage > 0 else one * one if self.advantage < 0 else one
+
+    @property
     def crit(self) -> bool:
         return self.kept == 20 and not self.impossible
 

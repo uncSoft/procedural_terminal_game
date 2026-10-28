@@ -1,10 +1,14 @@
 """The game screen as a fixed grid, like an old CRPG's: every box sized from the screen alone, never from what's in
 it, and lined up with the box beside it, so nothing moves as choices come and go. Only what's inside a box changes.
 
-    the left    the room's picture (the column's whole width), the story (newest last), and the decision: six big
-                buttons, the compass beside them, the row one of them opens and the choices left, the command line
-    the right   the map, as tall as the picture (one band across the top); Here, the rest, beside the story and the
-                decision; at its foot, a button for each panel (Pack, Sheet, Map, Journal, Bestiary, Help)
+On a wide screen (BESIDE columns left of the right column):
+
+    across the top    the room's picture, and the map beside it, as tall
+    under them        the story (a column easy to read, newest last, the command line at its foot); beside it, at eye
+                      height, the decision; and Here, under the map
+    at the foot       of the right column, a button for each panel (Pack, Sheet, Map, Journal, Bestiary, Help)
+
+On a narrower one the decision is under the story, its buttons in a row and the compass beside them.
 
 The decision's six big buttons stay in their places, a fight's or the room's, in the same colours where they can:
 
@@ -12,16 +16,22 @@ The decision's six big buttons stay in their places, a fight's or the room's, in
     out of one    1 Search · 2 Rest · 3 Heal · 4 Bomb · 5 Use · 6 Gear
 
 Each in one look at a time, the whole button: as it is, hovered (a tint of its own colour), urgent (Dodge as a heavy
-blow comes), open (its row showing under the buttons), or unavailable (faded, its reason under it). One with a single
-thing to do it with does it; one with several opens their row (a, b, c...: a click or a letter), never a window over
-the picture; Bomb always opens its row, even for one wall, as a bomb's too dear to spend unseen. Here's things wear
-their own verbs (Take is one click, where you're looking), numbered on after the buttons; a thing's picker (Give…)
-opens its row in Here. In a fight Here is the foe's card, big, with all you know of it, where its hits and lunges
-play. The compass is the ways out (where each goes, on a wide screen), beside the buttons: moving is what you do most
-out of a fight. The arrow keys move too, unless you're typing.
+blow comes), open (its options showing), or unavailable (faded, its reason under it). One with a single thing to do
+it with does it; one with several shows them under the buttons (a, b, c...: a click or a letter), never a window over
+the picture; Bomb always shows its walls, even one, as a bomb's too dear to spend unseen.
 
-The Map panel (F5, or its button) is the floor as a chart (see chart): each room a box with its whole name and what's
-in it, the passages between, the goal, the quests, the tips and the key under it.
+Under the buttons, out of a fight, the compass: five cells that never move or change size, a way out lit with where it
+goes and what's there, a wall faint; the arrow keys move too, unless you're typing. Under that (in a fight, in its
+place) your things as cards, a picture each, what it would do and how it would go ("weak!", "won't work"): all that
+Heal, Throw, Use and Gear would use, or only the one button's whose options are showing.
+
+Here is in sections, a heading each: who's here, the things (a picture each), what there is to search, and the
+journal's last lines (Lately) in the rows left. Their verbs are on them (Take is one click), numbered on after the
+buttons. In a fight Here is the foe's card, big, with all you know of it, where its hits and lunges play.
+
+The Map panel (F5, or its button) is the floor on parchment (see parchment.draw): each room you know drawn in ink, or
+in pencil if you've only seen it, its name and what's in it written over it, the passages between; the goal, the
+quests, the tips and the key under it. With ASCII art chosen, or no room for the parchment, the chart (see chart).
 
 Chosen by Config.layout "grid" (see tabs.game_screen). It's GameScreen underneath, as the tabs are: the turns, the
 dice, the animations, the story and the panels are GameScreen's; this lays the screen out and fills its boxes.
@@ -29,6 +39,8 @@ dice, the animations, the story and the panels are GameScreen's; this lays the s
 
 from __future__ import annotations
 
+import textwrap
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from rich.style import Style
@@ -36,31 +48,43 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.events import Click, Enter, Leave
 from textual.widget import Widget
 from textual.widgets import Footer, Input, Static
 
 from .. import interactions, npcs, sprites
+from . import parchment
 from ..events import Action
 from ..room_picture import look_of
 from ..rules import journey, why_not
 from ..sprites import DEFAULT_WIDTH, SMALL, Image
 from ..world import map_glyph
 from .game_screen import GameScreen
-from .here import CARD, MINI, ROW, Tile, arrange, things_here
+from .here import CHIP, ROW, Tile, measure, things_here
 from .panels import Panel, floor_name
 from .plan import Plan
 from .tabs import TabsScreen, big_map, facts, known_rooms, map_notes, small_map, steps_to
 from .theme import MAP_STYLES
-from .widgets import ARROWS, Clickable, ClickableBox, DPad, Hud, Picture, StoryLine, hearts
+from .widgets import (ARROWS, Clickable, ClickableBox, DPad, Hud, Picture, StoryLine, hearts, highlight, item_note,
+                      roll_headline)
 
 MIN_COLUMNS, MIN_ROWS = 110, 32  # smaller than this when a run begins, and it's the classic screen
-SIDE_SHARE, SIDE_MIN, SIDE_MAX = 0.31, 40, 64  # the right column's width: a share of the screen, within bounds
+SIDE_SHARE, SIDE_MIN, SIDE_MAX = 0.31, 40, 100  # the right column's width: a share of the screen, within bounds
+BESIDE = 110  # columns left of the right column from which the decision sits beside the story (else under it)
+ACT_SHARE, ACT_MIN, ACT_MAX = 0.38, 48, 72  # the decision's width beside the story: a share of them, within bounds
 STAGE_SHARE = 0.36  # of the rows: the most the room's picture takes
 STAGE_SHAPE = 4.8  # columns per row the picture would like (see ui/plan.py); it's drawn the column's width anyway
-TALL = 44  # rows from which the big buttons have their icons (else a row of short ones)
-BELOW = {True: 5, False: 4}  # rows under the buttons for an open row and the choices left, tall screen or not
+TALL = 44  # rows from which the big buttons have their icons, the decision under the story (beside it: see share)
+BELOW = {True: 4, False: 3}  # rows under the buttons (and the blank one between), the decision under the story
+PICKS = 2  # rows at the decision's foot, beside the story, for the choices left (the narrator's idea, a scene's)
+DECIDE_LEAST = 2 + 7 + 1 + 4 + 1 + 3 + PICKS  # beside the story: its frame, short buttons, a gap, the compass a line
+# a way, a gap, three lines of things, the choices
 STORY_LEAST = 8
-NAMED_COMPASS = 106  # columns inside the decision from which the compass says where each way goes
+NAMED_COMPASS = 106  # columns inside the decision from which the compass says where each way goes (under the story)
+COMPASS_CELL = (13, 22)  # a named compass cell's columns, least and most: it widens with the screen
+BUTTON_LEAST = 20  # columns a big button keeps before the compass widens
+CARD = (28, 6)  # a thing's card under the buttons: the least columns (its picture, and words beside it), its rows
+LATELY_MOST, LATELY_LEAST = 10, 2  # the journal's last lines at the foot of Here: at most, and the fewest worth it
 FIRST_VERB = 7  # Here's verbs are numbered on from the six big buttons
 WORDS, DIM, FAINT, PINK, GOLD, ACCENT = "#c8c8e0", "#6c6f99", "#2a2d4a", "#ff4f9a", "#ffd166", "#ffb000"
 FOE = "#ff4b4b"  # (Here's colour for a hostile one: see here.FOE)
@@ -75,9 +99,15 @@ EXPLORE = [("search", "Search", "#5fe3ff"), ("rest", "Rest", "#6c8cff"), ("heal"
            ("bomb", "Bomb", "#ff7b39"), ("use", "Use", GOLD), ("gear", "Gear", "#9a9cc0")]
 COLOUR = {kind: colour for kind, _, colour in FIGHT + EXPLORE}
 WORD = {kind: word for kind, word, _ in FIGHT + EXPLORE}
-CONFIRM = ("bomb",)  # buttons that always open their row, even for one thing: a bomb's too dear to spend unseen
+# Why Search or Rest can't be used now, in a word or two for under the button: (words in rules.why_not's reason, the
+# note). Anything else is "not now".
+WHY_NOT = [("searched this room", "searched"), ("rested here", "rested"), ("not hurt", "not hurt"),
+           ("fight", "in a fight"), ("vent", "gas vent"), ("shop", "her shop")]
+CONFIRM = ("bomb",)
+VERBS = {"Drink", "Eat", "Throw", "Use", "Distract", "Equip", "Light", "Show", "Give", "Bomb", "Read", "Offer", "Blow",
+         "Unlock", "Sell", "Bribe", "Wear", "Apply", "Pour"}  # a label's first word that says what it does  # buttons that always open their row, even for one thing: a bomb's too dear to spend unseen
 PANELS = [("inventory", "Pack", "F2"), ("character", "Sheet", "F3"), ("map", "Map", "F5"),
-          ("journal", "Journal", "F7"), ("bestiary", "Bestiary", "F6"), ("help", "Help", "F1")]
+          ("bestiary", "Bestiary", "F6"), ("journal", "Journal", "F7"), ("help", "Help", "F1")]
 
 # The buttons' icons, 8x8 pixels (4 rows of half blocks), in the sprites' palette.
 INK = {"W": "#c0cbdc", "g": "#8b9bb4", "Y": "#feae34", "N": "#733e39", "R": "#e43b44", "r": "#f6757a",
@@ -173,7 +203,8 @@ def way_name(state, direction: str) -> tuple[str, str]:
     exit_ = state.room.exits[direction]
     there = state.rooms[exit_.to]
     name = ("locked" + (": a shop" if there.shop else "")) if exit_.locked else there.name if there.visited \
-        else (f"a {there.fixture}" if there.fixture and not there.fixture_used else "unexplored")
+        else (FIXTURE_WORDS.get(there.fixture, f"a {there.fixture}").removeprefix("the ")
+              if there.fixture and not there.fixture_used else "unexplored")
     colour = "#c05a6c" if exit_.locked else "#5fe3ff" if there.visited else GOLD if there.fixture else DIM
     return name, colour
 
@@ -182,62 +213,84 @@ def way_name(state, direction: str) -> tuple[str, str]:
 
 FIXTURE_WORDS = {"stairs": "the stairs down", "shop": "a shop", "chest": "a chest", "shrine": "a shrine",
                  "fountain": "a fountain"}
+# The full chart's boxes, roomiest first, the first that fits whole names: (padding inside a box, columns and rows
+# between boxes, lines of notes under a name). The last fits what it can.
+ROOMY = [(2, 10, 3, 2), (1, 8, 2, 2), (1, 6, 2, 1)]
 
 
-def room_label(room) -> str:
-    """A room's words on the chart: its name once you've been in, else what you know of it."""
+def room_label(room, short: bool = False) -> str:
+    """A room's words on the chart: its name once you've been in, else what you know of it. `short` (the small map,
+    where the box and its mark say the rest): a fixture by its word alone, and nothing for a room you know nothing
+    of."""
     if room.visited:
         return room.name
     if room.secret:
-        return "a secret room"
+        return "secret" if short else "a secret room"
     if room.fixture and not room.fixture_used:
-        return FIXTURE_WORDS.get(room.fixture, f"a {room.fixture}")
-    return "unexplored"
+        return room.fixture if short else FIXTURE_WORDS.get(room.fixture, f"a {room.fixture}")
+    return "" if short else "unexplored"
 
 
-def room_note(state, room) -> tuple[str, str]:
-    """A room's second line on the full chart, and its colour: what's in it that matters (a foe, someone waiting, a
-    tip, what's lying there, a fixture not yet used), or that it's been searched; nothing for a room you haven't
-    been in."""
+def room_notes(state, room) -> list[tuple[str, str]]:
+    """What a room on the full chart says under its name, most telling first, each in its colour: what's in it that
+    matters (a foe, someone waiting, a tip, what's lying there, a fixture not yet used, a draft), and whether it's been
+    searched; nothing for a room you haven't been in."""
     if not room.visited:
-        return ("a secret, they say" if room.told else "", GOLD)
+        return [("a secret, they say", GOLD)] if room.told else []
+    notes = []
     monster = room.monster
     if monster and monster.hp > 0:
-        if monster.hostile:
-            return (monster.name, FOE)
-        return (monster.name + (" · waiting" if npcs.waiting(state, monster) else ""), PINK)
+        notes.append((monster.name, FOE) if monster.hostile else
+                     (monster.name + (" · waiting" if npcs.waiting(state, monster) else ""), PINK))
     if any(f.told and not f.searched for f in room.features):
-        return ("something hidden", GOLD)
+        notes.append(("something hidden", GOLD))
     if room.items:
-        return (f"{len(room.items)} thing{'s' * (len(room.items) != 1)} lying here", ACCENT)
+        notes.append((f"{len(room.items)} thing{'s' * (len(room.items) != 1)} lying here", ACCENT))
     if room.fixture and not room.fixture_used:
-        return (FIXTURE_WORDS.get(room.fixture, room.fixture).removeprefix("a ").removeprefix("the "), PINK)
+        notes.append((FIXTURE_WORDS.get(room.fixture, room.fixture).removeprefix("a ").removeprefix("the "), PINK))
     if room.draft and not room.secret:
-        return (f"a draft, {room.draft}", "#5fe3ff")
+        notes.append((f"a draft, {room.draft}", "#5fe3ff"))
     if room.room_searched:
-        return ("searched", DIM)
-    return ("", DIM)
+        notes.append(("searched", DIM))
+    return notes
 
 
-def chart(state, width: int, height: int, roomy: bool) -> Text | None:
-    """The floor as a dungeon chart, at most `width` x `height`: each room a box with its mark and its name in it (as
-    much of the name as the width allows), you in amber, the rooms you haven't been in dashed and dim, the secret one
-    gold; passages between them where you know of them, a door's joint where one leaves a room, a locked one doubled
-    in red. `roomy` (the full map): wider passages, and a second line in each box saying what's in it. Hover a room:
-    where it is. Click one you can get back to: you travel there (rules.journey). None if even short names won't
-    fit."""
+def name_lines(words: str, width: int, most: int) -> list[str]:
+    """A name in at most `most` lines `width` wide, split between words, the last cut short (…) if it must be."""
+    lines = textwrap.wrap(words, width, max_lines=most, placeholder="…", break_long_words=False) or [""]
+    return [line if len(line) <= width else line[:width - 1] + "…" for line in lines]
+
+
+def chart(state, width: int, height: int, roomy: bool, hover: int | None = None) -> Text | None:
+    """The floor as a dungeon chart, at most `width` x `height`: each room a box with its mark and its name in it, you
+    in amber, the rooms you haven't been in dashed and dim, the secret one gold; passages between them where you know
+    of them, a door's joint where one leaves a room, a locked one doubled in red. A name too long for its box takes a
+    second line if there are rows for it, else it's cut short. `roomy` (the full map): boxes and passages as big as
+    the room allows (ROOMY), and a line or two in each box saying what's in it. Hover a room: where it is. Click one
+    you can get back to: you travel there (rules.journey); `hover`, the one the mouse is on, is framed in gold, so
+    it's plain that it's a click away. None if even short names won't fit."""
     rooms = known_rooms(state)
     min_x, min_y = min(r.x for r in rooms), min(r.y for r in rooms)
     across, down = max(r.x for r in rooms) - min_x + 1, max(r.y for r in rooms) - min_y + 1
-    labels = {r.id: room_label(r) for r in rooms}
-    notes = {r.id: room_note(state, r) for r in rooms} if roomy else {}
-    pad, gap_x, gap_y = (1, 6, 2) if roomy else (0, 2, 1)
-    box_h = 4 if roomy else 3
-    wanted = max([len(s) for s in labels.values()] + [len(n) - 2 for n, _ in notes.values()])
-    name_w = min(wanted, (width - (across - 1) * gap_x) // across - 4 - 2 * pad)
-    rows = down * (box_h + gap_y) - gap_y
-    if name_w < (10 if roomy else 6) or rows > height:
+    labels = {r.id: room_label(r, short=not roomy) for r in rooms}
+    notes = {r.id: room_notes(state, r) for r in rooms} if roomy else {}
+
+    least = 10 if roomy else 6
+    wanted = max([least] + [len(s) for s in labels.values()] + [len(n) - 2 for ns in notes.values() for n, _ in ns[:2]])
+
+    def shape(pad: int, gap_x: int, gap_y: int, lines: int) -> tuple[int, int, int]:
+        """(the names' width, the boxes' height, the chart's rows) with these spaces, and lines in a box."""
+        name_w = min(wanted, (width - (across - 1) * gap_x) // across - 4 - 2 * pad)
+        return name_w, 2 + lines, down * (2 + lines + gap_y) - gap_y
+
+    # The full chart: its roomiest boxes that fit whole names, else the smallest. The small map: a name a line, or
+    # two where one won't do and there are rows to spare.
+    options = [(pad, gx, gy, 1 + n) for pad, gx, gy, n in ROOMY] if roomy else [(0, 2, 1, 1), (0, 2, 1, 2)]
+    fits = [o for o in options if shape(*o)[2] <= height and shape(*o)[0] >= least]
+    if not fits:
         return None
+    pad, gap_x, gap_y, lines = next((o for o in fits if shape(*o)[0] >= wanted), fits[-1])
+    name_w, box_h, rows = shape(pad, gap_x, gap_y, lines)
     box_w = name_w + 4 + 2 * pad
     cols = across * box_w + (across - 1) * gap_x
     grid: list[list[tuple[str, Style | None]]] = [[(" ", None)] * cols for _ in range(rows)]
@@ -259,10 +312,12 @@ def chart(state, width: int, height: int, roomy: bool) -> Text | None:
         here = room.id == state.room_id
         reachable = not here and journey(state, room.id) is not None
         label = labels[room.id]
-        tip = Style(meta={"tip": label + (" (you're here)" if here else " (click to travel there)" if reachable else ""),
-                          **({"@click": f"screen.travel({room.id})"} if reachable else {})})
-        edge = Style.parse(f"bold {ACCENT}" if here else GOLD if room.secret else "#5a6cb8" if room.visited
-                           else "#34395e") + tip
+        tip = Style(meta={"tip": room_label(room) + (" (you're here)" if here else " (click to travel there)"
+                                                     if reachable else ""),
+                          **({"travel": room.id} if reachable else {})})
+        lit = reachable and room.id == hover
+        edge = Style.parse(f"bold {ACCENT}" if here else "bold #ffd166" if lit else GOLD if room.secret else "#5a6cb8"
+                           if room.visited else "#34395e") + tip
         bottom, right = top + box_h - 1, left + box_w - 1
         across_ch, down_ch = ("─", "│") if room.visited or here else ("┄", "┆")
         for x in range(left + 1, right):
@@ -276,15 +331,15 @@ def chart(state, width: int, height: int, roomy: bool) -> Text | None:
         for y in range(top + 1, bottom):  # (the box's inside, hoverable and clickable too)
             write(y, left + 1, " " * (box_w - 2), tip)
         glyph = map_glyph(state, room)
-        name = label if len(label) <= name_w else label[:name_w - 1] + "…"
         write(top + 1, left + 1 + pad, glyph, Style.parse(f"bold {ACCENT}" if here else MAP_STYLES.get(glyph[0], DIM))
               + tip)
-        write(top + 1, left + 3 + pad, name, Style.parse("bold #ffffff" if here else WORDS if room.visited
-                                                         else f"italic {DIM}") + tip)
-        if roomy and notes[room.id][0]:
-            note, colour = notes[room.id]
+        name_style = Style.parse("bold #ffffff" if here or lit else WORDS if room.visited else f"italic {DIM}") + tip
+        names = name_lines(label, name_w, 1 if roomy else lines)
+        for i, line in enumerate(names):
+            write(top + 1 + i, left + 3 + pad, line, name_style)
+        for i, (note, colour) in enumerate(notes.get(room.id, [])[:lines - 1]):
             note = note if len(note) <= name_w + 2 else note[:name_w + 1] + "…"
-            write(top + 2, left + 1 + pad, note, Style.parse(f"italic {colour}") + tip)
+            write(top + 2 + i, left + 1 + pad, note, Style.parse(f"italic {colour}") + tip)
     # The passages, and a door's joint on each box they leave: a door is drawn from both its rooms, and only one side
     # of it says it's locked, so the open sides first and the locked ones over them.
     doors = sorted(((room, direction, exit_) for room in rooms if room.visited or mapped
@@ -312,16 +367,17 @@ def chart(state, width: int, height: int, roomy: bool) -> Text | None:
     return text
 
 
-def drawn_map(state, width: int, height: int, roomy: bool = False) -> Text:
+def drawn_map(state, width: int, height: int, roomy: bool = False, hover: int | None = None) -> Text:
     """The floor as big as it fits: the chart (roomy, if asked and there's room), else the marks with names under
     them, else the marks alone."""
-    return ((roomy and chart(state, width, height, True)) or chart(state, width, height, False)
+    return ((roomy and chart(state, width, height, True, hover)) or chart(state, width, height, False, hover)
             or big_map(state, width, height) or small_map(state))
 
 
 class ChartScreen(Panel):
-    """The Map panel, the floor in full: the whole screen, its name across the top, the chart with every room's whole
-    name and what's in it, and under it the goal, the quests, the tips and the key, all centred. A room you can get
+    """The Map panel, the floor in full: the whole screen, the floor drawn on parchment (parchment.draw), each room you
+    know with its name and what's in it, and under it the goal, the quests, the tips and the key, all centred. With
+    ASCII art chosen, or no room for the parchment, the chart instead, the floor's name over it. A room you can get
     back to, clicked: you travel there."""
 
     panel_name = "map"
@@ -329,6 +385,7 @@ class ChartScreen(Panel):
     def __init__(self, game) -> None:
         super().__init__()
         self.game = game
+        self.hover: int | None = None  # the room the mouse is on, that you can get back to: lit
 
     def compose(self) -> ComposeResult:
         state, content = self.game.state, self.game.content
@@ -341,10 +398,11 @@ class ChartScreen(Panel):
                                    "you've been in to go there · Esc to close")
             box.styles.border = ("double", accent)
             box.styles.border_title_color = accent
-            yield Static(Text(floor_name(theme.name, 999), style=f"bold {accent}"), classes="chart-name")
-            yield Static(Text(theme.goal if state.boss_floor else "Find the stairs down.", style=f"italic {DIM}"),
-                         classes="chart-goal")
-            yield Static(classes="chart-rule")
+            with Vertical(classes="chart-head"):
+                yield Static(Text(floor_name(theme.name, 999), style=f"bold {accent}"), classes="chart-name")
+                yield Static(Text(theme.goal if state.boss_floor else "Find the stairs down.", style=f"italic {DIM}"),
+                             classes="chart-goal")
+                yield Static(classes="chart-rule")
             with Vertical(classes="chart-holder"):
                 yield StoryLine(id="chart")
             yield Static(classes="chart-rule")
@@ -352,17 +410,38 @@ class ChartScreen(Panel):
                 yield Static(map_notes(state, content), classes="chart-notes")
 
     def fit(self) -> None:
-        """The whole screen less a margin; the chart as big as the rows the notes leave."""
+        """The whole screen less a margin; the parchment (or the chart) as big as the rows the notes leave."""
         width, height = self.app.size
-        state = self.game.state
+        state, content = self.game.state, self.game.content
         box = self.box
         box.styles.width, box.styles.height = width - 6, height - 2
         inner = width - 6 - 6
         rule = Text("─" * (inner // 2 - 2) + " ✦ " + "─" * (inner // 2 - 2), style=FAINT)
         for line in self.query(".chart-rule").results(Static):
             line.update(rule)
-        notes = 6 + len(npcs.quest_log(state, self.game.content))
-        self.query_one("#chart", StoryLine).update(drawn_map(state, inner, height - 2 - 4 - 4 - notes, roomy=True))
+        self.draw()
+
+    def draw(self) -> None:
+        """The parchment (or the chart) as big as the rows the notes leave, the room the mouse is on lit."""
+        width, height = self.app.size
+        state, content = self.game.state, self.game.content
+        inner = width - 6 - 6
+        notes = 6 + len(npcs.quest_log(state, content))
+        drawn = None
+        if self.game.config.art == "sprites":
+            drawn = parchment.draw(state, inner, height - 2 - 2 - 2 - notes, content.themes[state.theme].name,
+                                   {r.id: room_label(r) for r in state.rooms},
+                                   {r.id: room_notes(state, r) for r in state.rooms}, self.hover)
+        self.query_one(".chart-head").display = drawn is None  # (the parchment has the floor's name on it)
+        if drawn is None:
+            drawn = drawn_map(state, inner, height - 2 - 4 - 4 - notes, roomy=True, hover=self.hover)
+        self.query_one("#chart", StoryLine).update(drawn)
+
+    def hover_room(self, line: StoryLine, room: int | None) -> None:
+        """The mouse has come to a room you can get back to (or left it): it's lit, or not."""
+        if room != self.hover:
+            self.hover = room
+            self.draw()
 
     def action_travel(self, room_id: int) -> None:
         """A room clicked: back to the game, and there (as GameScreen.action_travel)."""
@@ -376,66 +455,221 @@ class ChartScreen(Panel):
 class Grid:
     """The screen shared out (see GridScreen.relayout): every box's size, from the screen's alone."""
     side: int  # the right column, with its gutter
-    left: int  # the left column
+    left: int  # the columns left of it: the picture across them, the story and the decision under it
+    beside: bool  # the decision beside the story (a wide screen), else under it
+    story_w: int  # the story's box: beside the decision, the columns the decision leaves; else all of them
     stage: int  # the picture's rows, inside its frame (the map's box is as tall as the picture's)
     story: int  # the story's box, frame and all
     decide: int  # the decision's box, frame and all
-    bar: int  # the big buttons' rows
-    below: int  # the rows under them
+    bar: int  # a big button's rows (7 with its icon, 3 without)
+    ways: int  # the compass's rows: beside the story, under the buttons, a heading and three rows of ways, two lines
+    # each with a blank row between them (9), or without (7), or a line each (4); under it, beside the buttons, as
+    # tall as they are
+    cell: int  # a compass cell's columns
     strip: int  # the panels' buttons, at the foot of the right column
-    tall: bool
-    named: bool  # whether the compass says where each way goes
+    tall: bool  # the big buttons have their icons
+
+    @property
+    def band(self) -> int:
+        """The rows under the picture (and the map)."""
+        return self.story if self.beside else self.story + self.decide
+
+    @property
+    def named(self) -> bool:
+        """Whether the compass's cells have the room to say where each way goes."""
+        return self.beside or self.cell >= COMPASS_CELL[0]
 
 
 def share(width: int, height: int) -> Grid:
-    """The screen shared out, from its size alone: the right column a share of the width; on the left the picture (as
-    tall as its shape asks, to a share of the rows), the decision (a fixed height: the buttons and the rows under
-    them) and the story the rest; on the right the map as tall as the picture, the panels' strip as the foot."""
+    """The screen shared out, from its size alone: the right column a share of the width; the room's picture across
+    the rest, as tall as its shape asks (to a share of the rows), the map beside it as tall; under them the story, the
+    decision and Here. On a wide screen the decision is beside the story, a share of their columns, as tall as it: its
+    buttons with their icons if it's tall enough for them and the compass under them; the compass's ways two lines
+    tall if there are still rows for the things under it. On a narrower one the decision is under the story, a fixed
+    height (the buttons, a blank row, the rows under them), and the compass beside the buttons, its cells widening
+    with it once the buttons have their least."""
     rows = height - 2  # (less the status bar and the footer)
     side = max(SIDE_MIN, min(SIDE_MAX, round(width * SIDE_SHARE)))
     left = width - side
-    tall = rows >= TALL
-    bar, below = (7 if tall else 3), BELOW[tall]
-    decide = 2 + bar + below + 1
+    strip = 3 if side >= 54 else 6  # (one row of six, or two of three)
     stage = max(6, min(round((left - 2) / STAGE_SHAPE), round(STAGE_SHARE * rows)))
+    if left >= BESIDE:
+        act = max(ACT_MIN, min(ACT_MAX, round(left * ACT_SHARE)))
+        stage = max(4, min(stage, rows - 2 - DECIDE_LEAST))
+        band = rows - (stage + 2)
+        tall = band >= 2 + 15 + 1 + 4 + 1 + 3 + PICKS  # (two rows of buttons with icons, and the least under them)
+        bar = 7 if tall else 3
+        under = band - 2 - (2 * bar + 1) - 1 - PICKS  # (less its frame, the buttons, a gap and the choices)
+        cards = 1 + 1 + CARD[1]  # (a row of your things: its heading, a gap, the cards)
+        ways = 9 if under >= 9 + 1 + cards else 7 if under >= 7 + 1 + cards else 4
+        return Grid(side, left, True, left - act, stage, band, band, bar, ways, (act - 4 - 2) // 3, strip, tall)
+    tall = rows >= TALL
+    bar = 7 if tall else 3
+    decide = 2 + bar + 1 + BELOW[tall]
     story = rows - (stage + 2) - decide
     if story < STORY_LEAST:
         stage = max(4, stage - (STORY_LEAST - story))
         story = rows - (stage + 2) - decide
-    strip = 3 if side >= 54 else 6  # (one row of six, or two of three)
-    return Grid(side, left, stage, story, decide, bar, below, strip, tall, left - 4 >= NAMED_COMPASS)
+    named = left - 4 >= NAMED_COMPASS
+    least, most = COMPASS_CELL
+    cell = max(least, min(most, (left - 4 - 1 - 6 * BUTTON_LEAST) // 3)) if named else 5
+    return Grid(side, left, False, left, stage, story, decide, bar, bar, cell, strip, tall)
 
 
-class BigButton(Clickable):
-    """One of the big buttons, in one of its looks (`look`): "live", "hot" (urgent), "open" (its row is showing) or
-    "dead" (it can't be used now). Its number in its frame, its icon (if `pictured`) and word inside, its note under
-    it (if it's `wide` enough)."""
+class BigButton(Vertical):
+    """One of the big buttons. Built once for its place (its number in its frame, as tall as the screen allows) and
+    then shown in one look or another, in place, as the turns go by (see show): no rebuilding it, which would leave a
+    frame with no button in it. A shade (urgent, open, hovered) fills its face, inside the frame: on the frame itself
+    it would show half a cell outside the line."""
 
-    def __init__(self, kind: str, number: int, look: str, note: str, tall: bool, wide: bool, pictured: bool) -> None:
-        colour = COLOUR[kind]
-        live = look != "dead"
-        text = Text(justify="center")
-        if pictured:
-            text.append_text(icon(kind, live))
-            text.append("\n")
-        text.append(WORD[kind], style=f"bold {colour}" if live else "#3a3f66")
-        super().__init__(text, f"screen.bar('{kind}')", classes=f"big-button {look} k-{kind}")
-        self.kind, self.look = kind, look
+    def __init__(self, kind: str, number: int, tall: bool, pictured: bool) -> None:
+        self.face = Static(classes="face")
+        super().__init__(self.face, classes=f"big-button k-{kind}")
+        self.kind, self.number, self.pictured = kind, number, pictured
+        self.look: str | None = None
+        self.shown: tuple | None = None
+        self.border_title = str(number)
+        self.styles.height = 7 if tall else 3
+
+    def show(self, look: str, note: str, wide: bool) -> None:
+        """Its look: "live", "hot" (urgent), "open" (its options are showing) or "dead" (it can't be used now); its
+        icon (if it's pictured) and word inside, its note under it (if it's `wide` enough)."""
+        if (look, note, wide) == self.shown:
+            return
+        colour, live = COLOUR[self.kind], look != "dead"
+        if self.look is None or (self.look != "dead") != live:  # (the face changes only as it comes alive or dies)
+            text = Text(justify="center")
+            if self.pictured:
+                text.append_text(icon(self.kind, live))
+                text.append("\n")
+            text.append(WORD[self.kind], style=f"bold {colour}" if live else "#3a3f66")
+            self.face.update(text)
+        self.shown, self.look = (look, note, wide), look
+        for name in ("live", "hot", "open", "dead"):
+            self.set_class(name == look, name)
         self.styles.border = ("heavy" if look in ("hot", "open") else "round", colour if live else "#23264a")
         self.styles.border_title_color = colour if live else "#3a3f66"
         self.styles.border_subtitle_color = colour if look == "hot" else DIM if live else "#3a3f66"
         if look in ("hot", "open"):
-            self.styles.background = tint(colour, 0.2 if look == "hot" else 0.12)
-        self.border_title = str(number)
+            self.face.styles.background = tint(colour, 0.2 if look == "hot" else 0.12)
+        else:  # (app.tcss's hover shade, then, not one set here)
+            self.face.styles.clear_rule("background")
         self.border_subtitle = note if wide else ""
-        self.styles.height = 7 if tall else 3
-        self.tooltip = f"{WORD[kind]}: {note}" if note else WORD[kind]
+        self.tooltip = self.face.tooltip = f"{WORD[self.kind]}: {note}" if note else WORD[self.kind]
+        if not live:
+            self.remove_class("-hover")
+
+    async def on_click(self, event: Click) -> None:
+        event.stop()
+        await self.run_action(f"screen.bar('{self.kind}')")
+
+    def on_enter(self, event: Enter) -> None:
+        """(Hovered, frame or face: a tint of its own colour, app.tcss's GridScreen .big-button.-hover.)"""
+        self.set_class(self.look != "dead", "-hover")
+
+    def on_leave(self, event: Leave) -> None:
+        self.set_class(self.look != "dead" and self.is_mouse_over, "-hover")
+
+
+class CompassCell(Static):
+    """One of the compass's five cells (or a blank corner), built once for its place and shown in place (see show):
+    a way out, lit, a click away; a wall, faint; you in the middle."""
+
+    def __init__(self) -> None:
+        super().__init__(classes="compass-cell")
+        self.action = ""
+        self.shown: tuple | None = None
+
+    def show(self, text: Text, kind: str, action: str = "", tip: str = "") -> None:
+        if (text, kind, action, tip) == self.shown:
+            return
+        self.shown = (text, kind, action, tip)
+        self.update(text)
+        for name in ("way", "wall", "middle"):
+            self.set_class(name == kind, name)
+        self.action, self.tooltip = action, tip or None
+
+    async def on_click(self, event: Click) -> None:
+        event.stop()
+        if self.action:
+            await self.run_action(self.action)
+
+
+def item_key(action: Action, content) -> str:
+    """The thing an option would use, if it's a thing you carry ("" for a wall to bomb, say): use:healing_potion's
+    potion, throw:holy_water's water, a fight's bomb, give:bread@lucky_lenny's bread."""
+    verb, _, rest = action.id.partition(":")
+    key = rest.split("@")[0]
+    if key in content.items:
+        return key
+    return "bomb" if verb == "bomb" and not rest and "bomb" in content.items else ""
+
+
+def rule(words: str, width: int, colour: str = DIM) -> Text:
+    """A heading across a box: its words, then a line to the edge."""
+    text = Text(words.upper(), style=f"bold {colour}")
+    text.append(" " + "─" * max(0, width - len(words) - 1), style="#30345a")
+    return text
+
+
+class ItemCard(Horizontal):
+    """A thing as a card under the buttons: its picture (or an arrow, for a wall to bomb), and beside it, if there's
+    something to do with it now (`action`), its letter, what it does and to what, and how it would go ("weak!", "won't
+    work"): clicked, it's done. If there isn't, it's dim, with what it is and why not ("full HP")."""
+
+    def __init__(self, index: int, action: Action | None, kind: str, key: str, content, sprites: bool, count: int,
+                 why: str = "", weak: list[str] | None = None, width: int = 0) -> None:
+        colour = COLOUR.get(kind, GOLD)
+        if action is not None:
+            verb = action.label.split(" ")[0]
+            verb = verb if verb in VERBS else WORD.get(kind, "Use")  # (a picker's option is only the thing: "5 gold")
+            words = Text.assemble((f" {chr(97 + index)} ", f"bold #10122a on {colour}"),
+                                  (f" {verb.upper()}", f"bold {colour}"))
+            words.append("\n" + short(action), style="bold #e8e8f4")
+            hint = action.hint or (item_note(content, key) if key else "")
+            if weak:
+                words.append(f"\n✔ weak to {' and '.join(weak)}!", style="bold #4cff8a")
+            if hint:
+                good = any(word in hint for word in ("weak", "heals", "full heal", "get away", "shows", "loses"))
+                bad = any(word in hint for word in ("won't", "NO", "breaks"))
+                words.append("\n" + hint, style="#4cff8a" if good else FOE if bad else WORDS)
+        else:
+            words = Text(content.item(key).name, style=f"bold {DIM}")
+            words.append("\n" + item_note(content, key), style=DIM)
+            words.append("\n" + why, style="#4a4e7a")
+        if count > 1:
+            words.append(f"\n×{count} in your pack", style=DIM)
+        if key:
+            picture: Widget = Picture(key, "item", SMALL, content=content, sprites=sprites, animate=False,
+                                      classes="card-art")  # (still: a card's a button, not a show)
+        else:
+            arrow = ARROWS.get(action.id.partition(":")[2], "✦") if action else "✦"
+            picture = Static(Text(f"\n\n{arrow}", style=f"bold {colour}", justify="center"), classes="card-art")
+        super().__init__(picture, Static(words, classes="card-words"),
+                         classes=f"item-card k-{kind}" + ("" if action else " idle"))
+        if width:
+            self.styles.width = width
+        self.index, self.action = index, action
+        self.tooltip = (action.label + (f" ({action.hint})" if action.hint else "")) if action else \
+            f"{content.item(key).name}: {why}"
+
+    async def on_click(self, event: Click) -> None:
+        event.stop()
+        if self.action is not None:
+            await self.run_action(f"screen.pick({self.index})")
+
+    def on_enter(self, event: Enter) -> None:
+        self.set_class(self.action is not None, "-hover")
+
+    def on_leave(self, event: Leave) -> None:
+        self.set_class(self.action is not None and self.is_mouse_over, "-hover")
 
 
 class GridScreen(GameScreen):
     """The game screen as a fixed grid (see the module's docstring): its layout, its boxes and its decision; the turns
     are GameScreen's."""
 
+    STORY_WIDTH = 100  # (as app.tcss's GridScreen #story > *)
     BINDINGS = [*GameScreen.BINDINGS,
                 *[Binding(key, f"arrow('{way}')", show=False, priority=True)
                   for key, way in (("up", "north"), ("down", "south"), ("left", "west"), ("right", "east"))]]
@@ -443,13 +677,28 @@ class GridScreen(GameScreen):
     def __init__(self, game, fresh: bool) -> None:
         super().__init__(game, fresh)
         self.grid: Grid | None = None
-        self.tray: tuple[str, str, list[Action], str] | None = None  # the open row: (where, its title, its
-        # options, the big button whose it is or ""), where "bar" (under the buttons) or "here" (a thing's, in Here)
+        self.tray: tuple[str, list[Action], str] | None = None  # the options showing under the buttons, if a button
+        # or a thing's picker (Give…) opened them: (their title, the options, the big button whose they are, or "")
+        self.offered: list[Action] = []  # what's under the buttons now, a letter each: the open tray's, or your things
+        self.item_page = 0  # which page of them, when they're more than fit
         self.slots: dict[int, tuple] = {}  # what typing each number does: ("bar", kind) or ("action", Action)
         self.groups: dict[str, list[Action]] = {}  # the big buttons' actions, by kind
-        self.decide_shown: tuple | None = None
         self.here_drawn: tuple | None = None
         self.map_drawn: tuple | None = None
+        self.map_hover: int | None = None  # the room on the map the mouse is on, that you can get back to: lit
+        # What each part of the screen shows, as it was last drawn: each is drawn again only when that changes, and
+        # what can be shown in place is (the buttons, the compass's cells, Lately), never torn down and built again.
+        self.buttons: dict[str, BigButton] = {}
+        self.cells: dict[str, CompassCell] = {}
+        self.bar_built: tuple | None = None
+        self.compass_built: tuple | None = None
+        self.below_drawn: tuple | None = None
+        self.picks_drawn: tuple | None = None
+        self.lately_drawn: tuple | None = None
+        self.here_used = 0  # the rows Here's things take, the rest Lately's
+        self.here_you: Static | None = None  # in a fight, your hearts over the foe's card, and how the last turn went
+        self.here_last: Static | None = None  # under it: both shown in place
+        self.duel: tuple[Picture, Static] | None = None  # the foe's card: its picture, and all you know of it
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="hud-row"):
@@ -461,19 +710,26 @@ class GridScreen(GameScreen):
                 with Vertical(id="stage-box"):
                     with ClickableBox(action="screen.stage_card()", id="stage"):
                         yield Static(id="stage-art")
-                yield VerticalScroll(id="story")
-                with Vertical(id="decide"):
-                    with Horizontal(id="top-row"):
-                        yield Horizontal(id="bar")
-                        yield Vertical(id="compass")
-                    yield VerticalScroll(id="below")
-                    yield Input(id="command", placeholder="Type a number, or anything you want to try…")
+                with Horizontal(id="band"):
+                    with Vertical(id="story-box"):
+                        yield VerticalScroll(id="story")
+                        yield Input(id="command", placeholder="Type a number, or anything you want to try…")
+                    with Vertical(id="decide"):
+                        with Horizontal(id="top-row"):  # (the buttons, and the compass under them or beside them)
+                            yield Vertical(id="bar")
+                            yield Vertical(id="compass")
+                        yield VerticalScroll(id="below")  # your things, or the options a button's opened
+                        yield Vertical(id="picks")  # the choices left: the narrator's idea, a scene's
             with Vertical(id="side"):
                 with Vertical(id="map"):
                     with Vertical(id="map-holder"):
                         yield StoryLine(id="map-art")
                     yield Static(id="map-notes")
-                yield Vertical(id="here", classes="panel")
+                with Vertical(id="here", classes="panel"):
+                    yield Vertical(id="here-things")
+                    with Vertical(id="here-lately"):
+                        yield Static(id="lately-head", classes="here-head")
+                        yield StoryLine(id="lately", classes="lately")
                 yield Vertical(id="strip")
         with Vertical(id="shims"):  # (what GameScreen's turns look for, that this layout hasn't)
             yield Vertical(id="here-strip")
@@ -485,8 +741,10 @@ class GridScreen(GameScreen):
     # --- the grid ---
 
     def relayout(self) -> None:
-        """Share the screen out (see share) and size every box to it: the right column's boxes as tall as the left's
-        beside them, so their edges meet; then fill them."""
+        """Share the screen out (see share) and, if that's changed (the screen was resized), size every box to it:
+        the right column's boxes as tall as the left's beside them, so their edges meet. Then fill them, each drawn
+        again only if what it shows has changed: sizing the boxes on every turn would lay out, and paint, the whole
+        screen again each time."""
         if self._resize_timer is not None:
             self._resize_timer.stop()
             self._resize_timer = None
@@ -496,20 +754,45 @@ class GridScreen(GameScreen):
         grid = share(width, height)
         if grid != self.grid:
             self.grid = grid
-            self.here_drawn = self.decide_shown = self.map_drawn = None
+            self.here_drawn = self.map_drawn = self.lately_drawn = None
+            self.bar_built = self.compass_built = self.below_drawn = self.picks_drawn = None
+            self.place(grid)
             self.draw_strip()
-        self.plan = Plan(width, height, True, False, False, grid.side, grid.stage, grid.left - 2, grid.below, 0,
-                         grid.story + grid.decide, grid.story - 2)
-        for box, h in (("#stage-box", grid.stage + 2), ("#story", grid.story), ("#decide", grid.decide),
-                       ("#map", grid.stage + 2), ("#here", grid.story + grid.decide - grid.strip),
-                       ("#strip", grid.strip), ("#top-row", grid.bar)):
-            self.query_one(box).styles.height = h
-        self.query_one("#side").styles.width = grid.side
-        self.query_one("#story").border_title = "✦ Story"
         self.refresh_hud()
         self.refresh_stage()
         self.refresh_here()
         self.refresh_choices()
+
+    def place(self, grid: Grid) -> None:
+        """Every box sized to the screen as it's shared out."""
+        width, height = self.size
+        self.plan = Plan(width, height, True, False, False, grid.side, grid.stage, grid.left - 2, BELOW[grid.tall], 0,
+                         grid.band - grid.strip - 2, grid.story - 3)
+        band, story, decide = self.query_one("#band"), self.query_one("#story-box"), self.query_one("#decide")
+        band.styles.layout = "horizontal" if grid.beside else "vertical"
+        band.styles.height = grid.band
+        story.styles.width = grid.story_w if grid.beside else "100%"
+        story.styles.height = "100%" if grid.beside else grid.story
+        decide.styles.width = "1fr" if grid.beside else "100%"
+        decide.styles.height = "100%" if grid.beside else grid.decide
+        decide.set_class(grid.beside, "beside")
+        self.query_one("#top-row").styles.layout = "vertical" if grid.beside else "horizontal"
+        for box, h in (("#stage-box", grid.stage + 2), ("#map", grid.stage + 2), ("#here", grid.band - grid.strip),
+                       ("#strip", grid.strip)):
+            self.query_one(box).styles.height = h
+        self.query_one("#side").styles.width = grid.side
+        story.border_title = "✦ Story"
+        story.border_subtitle = self.game.llm.name if self.game.llm else "offline narrator"
+
+    def swap(self, box: Widget, widgets: list[Widget]) -> None:
+        """What's in a box, swapped for these in one go: the screen isn't painted between taking the old out and
+        putting the new in, so there's never a frame with the box empty (it showed as text flashing off and on)."""
+        async def go() -> None:
+            async with box.batch():
+                await box.remove_children()
+                await box.mount_all(widgets)
+
+        self.call_later(go)
 
     refresh_panels = relayout
     refresh_stage = TabsScreen.refresh_stage  # (its frame red in a fight, titled with the room)
@@ -518,7 +801,7 @@ class GridScreen(GameScreen):
         """(The ways out are the compass's.)"""
 
     def panel(self, name: str) -> Panel:
-        """The panels F1-F7 open: the map's the chart."""
+        """The panels F1-F7 open: the map's the parchment (or the chart)."""
         return ChartScreen(self.game) if name == "map" else super().panel(name)
 
     # --- the right column ---
@@ -531,15 +814,16 @@ class GridScreen(GameScreen):
     def draw_map(self) -> None:
         """The floor as a chart in the map's box (as much of each name as fits), the goal and the quests under it."""
         state, content, grid = self.game.state, self.game.content, self.grid
+        quests = [line for _, line, still in npcs.quest_log(state, content) if still][:2]
         shown = (grid, state.floor, state.room_id, tuple((r.id, r.visited, r.fixture_used, map_glyph(state, r))
-                                                         for r in state.rooms), state.mapped_floor)
+                                                         for r in state.rooms), state.mapped_floor, tuple(quests),
+                 self.map_hover)
         if shown == self.map_drawn:
             return
         self.map_drawn = shown
         width, rows = grid.side - 5, grid.stage
-        quests = [line for _, line, still in npcs.quest_log(state, content) if still][:2]
         notes = 1 + len(quests)
-        self.query_one("#map-art", StoryLine).update(drawn_map(state, width, rows - notes))
+        self.query_one("#map-art", StoryLine).update(drawn_map(state, width, rows - notes, hover=self.map_hover))
         goal = next((r for r in state.rooms if (r.is_boss if state.boss_floor else r.fixture == "stairs")), None)
         text = Text("GOAL ", style=f"bold {DIM}")
         if goal and (goal.visited or state.mapped_floor == state.floor):
@@ -550,9 +834,12 @@ class GridScreen(GameScreen):
             text.append(f" · {away}", style=DIM)
         else:
             text.append("Find the " + ("boss's lair" if state.boss_floor else "stairs down"), style="bold #e8e8f4")
+        lines = [text]
         for line in quests:
-            text.append("\n★ ", style=PINK)
-            text.append(line, style=WORDS)
+            lines.append(Text.assemble(("★ ", PINK), (line, WORDS)))
+        for line in lines:  # (a line each, cut short if it must be: a second would be lost under the frame)
+            line.truncate(width, overflow="ellipsis")
+        text = Text("\n").join(lines)
         notes_box = self.query_one("#map-notes", Static)
         notes_box.styles.height = notes
         notes_box.update(text)
@@ -561,84 +848,173 @@ class GridScreen(GameScreen):
         seen = sum(r.visited for r in state.rooms if not r.secret)
         box.border_subtitle = f"{seen} of {sum(not r.secret for r in state.rooms)} seen · F5 in full"
 
+    def hover_room(self, line: StoryLine, room: int | None) -> None:
+        """The mouse has come to a room on the map you can get back to (or left it): it's lit, or not."""
+        if line.id == "map-art" and room != self.map_hover:
+            self.map_hover = room
+            self.draw_map()
+
     def draw_here(self) -> None:
-        """Who and what is here as tiles with their pictures, their verbs on them, numbered on from the big buttons
-        (in a fight the foe's are the buttons, so its tile has none, and its card is big, with you shown against it).
-        A thing's picker, open, is its row instead."""
+        """Who and what is here, in sections, a heading each: who's here, the things (a picture each, its words and
+        its verbs beside it), what there is to search (a line each); then the journal's last lines (Lately) in the
+        rows they leave. Their verbs are numbered on from the big buttons. A section too tall for its rows draws its
+        things smaller (a line each), the things before the people; more than fit, a page of them and a chip saying
+        how many more. In a fight the foe's verbs are the buttons, so its card has none, and it's big, with you shown
+        against it and how the last turn went under it; whoever else is here, a line each. The things are drawn again
+        only when they change; Lately, in place, as the journal grows."""
         state, content, grid = self.game.state, self.game.content, self.grid
         things = things_here(state, content)
         fight = self.fighting()
+        for thing in things:  # (a spent chest is a line, not a picture as big as the loot it gave)
+            if thing.id.startswith("fixture:") and thing.status == "spent":
+                thing.art, thing.name = False, f"{thing.name} · spent"
         if state.scene or state.over:
             for thing in things:
                 thing.verbs = []
-        if fight:
-            for thing in things:
-                if thing.kind == "monster" and thing.style == FOE:
-                    thing.verbs = []
+        foe = next((t for t in things if t.kind == "monster" and t.style == FOE), None) if fight else None
+        if foe is not None:
+            foe.verbs = []
+        others = [t for t in things if t is not foe]
+        sections = [("Who's here", [t for t in others if t.character]),
+                    ("Things", [t for t in others if not t.character and t.art]),
+                    ("To search", [t for t in others if not t.character and not t.art])]
+        if foe is not None:
+            sections = [("Also here", others)]
         numbers: dict[str, int] = {}
-        for thing in things:
-            for action in thing.verbs:
-                if action.id and action.id not in numbers:
-                    numbers[action.id] = FIRST_VERB + len(numbers)
+        for _, group in sections:
+            for thing in group:
+                for action in thing.verbs:
+                    if action.id and action.id not in numbers:
+                        numbers[action.id] = FIRST_VERB + len(numbers)
+        ordered = [t for _, group in sections for t in group]
         self.things = things
-        self.tile_verbs = self._ordered(things, numbers)
+        self.tile_verbs = self._ordered(ordered, numbers)
         self.verb_owner = {a.id: thing.name for thing in things for a in thing.verbs if a.id}
         player = state.player
-        shown = (grid, state.floor, state.room_id, fight, player.hp, player.max_hp, tuple(player.statuses),
-                 tuple((t.id, t.status, t.pose, tuple((a.id, a.label) for a in t.verbs)) for t in things),
-                 self.here_page, self.tray if self.tray and self.tray[0] == "here" else None, self._sprites_on())
-        if shown == self.here_drawn:
-            return
-        self.here_drawn = shown
         box = self.query_one("#here", Vertical)
-        box.remove_children()
-        box.border_title = f"Here · {len(things)}" if things else "Here"
+        box.border_title = f"Here · {state.room.name}"
         box.set_class(fight, "fight")
-        width, rows = grid.side - 5, grid.story + grid.decide - grid.strip - 2
-        out: list[Widget] = []
-        if fight:  # you against it: your hearts here, beside its picture, not only at the top of the screen
+        width, rows = grid.side - 5, grid.band - grid.strip - 2
+        shown = (grid, state.floor, state.room_id, fight,  # (the foe's own state is shown in place: see below)
+                 tuple((t.id, *(() if t is foe else (t.status, t.pose)), tuple((a.id, a.label) for a in t.verbs))
+                       for t in things),
+                 self.here_page, self._sprites_on())
+        if shown != self.here_drawn:
+            self.here_drawn = shown
+            out, self.here_used = self.here_things(foe, sections, numbers, width, rows)
+            self.swap(self.query_one("#here-things"), out)
+        last = 0
+        if foe is not None and self.here_you is not None:  # (your hearts, the foe's own state and the last turn, shown
+            # in place: its card stays put through the fight, hits and lunges and all)
+            self.duel[0].set_pose(foe.pose)
+            self.duel[1].update(facts(state, content, foe))
             you = Text("You  ", style="bold #e8e8f4")
             you.append_text(hearts(player.hp, player.max_hp))
             you.append(f" {player.hp}/{player.max_hp}", style="bold")
-            out.append(Static(you, classes="here-you"))
-            rows -= 1
-        foe = next((t for t in things if t.kind == "monster" and t.style == FOE), None) if fight else None
-        if foe is not None and not (self.tray and self.tray[0] == "here"):
+            self.here_you.update(you)
+            rolls = self.last_rolls[-3:]
+            words = Text("\n").join([rule("Last turn", width, FOE)] + [roll_headline(e) for e in rolls])
+            self.here_last.display = bool(rolls)
+            self.here_last.styles.height = 1 + len(rolls)
+            self.here_last.update(words)
+            last = (2 + len(rolls)) if rolls else 0
+        self.draw_lately(width, min(LATELY_MOST, rows - self.here_used - last - 1))
+
+    def here_things(self, foe, sections: list, numbers: dict[str, int], width: int,
+                    rows: int) -> tuple[list[Widget], int]:
+        """Here's things as widgets (see draw_here), and the rows they take."""
+        state, content = self.game.state, self.game.content
+        out: list[Widget] = []
+        self.here_you = self.here_last = None
+        if foe is not None:  # you against it: your hearts here, beside its picture, not only at the top of the screen
+            self.here_you = Static(classes="here-you")
+            out.append(self.here_you)
             # Its card, big: its picture (where the fight's hits, lunges and dissolve play) and beside it all you know
-            # of it, weaknesses and all; whatever else is here, a line each under it.
+            # of it, weaknesses and all; under it, how the last turn went, a line a roll (both shown by draw_here).
             art = DEFAULT_WIDTH if width >= 50 else SMALL
             picture = Picture(foe.sprite, "monster", art, pose=foe.pose, action=f"screen.lookup('monster:{foe.sprite}')",
                               content=content, classes="here-art duel-art")
-            out.append(Horizontal(picture, Static(facts(state, content, foe), classes="duel-words"), classes="duel"))
-            rows -= art // 2 + 2
-            things = [t for t in things if t is not foe]
-        if self.tray and self.tray[0] == "here":
-            out += self.tray_lines(width)
-        elif not things:
-            if foe is None:  # (an empty room says so, and what it's like)
-                blurb = content.archetypes[state.room.archetype].blurb
-                out.append(Static(Text.assemble(("Nothing here to take or talk to.\n\n", DIM),
-                                                (blurb, f"italic {DIM}"))))
-        else:
-            forms = (ROW,) if foe is not None else (CARD, ROW) if width < 34 else (CARD, MINI, ROW)
-            layout, hidden = arrange(things, width, rows, False, forms, content)
-            if hidden:  # a page of them, and a chip saying how many more
-                first, _ = arrange(things, width, rows - 1, False, forms, content)
-                per_page = max(1, sum(map(len, first)))
-                start = (self.here_page * per_page) % len(things)
-                layout, _ = arrange(things[start:] + things[:start], width, rows - 1, False, forms, content)
-                hidden = len(things) - sum(map(len, layout))
-            for line in layout:
-                tiles = []
-                for thing, form, size in line:
-                    tile = Tile(thing, form, size, numbers, content, False, animate=True)
-                    tile.tooltip = facts(state, content, thing)  # (hover: all about it)
-                    tiles.append(tile)
-                out.append(Horizontal(*tiles, classes="here-line"))
-            if hidden:
-                out.append(Clickable(Text(f" +{hidden} more ▸ ", style=f"reverse {ACCENT}"), "screen.more_here()",
-                                     classes="more"))
-        box.mount_all(out)
+            self.duel = (picture, Static(facts(state, content, foe), classes="duel-words"))
+            out.append(Horizontal(*self.duel, classes="duel"))
+            self.here_last = Static(classes="here-last")
+            out.append(self.here_last)
+            rows -= 1 + art // 2 + 2
+        forms = {"Who's here": ROW, "Things": ROW, "To search": CHIP, "Also here": CHIP}
+
+        def tall(name: str, group: list) -> int:
+            return 1 + sum(measure(t, forms[name] if t.art else CHIP, width, False, content)[1] for t in group)
+
+        def total() -> int:
+            return sum(tall(name, group) for name, group in sections if group)
+
+        for name in ("Things", "Who's here"):  # (too tall: the things a line each, then the people)
+            if total() > rows:
+                forms[name] = CHIP
+        hidden = 0
+        if total() > rows:  # (still too tall: a page of them, and a chip saying how many more)
+            everyone = [t for _, group in sections for t in group]
+            start = (self.here_page * max(1, len(everyone) // 2)) % max(1, len(everyone))
+            kept = everyone[start:] + everyone[:start]
+            while kept and sum(tall(name, [t for t in kept if t in group]) for name, group in sections
+                               if any(t in group for t in kept)) > rows - 1:
+                kept.pop()
+            hidden = len(everyone) - len(kept)
+            sections = [(name, [t for t in group if t in kept]) for name, group in sections]
+        used = 0
+        for name, group in sections:
+            if not group:
+                continue
+            out.append(Static(rule(name, width), classes="here-head"))
+            for thing in group:
+                form = forms[name] if thing.art else CHIP
+                size = measure(thing, form, width, False, content)
+                tile = Tile(thing, form, (width if form == ROW else size[0], size[1]), numbers, content, False,
+                            animate=True)
+                tile.tooltip = facts(state, content, thing)  # (hover: all about it)
+                out.append(Horizontal(tile, classes="here-line"))
+            used += tall(name, group)
+        if hidden:
+            out.append(Clickable(Text(f" +{hidden} more ▸ ", style=f"reverse {ACCENT}"), "screen.more_here()",
+                                 classes="more"))
+            used += 1
+        if not any(group for _, group in sections) and foe is None:
+            out.append(Static(Text("Nothing here to take or talk to.", style=DIM), classes="here-empty"))
+            used += 2
+        taken = (self.grid.band - self.grid.strip - 2) - rows + used  # (the foe's card and the last turn, too)
+        return out, taken
+
+    def draw_lately(self, width: int, rows: int) -> None:
+        """The journal's last lines at the foot of Here (what you did, and what came of it: not the dice), newest
+        last, as many as fit in `rows` wrapped `width` wide; hidden if fewer than LATELY_LEAST rows would show. Shown
+        in place, so nothing above it is drawn again as the journal grows."""
+        journal = self.game.state.journal
+        shown = (width, rows, tuple(journal[-LATELY_MOST:]))
+        if shown == self.lately_drawn:
+            return
+        self.lately_drawn = shown
+        box, line = self.query_one("#here-lately"), self.query_one("#lately", StoryLine)
+        lines, used = [], 0
+        for entry in reversed(journal) if rows >= LATELY_LEAST else []:
+            if entry.startswith("⚄ "):
+                continue
+            tall = len(textwrap.wrap("· " + entry, width)) or 1
+            if used + tall > rows:
+                break
+            lines.insert(0, entry)
+            used += tall
+        box.display = bool(lines)
+        if not lines:
+            return
+        lexicon = self.lexicon()
+        text = Text()
+        for i, entry in enumerate(lines):
+            text.append("· ", style=FAINT)
+            text.append_text(highlight(entry, lexicon, WORDS if i == len(lines) - 1 else DIM))
+            text.append("\n")
+        text.rstrip()
+        self.query_one("#lately-head", Static).update(rule("Lately", width))
+        line.styles.height = used
+        line.update(text)
 
     def draw_strip(self) -> None:
         """The panels' buttons at the foot of the right column: a row of six, or two of three on a narrow screen, each
@@ -663,9 +1039,10 @@ class GridScreen(GameScreen):
         return state.in_combat and not state.scene and not state.over
 
     def refresh_choices(self) -> None:
-        """The six big buttons (a fight's, or the room's) and the compass, the open row under them, and the choices
-        left as buttons too; in a scene, its choices fill the box instead. Rebuilt only when something in it changes:
-        a rebuild swaps the buttons out from under the mouse."""
+        """The six big buttons (a fight's, or the room's), the compass, your things or the options a button's opened,
+        and the choices left; in a scene, its choices fill the box instead. Each part drawn again only when what it
+        shows changes, the buttons and the compass's cells in place: a part torn down and built again flashes off and
+        on, and swaps what's under the mouse."""
         game, grid = self.game, self.grid
         state, content = game.state, game.content
         if grid is None:
@@ -685,112 +1062,298 @@ class GridScreen(GameScreen):
                 rest.append(action)
         if not scene:
             groups["use"] += self.more_uses(fight, groups, {a.id for a in choices})
-        if self.tray and self.tray[3] and not groups.get(self.tray[3]):  # (its button has nothing left: it closes)
+        if self.tray and self.tray[2] and not groups.get(self.tray[2]):  # (its button has nothing left: it closes)
             self.tray = None
-        suggesting = game.suggestion_pending()
-        exits = tuple((d, way_name(state, d), e.locked) for d, e in sorted(state.room.exits.items()))
-        shown = (grid, fight, scene, state.over, suggesting, self.tray and self.tray[0] == "bar" and self.tray[1:],
-                 {k: [(a.id, a.label, a.hint) for a in v] for k, v in groups.items()},
-                 [(a.id, a.label, a.hint) for a in rest], state.room.monster and state.room.monster.intent,
-                 tuple(a.id for a in self.tile_verbs), exits)
         decide = self.query_one("#decide")
         decide.border_title = f"✧ {scene}" if scene else "⚔ What do you do?" if fight else "What do you do?"
         decide.set_class(fight, "fight")
         decide.set_class(bool(scene), "scene")
-        if shown == self.decide_shown:
-            return
-        self.decide_shown = shown
         self.groups = groups
         self.slots = {FIRST_VERB + i: ("action", a) for i, a in enumerate(self.tile_verbs)}
         quiet = bool(scene) or state.over
         self.query_one("#top-row").display = not quiet
-        below = self.query_one("#below", VerticalScroll)
-        below.remove_children()
-        below.styles.height = grid.below + (grid.bar if quiet else 0)  # (the box keeps its height: a scene's
-        # choices take the buttons' rows too)
         if not quiet:
             self.draw_bar(bar, groups, fight)
+        compass = self.query_one("#compass")
+        compass.display = not quiet and (not grid.beside or not (fight or self.tray))
+        if compass.display:
             self.draw_compass(fight)
-        width = grid.left - 4
-        lines: list[Widget] = []
-        if state.over:
-            lines.append(Static(Text("Press Enter to see your fate.", style=ACCENT)))
-        if self.tray and self.tray[0] == "bar":
-            lines += self.tray_lines(width)
         first = 1 if scene else FIRST_VERB + len(self.tile_verbs)
-        chips = []
         for number, action in enumerate(rest, first):
-            colour = PINK if action.id == "suggest" or action.label.startswith("✦") else ACCENT
-            text = chip(str(number), action.label, colour, action.hint)
-            chips.append((Clickable(text, f"screen.slot({number})", classes="choice-chip"), text.cell_len + 2))
             self.slots[number] = ("action", action)
-        if suggesting:
-            text = Text(f" {first + len(rest)}  ✦ …", style=f"italic {DIM}")
-            chips.append((Static(text, classes="choice-chip"), text.cell_len + 2))
-        lines += wrapped(chips, width)
-        below.mount_all(lines)
+        width = (self.size.width - grid.side - grid.story_w - 4) if grid.beside else grid.left - 4
+        suggesting = game.suggestion_pending()
+        chips_shown = (tuple((a.id, a.label, a.hint) for a in rest), first, suggesting)
+
+        def chips() -> list[Widget]:
+            out = []
+            for number, action in enumerate(rest, first):
+                colour = PINK if action.id == "suggest" or action.label.startswith("✦") else ACCENT
+                text = chip(str(number), action.label, colour, action.hint)
+                out.append((Clickable(text, f"screen.slot({number})", classes="choice-chip"), text.cell_len + 2))
+            if suggesting:
+                text = Text(f" {first + len(rest)}  ✦ …", style=f"italic {DIM}")
+                out.append((Static(text, classes="choice-chip"), text.cell_len + 2))
+            return wrapped(out, width)
+
+        below = self.query_one("#below", VerticalScroll)
+        picks = self.query_one("#picks", Vertical)
+        picks.display = grid.beside and not quiet
+        if grid.beside:
+            below.styles.height = "1fr"
+        else:  # (the box keeps its height: a scene's choices take the buttons' rows too)
+            below.styles.height = BELOW[grid.tall] + (grid.bar if quiet else 0)
+        if state.over:
+            self.offered = []
+            shown, build = ("over",), lambda: [Static(Text("Press Enter to see your fate.", style=ACCENT))]
+        elif scene:  # (its choices big, a wide button each, filling the box)
+            self.offered = []
+            shown = ("scene", chips_shown)
+
+            def build() -> list[Widget]:
+                return [Clickable(Text.assemble((f" {n} ", f"bold #10122a on {ACCENT}"), ("  " + a.label, "bold")),
+                                  f"screen.slot({n})", classes="scene-choice") for n, a in enumerate(rest, first)]
+        elif grid.beside:
+            shown, build = self.things_under(width, fight, groups)
+        else:
+            self.offered = self.tray[1] if self.tray else []
+            shown = ("under", self.tray and (self.tray[0], tuple(a.id for a in self.tray[1])), chips_shown)
+
+            def build() -> list[Widget]:
+                return (self.tray_lines(width) if self.tray else []) + chips()
+        if shown != self.below_drawn:
+            self.below_drawn = shown
+            self.swap(below, build())
+        if grid.beside and not quiet and chips_shown != self.picks_drawn:
+            self.picks_drawn = chips_shown
+            self.swap(picks, chips())
+
+    def things_under(self, width: int, fight: bool, groups: dict[str, list[Action]]) -> tuple[tuple, Callable]:
+        """Under the buttons (beside the story): the options a button (or a thing's picker) has opened, or else your
+        things, all that Heal, Throw (in a fight), Use and Gear would use, a card each with its picture, what it would
+        do and how it would go, a letter each, then what you carry that has no use now, dim, and why; a line each if
+        there's room for only one card; a page of them if they're more than fit. What it would show, and how to build
+        it (so it's built only if that's changed)."""
+        state, content, grid = self.game.state, self.game.content, self.grid
+        player = state.player
+        if self.tray:
+            title, options, kind = self.tray
+        else:
+            title, kind, options = "Your things", "", []
+            for group in ("heal", "throw", "use", "gear") if fight else ("heal", "use", "gear"):
+                options += [a for a in groups.get(group, []) if a.id not in {o.id for o in options}]
+        self.offered = options
+        kinds = {a.id: (kind or next((k for k, group in groups.items() if a in group), "use")) for a in options}
+        # Then (your things, not an open button's) what you carry that there's nothing to do with now, dim, and why.
+        used = {item_key(a, content) for a in options}
+        idle = [] if self.tray else [key for key in dict.fromkeys(player.inventory) if key not in used]
+        compass = 0 if fight or self.tray else grid.ways + 1
+        rows = grid.decide - 2 - (2 * grid.bar + 1) - compass - 1 - PICKS - 1  # (less the heading)
+        per_row = 2 if width >= 2 * CARD[0] + 1 else 1
+        entries: list[Action | str] = [*options, *idle]  # (an option, or a thing with nothing to do with it now)
+        cards = rows // (CARD[1] + 1) * per_row if rows >= CARD[1] else 0
+        if cards < min(2, len(entries)):  # (room for one card only, and more to show: a line each)
+            cards = 0
+        fits = cards or rows
+        page = entries
+        if len(entries) > fits:
+            per_page = max(1, fits - (0 if cards else 1))
+            start = (self.item_page * per_page) % len(entries)
+            page = (entries[start:] + entries[:start])[:per_page]
+        foe = state.room.monster if fight else None
+        weak_to = content.monster(foe.key).weak if foe else []
+        counts = player.inventory
+        reasons = {key: self.why_idle(key, fight) for key in idle}
+        shown = ("things", title, kind, bool(self.tray), cards, per_row, width, len(entries) - len(page),
+                 tuple((e, counts.count(e), reasons[e]) if isinstance(e, str) else
+                       (e.id, e.label, e.hint, kinds[e.id], counts.count(item_key(e, content))) for e in page),
+                 tuple(weak_to))
+
+        def build() -> list[Widget]:
+            controls: list[Widget] = []
+            if len(entries) > len(page):
+                more = Text(f" +{len(entries) - len(page)} more ▸ ", style=f"reverse {ACCENT}")
+                controls.append(Clickable(more, "screen.more_things()", classes="items-more"))
+            if self.tray:
+                controls.append(Clickable(Text(" ✕ close", style=DIM), "screen.close_tray()", classes="items-close"))
+            taken = sum(len(str(c.render())) + 1 for c in controls)
+            head = Horizontal(Static(rule(title + (" · pick one" if self.tray else ""), width - taken,
+                                          COLOUR.get(kind, GOLD) if self.tray else DIM), classes="items-title"),
+                              *controls, classes="items-head")
+            out: list[Widget] = [head]
+            if not entries:
+                words = "Nothing to use on it: try something of your own." if fight else "Your pack is empty."
+                out.append(Static(Text(words, style=DIM), classes="items-none"))
+                return out
+            sprites = self._sprites_on()
+            card_w = (width - 1) // 2 if per_row == 2 else 0
+            if cards:
+                row: list[Widget] = []
+                for entry in page:
+                    if isinstance(entry, str):
+                        card = ItemCard(0, None, "", entry, content, sprites, counts.count(entry), reasons[entry],
+                                        width=card_w)
+                    else:
+                        key = item_key(entry, content)
+                        weak = [t for t in content.item(key).tags if t in weak_to] if key and kinds[entry.id] in (
+                            "throw", "use") else []
+                        card = ItemCard(options.index(entry), entry, kinds[entry.id], key, content, sprites,
+                                        counts.count(key) if key else 0, weak=weak, width=card_w)
+                    row.append(card)
+                    if len(row) == per_row:
+                        out.append(Horizontal(*row, classes="card-row"))
+                        row = []
+                if row:
+                    out.append(Horizontal(*row, classes="card-row"))
+                return out
+            for entry in page:
+                if isinstance(entry, str):
+                    text = Text.assemble(("     " + content.item(entry).name, f"bold {DIM}"),
+                                         (f"  {reasons[entry]}", "#4a4e7a"))
+                    out.append(Horizontal(Static(text, classes="choice-chip"), classes="chip-line"))
+                    continue
+                index = options.index(entry)
+                colour = COLOUR.get(kinds[entry.id], GOLD)
+                key = item_key(entry, content)
+                verb = entry.label.split(" ")[0]
+                verb = verb if verb in VERBS else WORD.get(kinds[entry.id], "Use")
+                text = chip(chr(97 + index), f"{verb} {short(entry)}", colour,
+                            entry.hint or (item_note(content, key) if key else ""))
+                out.append(Horizontal(Clickable(text, f"screen.pick({index})", classes="choice-chip"),
+                                      classes="chip-line"))
+            return out
+
+        return shown, build
+
+    def why_idle(self, key: str, fight: bool) -> str:
+        """Why there's nothing to do with a thing you carry, now, in a word or two."""
+        state, content = self.game.state, self.game.content
+        item, player = content.item(key), state.player
+        if item.kind == "consumable":
+            if item.heal and player.hp >= player.max_hp:
+                return "full HP"
+            if item.escape and not fight:
+                return "for a fight"
+            return "nothing ails you" if item.cures else "not now"
+        if item.kind == "key":
+            return "it opens something"
+        if item.kind in ("weapon", "armor"):
+            return "not as good" if item.kind == "armor" or item.damage else "spare"
+        return "use it on something"
+
+    def action_more_things(self) -> None:
+        self.item_page += 1
+        self.refresh_choices()
 
     def draw_bar(self, bar: list, groups: dict[str, list[Action]], fight: bool) -> None:
-        """The six big buttons, each in its look: open if its row's showing, urgent (Dodge, as a heavy blow comes),
-        unavailable with why, or as it is; with their icons, and notes, if the window's wide enough for them."""
+        """The six big buttons, each in its look: open if its options are showing, urgent (Dodge, as a heavy blow
+        comes; Heal, when you're low), unavailable with why, or as it is; with their icons, and notes, if there's room
+        for them. Beside the story, two rows of three; under it, a row of six. Built afresh only for another set (a
+        fight's, the room's) or another size; otherwise each shows its look in place."""
         grid, state = self.grid, self.game.state
-        buttons = self.query_one("#bar", Horizontal)
-        buttons.remove_children()
-        compass = 3 * (13 if grid.named else 5) + 1
-        wide = (grid.left - 4 - compass) // 6 - 1 >= 11
+        box = self.query_one("#bar", Vertical)
+        if grid.beside:
+            inside = (self.size.width - grid.side - grid.story_w - 4 - 2) // 3 - 2  # (inside a button's frame)
+            rows = [bar[:3], bar[3:]]
+        else:
+            compass = 3 * grid.cell + 2 + 1  # (and its margin)
+            inside = (grid.left - 4 - compass) // 6 - 1 - 2
+            rows = [bar]
+        wide = inside >= 9
         pictured = grid.tall and wide and self._sprites_on() and Image is not None  # (ASCII art chosen: words only)
-        out = []
+        built = (grid, tuple(kind for kind, _, _ in bar), pictured)
+        if built != self.bar_built:
+            self.bar_built = built
+            numbers = {kind: number for number, (kind, _, _) in enumerate(bar, 1)}
+            self.buttons = {kind: BigButton(kind, numbers[kind], grid.tall, pictured) for kind, _, _ in bar}
+            lines = []
+            for r, row in enumerate(rows):
+                line = Horizontal(*[self.buttons[kind] for kind, _, _ in row], classes="bar-row")
+                line.styles.height = grid.bar
+                line.styles.margin = (1 if r else 0, 0, 0, 0)
+                lines.append(line)
+            box.styles.height = len(rows) * grid.bar + len(rows) - 1
+            self.swap(box, lines)
         for number, (kind, _, _) in enumerate(bar, 1):
             live, note = self.button_state(kind, groups[kind], fight)
-            hot = live and kind == "dodge" and state.room.monster.intent == "heavy"
-            opened = bool(self.tray and self.tray[3] == kind)
+            low = kind == "heal" and state.player.hp * 3 <= state.player.max_hp  # (a third of your HP, or less)
+            hot = live and (kind == "dodge" and fight and state.room.monster.intent == "heavy" or low)
+            opened = bool(self.tray and self.tray[2] == kind)
             look = "dead" if not live else "open" if opened else "hot" if hot else "live"
-            out.append(BigButton(kind, number, look, "now!" if hot else "▴ open" if opened else note, grid.tall, wide,
-                                 pictured))
+            note = ("low HP!" if low else "now!") if hot and not opened else "▾ open" if opened else note
+            note = note if len(note) <= inside - 2 else note[:inside - 3] + "…"  # (as much as its frame has room for)
+            self.buttons[kind].show(look, note, wide)
             self.slots[number] = ("bar", kind)
-        buttons.mount_all(out)
 
     def draw_compass(self, fight: bool) -> None:
-        """The ways out as a compass beside the buttons: an arrow where there's a door, lit by where it goes (the
-        room's name, if you've been, on a wide screen); you in the middle (click: look around). In a fight they're dim:
-        the way out is Flee."""
+        """The ways out as a compass, five cells that never move or change size, whatever the room: north, west, you,
+        east and south. A way out says where it goes and, on a second line if there's room, what's there (a foe in
+        red, a chest, that it's been searched); one through a locked door says so; a wall is faint. You in the middle
+        (click: look around). In a fight they're dim: the way out is Flee. Beside the story, under the buttons with a
+        heading; under it, beside them. The cells are built once for the screen's size, then shown in place."""
         grid, state = self.grid, self.game.state
         box = self.query_one("#compass", Vertical)
-        box.remove_children()
-        cell_w = 13 if grid.named else 5
-        box.styles.width = 3 * cell_w + 1
-        heights = (2, 3, 2) if grid.tall else (1, 1, 1)
-
-        def way(direction: str) -> Widget:
-            if direction not in state.room.exits:
-                return Static(Text("·" if grid.tall else "", style=FAINT, justify="center"), classes="compass-cell")
-            name, colour = way_name(state, direction)
-            colour = "#3a3f66" if fight else colour
-            arrow = (ARROWS[direction], f"bold {colour}")
-            words = name if grid.named else ""
-            if len(words) > cell_w - 3:
-                words = words[:cell_w - 4] + "…"
-            if direction == "east":
-                text = Text.assemble((f"{words} " if words else "", colour), arrow, justify="center")
+        cw = grid.cell
+        lines_per = 2 if grid.beside and grid.ways >= 7 else 1
+        if self.compass_built != grid:
+            self.compass_built = grid
+            gaps = (0, 0, 0)
+            if grid.beside:
+                box.styles.height, box.styles.width = grid.ways, "100%"
+                heights = (lines_per,) * 3
+                gaps = (0, 1, 1) if grid.ways >= 9 else gaps
             else:
-                gap = "\n" if direction in ("north", "south") and grid.tall else " "
-                text = Text.assemble(arrow, (f"{gap}{words}" if words else "", colour), justify="center")
-            cell = Clickable(text, f"screen.go('{direction}')", classes="compass-cell way")
-            cell.tooltip = f"{direction}: {name}"
-            return cell
+                box.styles.height, box.styles.width = grid.bar, 3 * cw + 2
+                heights = (2, 3, 2) if grid.tall else (1, 1, 1)
+            self.cells = {name: CompassCell() for name in ("north", "west", "middle", "east", "south")}
+            layout = [[None, "north", None], ["west", "middle", "east"], [None, "south", None]]
+            lines: list[Widget] = []
+            if grid.beside:
+                lines.append(Static(rule("Ways", self.size.width - grid.side - grid.story_w - 4), classes="ways-head"))
+            for names, h, gap in zip(layout, heights, gaps):
+                cells = [self.cells[name] if name else Static("", classes="compass-cell blank") for name in names]
+                for i, cell in enumerate(cells):
+                    cell.styles.width, cell.styles.height = cw, h
+                    cell.styles.margin = (0, 1 if i < 2 else 0, 0, 0)
+                line = Horizontal(*cells, classes="compass-row")
+                line.styles.margin = (gap, 0, 0, 0)
+                lines.append(line)
+            self.swap(box, lines)
 
-        middle = Clickable(Text("✕" if fight else "@", style=f"bold {FOE if fight else ACCENT}", justify="center"),
-                           "screen.panel('look')", classes="compass-cell middle")
-        middle.tooltip = "Look around (F4)"
-        rows = [[None, way("north"), None], [way("west"), middle, way("east")], [None, way("south"), None]]
-        lines = []
-        for cells, h in zip(rows, heights):
-            cells = [cell or Static("", classes="compass-cell") for cell in cells]
-            for cell in cells:
-                cell.styles.width = cell_w
-                cell.styles.height = h
-            lines.append(Horizontal(*cells, classes="compass-row"))
-        box.mount_all(lines)
+        def cut(words: str, room: int) -> str:
+            return words if len(words) <= room else words[:room - 1] + "…"
+
+        for direction in ("north", "west", "east", "south"):
+            arrow = ARROWS[direction]
+            if direction not in state.room.exits:
+                words = ("wall ▶" if direction == "east" else f"{arrow} wall") if grid.named else "·"
+                self.cells[direction].show(Text(words, style=FAINT, justify="center"), "wall")
+                continue
+            exit_ = state.room.exits[direction]
+            there = state.rooms[exit_.to]
+            name, colour = way_name(state, direction)
+            note, note_colour = "", DIM
+            if exit_.locked:
+                name, note = "locked", name.partition(": ")[2] or "a key, or bombs"
+            elif there.visited:
+                note, note_colour = (room_notes(state, there) or [("", DIM)])[0]
+            elif name != "unexplored":
+                note = "unexplored"
+            if fight:
+                colour = note_colour = "#3a3f66"
+            tip = f"{direction}: {name}" + (f" ({note})" if note else "")
+            if not grid.named:  # (no room for where it goes: the arrow, lit)
+                name = ""
+            first = cut((f"{name} {arrow}" if direction == "east" else f"{arrow} {name}").strip(), cw - 1)
+            text = Text(first, style=f"bold {colour}", justify="center")
+            if lines_per > 1:
+                text.append("\n" + cut(note, cw - 1), style=note_colour)
+            self.cells[direction].show(text, "way", f"screen.go('{direction}')", tip)
+        middle = Text(("✕ fight" if fight else "@ you") if cw >= 9 else "✕" if fight else "@",
+                      style=f"bold {FOE if fight else ACCENT}", justify="center")
+        if lines_per > 1:
+            middle.append("\nflee: 6" if fight else "\nlook · F4", style=DIM)
+        self.cells["middle"].show(middle, "middle", "screen.panel('look')", "Look around (F4)")
 
     def more_uses(self, fight: bool, groups: dict[str, list[Action]], listed: set[str]) -> list[Action]:
         """What Use offers beyond the game's own choices: in a fight, what the foe's "Use…" would (the things you could
@@ -823,7 +1386,7 @@ class GridScreen(GameScreen):
                 note = f"{len(group)} ▾"
             else:  # (the one thing it'd use, or what's urgent)
                 note = group[0].hint or (short(group[0]) if kind in ("heal", "throw", "use", "gear") else "")
-            return True, note if len(note) <= 12 else note[:11] + "…"
+            return True, note
         if kind == "heal":
             healing = any(content.item(k).heal for k in player.inventory)
             return False, "full HP" if healing and player.hp >= player.max_hp else "none"
@@ -833,30 +1396,29 @@ class GridScreen(GameScreen):
             return False, "no wall" if player.bombs else "no bombs"
         if kind in ("search", "rest"):
             reason = why_not(state, content, "search_room" if kind == "search" else "rest")
-            return False, "done" if kind == "search" and not reason else "not now"
+            return False, next((note for words, note in WHY_NOT if words in reason), "not now")
         if kind == "gear":
             return False, "all set"
         return False, "none"
 
     def tray_lines(self, width: int) -> list[Widget]:
-        """The open row: its title, its options a letter each (what each would do after it), and a ✕ to close it."""
-        where, title, options, _ = self.tray
-        colour = COLOUR.get(title.lower(), GOLD)
+        """The open options, under the story (no room for cards): its title, its options a letter each (what each
+        would do after it), and a ✕ to close it."""
+        title, options, kind = self.tray
+        colour = COLOUR.get(kind, GOLD)
         head = Text(f"{title}:", style=f"bold {colour}")
         chips: list[tuple[Widget, int]] = [(Static(head, classes="tray-head"), head.cell_len + 1)]
         for i, action in enumerate(options):
             text = chip(chr(97 + i), short(action), colour, action.hint)
             chips.append((Clickable(text, f"screen.pick({i})", classes="choice-chip"), text.cell_len + 2))
         chips.append((Clickable(Text(" ✕ close", style=DIM), "screen.close_tray()", classes="choice-chip"), 9))
-        if where == "here":  # (one to a line: Here's narrow)
-            return [Horizontal(widget, classes="chip-line") for widget, _ in chips]
         return wrapped(chips, width)
 
     # --- what a press does ---
 
     def action_bar(self, kind: str) -> None:
-        """A big button: one thing to do it with, it's done (bar Bomb, which shows which wall first); more, their row
-        opens (or closes, if it's open)."""
+        """A big button: one thing to do it with, it's done (bar Bomb, which shows which wall first); more, their
+        options show (or hide again, if they're showing)."""
         if self.busy:
             return
         group = self.groups.get(kind, [])
@@ -867,9 +1429,8 @@ class GridScreen(GameScreen):
             self.close_tray(redraw=False)
             self.press(group[0])
             return
-        self.tray = None if self.tray and self.tray[3] == kind else ("bar", WORD[kind], group, kind)
-        self.decide_shown = self.here_drawn = None
-        self.refresh_here()
+        self.tray = None if self.tray and self.tray[2] == kind else (WORD[kind], group, kind)
+        self.item_page = 0
         self.refresh_choices()
 
     def action_slot(self, number: int) -> None:
@@ -882,9 +1443,9 @@ class GridScreen(GameScreen):
         self.query_one("#command", Input).focus()
 
     def press(self, action: Action) -> None:
-        """A choice: a picker opens its row (in Here, under its thing, if it's a thing's; else under the buttons)
-        instead of a window; the idea and a scene's choices go by their number in the game's list; anything else is
-        a turn, as GameScreen presses it (a tile's button says what it was done to: "Search · pew")."""
+        """A choice: a picker (Give…) shows its options under the buttons, as a button's do, instead of a window; the
+        idea and a scene's choices go by their number in the game's list; anything else is a turn, as GameScreen
+        presses it (a tile's button says what it was done to: "Search · pew")."""
         if self.busy:
             self.later(lambda: self.press(action))
             return
@@ -895,10 +1456,8 @@ class GridScreen(GameScreen):
             options = interactions.choices(state, self.game.content, action.id)
             owner = self.verb_owner.get(action.id)
             title = action.label.removesuffix("…") + (f" · {owner}" if owner else "")
-            self.tray = None if self.tray and self.tray[1] == title else ("here" if owner else "bar", title, options,
-                                                                          "")
-            self.decide_shown = self.here_drawn = None
-            self.refresh_here()
+            self.tray = None if self.tray and self.tray[0] == title else (title, options, "")
+            self.item_page = 0
             self.refresh_choices()
             return
         self.close_tray(redraw=False)
@@ -910,9 +1469,9 @@ class GridScreen(GameScreen):
         super().press(action)
 
     def action_pick(self, index: int) -> None:
-        """A choice in the open row."""
-        if self.tray and 0 <= index < len(self.tray[2]):
-            self.press(self.tray[2][index])
+        """One of the options under the buttons (yours, or the open ones), by its letter."""
+        if 0 <= index < len(self.offered):
+            self.press(self.offered[index])
         self.query_one("#command", Input).focus()
 
     def action_close_tray(self) -> None:
@@ -921,16 +1480,15 @@ class GridScreen(GameScreen):
     def close_tray(self, redraw: bool = True) -> None:
         if self.tray is not None:
             self.tray = None
-            self.decide_shown = self.here_drawn = None
+            self.item_page = 0
             if redraw:
-                self.refresh_here()
                 self.refresh_choices()
 
     def take_input(self, text: str) -> None:
-        """What was typed: a letter for the open row, a number for a button, else as ever."""
+        """What was typed: a letter for one of the options under the buttons, a number for a button, else as ever."""
         if self.busy or self.game.state.over:
             return super().take_input(text)
-        if self.tray and len(text) == 1 and text.isalpha():
+        if self.offered and len(text) == 1 and text.isalpha():
             self.action_pick(ord(text.lower()) - 97)
             return
         if text.isdigit() and int(text) in self.slots and not self.game.state.scene:

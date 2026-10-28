@@ -357,8 +357,8 @@ async def test_a_room_on_the_map_you_can_get_back_to_is_a_click_away():
         screen = await walk_in(app, pilot)  # (next door, to Lenny: calm)
         assert state.room_id != start
         drawn = big_map(state, 200, 60)
-        clicks = {span.style.meta.get("@click") for span in drawn.spans if not isinstance(span.style, str)}
-        assert f"screen.travel({start})" in clicks
+        clicks = {span.style.meta.get("travel") for span in drawn.spans if not isinstance(span.style, str)}
+        assert start in clicks
         state.wandered[str(state.floor)] = 99  # (nothing on the way, this time)
         screen.action_travel(start)
         await settle(app, pilot)

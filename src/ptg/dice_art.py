@@ -26,6 +26,7 @@ EDGE = (64, 44, 104)
 OUTLINE = (24, 20, 37)
 INK = (36, 22, 58)
 GOLD = (255, 209, 102)
+SPARK = (255, 247, 214)  # a critical's sparkles, at their brightest
 CRIMSON = (228, 59, 68)
 
 DIGITS = {
@@ -35,6 +36,26 @@ DIGITS = {
     "6": ("111", "100", "111", "101", "111"), "7": ("111", "001", "010", "010", "010"),
     "8": ("111", "101", "111", "101", "111"), "9": ("111", "101", "111", "001", "111"),
     "?": ("111", "001", "011", "000", "010"),
+}
+# The same pixels for words, 3 across (M, N and W wider, to read as themselves) and 5 down: the dice screen's target
+# and verdict, stamped big (see lettering).
+LETTERS = {
+    "A": ("010", "101", "111", "101", "101"), "B": ("110", "101", "110", "101", "110"),
+    "C": ("011", "100", "100", "100", "011"), "D": ("110", "101", "101", "101", "110"),
+    "E": ("111", "100", "111", "100", "111"), "F": ("111", "100", "111", "100", "100"),
+    "G": ("011", "100", "111", "101", "011"), "H": ("101", "101", "111", "101", "101"),
+    "I": ("111", "010", "010", "010", "111"), "J": ("001", "001", "001", "101", "010"),
+    "K": ("101", "101", "110", "101", "101"), "L": ("100", "100", "100", "100", "111"),
+    "M": ("10001", "11011", "10101", "10001", "10001"), "N": ("1001", "1101", "1011", "1001", "1001"),
+    "O": ("010", "101", "101", "101", "010"), "P": ("110", "101", "110", "100", "100"),
+    "Q": ("010", "101", "101", "111", "011"), "R": ("110", "101", "111", "110", "101"),
+    "S": ("011", "100", "010", "001", "110"), "T": ("111", "010", "010", "010", "010"),
+    "U": ("101", "101", "101", "101", "011"), "V": ("101", "101", "101", "010", "010"),
+    "W": ("10001", "10001", "10101", "11011", "10001"), "X": ("101", "101", "010", "101", "101"),
+    "Y": ("101", "101", "010", "010", "010"), "Z": ("111", "001", "010", "100", "111"),
+    "!": ("010", "010", "010", "000", "010"), "'": ("010", "010", "000", "000", "000"),
+    "-": ("000", "000", "111", "000", "000"), "+": ("000", "010", "111", "010", "000"),
+    ".": ("000", "000", "000", "000", "010"), **DIGITS,
 }
 
 
@@ -121,10 +142,30 @@ def _ring(img, colour: tuple) -> None:
                 px[x, y] = (*colour, 255)
 
 
+def _burst(canvas, centre: tuple[float, float], radius: float, frame: int) -> None:
+    """A critical's light around the die (`frame` 1-3, spreading): eight gold rays from its rim, a sparkle between
+    each pair."""
+    px = canvas.load()
+
+    def put(x: float, y: float, colour: tuple) -> None:
+        x, y = round(x), round(y)
+        if 0 <= x < canvas.width and 0 <= y < canvas.height:
+            px[x, y] = (*colour, 255)
+
+    for k in range(8):
+        angle = math.radians(k * 45 - 90)
+        for r in range(int(radius) + 1, int(radius) + 1 + frame + 1):
+            put(centre[0] + r * math.cos(angle), centre[1] + r * math.sin(angle), GOLD if r % 2 else SPARK)
+        angle = math.radians(k * 45 - 67.5)
+        x, y = centre[0] + (radius + frame) * math.cos(angle), centre[1] + (radius + frame) * math.sin(angle)
+        for dx, dy in ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)) if frame >= 2 else ((0, 0),):
+            put(x + dx, y + dy, SPARK if (dx, dy) == (0, 0) else GOLD)
+
+
 def die_image(value: int | None, turn: int = 0, bounce: int = 0, glow: tuple | None = None, dim: bool = False,
-              size: int = SIZE):
+              size: int = SIZE, pad: int = 0, burst: int = 0):
     """The die showing `value` (None shows "?"), turned `turn` quarter-turns, raised `bounce` pixels (0-2), `size`
-    pixels across."""
+    pixels across, with `pad` pixels of room all round (for `burst`, a critical's light: see _burst)."""
     img = _blank(size).copy()
     px = img.load()
     label = "?" if value is None else str(value)
@@ -136,8 +177,11 @@ def die_image(value: int | None, turn: int = 0, bounce: int = 0, glow: tuple | N
                     px[left + i * 4 + col, top + row] = (*INK, 255)
     if turn % 4:
         img = img.rotate(-90 * (turn % 4))
-    canvas = Image.new("RGBA", (size + 2, size + 3), (0, 0, 0, 0))  # room for the glow, and to bounce
-    canvas.alpha_composite(img, (1, 2 - bounce))
+    canvas = Image.new("RGBA", (size + 2 + 2 * pad, size + 3 + 2 * pad), (0, 0, 0, 0))  # room for the glow, and to
+    # bounce
+    if burst:
+        _burst(canvas, (pad + 1 + (size - 1) / 2, pad + 2 + (size - 1) / 2), size / 2, burst)
+    canvas.alpha_composite(img, (1 + pad, 2 - bounce + pad))
     if glow:
         _ring(canvas, glow)
     if dim:
@@ -153,8 +197,38 @@ def die_image(value: int | None, turn: int = 0, bounce: int = 0, glow: tuple | N
 
 @lru_cache(maxsize=512)
 def d20(value: int | None, turn: int = 0, bounce: int = 0, glow: tuple | None = None, dim: bool = False,
-        size: int = SIZE) -> Text:
+        size: int = SIZE, pad: int = 0, burst: int = 0) -> Text:
     """The die as half-block text, in its own colours. They aren't snapped to the sprites' (see sprites.palette),
     which have nothing near its violet; they are a fixed few already (the faces, edges and number, the glows, and the
     same greyed), whatever it shows and however it's turned, so a GPU terminal's glyph cache stays small anyway."""
-    return image_text(die_image(value, turn, bounce, glow, dim, size))
+    return image_text(die_image(value, turn, bounce, glow, dim, size, pad, burst))
+
+
+def _advance(ch: str) -> int:
+    """How far a letter moves the pen: its pixels and a pixel's gap (a space, two)."""
+    return len(LETTERS[ch][0]) + 1 if ch in LETTERS else 2
+
+
+def lettering_width(words: str, scale: int = 1) -> int:
+    """How many columns `words` take in lettering (with the shadow's column)."""
+    return sum(_advance(ch) for ch in words.upper()) * scale - scale + 1
+
+
+@lru_cache(maxsize=64)
+def lettering(words: str, colour: tuple, scale: int = 1, shadow: tuple | None = None) -> Text:
+    """`words` in the dice's pixel letters (LETTERS: capitals, digits, a little punctuation; anything else a gap),
+    each pixel `scale` across and down, in `colour`, with a drop shadow a pixel down and right if `shadow` is given:
+    as half-block text, (5 x scale + 1) / 2 rows tall."""
+    img = Image.new("RGBA", (lettering_width(words, scale), 5 * scale + 1), (0, 0, 0, 0))
+    px = img.load()
+    for offset, ink in ((1, shadow), (0, colour)) if shadow else ((0, colour),):
+        x = 0
+        for ch in words.upper():
+            for row, bits in enumerate(LETTERS.get(ch, ())):
+                for col, bit in enumerate(bits):
+                    if bit == "1":
+                        for dy in range(scale):
+                            for dx in range(scale):
+                                px[x + col * scale + dx + offset, row * scale + dy + offset] = (*ink, 255)
+            x += _advance(ch) * scale
+    return image_text(img)

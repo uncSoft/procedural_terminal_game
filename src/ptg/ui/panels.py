@@ -35,11 +35,15 @@ from ..text import cap, the
 from ..sprites import (DEFAULT_WIDTH, SMALL, SPENT, SPLASH_LEAST, frame_count, splash, splash_sizes,
                        splash_text)
 from .theme import PERK_COLORS
-from .widgets import (TALL, Clickable, Picture, StoryLine, highlight, item_note, item_words, map_text, power_lines,
-                      room_text)
+from .widgets import (INK_STYLES, TALL, Clickable, Picture, StoryLine, highlight, item_note, item_words, map_text,
+                      power_lines, room_text)
 
 PANEL_KEYS = {"f1": "help", "f2": "inventory", "f3": "character", "f4": "look", "f5": "map", "f6": "bestiary",
               "f7": "journal"}  # the panels' keys, on the game screen and in every panel
+# Each of those panels' own colour, its frame's and its title's (the map's is its floor's: see grid.ChartScreen).
+PANEL_INKS = {"help": "#6c8cff", "inventory": "#ffb000", "character": "#4cff8a", "look": "#5fe3ff",
+              "bestiary": "#ff4b4b", "journal": "#733e39"}
+INK, FADED_INK, RED_INK = "#3e2731", "#b86f50", "#a22633"  # a parchment page's inks (the journal's, as the map's)
 PANEL_ROWS = 40  # the tallest a card's or a wide panel's box gets: on a big screen, a box, not a wall
 LOOK_PICTURE = 76  # how wide the Look panel draws the room: the panel, less its border, padding and scrollbar
 # An item's tile in the inventory or the shop, (columns, rows) with its frame, by how wide its picture is drawn: full
@@ -54,6 +58,14 @@ USES = ("use", "throw", "distract", "reveal")  # the actions that do something w
 SOFT, DIM, WORDS = "#9a9cc0", "#6c6f99", "#c8c8e0"  # a panel's quieter lines: notes, hints, plain words
 FLOOR_WORDS = 64  # how wide a floor card's words run under its picture: lines you can read at a glance
 FLOOR_BESIDE = 40  # how wide they run beside it, on a screen with more room across than down
+
+
+def ornate(title: str) -> str:
+    """A panel's name spaced out between ornaments, as the floor's is on its card, and what follows it as it was:
+    "✦ I N V E N T O R Y ✦ · ¤ 24 gold"."""
+    name, _, rest = title.removeprefix("✦ ").partition(" · ")
+    spaced = "  ".join(" ".join(word) for word in name.upper().split())
+    return f"✦ {spaced} ✦" + (f" · {rest}" if rest else "")
 
 
 def panel_rows(height: int) -> int:
@@ -117,6 +129,13 @@ class Panel(ModalScreen[str | None]):
         if self.opening_sound:
             sound.play(self.opening_sound)
         self.box.add_class(self.size_class)
+        if self.panel_name in PANEL_KEYS.values():  # one of F1-F7's: its title spaced out, in its own colour
+            box = self.box
+            box.border_title = ornate(str(box.border_title or ""))
+            box.styles.border_title_align = "center"
+            if self.panel_name in PANEL_INKS:
+                box.styles.border = ("double", PANEL_INKS[self.panel_name])
+                box.styles.border_title_color = PANEL_INKS[self.panel_name]
         self.fit()
         self.mount(CloseButton())
         self.screen_layout_refresh_signal.subscribe(self, lambda _: self.place_close())
@@ -968,9 +987,10 @@ JOURNAL_SHOWN = 250  # the journal's last lines (it scrolls)
 
 
 class JournalScreen(Panel):
-    """What's happened this run, oldest first, scrolled to the end: the quests at the top, then each turn's events,
-    each roll's line (dimmer) with its bonuses and what came of it, and everything you gained, gave away, used or
-    lost. A name in it opens its card (Panel.action_lookup)."""
+    """What's happened this run, oldest first, scrolled to the end, written in ink on a page of parchment (as the map
+    is drawn: see grid.ChartScreen): the quests at the top, then each turn's events, each roll's line fainter with
+    its bonuses and what came of it, and everything you gained, gave away, used or lost. A name in it opens its card
+    (Panel.action_lookup)."""
 
     panel_name = "journal"
 
@@ -984,19 +1004,19 @@ class JournalScreen(Panel):
         quests = Text()
         for _, line, still in npcs.quest_log(state, self.game.content):  # who wants what of you, the open ones first
             quests.append_text(highlight(("★ " if still else "✓ ") + line, lexicon,
-                                         "bold #ffd166" if still else DIM))
+                                         f"bold {RED_INK}" if still else FADED_INK, INK_STYLES))
             quests.append("\n")
-        with VerticalScroll(classes="panel-box") as box:
+        with VerticalScroll(classes="panel-box parchment") as box:
             box.border_title = f"Journal · turn {state.turn}"
             if quests.plain:
                 yield StoryLine(quests)
-                yield Static(Text("What's happened:", style="bold"))
-            for line in state.journal[-JOURNAL_SHOWN:]:  # a roll's line dim, under what happened; names open cards
+                yield Static(Text("What's happened:", style=f"bold {INK}"))
+            for line in state.journal[-JOURNAL_SHOWN:]:  # a roll's line faint, under what happened; names open cards
                 roll = line.startswith("⚄ ")
-                yield StoryLine(highlight(line if roll else "· " + line, lexicon, DIM if roll else WORDS),
-                                classes="journal-roll" if roll else "journal-line")
+                yield StoryLine(highlight(line if roll else "· " + line, lexicon, FADED_INK if roll else INK,
+                                          INK_STYLES), classes="journal-roll" if roll else "journal-line")
             if not state.journal:
-                yield Static(Text("Nothing written yet.", style=DIM))
+                yield Static(Text("Nothing written yet.", style=FADED_INK))
 
     def on_mount(self) -> None:
         self.query_one(VerticalScroll).scroll_end(animate=False)

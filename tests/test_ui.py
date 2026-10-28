@@ -1,5 +1,6 @@
 import asyncio
 
+import pytest
 from textual import events
 from textual.geometry import Offset, Region
 from textual.widgets import Static
@@ -496,31 +497,103 @@ async def test_dice_roll_and_reroll_with_the_mouse():
         assert results == ["reroll", "accept"]
 
 
-async def test_the_dice_box_fits_the_screen_and_keeps_its_size():
+@pytest.mark.parametrize("size,die,height,roomy", [
+    ((240, 70), "SIZE", "-tall", True), ((160, 45), "SIZE", "-tall", True), ((130, 44), "SIZE", "-tall", True),
+    ((100, 30), "SIZE", "-short", False), ((80, 24), "SMALL_SIZE", "-tiny", False)])
+async def test_the_dice_box_fits_the_screen_and_keeps_its_size(size, die, height, roomy):
     """At 100x30 the box grew from 30 rows to 32 when the Fate button showed, its bottom off the screen (at 80x24 it
     was cut from the start). Now its row is kept for the button from the first, a short screen drops the blank lines
-    and a tiny one has a smaller die: the whole box shows, the same size from the roll to the verdict."""
-    from ptg.dice_art import SIZE, SMALL_SIZE
+    and a tiny one has a smaller die: the whole box shows, the same size from the roll to the verdict. A big screen's
+    too, the verdict stamped big in rows kept for it."""
+    from ptg import dice_art
 
-    for size, die, height in (((130, 44), SIZE, "-tall"), ((100, 30), SIZE, "-short"), ((80, 24), SMALL_SIZE, "-tiny")):
-        app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
-        async with app.run_test(size=size) as pilot:
-            await pilot.pause()
-            failed = Roll("might", "player", [4], 4, [("Might", 1)], dc=14, success=False)
-            app.push_screen(DiceScreen(failed, "Lift the portcullis with all your might", 1, True))
-            await pilot.pause(0.3)
-            box = app.screen.query_one("#dice-box")
-            before = box.region
-            assert app.screen.die == die and app.screen.has_class(height), size  # (the app's size classes reach it)
-            await pilot.press("space")
-            for _ in range(80):  # (the dice tumble for about three seconds: longer, on a busy machine)
-                await pilot.pause(0.1)
-                if app.screen.stage == "done":
-                    break
-            assert app.screen.stage == "done" and app.screen.query_one("#dice-fate").has_class("-shown")
-            assert box.region == before and box.region.y >= 0 and box.region.bottom <= size[1], size
-            prompt = app.screen.query_one("#dice-prompt").region
-            assert before.y < prompt.y < before.bottom - 1, size  # the prompt, inside the frame
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
+    async with app.run_test(size=size) as pilot:
+        await pilot.pause()
+        failed = Roll("might", "player", [4], 4, [("Might", 1)], dc=14, success=False)
+        app.push_screen(DiceScreen(failed, "Lift the portcullis with all your might", 1, True))
+        await pilot.pause(0.3)
+        box = app.screen.query_one("#dice-box")
+        before = box.region
+        assert app.screen.die == getattr(dice_art, die) and app.screen.has_class(height)  # (the app's size classes
+        # reach it)
+        assert app.screen.roomy == roomy and bool(app.screen.query("#dice-stakes")) == roomy
+        await pilot.press("space")
+        await rolled(app, pilot)
+        assert app.screen.query_one("#dice-fate").has_class("-shown")
+        assert box.region == before and box.region.y >= 0 and box.region.bottom <= size[1]
+        prompt = app.screen.query_one("#dice-prompt").region
+        assert before.y < prompt.y < before.bottom - 1  # the prompt, inside the frame
+
+
+async def rolled(app, pilot) -> None:
+    """Wait for the dice to land and the verdict to be told."""
+    for _ in range(80):  # (the dice tumble for about three seconds: longer, on a busy machine)
+        await pilot.pause(0.1)
+        if app.screen.stage == "done":
+            return
+    raise AssertionError("the dice never landed")
+
+
+async def test_a_big_screen_sets_the_dice_a_table_of_their_own():
+    """Beside the die, what you need (big), your odds, your bonuses and what a hit deals; under it the twenty faces
+    by how each would go. It lands on 14: the face is marked, the sum told, HIT stamped big; a critical bursts with
+    light."""
+    from ptg.dice_art import SPARK, lettering
+    from ptg.outcome import GOOD, GREAT
+    from ptg.ui.dice import BURST_ROOM
+    from ptg.ui.effects import rgb
+
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
+    async with app.run_test(size=(240, 70)) as pilot:
+        await pilot.pause()
+        hit = Roll("attack", "player", [14], 14, [("might", 2), ("level", 1)], dc=11, success=True,
+                   hits_for="1d6 + 2", damage=[("1d6", 5), ("might", 2)])
+        app.push_screen(DiceScreen(hit, "Attack the goblin", 1, True, tone=GOOD, word="HIT"))
+        await pilot.pause(0.3)
+        dice = app.screen
+        assert (dice.scale, dice.pad) == (2, BURST_ROOM)
+        stakes = dice.query_one("#dice-stakes").content.plain
+        for told in ("NEED", "to hit · its defense", "roll 8 or better", "65% chance", "+2 might", "+1 level",
+                     "a hit deals 1d6 + 2"):
+            assert told in stakes, told
+        assert dice.query_one("#dice-strip").content.plain.split("\n")[0].split() == [str(n) for n in range(1, 21)]
+        await pilot.press("space")
+        await rolled(app, pilot)
+        assert "▲" in dice.query_one("#dice-strip").content.plain.split("\n")[1]
+        assert dice.query_one("#dice-bonuses").content.plain == "d20 14  + 2 might  + 1 level  =  17   vs 11"
+        verdict = dice.query_one("#dice-verdict")
+        assert verdict.content.plain == lettering("HIT", rgb(GOOD), 2, (16, 18, 42)).plain
+        assert verdict.region.height == 6
+        assert dice.query_one("#dice-damage").content.plain == "→ 7 damage (1d6 5 + might 2)"
+        die = dice.query_one("#dice-faces").content
+        assert SPARK not in {tuple(span.style.color.triplet) for span in die.spans if span.style.color}
+        await pilot.press("enter")
+
+        crit = Roll("attack", "player", [20], 20, [("might", 2)], dc=11, success=True, hits_for="1d6 + 2",
+                    damage=[("1d6", 6), ("crit 1d6", 4), ("might", 2)])
+        app.push_screen(DiceScreen(crit, "Attack the goblin", 1, True, tone=GREAT, word="CRITICAL!"))
+        await pilot.pause(0.3)
+        dice = app.screen
+        await pilot.press("space")
+        await rolled(app, pilot)
+        assert dice.query_one("#dice-verdict").content.plain == lettering("CRITICAL!", rgb(GREAT), 2,
+                                                                           (16, 18, 42)).plain
+        die = dice.query_one("#dice-faces").content
+        assert SPARK in {tuple(span.style.color.triplet) for span in die.spans if span.style.color}  # (its burst)
+
+
+async def test_a_smaller_screen_tells_the_target_and_odds_in_a_line():
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        hit = Roll("attack", "player", [14], 14, [("might", 2), ("level", 1)], dc=11, success=True,
+                   hits_for="1d6 + 2")
+        app.push_screen(DiceScreen(hit, "Attack the goblin", 1, True))
+        await pilot.pause(0.3)
+        assert app.screen.query_one("#dice-target").content.plain == ("needs 11 to hit  ·  roll 8+ (65%)  ·  "
+                                                                      "a hit deals 1d6 + 2")
+        assert app.screen.query("#dice-strip") and not app.screen.query("#dice-stakes")
 
 
 async def test_each_reroll_line_counts_the_fate_left_from_before_the_roll(monkeypatch):

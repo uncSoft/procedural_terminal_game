@@ -48,7 +48,7 @@ It scores ten typed commands and five narrated moments, shows what the guard wou
 ## The loop
 
 **Every turn**
-- **Dice you roll yourself.** Skill checks open a big pixel-art d20: press Space (or click), it tumbles and bounces, bonuses add up one by one, and the result is stamped. Natural 20s glow gold, natural 1s glow red and shake the screen; with advantage you roll two and the one you don't keep greys out. Attacks get small inline dice.
+- **Dice you roll yourself.** Skill checks open a big pixel-art d20, with what's at stake told before you roll: the number you need, your odds ("roll 8 or better · 65% chance"), your bonuses, what a hit would deal, and the die's twenty faces in a row, red for the ones that would fail and green for the ones that would succeed. Press Space (or click): it tumbles and bounces, the row flickers with it and marks the face it lands on, bonuses add up one by one, and the verdict is stamped in big pixel letters (on a smaller screen, the same in a column, the target in a line). Natural 20s glow gold and burst with light, natural 1s glow red and shake the screen; with advantage you roll two and the one you don't keep greys out. Attacks get small inline dice.
 - **You can see how it went.** Every roll ends in a coloured verdict (✔ HIT, ✘ HIT YOU, • NOTHING, ★ CRITICAL!) and flashes its colour. The story's border lights up green when the turn goes your way, red when it doesn't and silver when it's mixed (or blinks gold or crimson for a 20 or a 1). Damage numbers rise off the monster, your HP changes show by your hearts, and a new floor gets a title card and a banner in the story.
 - **Props and flair.** Using a real thing in the room or your pack ("topple the statue onto it") adds a ✦ flair bonus to the roll and earns a **Fate** token, if it changes something. A stunt wastes nothing: what it throws, pours, feeds or hands over is gone only if it worked (bribe an orc with stale bread and the orc has the bread; if it won't take it, you keep it), and a trick that can't change anything here (a lullaby for a rat) says why and costs nothing, not even a turn. Only what you do it with goes ("throw sand at the rat's eyes" spends no Pizza Rat), as much gold as you say ("offer 30 gold"), never your weapon or armor, and never a key (nor Lenny's bad tooth while he's waiting for it): a run could hang on it.
 - **Things on things.** Say what you do with what, and it happens the one way: give Lenny his tooth or Swoogy a pickle (a character takes what it wants and hands back the rest), throw a pickle at the rat (anything throwable: a calm creature fights back), feed a beast what it's weak to or bribe a goblin with gold (a wits roll: it's handed over if it works), a small key or a bomb on a chest, the boss's key or a bomb on a door, a weapon to pry a chest open or a feature to search it, holy water or lamp oil on your blade (its next 3 hits count as holy, or fire). What can't work says why, and costs nothing.
@@ -366,13 +366,20 @@ has someone or something in it. Click a room on the map you've been in to **trav
 now and then something that's wandered in stops you on the way (twice a floor at most).
 
 Or choose **Grid** (Settings, Game screen), laid out like an old CRPG's screen, every box a fixed size that lines up
-with the one beside it, so nothing moves as choices come and go: on the left the room's picture, the story and the
-decision; on the right the map (each room a box with its name), Here and a button for each panel. The decision is six
-big buttons in fixed places, in a fight Attack, Dodge, Heal, Throw, Use and Flee, out of one Search, Rest, Heal, Bomb,
-Use and Gear, each lit, opened, urgent (Dodge as a heavy blow comes) or greyed out with why, and beside them a compass
-of the ways out (the arrow keys move too). One with several things to do it with opens their row under it (pick with a
-click or a letter); Here's things wear their own verbs, so Take is one click; in a fight Here is the foe's card, big.
-The Map panel is the floor as a chart: every room's whole name and what's in it, the goal, the quests and the tips.
+with the one beside it, so nothing moves as choices come and go: the room's picture across the top with the map
+beside it (each room a box with its name); under them the story, a column easy to read with the command line at its
+foot, the decision beside it at eye height, and Here. The decision is six big buttons in fixed places, in a fight
+Attack, Dodge, Heal, Throw, Use and Flee, out of one Search, Rest, Heal, Bomb, Use and Gear, each lit, opened, urgent
+(Dodge as a heavy blow comes, Heal when you're low) or greyed out with why. Under them, out of a fight, a compass of
+five cells that never move: each way out says where it goes and what's there, a wall stays a faint wall (the arrow
+keys move too). Then your things as cards, a picture each with what it would do and how it would go ("weak to
+fire!"), lit if you can use it now, dim with why if not; in a fight they take the compass's place, and a button with
+several options shows only its own (pick with a click or a letter). Here is in sections, who's here, the things and
+what there is to search, a heading each, with the journal's last lines (Lately) in the rows they leave; in a fight,
+how the last turn went (hits, misses, damage) under the foe's card. The Map panel is the floor drawn on parchment,
+the rooms in ink (in pencil where you've only seen them; one you can travel back to lights up gold under the mouse),
+the journal is written on a page of it, and each panel's name is spaced out in its own colour. On a narrower screen the decision goes under the
+story, its buttons in a row with the compass beside them.
 
 With a model narrating, you needn't wait for it: a move made while it's still talking cuts it short (what it has
 said whole stays) and is made at once, and walking back into a room you've been in, with nothing waiting there, is

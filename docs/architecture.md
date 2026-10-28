@@ -149,14 +149,19 @@ rewind. Tests rely on this (`tests/bot.py` games are compared run to run).
     on the right). It subclasses GameScreen: turns, dice, animations and the story are shared; only layout and
     panes differ.
   - `ui/grid.py` **GridScreen**, a fixed grid (every box sized from the screen alone, `grid.share`, and lined up with
-    the one beside it): the picture, the story and the decision on the left (six big buttons, a fight's or the room's,
-    and a compass); the map, Here and the panels' buttons on the right. Its Map panel, **ChartScreen**, draws the floor
-    as a chart (`grid.chart`). Also a GameScreen underneath.
+    the one beside it): the picture and the map across the top; under them the story, the decision beside it (six
+    big buttons, a fight's or the room's, the compass, and your things as cards) and Here in sections with Lately
+    under them; under the story instead on a narrower screen. Its Map panel, **ChartScreen**, draws the floor on
+    parchment (`ui/parchment.py`, pixels in half blocks with names in ink over them), or as a chart (`grid.chart`).
+    Each part is drawn again only when what it shows changes, the buttons, the compass's cells and Lately in place,
+    and a part rebuilt is swapped in one batch (`GridScreen.swap`): a box emptied and filled again showed as text
+    flashing off and on. Also a GameScreen underneath.
 - **Widgets** (`ui/widgets.py`): the HUD, `Picture` (the one way anything with a sprite is drawn), choices, the dice
   line. `ui/here.py` builds the Here tiles; `ui/panels.py` the pop-up panels (inventory, sheet, map, bestiary,
   journal, shop, cards).
 - **Pictures**: sprites are PNG strips drawn as half-block characters (`sprites.py`); rooms are drawn in code from
-  the room itself (`room_picture.py`); the d20 is drawn in code (`dice_art.py`); so is the title's castle in the
+  the room itself (`room_picture.py`); the d20 is drawn in code (`dice_art.py`), and so are the dice screen's big
+  pixel letters (its target and verdict: `lettering`) and a critical's burst of light; so is the title's castle in the
   storm (`title_scene.py`: materials and shades, coloured by the light, so one drawing gives the dark and the
   flash). Its frames are all made before it plays, as ready-made Strips (`ui/storm.py`): a Static handed a frame as
   text measures and lays it out again every time, and the rain hiccupped. `tools/build_sprites.py` and
@@ -203,7 +208,11 @@ play as frame sequences on the monster's picture.
 
 **Words that do things.** Story lines are `Text` whose highlighted terms carry metadata in their style: a tooltip
 for hover, and a term that a click turns into its card (`StoryLine`, `glossary.py`). The map's rooms carry their names
-the same way.
+the same way, and a room you can get back to the room's id ("travel"), which a click turns into the trip; as the
+mouse comes to one, the map draws it in gold (its screen's `hover_room`). Neither is a Textual `@click` link: those are
+underlined and repainted in the theme's link colour, a room's whole frame with them.
+A `StoryLine` measures itself after each update and resize, and asks to be laid out again if it's shorter than its
+words: now and then one kept a height from before all its words came, and lost its end under the next line.
 
 **Two constraints the code works around:**
 

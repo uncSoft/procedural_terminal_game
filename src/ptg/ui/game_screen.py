@@ -166,6 +166,7 @@ def music_for(state, content) -> str:
 
 
 class GameScreen(Screen):
+    STORY_WIDTH = 9999  # the most columns a story line takes (the grid caps it in app.tcss: a column down the middle)
     BINDINGS = [
         Binding("f1", "panel('help')", "Help"),
         Binding("f2", "panel('inventory')", "Inventory"),
@@ -187,6 +188,7 @@ class GameScreen(Screen):
         self.narration_stop: asyncio.Event | None = None  # set to cut the narrator short (later)
         self.queued = None  # what to do once the turn's done: a move made while the narrator was still talking
         self.turn_marker: Widget | None = None  # where the turn now being shown began (see _mark_turn)
+        self.last_rolls: list[Event] = []  # the last turn's rolls, for a layout that calls them out (see grid.py)
         self.animating = False  # a fight's flashes, lunges or death are playing on its tile
         self.counter_open = False  # the shop's own screen sent the turn now coming: it opens again after it
         self.leave_asked = 0.0  # when Esc last asked "again for the title?" (time.monotonic)
@@ -650,7 +652,7 @@ class GameScreen(Screen):
                 card.border_title = f"✧ {title}" if title else "✧"
             return card
         region = self.query_one("#story", VerticalScroll).scrollable_content_region
-        art = Picture(sprite, "", (region.width or 40) - 4, max(4, (region.height or 12) - 4),
+        art = Picture(sprite, "", min(region.width or 40, self.STORY_WIDTH) - 4, max(4, (region.height or 12) - 4),
                       content=self.game.content, sprites=True, classes="card-sprite")
         card = Vertical(art, StoryLine(highlight(text, lexicon)), classes="story-card")
         self.query_one("#story", VerticalScroll).mount(card)
@@ -871,6 +873,7 @@ class GameScreen(Screen):
             break
 
         narration, on_text = self._narration_sink()
+        self.last_rolls = [event for event in pending.events if event.dice]
         for event in pending.events:
             if not event.dice:
                 continue

@@ -28,7 +28,7 @@ class Recorder:
     def play(self, clip, gain: float) -> None:
         self.played.append((clip.moment, round(gain, 3)))
 
-    def loop(self, clip, gain: float) -> None:
+    def loop(self, clip, gain: float, fade_in: float = 0.0, fade_out: float = 0.0) -> None:
         self.looping = clip.moment
 
     def stop_loop(self, fade: float = 0.0) -> None:

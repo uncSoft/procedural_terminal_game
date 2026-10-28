@@ -109,13 +109,13 @@ class TitleScreen(Screen):
 
     def on_screen_resume(self) -> None:
         self.refresh_menu()
-        sound.music("title_music")
+        sound.music("title_music", fade_in=1.0)
 
     def on_screen_suspend(self) -> None:
-        sound.stop_music()
+        sound.stop_music(only=("title_music",))  # (the game's own may have started already)
 
     def on_unmount(self) -> None:
-        sound.stop_music()
+        sound.stop_music(only=("title_music",))
 
     def on_resize(self) -> None:
         self.fit_scene()

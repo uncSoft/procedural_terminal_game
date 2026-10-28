@@ -160,7 +160,7 @@ rewind. Tests rely on this (`tests/bot.py` games are compared run to run).
   storm (`title_scene.py`: materials and shades, coloured by the light, so one drawing gives the dark and the
   flash). Its frames are all made before it plays, as ready-made Strips (`ui/storm.py`): a Static handed a frame as
   text measures and lays it out again every time, and the rain hiccupped. `tools/build_sprites.py` and
-  `tools/build_sounds.py` generate the built-in art and 8-bit sounds (`sound.py` plays them without blocking, and loops a moment's sound as music: the title's).
+  `tools/build_sounds.py` generate the built-in art and 8-bit sounds (`sound.py` plays them without blocking, and loops a moment's sound as music, crossfading from one to the next: the title's, a floor's, a fight's).
 - **Browser**: `ptg serve` (`serve.py`, on textual-serve) runs one game per tab behind a page that asks who's
   playing; `web/app_index.html` fits phones. Deployed with the `Dockerfile` (Render).
 - **Plain text mode**: `ptg --plain` drives the same `Game` from a prompt loop in `cli.py`.

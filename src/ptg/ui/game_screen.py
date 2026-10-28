@@ -152,6 +152,19 @@ def shown(widget: Widget) -> str:
     return str(widget.render()) if isinstance(widget, Static) else type(widget).__name__
 
 
+FIGHT_MUSIC = ("battle_music", "boss_music")
+GAME_MUSIC = ("explore_music", "deep_music") + FIGHT_MUSIC
+
+
+def music_for(state, content) -> str:
+    """The music for where you are: a fight's while a monster's after you (a boss's own), else the floor's, darker on
+    the boss floors."""
+    if state.in_combat:
+        monster = content.monsters.get(state.room.monster.key)
+        return "boss_music" if monster and monster.boss else "battle_music"
+    return "deep_music" if state.boss_floor else "explore_music"
+
+
 class GameScreen(Screen):
     BINDINGS = [
         Binding("f1", "panel('help')", "Help"),
@@ -234,6 +247,22 @@ class GameScreen(Screen):
                 self.add_entry(entry, lexicon)
             self.pick_up_again()
         self.query_one("#command", Input).focus()
+        self.refresh_music()
+
+    def on_unmount(self) -> None:
+        sound.stop_music(only=GAME_MUSIC)  # (to the title: its own may have started already)
+
+    def refresh_music(self) -> None:
+        """The music for where you are now (music_for), if it isn't playing already. A fight's cuts straight in, the
+        floor's fading fast under it; once it's over the floor's comes slowly back as the fight's dies away. A run
+        that's ended keeps what it had (it stops with the screen)."""
+        moment = music_for(self.game.state, self.game.content)
+        if self.game.state.over or moment == sound.engine().wanted:
+            return
+        if moment in FIGHT_MUSIC:
+            sound.music(moment, fade_in=0.0, fade_out=0.4)
+        else:
+            sound.music(moment, fade_in=2.5, fade_out=1.5)
 
     def on_resize(self) -> None:
         if self._resize_timer is not None:  # (a drag sends a stream of these: lay out once it settles)
@@ -805,6 +834,7 @@ class GameScreen(Screen):
         self._show_story(result.events)
         self._record_shown(marker)
         self.refresh_panels()
+        self.refresh_music()
         await self.suggest_later()
 
     async def _turn(self, text: str, action: Action | None = None) -> None:
@@ -867,6 +897,7 @@ class GameScreen(Screen):
         if any(e.kind == "tip" for e in pending.events):  # look: it's on your map
             effects.pulse(self.query_one("#map"), GREAT, blinks=2)
         self.refresh_panels()
+        self.refresh_music()
 
         self.narration_stop = asyncio.Event()
         try:
@@ -902,6 +933,7 @@ class GameScreen(Screen):
             self.call_after_refresh(self.app.action_redraw)
         self._toasts(result.events)
         self.refresh_panels()
+        self.refresh_music()
 
         while game.state.pending_perks:
             if not await self._level_up():

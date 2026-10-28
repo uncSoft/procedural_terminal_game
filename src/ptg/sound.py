@@ -7,8 +7,9 @@ or aplay on Linux, winsound on Windows), which is slower to start. With no playe
 with PTG_SOUND=0, the game is simply quiet. A sound can never crash or stall it.
 
 The game plays sounds by moment (MOMENTS below), and a moment's sound can also be music: looped until it's stopped,
-fading out (music, stop_music: the title screen's). The built-in ones are synthesized by tools/build_sounds.py into
-ptg/data/sounds. To use your own, put WAV files (8- or 16-bit PCM, any rate) in ~/.ptg/sounds:
+fading out, or until other music takes over, the two crossfading (music, stop_music: the title's, a floor's, a
+fight's). The built-in ones are synthesized by tools/build_sounds.py into ptg/data/sounds. To use your own, put WAV
+files (8- or 16-bit PCM, any rate) in ~/.ptg/sounds:
 
     great.wav, great_2.wav    replace the sound for a natural 20 (with several, one is picked at random)
     sounds.toml               point moments at any file names, set volumes, and note where sounds came from:
@@ -88,6 +89,10 @@ MOMENTS = {
     "victory": "you win",
     "thunder": "lightning strikes, on the title screen",
     "title_music": "the title screen's music (it loops while the title shows)",
+    "explore_music": "a floor's music, while you explore (it loops)",
+    "deep_music": "a floor's music on the boss floors (it loops)",
+    "battle_music": "a fight's music, while a monster's after you (it loops)",
+    "boss_music": "a boss fight's music (it loops)",
 }
 MUSIC_LEVEL = 0.6  # music sits under the sounds
 LEAD = 0.12  # how long a sound takes to reach the speakers (the mixer's queue): play it this early to land on time
@@ -212,9 +217,16 @@ def envelope(clip: Clip, width: int = 32) -> str:
     return "".join(BARS[peak * len(BARS) // top] for peak in peaks)
 
 
+def sample_width(source) -> int:
+    """A WAV file's bytes a sample: 1 for the 8-bit chip sounds, 2 for music, the softened ones and recordings."""
+    with source.open("rb") as f, wave.open(f) as w:
+        return w.getsampwidth()
+
+
 def resample(samples: array, rate: int, target: int, smooth: bool = False) -> array:
     """Change the sample rate by holding each sample (no smoothing, so 8-bit sounds keep their crunch), or, `smooth`,
-    between neighbours (music: held, a long pure tone warbles, each sample held two times or three)."""
+    between neighbours (music, and any 16-bit sound: held, a long pure tone warbles, each sample held two times or
+    three, and a soft sound grows a fizz on top)."""
     if rate == target:
         return samples
     step = rate / target
@@ -250,7 +262,10 @@ class Mixer:
         self.rate = int(sd.query_devices(kind="output")["default_samplerate"])
         self.stream = sd.RawOutputStream(samplerate=self.rate, channels=1, dtype="int16", latency=self.LATENCY)
         self.voices: list[list] = []  # [samples, position, gain]
-        self.music: list | None = None  # [samples, position, gain, fade]: looped until it fades out
+        # Music: [samples, position, gain, step, level], looped, its gain moving by step a block toward its level (a
+        # fade in) or to nothing (a fade out: then it's gone). Music taken over by other fades out in `leaving`.
+        self.music: list | None = None
+        self.leaving: list[list] = []
         self.wanted = ""  # the music asked for (it may still be being made ready)
         self.cache: dict[str, array] = {}
         self.lock = threading.Lock()
@@ -261,6 +276,7 @@ class Mixer:
     def _samples(self, clip: Clip, smooth: bool = False) -> array:
         key = str(clip.source)
         if key not in self.cache:
+            smooth = smooth or sample_width(clip.source) == 2
             self.cache[key] = resample(*decode(clip.source), self.rate, smooth=smooth)
         return self.cache[key]
 
@@ -272,41 +288,48 @@ class Mixer:
             self.voices.append([samples, 0, gain])
         self.wake.set()
 
-    def loop(self, clip: Clip, gain: float) -> None:
-        """Music: the clip over and over until stop_loop (the same clip already looping just changes its gain). The
-        first time, it's made ready on a thread of its own (smoothly resampled, a moment's work), never the
-        caller's."""
+    def loop(self, clip: Clip, gain: float, fade_in: float = 0.0, fade_out: float = 0.8) -> None:
+        """Music: the clip over and over until stop_loop (the same clip already looping just changes its gain). It
+        comes in over `fade_in` seconds while any other music fades out over `fade_out`. The first time, it's made
+        ready on a thread of its own (smoothly resampled, a moment's work), never the caller's."""
         key = str(clip.source)
         self.wanted = key
         if key in self.cache:
-            self._start(key, gain)
+            self._start(key, gain, fade_in, fade_out)
             return
 
         def ready() -> None:
             self._samples(clip, smooth=True)
             if self.wanted == key:
-                self._start(key, gain)
+                self._start(key, gain, fade_in, fade_out)
 
         threading.Thread(target=ready, name="ptg-music-ready", daemon=True).start()
 
-    def _start(self, key: str, gain: float) -> None:
+    def _blocks(self, seconds: float) -> float:
+        return max(1.0, seconds * self.rate / self.BLOCK)
+
+    def _start(self, key: str, gain: float, fade_in: float = 0.0, fade_out: float = 0.8) -> None:
         samples = self.cache[key]
         with self.lock:
             if self.music and self.music[0] is samples:
-                self.music[2], self.music[3] = gain, 0.0
+                self.music[2:] = [gain, 0.0, gain]
             else:
-                self.music = [samples, 0, gain, 0.0]
+                if self.music:
+                    self.music[3] = -self.music[2] / self._blocks(fade_out)
+                    self.leaving.append(self.music)
+                self.music = ([samples, 0, 0.0, gain / self._blocks(fade_in), gain] if fade_in else
+                              [samples, 0, gain, 0.0, gain])
         self.wake.set()
 
     def stop_loop(self, fade: float = 0.8) -> None:
         self.wanted = ""
         with self.lock:
-            if self.music:
-                self.music[3] = self.music[2] / max(1.0, fade * self.rate / self.BLOCK)
+            if self.music:  # (one only starting to fade in has no gain yet: it still goes)
+                self.music[3] = -max(self.music[2], 1e-6) / self._blocks(fade)
 
     def _mix(self) -> bytes | None:
         with self.lock:
-            if not self.voices and not self.music:
+            if not self.voices and not self.music and not self.leaving:
                 return None
             out = [0] * self.BLOCK
             for voice in self.voices:
@@ -315,18 +338,26 @@ class Mixer:
                     out[i] += int(value * gain)
                 voice[1] = position + self.BLOCK
             self.voices = [v for v in self.voices if v[1] < len(v[0])]
-            if self.music:
-                samples, position, gain, fade = self.music
-                size = len(samples)
-                for i in range(self.BLOCK):
-                    out[i] += int(samples[(position + i) % size] * gain)
-                self.music[1] = (position + self.BLOCK) % size
-                if fade:
-                    self.music[2] = gain - fade
-                    if self.music[2] <= 0:
-                        self.music = None
+            for track in ([self.music] if self.music else []) + self.leaving:
+                self._loop_into(out, track)
+            self.leaving = [t for t in self.leaving if t[2] > 0]
+            if self.music and self.music[2] <= 0 and self.music[3] < 0:  # (faded out)
+                self.music = None
         limit = self.LIMIT
         return array("h", (v if -limit <= v <= limit else self._squeeze(v) for v in out)).tobytes()
+
+    def _loop_into(self, out: list[int], track: list) -> None:
+        """A block of music, wrapping round its end, its gain a step further along any fade."""
+        samples, position, gain, step, level = track
+        size = len(samples)
+        for i in range(self.BLOCK):
+            out[i] += int(samples[(position + i) % size] * gain)
+        track[1] = (position + self.BLOCK) % size
+        if step:
+            gain += step
+            if step > 0 and gain >= level:
+                gain, track[3] = level, 0.0
+            track[2] = max(0.0, gain)
 
     def _squeeze(self, v: int) -> int:
         """A loud moment, squeezed into what's left above LIMIT rather than clipped (a clip crackles)."""
@@ -387,8 +418,8 @@ class Command:
         if len(self.running) < 4:
             self.running.append(self._start(clip, gain))
 
-    def loop(self, clip: Clip, gain: float) -> None:
-        """Music: the player started again each time it finishes, until stop_loop."""
+    def loop(self, clip: Clip, gain: float, fade_in: float = 0.0, fade_out: float = 0.0) -> None:
+        """Music: the player started again each time it finishes, until stop_loop (no fades: it cuts)."""
         self.stop_loop()
         token = self.looping = object()
 
@@ -424,7 +455,8 @@ class Winsound:
 
         winsound.PlaySound(str(clip.source), winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
 
-    def loop(self, clip: Clip, gain: float) -> None:  # (winsound plays one thing at a time: a sound stops it)
+    def loop(self, clip: Clip, gain: float, fade_in: float = 0.0, fade_out: float = 0.0) -> None:
+        # (winsound plays one thing at a time: a sound stops it)
         import winsound
 
         winsound.PlaySound(str(clip.source), winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_LOOP
@@ -502,8 +534,9 @@ class Sound:
         return True
 
 
-    def music(self, moment: str) -> bool:
-        """Loop a moment's sound as music (one at a time: it takes over from any other), if sound is on."""
+    def music(self, moment: str, fade_in: float = 0.0, fade_out: float = 0.8) -> bool:
+        """Loop a moment's sound as music, if sound is on. One plays at a time: this one comes in over `fade_in`
+        seconds while the one before fades out over `fade_out`."""
         self.wanted = moment
         if not self.enabled or self.volume <= 0 or not self.bank.get(moment):
             return False
@@ -512,12 +545,15 @@ class Sound:
             return False
         clip = self.bank[moment][0]
         try:
-            self.player.loop(clip, self.volume * clip.volume * MUSIC_LEVEL)
+            self.player.loop(clip, self.volume * clip.volume * MUSIC_LEVEL, fade_in=fade_in, fade_out=fade_out)
         except Exception:
             return False
         return True
 
-    def stop_music(self, fade: float = 0.8) -> None:
+    def stop_music(self, fade: float = 0.8, only: tuple[str, ...] = ()) -> None:
+        """Fade the music out; with `only`, just if it's one of those (a screen going mustn't stop the next one's)."""
+        if only and self.wanted not in only:
+            return
         self.wanted = ""
         if self.player is not None:
             try:
@@ -532,7 +568,7 @@ class Silent:
     def play(self, clip: Clip, gain: float) -> None:
         pass
 
-    def loop(self, clip: Clip, gain: float) -> None:
+    def loop(self, clip: Clip, gain: float, fade_in: float = 0.0, fade_out: float = 0.0) -> None:
         pass
 
     def stop_loop(self, fade: float = 0.0) -> None:
@@ -565,13 +601,13 @@ def play(moment: str, variant: int | None = None) -> bool:
     return _sound.play(moment, variant)
 
 
-def music(moment: str) -> bool:
-    """Loop a moment's sound as music until stop_music, if sound is on. Never blocks."""
-    return _sound.music(moment)
+def music(moment: str, fade_in: float = 0.0, fade_out: float = 0.8) -> bool:
+    """Loop a moment's sound as music until stop_music or other music, if sound is on. Never blocks."""
+    return _sound.music(moment, fade_in, fade_out)
 
 
-def stop_music(fade: float = 0.8) -> None:
-    _sound.stop_music(fade)
+def stop_music(fade: float = 0.8, only: tuple[str, ...] = ()) -> None:
+    _sound.stop_music(fade, only)
 
 
 def engine() -> Sound:
@@ -630,7 +666,7 @@ def main() -> None:
         files = ", ".join(clip_name(c) for c in clips) or "(none)"
         source = "built in" if all(c.builtin for c in clips) else "; ".join(
             sorted({f"{c.credit}" + (f", {c.license}" if c.license else "") for c in clips}))
-        print(f"  {moment:<11} {what:<42} {files}  [{source}]")
+        print(f"  {moment:<13} {what:<42} {files}  [{source}]")
         for clip in clips:
             try:
                 decode(clip.source)

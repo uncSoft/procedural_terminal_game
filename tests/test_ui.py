@@ -785,6 +785,35 @@ async def test_the_moments_make_sounds(monkeypatch):
         assert speakers.moments[-2:] == ["open", "close"]
 
 
+async def test_a_run_has_its_floors_music_and_its_fights(monkeypatch):
+    """The floor's music while you explore (darker on the boss floors), a fight's once a monster's after you (a
+    boss's own), and the floor's again when it's over."""
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        from conftest import Recorder, put_monster
+
+        assert sound.engine().wanted == "explore_music"  # (asked for as the run began, sound off or not)
+        monkeypatch.delenv("PTG_SOUND", raising=False)
+        speakers = Recorder()
+        monkeypatch.setattr(sound, "_sound", sound.Sound(True, 1.0, player=speakers))
+        state, content = screen.game.state, screen.game.content
+        put_monster(state, content, key="orc", hp=200)
+        await pilot.press(*"attack", "enter")
+        await settle(app, pilot)
+        assert speakers.looping == "battle_music"
+        state.room.monster.hp = 0
+        screen.refresh_music()
+        assert speakers.looping == "explore_music"
+        put_monster(state, content, key="goblin_king")
+        screen.refresh_music()
+        assert speakers.looping == "boss_music"
+        state.room.monster = None
+        state.floor = 3  # (the last dungeon's: its boss is down here)
+        screen.refresh_music()
+        assert speakers.looping == "deep_music"
+
+
 async def test_items_drawn_in_the_maker_show_their_art():
     """The same picture wherever it's shown, and animated: its card, the inventory's tile and its detail."""
     from ptg.ui.panels import ItemTile

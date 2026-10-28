@@ -299,10 +299,19 @@ thread of its own streams to your speakers through [sounddevice](https://python-
 Settings has the volume, and `PTG_SOUND=0` keeps it quiet (the tests do).
 
 The built-in sounds are synthesized, like the sprites: `tools/build_sounds.py` describes each one as a few
-chip-style tones (square, triangle and noise waves, pitch slides, arpeggios) and writes 8-bit, 22 kHz WAVs to
-`src/ptg/data/sounds`. Tweak one and rebuild. That includes the title screen's music, a 20-second loop (an original
-piece: a glassy figure in 7/8 over a falling bass, then a slow line and tubular bells) that plays while the title
-shows and fades out when you leave it, and the thunder that follows each flash of lightning there.
+chip-style tones (square, triangle and noise waves, pitch slides, arpeggios, and a low-pass filter to soften one) and
+writes 22 kHz WAVs to `src/ptg/data/sounds`: 8-bit for the crunchy ones, 16-bit for music and the softened ones. Tweak
+one and rebuild. The fighting and walking sounds come in variations, a bright one and a duller, softer one, played at
+random. The music is all original:
+
+- the title screen's, a 20-second loop (a glassy figure in 7/8 over a falling bass, then a slow line and tubular
+  bells), with the thunder that follows each flash of lightning there: a deep boom, then a low rumble rolling on;
+- a floor's, slow and atmospheric (D minor: a soft pad, notes dripping and echoing, a lonely tune), and on the boss
+  floors a darker one (a choir, a heartbeat, a music box);
+- a fight's, fast, in the style of the old console RPGs' battle themes (octave bass, racing strings, brass stabs, a
+  bold tune), and a boss's own, heavier (a galloping riff, an organ, toms).
+
+A fight's music cuts in as a monster comes for you, and the floor's fades back once it's over.
 
 To use your own, put WAV files (8- or 16-bit PCM, any rate) in `~/.ptg/sounds`:
 
@@ -543,7 +552,7 @@ src/ptg/
   sprites.py       PNG sprites rendered as half-block pixel art, and their poses
   room_picture.py  pictures of rooms, seen from the doorway, drawn in code from the room itself
   dice_art.py      the pixel-art d20
-  sound.py         8-bit sound effects: the sound bank, your own sounds, and playing them
+  sound.py         sound effects and music: the sound bank, your own sounds, and playing them
   library.py       the Monster & Item Maker's library: export it, and import what's made there
   glossary.py      the terms highlighted in the story
   integrity.py     fingerprints of the shipped data, and noticing edits

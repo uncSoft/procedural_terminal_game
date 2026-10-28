@@ -25,15 +25,23 @@ def test_every_moment_has_a_built_in_sound():
     assert all(clip.builtin and clip.license == "CC0" for clips in bank.values() for clip in clips)
 
 
-def test_built_in_sounds_are_small_8_bit_files():
+MUSIC = {"title_music": 21.0, "explore_music": 46.0, "deep_music": 40.0, "battle_music": 25.0, "boss_music": 26.0}
+
+
+def test_built_in_sounds_are_small_files():
+    """8-bit, or 16-bit for music, thunder and the softened sounds (their fades and quiet tails would grind or hiss in
+    8); every fighting sound has a softer variant among its bright ones."""
     bank, _ = load_bank()
     for clips in bank.values():
         for clip in clips:
             with clip.source.open("rb") as f, wave.open(f) as w:
-                width = 2 if clip.moment == "title_music" else 1  # (music is 16-bit: its fades would grind in 8)
-                assert (w.getnchannels(), w.getsampwidth(), w.getframerate()) == (1, width, 22050), clip.source.name
-                longest = {"thunder": 4.0, "title_music": 21.0}.get(clip.moment, 2.0)  # (a rumble; a loop)
+                assert (w.getnchannels(), w.getframerate()) == (1, 22050), clip.source.name
+                assert w.getsampwidth() == 2 if clip.moment in MUSIC or clip.moment == "thunder" else \
+                    w.getsampwidth() in (1, 2), clip.source.name
+                longest = MUSIC.get(clip.moment, 5.0 if clip.moment == "thunder" else 2.0)  # (a loop; a rumble)
                 assert w.getnframes() / w.getframerate() < longest, clip.source.name
+    for moment in ("hit", "crit_hit", "miss", "hurt", "dodge", "kill", "bomb", "step"):
+        assert {sound.sample_width(c.source) for c in bank[moment]} == {1, 2}, moment
 
 
 def test_decoding_and_resampling(tmp_path):
@@ -104,9 +112,7 @@ def test_the_mixer_loops_music_and_fades_it_out():
     sleep)."""
     from ptg.sound import Clip, Mixer
 
-    mixer = Mixer.__new__(Mixer)  # (no speakers here: just its mixing)
-    mixer.rate, mixer.voices, mixer.music, mixer.lock, mixer.wanted = 22050, [], None, threading.Lock(), ""
-    mixer.cache, mixer.wake = {"x": array("h", [1000] * 300)}, threading.Event()
+    mixer = quiet_mixer({"x": array("h", [1000] * 300)})
     clip = Clip("title_music", "x")
     mixer.loop(clip, 1.0)
     first = array("h", mixer._mix())
@@ -115,6 +121,61 @@ def test_the_mixer_loops_music_and_fades_it_out():
     for _ in range(10):
         mixer._mix()
     assert mixer.music is None and mixer._mix() is None
+
+
+def quiet_mixer(cache: dict) -> "sound.Mixer":
+    """A Mixer without speakers: just its mixing."""
+    from ptg.sound import Mixer
+
+    mixer = Mixer.__new__(Mixer)
+    mixer.rate, mixer.voices, mixer.music, mixer.leaving, mixer.lock = 22050, [], None, [], threading.Lock()
+    mixer.cache, mixer.wake, mixer.wanted = cache, threading.Event(), ""
+    return mixer
+
+
+def test_the_mixer_crossfades_one_music_into_the_next():
+    """Music taking over from other music comes in over its fade while the old fades out under it; the same music
+    asked for again just carries on."""
+    from ptg.sound import Clip
+
+    mixer = quiet_mixer({"a": array("h", [1000] * 600), "b": array("h", [-1000] * 600)})
+    mixer.loop(Clip("explore_music", "a"), 1.0)
+    mixer._mix()
+    mixer.loop(Clip("battle_music", "b"), 1.0, fade_in=0.1, fade_out=0.05)
+    first = array("h", mixer._mix())
+    assert mixer.leaving and 0 < mixer.music[2] < 1.0 and first[0] > -1000  # (both playing, the new one rising)
+    for _ in range(10):
+        last = array("h", mixer._mix())
+    assert not mixer.leaving and mixer.music[2] == 1.0 and set(last) == {-1000}
+    mixer.loop(Clip("battle_music", "b"), 0.5)
+    assert mixer.music[0] is mixer.cache["b"] and mixer.music[2] == 0.5 and not mixer.leaving
+    mixer.stop_loop(0.05)
+    for _ in range(5):
+        mixer._mix()
+    assert mixer.music is None and mixer._mix() is None
+
+
+def test_music_from_a_screen_going_only_stops_its_own(speakers):
+    """The title's suspend and the game's unmount can land after the next screen's music has started: they stop only
+    their own."""
+    sound.music("explore_music")
+    sound.stop_music(only=("title_music",))
+    assert speakers.looping == "explore_music"
+    sound.stop_music(only=("explore_music", "battle_music"))
+    assert speakers.looping == "" and not sound.engine().wanted
+
+
+def test_16_bit_sounds_play_smoothly_and_8_bit_ones_keep_their_crunch(tmp_path):
+    from ptg.sound import Clip
+
+    ramp = array("h", [0, 1000, 2000, 3000])
+    with wave.open(str(tmp_path / "soft.wav"), "wb") as w:
+        w.setnchannels(1), w.setsampwidth(2), w.setframerate(11025)
+        w.writeframes(ramp.tobytes())
+    mixer = quiet_mixer({})
+    soft = mixer._samples(Clip("hit", tmp_path / "soft.wav"))
+    crunchy = mixer._samples(Clip("hit", wav(tmp_path / "crunchy.wav", bytes([128, 136, 144, 152]))))
+    assert list(soft)[:4] == [0, 500, 1000, 1500] and list(crunchy)[:4] == [0, 0, 2048, 2048]
 
 
 def test_loud_moments_are_squeezed_not_clipped_and_music_resamples_smoothly():

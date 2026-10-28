@@ -65,7 +65,8 @@ def telegraph(state: GameState, content: Content) -> list[Event]:
     monster = state.room.monster
     if monster and monster.hostile and monster.intent == "heavy":
         wind_up = tell(monster.name, content.monster(monster.key).tell).rstrip(" .")  # (the kids shout theirs)
-        return [Event("telegraph", f"{wind_up}{'' if wind_up.endswith(('!', '?', '\"')) else '.'} A heavy blow is coming!")]
+        stop = "" if wind_up.endswith(("!", "?", '"')) else "."  # (out of the f-string: Python 3.11 allows no \ in one)
+        return [Event("telegraph", f"{wind_up}{stop} A heavy blow is coming!")]
     return []
 
 

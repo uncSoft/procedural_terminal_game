@@ -188,7 +188,7 @@ def monster_for(rng: random.Random, content: Content, theme_key: str, tier: int,
     its own, it may bite with venom (VENOMOUS)."""
     theme = content.themes[theme_key]
     pool = [m for m in content.monsters.values()
-            if m.roams and set(m.tags) & set(theme.monster_tags) and not (m.once and m.key in (met or ()))]
+            if m.roams and m.lives_in(theme) and not (m.once and m.key in (met or ()))]
     exact = [m for m in pool if m.tier == tier] or [m for m in pool if m.tier <= tier] or pool
     chosen = rng.choice(sorted(exact, key=lambda m: m.key))
     if chosen.once and met is not None:

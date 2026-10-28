@@ -34,7 +34,8 @@ const MAX_SIZE = 40000;  // characters of JSON per creation (a cell holds 50,000
 const LETTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const FIELDS = {  // what the maker sets, and what the game reads
   monster: {name: "text", hp: "number", defense: "number", attack: "number", damage: "text", xp: "number",
-            tier: "number", tags: "list", weak: "list", intelligent: "flag", tell: "text", desc: "text"},
+            tier: "number", tags: "list", weak: "list", intelligent: "flag", tell: "text", desc: "text",
+            dungeons: "list"},
   item: {name: "text", kind: "text", damage: "text", defense: "number", heal: "number", escape: "flag",
          tier: "number", tags: "list", desc: "text"},
 };

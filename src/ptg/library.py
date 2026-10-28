@@ -42,7 +42,7 @@ from .sprites import SMALL, count_frames
 ALPHABET = string.ascii_lowercase + string.ascii_uppercase + string.digits
 MONSTER_FIELDS = {"name": str, "hp": int, "defense": int, "attack": int, "damage": str, "xp": int, "tier": int,
                   "tags": list, "intelligent": bool, "boss": bool, "ghost": bool, "weak": list, "tell": str,
-                  "desc": str}
+                  "desc": str, "dungeons": list}
 ITEM_FIELDS = {"name": str, "kind": str, "damage": str, "defense": int, "heal": int, "escape": bool, "tier": int,
                "tags": list, "desc": str}
 CREDIT = re.compile(r"^# drawn by (.+?)(?: \((\d{4}-\d\d-\d\d)\))?$")
@@ -213,12 +213,14 @@ def credits(folder: Path | None = None) -> dict[str, dict[str, dict]]:
             for kind in ("monster", "item")}
 
 
-def lives(key: str, tags: list[str], ghost: bool, themes, tier: int = 1) -> list[str]:
-    """The dungeons a monster turns up in: the one it rules as boss, or every one that calls for its tags (never, for
-    a ghost or an `npc` such as a shopkeeper; a floor of its own, such as Norfel, only draws tier 3 and up)."""
+def lives(key: str, tags: list[str], ghost: bool, themes, tier: int = 1,
+          dungeons: list[str] | tuple[str, ...] = ()) -> list[str]:
+    """The dungeons a monster turns up in: the one it rules as boss, or the ones it's kept to (`dungeons`), or else
+    every one that calls for its tags (MonsterDef.lives_in). Never, for a ghost or an `npc` such as a shopkeeper;
+    and a floor of its own, such as Norfel, only draws tier 3 and up."""
     return ([t.name for t in themes if t.boss == key] or
-            [t.name for t in themes if set(tags) & set(t.monster_tags) and not ghost and "npc" not in tags
-             and (not t.floor or tier >= DUNGEONS)])
+            [t.name for t in themes if (t.key in dungeons if dungeons else set(tags) & set(t.monster_tags))
+             and not ghost and "npc" not in tags and (not t.floor or tier >= DUNGEONS)])
 
 
 def reference(monsters: dict, items: dict) -> dict:
@@ -258,7 +260,8 @@ def export_library(folder: Path | None = None) -> dict:
             out["small"] = encode_art(read_frames(small_file(key, folder)))
         out.update(credits[kind].get(key, {}))
         if kind == "monster":
-            out["lives"] = lives(key, fields.get("tags", []), fields.get("ghost", False), themes, fields.get("tier", 1))
+            out["lives"] = lives(key, fields.get("tags", []), fields.get("ghost", False), themes, fields.get("tier", 1),
+                                 fields.get("dungeons", ()))
             out["special"] = ("boss" if fields.get("boss") else "ghost" if fields.get("ghost")
                               else "shopkeeper" if "shopkeeper" in fields.get("tags", []) else "")
         return out
@@ -277,6 +280,8 @@ def export_library(folder: Path | None = None) -> dict:
         "items": [entry("item", k, v) for k, v in items.items()],
         "reference": reference(monsters, items),
         "kinds": kinds,
+        # the floors a monster can be kept to (its `dungeons`): a theme's floor is 0 if it's one of the shuffled three
+        "dungeons": [{"key": t.key, "name": t.name, "tags": t.monster_tags, "floor": t.floor} for t in themes],
         "tags": tags,
     }
 
@@ -437,6 +442,8 @@ def apply(creations: list[dict], folder: Path | None = None, dry_run: bool = Fal
             # maker doesn't send (an item's powers, stats and where it's found, a monster's tricks), and what a
             # thrown trinket does.
             game_only = [field for field in existing[base] if field not in schema]
+            if "dungeons" not in creation.get("fields", {}):  # a save or a link from before floors could be picked
+                game_only.append("dungeons")
             if existing[base].get("kind") == "trinket":
                 game_only.append("damage")
             for field in game_only:
@@ -480,9 +487,13 @@ def apply(creations: list[dict], folder: Path | None = None, dry_run: bool = Fal
         if kind == "monster" and "npc" in fields.get("tags", []):
             where = ", who keeps out of fights (tagged npc)"
         elif kind == "monster":
-            homes = lives(key, fields.get("tags", []), fields.get("ghost", False), load_content().themes.values(),
-                          fields.get("tier", 1))
-            where = f", lives in {' and '.join(homes)}" if homes else ", but no dungeon has its kind of creature"
+            themes = load_content().themes.values()
+            homes = lives(key, fields.get("tags", []), fields.get("ghost", False), themes, fields.get("tier", 1),
+                          fields.get("dungeons", ()))
+            kept = [t.name for t in themes if t.key in fields.get("dungeons", ())]
+            where = (f", lives in {' and '.join(homes)}" if homes
+                     else f", but {' and '.join(kept)} only draw{'s' * (len(kept) == 1)} tier {DUNGEONS} and up" if kept
+                     else ", but no dungeon has its kind of creature")
         messages.append(f"{verb} {kind} {name} ({key}){' by ' + by if by else ''}{where}{with_small}.{stale_note}")
         if custom:  # (a message of its own: a thank-you comment only ever quotes the Added/Updated ones)
             messages.append(_palette_note(name, custom))

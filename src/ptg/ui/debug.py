@@ -379,7 +379,7 @@ class MonstersTab(TableTab):
                         ("XP", m.xp), ("Tags", listed(m.tags, "-")), ("Weak to", listed(m.weak, "-")),
                         ("Thinks", "yes: it can be talked to" if m.intelligent else "no"),
                         ("Heavy blow", tell(m.name, m.tell)),
-                        ("Lives in", listed(lives(m.key, m.tags, m.ghost, themes, m.tier), "-")),
+                        ("Lives in", listed(lives(m.key, m.tags, m.ghost, themes, m.tier, m.dungeons), "-")),
                         ("Drawn by", credit_line(self.credits.get(m.key)))])]
         if m.desc:
             parts.append(Text(f"\n{m.desc}", style="italic"))

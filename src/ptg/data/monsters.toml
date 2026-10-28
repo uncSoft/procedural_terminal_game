@@ -521,3 +521,32 @@ weak = ["holy", "water"]
 tricks = ["venom", "venom_spit"]
 tell = "SSSSSSSSSSSSSsssssss"
 desc = "Serpentis was around in about the first billionth year of the cosmos and fought in the war of the third billionth year. It has not forgotten. It is still a bit cranky about it."
+
+# drawn by maker (2026-10-28)
+[monster.venom_toad]
+name = "Venom Toad"
+hp = 36
+defense = 14
+attack = 5
+damage = "1d10"
+xp = 50
+tier = 3
+tags = ["beast", "aquatic", "poison"]
+weak = ["fire", "salt", "loud"]
+tell = "draws a deep, gurgling breath. You can smell the poison!"
+desc = "A fat purple toad the size of a footstool, its back studded with glowing green warts. Bubbles of poison seep from its skin and pop with a hiss. It squats and stares with huge yellow eyes, then spits a gob of stinging slime."
+
+# drawn by maker (2026-10-28)
+[monster.cinder_imp]
+name = "Cinder Imp"
+hp = 26
+defense = 14
+attack = 5
+damage = "1d10"
+xp = 50
+tier = 3
+tags = ["beast", "flying", "demon", "fire", "trickster"]
+intelligent = true
+weak = ["water", "holy", "loud"]
+tell = "throws back its head and cackles, its belly flaring white-hot as its wings sweep high overhead."
+desc = "A knee-high red imp with stubby horns, a toothy grin and leathery purple wings that never stop flapping. An ember glows in its belly, and it zips about the room, flinging sparks and giggling at every miss. It loves a good trick, and it can be bribed with shiny things. Flying enemies need to be hit by something thrown to be able to hit them. Status flying and status downed"

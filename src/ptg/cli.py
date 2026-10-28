@@ -84,6 +84,10 @@ def main(argv: list[str] | None = None) -> None:
         from .serve import main as serve_main
 
         sys.exit(serve_main(argv[1:]))
+    if argv[:1] == ["maker"]:  # the Monster & Item Maker on this computer, with Claude to draw (see ptg/maker.py)
+        from .maker import main as maker_main
+
+        sys.exit(maker_main(argv[1:]))
     args = parse_args(argv)
     if not preflight():
         sys.exit(1)

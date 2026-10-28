@@ -129,7 +129,8 @@ kbd { font-family: var(--mono); font-size: 11px; color: var(--dim); border: 1px 
 .input.bad { border-color: var(--red); }
 textarea.input { min-height: 78px; resize: vertical; }
 .segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-.segmented button { border: 0; border-right: 1px solid var(--line); background: var(--panel); padding: 7px 13px; font-weight: 600; font-size: 14px; }
+.segmented button { border: 0; border-right: 1px solid var(--line); background: var(--panel); padding: 7px 13px; font-weight: 600; font-size: 14px; white-space: nowrap; }
+.segmented button[data-frame] { padding: 7px 11px; }
 .segmented button:last-child { border-right: 0; }
 .segmented button[aria-pressed="true"] { background: var(--amber); color: #1a1200; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -140,6 +141,7 @@ textarea.input { min-height: 78px; resize: vertical; }
 .typical { color: var(--dim); }
 .typical b { color: var(--muted); font-weight: 600; }
 .lives { color: var(--green) !important; }
+.lives.warn { color: var(--amber) !important; }
 
 .submit { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
 .status { font-size: 14px; margin-top: 8px; min-height: 1.4em; }
@@ -184,6 +186,29 @@ code { font-family: var(--mono); background: var(--bg); padding: 2px 6px; border
 footer { color: var(--dim); font-size: 13px; text-align: center; padding: 16px; }
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--green); color: #052b14;
          padding: 9px 16px; border-radius: 999px; font-weight: 600; z-index: 20; box-shadow: 0 6px 20px rgba(0, 0, 0, .4); }
+
+/* --- Claude, when the maker runs on this computer (uv run ptg maker) --- */
+#studio { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line);
+          border-radius: var(--radius); margin: 14px max(16px, env(safe-area-inset-left)) 0; max-height: 72vh; }
+@media (min-width: 1180px) {
+  body.studio-on { padding-right: 410px; }
+  body.studio-on #studio { position: fixed; top: 0; right: 0; bottom: 0; width: 410px; max-height: none; margin: 0;
+                           border-radius: 0; border-width: 0 0 0 1px; z-index: 6; }
+}
+.studio-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.studio-head h2 { margin: 0 4px 0 0; color: var(--pink); }
+.studio-head select.input { width: auto; min-height: 34px; padding: 4px 8px; font-size: 13px; }
+.studio-log { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-height: 140px; }
+.say { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+.say.you { align-self: flex-end; max-width: 88%; background: var(--panel); border: 1px solid var(--line);
+           border-radius: 12px 12px 2px 12px; padding: 7px 11px; }
+.say.note { color: var(--muted); font-size: 13px; font-style: italic; }
+.say.act { color: var(--dim); font-size: 12.5px; font-family: var(--mono); }
+.say.bad { color: var(--red); }
+.say.ok { color: var(--green); }
+.studio-ask { border-top: 1px solid var(--line); padding: 10px 14px 12px; display: grid; gap: 8px; }
+.studio-ask textarea.input { min-height: 64px; }
+.studio-cost { color: var(--dim); font-size: 12px; margin: 0; min-height: 1.2em; }
 </style>
 </head>
 <body>
@@ -200,6 +225,29 @@ footer { color: var(--dim); font-size: 13px; text-align: center; padding: 16px; 
   </nav>
 </header>
 
+<aside id="studio" hidden aria-label="Claude">
+  <div class="studio-head">
+    <h2>Claude</h2>
+    <select class="input" id="studio-model" aria-label="Model"></select>
+    <select class="input" id="studio-effort" aria-label="Effort" title="How hard Claude thinks: harder is slower and costs more"></select>
+    <span class="spacer"></span>
+    <button class="btn quiet" id="studio-new">New chat</button>
+  </div>
+  <div class="studio-log" id="studio-log" aria-live="polite">
+    <p class="say note">Ask for a monster or an item. Claude draws it on the boards, gives it numbers and runs the game's own checks. You can undo any stroke, or draw on it yourself. Then put your name in Created by and press Save.</p>
+  </div>
+  <div class="studio-ask">
+    <textarea class="input" id="studio-input" rows="3" placeholder="A swamp toad who sings hymns to the drowned, tier 2…"></textarea>
+    <div class="row">
+      <button class="btn primary" id="studio-send">Ask Claude</button>
+      <button class="btn" id="studio-stop" hidden>Stop</button>
+      <span class="spacer"></span>
+      <button class="btn quiet" id="studio-add" title="Bring what's on the board into the game's data on this computer, as uv run ptg import does">Add to the game…</button>
+    </div>
+    <p class="studio-cost" id="studio-cost"></p>
+  </div>
+</aside>
+
 <main>
   <section class="view" id="maker">
     <div class="maker">
@@ -215,9 +263,11 @@ footer { color: var(--dim); font-size: 13px; text-align: center; padding: 16px; 
           <div class="segmented">
             <button data-frame="0" aria-pressed="true">Frame 1</button>
             <button data-frame="1" aria-pressed="false">Frame 2</button>
+            <button data-frame="2" aria-pressed="false" title="Optional: frames 3 and 4 make a longer animation">Frame 3</button>
+            <button data-frame="3" aria-pressed="false" title="Optional: frames 3 and 4 make a longer animation">Frame 4</button>
           </div>
           <button class="btn" id="auto-wiggle" title="Frame 2 = frame 1 sinking a pixel, feet planted: the idle bob the game's sprites use">Make it bob</button>
-          <button class="btn" id="copy-frame" title="Copy frame 1 into frame 2">Copy 1 → 2</button>
+          <button class="btn" id="copy-frame" title="Copy the frame before into this one, to change a few pixels">Copy 1 → 2</button>
         </div>
         <div class="grid-wrap"><canvas id="grid" aria-label="Drawing grid, 24 by 24"></canvas></div>
         <div class="row" role="group" aria-label="Tools">
@@ -288,8 +338,10 @@ footer { color: var(--dim); font-size: 13px; text-align: center; padding: 16px; 
           <label class="field sixth"><span>Attack</span><input class="input" type="number" data-f="attack" title="Added to its attack roll"></label>
           <label class="field third"><span>Damage</span><input class="input" data-f="damage" placeholder="1d6" title="Dice like 1d6 or 2d4+1"></label>
           <label class="field sixth"><span>XP</span><input class="input" type="number" min="0" data-f="xp"></label>
-          <div class="field"><span>Creature type <small>(decides which dungeons it appears in)</small></span>
-            <div class="chips" data-chips="kind"></div>
+          <div class="field"><span>Creature type</span>
+            <div class="chips" data-chips="kind"></div></div>
+          <div class="field"><span>Floors it shows up on <small>(pick none and it's every one its creature type fits)</small></span>
+            <div class="chips" data-chips="dungeons"></div>
             <small class="lives" id="lives"></small></div>
           <div class="field"><span>Weaknesses <small>(things that work especially well against it)</small></span>
             <div class="chips" data-chips="weak"></div></div>
@@ -406,6 +458,7 @@ footer { color: var(--dim); font-size: 13px; text-align: center; padding: 16px; 
 // --- what the game knows ------------------------------------------------------------------------------------------
 const SIZE = 24;
 const SMALL = 12;    // an item's small version, as the game's inventory and loot cards show it
+const FRAMES = 4;    // the idle animation: two frames (an empty second one bobs), or up to four (ptg/library.py keeps 4)
 const OUTLINE = 40;  // colours darker than this count as outline when halving, as in the game (ptg/sprites.py)
 const ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 // Endesga 32: the palette the game's own sprites are drawn in.
@@ -419,7 +472,7 @@ const WEAKNESSES = ["fire", "holy", "shiny", "food", "loud", "water", "light", "
                     "spores", "sharp", "glass", "rope", "paper"];
 const ITEM_TAGS = ["fire", "holy", "shiny", "food", "loud", "liquid", "light", "heavy", "throwable", "sharp", "sticky",
                    "smelly", "glass", "rope", "paper", "lucky", "metal", "cloth", "smoke", "water"];
-const MONSTER_FIELDS = ["name", "hp", "defense", "attack", "damage", "xp", "tier", "tags", "weak", "intelligent", "tell", "desc"];
+const MONSTER_FIELDS = ["name", "hp", "defense", "attack", "damage", "xp", "tier", "tags", "weak", "intelligent", "tell", "desc", "dungeons"];
 const ITEM_FIELDS = ["name", "kind", "damage", "defense", "heal", "escape", "tier", "tags", "desc"];
 const DICE = /^\s*\d+d\d+\s*([+-]\s*\d+)?\s*$/;
 // If library.json can't be read these keep new things fair (they match the game when this page was written).
@@ -432,7 +485,11 @@ const FALLBACK = {
            consumable: {"1": {heal: 8}, "2": {heal: 16}, "3": {heal: 24}}}},
   kinds: {undead: ["The Sunken Crypt"], aquatic: ["The Sunken Crypt"], vermin: ["The Sunken Crypt", "The Goblin Warren"],
           goblinoid: ["The Goblin Warren", "The Overgrown Ruins"], beast: ["The Goblin Warren", "The Overgrown Ruins"],
-          giant: ["The Goblin Warren"], plant: ["The Overgrown Ruins"]}};
+          giant: ["The Goblin Warren"], plant: ["The Overgrown Ruins"]},
+  dungeons: [{key: "sunken_crypt", name: "The Sunken Crypt", tags: ["undead", "aquatic", "vermin"], floor: 0},
+             {key: "goblin_warren", name: "The Goblin Warren", tags: ["goblinoid", "vermin", "beast", "giant"], floor: 0},
+             {key: "overgrown_ruins", name: "The Overgrown Ruins", tags: ["plant", "beast", "goblinoid"], floor: 0},
+             {key: "norfel", name: "Norfel, Domain of Serpentis", tags: ["ooze", "giant", "beast", "undead", "goblinoid"], floor: 4}]};
 const STORE = "ptg-maker-v1";
 
 // --- state --------------------------------------------------------------------------------------------------------
@@ -448,18 +505,22 @@ let shelf = "monsters";
 
 const $ = id => document.getElementById(id);
 const blank = (size = SIZE) => new Array(size * size).fill(null);
+const blanks = (size = SIZE) => Array.from({length: FRAMES}, () => blank(size));
 const uid = () => crypto.randomUUID ? crypto.randomUUID() : "c" + b64url(crypto.getRandomValues(new Uint8Array(16)));
 const secret = () => b64url(crypto.getRandomValues(new Uint8Array(18)));
 const ref = () => (library && library.reference) || FALLBACK.reference;
 const kinds = () => (library && library.kinds) || FALLBACK.kinds;
+const dungeons = () => (library && library.dungeons) || FALLBACK.dungeons;  // the floors, each a dungeon
+const short = d => d.name.split(",")[0];  // "Norfel", not "Norfel, Domain of Serpentis"
+const andList = words => words.length > 1 ? `${words.slice(0, -1).join(", ")} and ${words.at(-1)}` : words.join("");
 const tierRef = t => String(Math.min(3, Math.max(1, Number(t) || 1)));
 const tagify = s => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 const tagList = s => (s || "").split(",").map(tagify).filter(Boolean);
 
 function fresh(type) {
-  const c = {id: uid(), type, base: null, frames: [blank(), blank()], small: [blank(SMALL), blank(SMALL)], smallHand: false,
+  const c = {id: uid(), type, base: null, frames: blanks(), small: blanks(SMALL), smallHand: false,
              by: stored().by || "", submitted: false, saved: Date.now()};
-  if (type === "monster") c.fields = {name: "", tier: 1, tags: ["beast"], weak: [], intelligent: false, tell: "", desc: "", ...ref().monster["1"]};
+  if (type === "monster") c.fields = {name: "", tier: 1, tags: ["beast"], weak: [], intelligent: false, tell: "", desc: "", dungeons: [], ...ref().monster["1"]};
   else c.fields = {name: "", kind: "weapon", tier: 1, tags: [], desc: "", ...ref().item.weapon["1"]};
   return c;
 }
@@ -504,7 +565,7 @@ function encodeArt(frames, size = SIZE) {
 function decodeArt(art, size = SIZE) {  // careful: saved art comes from anyone
   if (!art || !Array.isArray(art.frames) || !Array.isArray(art.palette)) return [blank(size), blank(size)];
   const ox = Math.floor((size - art.w) / 2) || 0, oy = Math.floor((size - art.h) / 2) || 0;
-  const frames = art.frames.slice(0, 2).map(rows => {
+  const frames = art.frames.slice(0, FRAMES).map(rows => {
     const px = blank(size);
     (Array.isArray(rows) ? rows : []).forEach((row, y) => [...String(row)].forEach((ch, x) => {
       const tx = x + ox, ty = y + oy, c = art.palette[ALPHABET.indexOf(ch)];
@@ -512,7 +573,7 @@ function decodeArt(art, size = SIZE) {  // careful: saved art comes from anyone
     }));
     return px;
   });
-  while (frames.length < 2) frames.push(blank(size));
+  while (frames.length < FRAMES) frames.push(blank(size));
   return frames;
 }
 const hasPixels = px => px.some(Boolean);
@@ -523,8 +584,17 @@ function bobbed(px, size = SIZE) {
   for (let i = size * feet; i < size * size; i++) if (px[i]) out[i] = px[i];
   return out;
 }
-const shownFrames = c => hasPixels(c.frames[1]) ? c.frames : [c.frames[0], bobbed(c.frames[0])];
-const shownSmall = c => hasPixels(c.small[1]) ? c.small : [c.small[0], bobbed(c.small[0], SMALL)];
+// How many frames the animation has: two (the second may be empty, and bobs), or three or four when they're drawn.
+function frameCount(frames) {
+  let last = 1;
+  frames.forEach((px, i) => { if (hasPixels(px)) last = Math.max(last, i); });
+  return last + 1;
+}
+function shown(list, size, count) {  // the frames the game would play: an empty second one is the bob
+  return count > 2 || hasPixels(list[1]) ? list.slice(0, count) : [list[0], bobbed(list[0], size)];
+}
+const shownFrames = c => shown(c.frames, SIZE, frameCount(c.frames));
+const shownSmall = c => shown(c.small, SMALL, frameCount(c.frames));  // (a small version has the drawing's frames)
 function paintTo(canvas, px, size = SIZE) {
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext("2d");
@@ -551,7 +621,7 @@ function halve(px) {
   }
   return out;
 }
-const autoSmall = c => [halve(c.frames[0]), hasPixels(c.frames[1]) ? halve(c.frames[1]) : blank(SMALL)];
+const autoSmall = c => c.frames.map((px, i) => i === 0 || hasPixels(px) ? halve(px) : blank(SMALL));
 function hash(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h; }
 const pictureOf = c => hash(JSON.stringify(c.frames));
 function withSmall(c, art) {  // the small version drawn for an item, or else its drawing halved
@@ -591,10 +661,12 @@ function payload(c) {
     if (v !== undefined && v !== "" && v !== null && !(typeof v === "number" && isNaN(v))) fields[k] = v;
   });
   if (c.type === "monster" && !fields.tell) fields.tell = "winds up a powerful attack";
+  if (Array.isArray(fields.dungeons)) fields.dungeons = fields.dungeons.filter(k => dungeons().some(d => d.key === k));
   const out = {v: 1, type: c.type, fields, by: c.by || "", made: new Date().toISOString().slice(0, 10)};
   if (c.base) out.base = c.base;
-  if (hasPixels(c.frames[0])) out.art = encodeArt(c.frames);
-  if (c.type === "item" && c.smallHand && hasPixels(c.small[0])) out.small = encodeArt(c.small, SMALL);
+  const count = frameCount(c.frames);  // only the frames it has: a blank one sent would be kept as a frame
+  if (hasPixels(c.frames[0])) out.art = encodeArt(c.frames.slice(0, count));
+  if (c.type === "item" && c.smallHand && hasPixels(c.small[0])) out.small = encodeArt(c.small.slice(0, count), SMALL);
   return out;
 }
 const pageLink = code => location.href.split("#")[0] + "#c=" + code;
@@ -604,9 +676,9 @@ const importCommand = link => `uv run ptg import "${link}"`;
 // Both use the same tool, colour, mirror, frame and undo.
 const boards = {
   big: {canvas: $("grid"), size: SIZE, cell: 20, px: () => current.frames[frame],
-        under: () => frame === 1 ? current.frames[0] : null},
+        under: () => frame > 0 ? current.frames[frame - 1] : null},
   small: {canvas: $("small-grid"), size: SMALL, cell: 18, px: () => current.small[frame],
-          under: () => frame === 1 ? current.small[0] : null},
+          under: () => frame > 0 ? current.small[frame - 1] : null},
 };
 const showsSmall = () => !!current && current.type === "item";
 function sizeGrid() {
@@ -765,10 +837,15 @@ $("clear").addEventListener("click", () => {
 function showFrame(i) {
   frame = i;
   document.querySelectorAll("[data-frame]").forEach(b => b.setAttribute("aria-pressed", String(Number(b.dataset.frame) === i)));
+  const into = Math.max(1, i);  // frame 1 copies into frame 2; any later frame takes the one before it
+  $("copy-frame").textContent = `Copy ${into} → ${into + 1}`;
   changed();
 }
 document.querySelectorAll("[data-frame]").forEach(b => b.addEventListener("click", () => showFrame(Number(b.dataset.frame))));
-$("copy-frame").addEventListener("click", () => { frame = 1; checkpoint(); current.frames[1] = current.frames[0].slice(); showFrame(1); });
+$("copy-frame").addEventListener("click", () => {
+  const into = Math.max(1, frame);
+  frame = into; checkpoint(); current.frames[into] = current.frames[into - 1].slice(); showFrame(into);
+});
 $("auto-wiggle").addEventListener("click", () => { frame = 1; checkpoint(); current.frames[1] = bobbed(current.frames[0]); showFrame(1); toast("Frame 2 now bobs."); });
 document.addEventListener("keydown", e => {
   if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) return;
@@ -832,9 +909,10 @@ function buildSegments() {
 function chipBox(name, options) {
   const box = document.querySelector(`#${current.type}-fields [data-chips="${name}"]`);
   if (!box) return;
-  box.replaceChildren(...options.map(([value, label]) => {
+  box.replaceChildren(...options.map(([value, label, title]) => {
     const b = document.createElement("button");
     b.type = "button"; b.className = "chip"; b.dataset.value = value; b.textContent = label;
+    if (title) b.title = title;
     b.addEventListener("click", () => toggleTag(name, value));
     return b;
   }));
@@ -842,13 +920,16 @@ function chipBox(name, options) {
 function buildChips() {
   if (current.type === "monster") {
     chipBox("kind", Object.entries(KINDS));
+    chipBox("dungeons", dungeons().map(d => d.floor
+      ? [d.key, `${short(d)} · floor ${d.floor}`, `Always floor ${d.floor}, and only tier 3 monsters and up turn up there`]
+      : [d.key, short(d), "One of the first three floors: they come in a different order every run"]));
     chipBox("weak", WEAKNESSES.map(w => [w, w]));
   } else {
     chipBox("itemtags", ITEM_TAGS.map(t => [t, t]));
   }
 }
 function toggleTag(name, value) {
-  const f = current.fields, key = name === "weak" ? "weak" : "tags", now = f[key] || [];
+  const f = current.fields, key = name === "weak" || name === "dungeons" ? name : "tags", now = f[key] || [];
   f[key] = now.includes(value) ? now.filter(v => v !== value) : [...now, value];
   showDetails(); refreshPreview(); saveSoon();
 }
@@ -896,12 +977,23 @@ function bindInputs() {
   });
 }
 
+function where(f) {  // the floors a monster turns up on, as the game picks them (library.lives), in words
+  if ((f.tags || []).includes("npc")) return {text: "An NPC: never one of a floor's monsters, only met where it's put.", warn: false};
+  const all = dungeons(), picked = (f.dungeons || []).filter(k => all.some(d => d.key === k));
+  const fits = all.filter(d => picked.length ? picked.includes(d.key) : (f.tags || []).some(t => d.tags.includes(t)));
+  const deep = d => d.floor && (Number(f.tier) || 1) < 3;  // a floor of its own only draws tier 3 and up
+  const homes = fits.filter(d => !deep(d)).map(short), missed = picked.length ? fits.filter(deep).map(short) : [];
+  const note = missed.length ? ` ${andList(missed)} only has tier 3 monsters and up, so at tier ${Number(f.tier) || 1} it won't turn up there.` : "";
+  if (!homes.length) return {text: (picked.length ? "It won't turn up anywhere." : "No floor has its creature type: pick the floors it shows up on.") + note, warn: true};
+  return {text: (picked.length ? `Shows up only in ${andList(homes)}.`
+    : `Shows up wherever its creature type fits: ${andList(homes)}. Pick floors to keep it to just some of them.`) + note, warn: !!note};
+}
 function showDetails() {
   const c = current, f = c.fields, box = $(`${c.type}-fields`);
   box.querySelectorAll("[data-segment]").forEach(seg => seg.querySelectorAll("button").forEach(b =>
     b.setAttribute("aria-pressed", String(String(f[seg.dataset.segment]) === b.dataset.value))));
   box.querySelectorAll("[data-chips]").forEach(chips => chips.querySelectorAll("button").forEach(b => {
-    const field = chips.dataset.chips === "weak" ? "weak" : "tags";
+    const field = ["weak", "dungeons"].includes(chips.dataset.chips) ? chips.dataset.chips : "tags";
     b.setAttribute("aria-pressed", String((f[field] || []).includes(b.dataset.value)));
   }));
   box.querySelectorAll("[data-f]").forEach(input => {
@@ -917,8 +1009,9 @@ function showDetails() {
   if (c.type === "monster") {
     const t = ref().monster[tierRef(f.tier)];
     $("typical").innerHTML = `Typical for tier ${tierRef(f.tier)}: <b>${t.hp} HP</b> · defense <b>${t.defense}</b> · attack <b>+${t.attack}</b> · <b>${t.damage}</b> · <b>${t.xp} XP</b>`;
-    const lives = [...new Set((f.tags || []).flatMap(tag => kinds()[tag] || []))];
-    $("lives").textContent = lives.length ? `Appears in ${lives.join(" and ")}.` : "No dungeon has its type yet: pick a creature type to place it.";
+    const w = where(f);
+    $("lives").textContent = w.text;
+    $("lives").classList.toggle("warn", w.warn);
   } else {
     box.querySelectorAll("[data-for]").forEach(el => { el.hidden = el.dataset.for !== f.kind || (el.hasAttribute("data-heal") && !!f.escape); });
     const r = ref().item, tier = tierRef(f.tier);
@@ -945,8 +1038,9 @@ function describe(type, f) {
 }
 function refreshPreview() {
   if (!current) return;
-  paintTo($("preview"), shownFrames(current)[tick % 2]);
-  if (showsSmall()) paintTo($("small-preview"), shownSmall(current)[tick % 2], SMALL);
+  const big = shownFrames(current);
+  paintTo($("preview"), big[tick % big.length]);
+  if (showsSmall()) { const small = shownSmall(current); paintTo($("small-preview"), small[tick % small.length], SMALL); }
   $("preview-name").textContent = current.fields.name || (current.type === "monster" ? "Unnamed monster" : "Unnamed item");
   $("preview-summary").textContent = describe(current.type, current.fields);
   const by = (current.by || "").trim();
@@ -982,6 +1076,7 @@ function tidy(type, fields) {  // a linked or saved creation's fields, as the ma
   (type === "monster" ? MONSTER_FIELDS : ITEM_FIELDS).forEach(k => {
     const v = (fields || {})[k];
     if (k === "tags" || k === "weak") out[k] = Array.isArray(v) ? v.map(String) : [];
+    else if (k === "dungeons") { if (Array.isArray(v)) out[k] = v.map(String); }  // left out: as the game has it
     else if (["string", "number", "boolean"].includes(typeof v)) out[k] = v;
   });
   return out;
@@ -993,9 +1088,9 @@ function fromData(data) {  // a creation from a link or the shared library, on a
   return withSmall(c, data.small);
 }
 function revive(c) {
-  c.frames = (c.frames || []).map(f => f.slice()); while (c.frames.length < 2) c.frames.push(blank());
+  c.frames = (c.frames || []).map(f => f.slice()); while (c.frames.length < FRAMES) c.frames.push(blank());
   if (!Array.isArray(c.small)) return withSmall(c, null);  // kept before there were small versions
-  c.small = c.small.map(f => f.slice()); while (c.small.length < 2) c.small.push(blank(SMALL));
+  c.small = c.small.map(f => f.slice()); while (c.small.length < FRAMES) c.small.push(blank(SMALL));
   return c;
 }
 $("name").addEventListener("input", e => { current.fields.name = e.target.value; refreshPreview(); saveSoon(); });
@@ -1013,6 +1108,9 @@ function problems(c) {
   const f = c.fields;
   if (!(f.name || "").trim()) return "It needs a name.";
   if (!c.base && c.frames[0].filter(Boolean).length < 6) return "Draw a bit more in frame 1.";
+  const count = frameCount(c.frames);  // a longer animation plays every frame up to its last (the game drops a gap's)
+  if (count > 2) for (let i = 1; i < count; i++) if (!hasPixels(c.frames[i]))
+    return `Frame ${i + 1} is empty but frame ${count} isn't: draw every frame up to the last one, or clear frame ${count}.`;
   if (f.damage && !DICE.test(f.damage)) return "Damage should be dice, like 1d6 or 2d4+1.";
   if (c.type === "monster") {
     for (const k of ["hp", "defense", "attack", "xp"]) if (f[k] === undefined || isNaN(f[k])) return `Set its ${k === "xp" ? "XP" : k}.`;
@@ -1023,6 +1121,8 @@ function problems(c) {
     if (f.kind === "armor" && !(f.defense > 0)) return "Armor needs a defense bonus above 0.";
     if (f.kind === "consumable" && !f.escape && !(f.heal > 0)) return "A consumable should heal, or let you escape.";
     if (c.smallHand && !hasPixels(c.small[0])) return "The small version is empty: draw it, or start it again from the drawing.";
+    if (c.smallHand && count > 2) for (let i = 1; i < count; i++) if (!hasPixels(c.small[i]))
+      return `The small version needs ${count} frames, like the drawing: draw its frame ${i + 1}, or start it again from the drawing.`;
   }
   return "";
 }
@@ -1094,7 +1194,10 @@ function toast(text) {
 // such as tools/maker_saves.gs) it goes there too, so everyone sees it; its secret lets only this browser change it.
 const CHANGED = "Changed since you saved it: press Save to update it in the Library.";
 const savesUrl = () => (config.saves && config.saves.url) || "";
-function fingerprint(c) { return hash(JSON.stringify([c.fields, c.frames, c.by, c.base, c.smallHand ? c.small : null])); }
+function fingerprint(c) {  // (the frames it has: one saved with two frames reads the same now there's room for four)
+  const n = frameCount(c.frames);
+  return hash(JSON.stringify([c.fields, c.frames.slice(0, n), c.by, c.base, c.smallHand ? c.small.slice(0, n) : null]));
+}
 async function send(body) {
   const res = await fetch(savesUrl(), {method: "POST", body: JSON.stringify(body)});  // plain text: no CORS preflight
   const out = await res.json().catch(() => ({}));
@@ -1261,7 +1364,7 @@ async function arrived() {
   const frames = shownFrames(c), preview = $("arrived-preview");
   let t = 0;
   paintTo(preview, frames[0]);
-  const timer = setInterval(() => paintTo(preview, frames[++t % 2]), 360);
+  const timer = setInterval(() => paintTo(preview, frames[++t % frames.length]), 360);
   $("arrived-name").textContent = c.fields.name;
   $("arrived-by").textContent = `${data.type === "monster" ? "Monster" : "Item"}${c.by ? " by " + c.by : ""}${c.base ? " · a change to " + c.base : ""}`;
   $("arrived-screen").classList.toggle("item", data.type === "item");
@@ -1274,6 +1377,428 @@ async function arrived() {
   $("arrived-copy").onclick = () => copy(importCommand(pageLink(hash.slice(3))), "Command copied.");
   dialog.showModal();
 }
+
+// --- Claude, when the maker runs on this computer (uv run ptg maker) -------------------------------------------------
+// ptg/maker.py serves this page with a studio.json beside it, holds the key and makes each call to Claude (GitHub
+// Pages has no studio.json, so there's no panel there). The tools Claude reaches for run here, on the boards: each
+// stroke shows as it lands and undoes like the person's own. The conversation lives in this page and only grows:
+// earlier turns go back exactly as they came, which keeps Claude's thinking valid and the server's cache warm.
+const studio = {token: "", models: {}, messages: [], busy: false, stopped: false, abort: null, used: {}};
+const LETTERS = ALPHABET.slice(0, PALETTE.length);  // a-z then A-F: the 32 colours, as Claude draws them
+const MAX_TURNS = 60;  // calls to Claude for one message, before it stops for the person to say go on
+const PRICES = {  // dollars per million tokens: in, out, read from the cache, written to it (for the estimate shown)
+  "claude-opus-5-5": [4, 20, 0.2, 5], "claude-sonnet-5-5": [2, 10, 0.2, 2.5], "claude-haiku-5-5": [0.1, 0.5, 0.01, 0.125]};
+class Problem extends Error {}  // a tool's input it can't use: Claude is told why, and tries again
+
+function say(kind, text = "") {
+  const p = document.createElement("p");
+  p.className = "say " + kind; p.textContent = text;
+  $("studio-log").append(p);
+  $("studio-log").scrollTop = $("studio-log").scrollHeight;
+  return p;
+}
+const api = (path, body, signal) => fetch("api/" + path, {method: "POST", signal, body: JSON.stringify(body),
+  headers: {"Content-Type": "application/json", "X-Maker-Token": studio.token}});
+async function apiJson(path, body) {
+  const res = await api(path, body), out = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Problem(out.error || `ptg maker answered ${res.status}`);
+  return out;
+}
+
+// Pictures as Claude reads and writes them: a letter per pixel, "." for see-through.
+function rowsText(px, size = SIZE) {
+  const extra = [], rows = [];
+  for (let y = 0; y < size; y++) {
+    let row = "";
+    for (let x = 0; x < size; x++) {
+      const c = px[y * size + x], i = c ? PALETTE.indexOf(c) : -1;
+      if (!c) row += ".";
+      else if (i >= 0) row += LETTERS[i];
+      else { if (!extra.includes(c)) extra.push(c); row += String(extra.indexOf(c) % 10); }  // a colour from outside the 32
+    }
+    rows.push(row);
+  }
+  return rows.join("\n") + (extra.length ? `\n(digits are colours from outside the 32: ${extra.map((c, i) => `${i % 10} ${c}`).join(", ")})` : "");
+}
+function pixelsOf(rows, size, what) {
+  if (!Array.isArray(rows) || rows.length !== size) throw new Problem(`${what} needs ${size} rows, not ${Array.isArray(rows) ? rows.length : "none"}.`);
+  const px = blank(size);
+  rows.forEach((row, y) => {
+    if (typeof row !== "string" || row.length !== size) throw new Problem(`Row ${y} of ${what} has ${typeof row === "string" ? row.length : 0} letters: every row needs exactly ${size}.`);
+    [...row].forEach((ch, x) => {
+      if (ch === ".") return;
+      const i = LETTERS.indexOf(ch);
+      if (i < 0) throw new Problem(`Row ${y} of ${what} has "${ch}" at x=${x}, which isn't a colour letter (a-z, A-F) or ".".`);
+      px[y * size + x] = PALETTE[i];
+    });
+  });
+  return px;
+}
+function picture(frames, size = SIZE) {  // frames side by side, big, on the terminal's background: a PNG for Claude
+  const scale = size === SIZE ? 8 : 12, gap = 16, canvas = document.createElement("canvas");
+  canvas.width = frames.length * size * scale + (frames.length - 1) * gap; canvas.height = size * scale;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#090a13"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  frames.forEach((px, f) => {
+    const left = f * (size * scale + gap);
+    px.forEach((c, i) => { if (c) { ctx.fillStyle = c; ctx.fillRect(left + (i % size) * scale, Math.floor(i / size) * scale, scale, scale); } });
+    ctx.strokeStyle = "rgba(255,255,255,0.07)"; ctx.lineWidth = 1; ctx.beginPath();  // faint lines to count pixels by
+    for (let k = 1; k < size; k++) {
+      ctx.moveTo(left + k * scale + 0.5, 0); ctx.lineTo(left + k * scale + 0.5, size * scale);
+      ctx.moveTo(left, k * scale + 0.5); ctx.lineTo(left + size * scale, k * scale + 0.5);
+    }
+    ctx.stroke();
+  });
+  return canvas.toDataURL("image/png").split(",")[1];
+}
+function dropped(px, size = SIZE) { const out = blank(size); for (let i = 0; i < size * (size - 1); i++) out[i + size] = px[i]; return out; }
+function frameOf(input, key = "frame") {
+  if (!Number.isInteger(input[key]) || input[key] < 1 || input[key] > FRAMES) throw new Problem(`${key} is 1 to ${FRAMES}.`);
+  return input[key] - 1;
+}
+function framesText(list, size, count, bobs) {  // each frame's rows, for look and game_art
+  const lines = [];
+  for (let i = 0; i < Math.max(2, count); i++) {
+    lines.push("", `Frame ${i + 1}${i === 0 ? ` (${list[0].filter(Boolean).length} pixels)` : ""}:`);
+    lines.push(hasPixels(list[i]) ? rowsText(list[i], size) : i === 1 ? `(empty: ${bobs})` : "(empty)");
+  }
+  if (count < FRAMES) lines.push(`(Frames ${count + 1}${count + 1 < FRAMES ? `-${FRAMES}` : ""} unused: the animation has ${count} frames.)`);
+  return lines;
+}
+function choices(type) {  // what look tells Claude it can pick from, and the typical numbers
+  const r = ref();
+  if (type === "monster") return [
+    "Typical numbers: " + Object.entries(r.monster).map(([t, s]) => `tier ${t}: ${s.hp} HP, defense ${s.defense}, attack +${s.attack}, ${s.damage}, ${s.xp} XP`).join("; ") + ".",
+    "Creature types and the dungeons they live in: " + Object.entries(kinds()).map(([k, places]) => `${k} (${places.join(", ")})`).join("; ")
+      + "; or npc, for someone met somewhere on purpose, never one of the dungeon's monsters.",
+    "Floors, each a dungeon (pick them with dungeons; pick none and it's every one its creature type fits): "
+      + dungeons().map(d => `${d.key} (${d.name}${d.floor ? `, always floor ${d.floor}: tier 3 and up only` : ""}; its creatures: ${d.tags.join(", ")})`).join("; ") + ".",
+    `Weaknesses: ${WEAKNESSES.join(", ")}, or others.`];
+  const typical = kind => Object.entries(r.item[kind]).map(([t, s]) => `tier ${t} ${Object.values(s)[0]}`).join(", ");
+  return [`Typical numbers: weapon damage ${typical("weapon")}; armor defense ${typical("armor")}; consumable heals ${typical("consumable")}.`,
+          `Kinds: weapon, armor, consumable, trinket. Tags: ${ITEM_TAGS.join(", ")}, or others.`];
+}
+const strip = () => picture(shownFrames(current));  // the frames the game plays, side by side (an empty frame 2 bobs)
+
+const STUDIO_TOOLS = {
+  look() {
+    const c = current, f = c.fields, monster = c.type === "monster", count = frameCount(c.frames);
+    const lines = [`A${monster ? " monster" : "n item"}: ${f.name ? `"${f.name}"` : "no name yet"}${c.base ? `, a change to the game's ${c.base}` : ""}.`,
+      `Details: ${describe(c.type, f)}.`,
+      `Tags: ${(f.tags || []).join(", ") || "none"}.${monster ? ` Weak to: ${(f.weak || []).join(", ") || "nothing"}. Tell: ${f.tell || "(none)"}.` : ""}`,
+      ...(monster ? [`Floors picked: ${(f.dungeons || []).join(", ") || "none"}. ${where(f).text}`] : []),
+      `Description: ${f.desc || "(none)"}`, `Created by: ${c.by ? "filled in" : "empty (the person fills it in)"}.`,
+      ...framesText(c.frames, SIZE, count, "the game bobs frame 1")];
+    if (!monster) lines.push("", `The small version (${c.smallHand ? "drawn by hand" : "the drawing halved: draw it by hand with small"}):`,
+                             ...framesText(c.small, SMALL, count, "the game bobs it").slice(1));
+    lines.push("", ...choices(c.type), "", `The maker says: ${problems(c) || "nothing stops it being saved."}`);
+    return {text: lines.join("\n"), image: monster ? strip() : [strip(), picture(shownSmall(c), SMALL)]};
+  },
+  draw(input) {
+    const f = frameOf(input), px = pixelsOf(input.rows, SIZE, `frame ${f + 1}`);
+    frame = f; checkpoint("big");
+    current.frames[f] = px;
+    showFrame(f);
+    const later = current.frames.slice(f + 1).some(hasPixels) ? " The frames after it are still the old ones: make them again if they should follow." : "";
+    return {text: `Drew frame ${f + 1}: ${px.filter(Boolean).length} pixels.${later}`, image: strip()};
+  },
+  paint(input) {
+    const f = frameOf(input);
+    if (!Array.isArray(input.pixels) || !input.pixels.length) throw new Problem("pixels is a list of {x, y, c}.");
+    const changes = input.pixels.map((p, n) => {
+      if (!p || !Number.isInteger(p.x) || !Number.isInteger(p.y) || p.x < 0 || p.y < 0 || p.x >= SIZE || p.y >= SIZE)
+        throw new Problem(`Pixel ${n} needs x and y from 0 to 23.`);
+      if (typeof p.c !== "string" || p.c.length !== 1 || (p.c !== "." && !LETTERS.includes(p.c)))
+        throw new Problem(`Pixel ${n}'s c ("${p.c}") isn't a colour letter (a-z, A-F) or ".".`);
+      return [p.y * SIZE + p.x, p.c === "." ? null : PALETTE[LETTERS.indexOf(p.c)]];
+    });
+    frame = f; checkpoint("big");
+    changes.forEach(([i, c]) => { current.frames[f][i] = c; });
+    showFrame(f);
+    return {text: `Changed ${changes.length} pixels of frame ${f + 1}.`, image: strip()};
+  },
+  make_frame(input) {
+    const make = input.make, small = input.board === "small";
+    if (!["bob", "drop", "copy", "clear"].includes(make)) throw new Problem('make is "bob", "drop", "copy" or "clear".');
+    if (input.board !== undefined && !["drawing", "small"].includes(input.board)) throw new Problem('board is "drawing" or "small".');
+    if (small && current.type !== "item") throw new Problem("Only items have a small version.");
+    const to = input.frame === undefined ? 1 : frameOf(input), from = input.from === undefined ? to - 1 : frameOf(input, "from");
+    if (to === 0) throw new Problem("frame 1 is the one drawn: make_frame makes frames 2 to 4 from it.");
+    if (from >= to) throw new Problem("from is a frame before the one being made.");
+    const size = small ? SMALL : SIZE, list = small ? current.small : current.frames, source = list[from];
+    if (make !== "clear" && !hasPixels(source)) throw new Problem(`Frame ${from + 1} is empty: draw it first.`);
+    if (make === "drop" && source.slice(size * (size - 1)).some(Boolean))
+      throw new Problem(`Frame ${from + 1} uses its bottom row, so dropping it a pixel would cut that row off: bob it, or move the picture up a pixel first.`);
+    if (small && !current.smallHand) { current.smallHand = true; current.smallOf = pictureOf(current); }  // it's hand-made from now on
+    frame = to; checkpoint(small ? "small" : "big");
+    list[to] = make === "bob" ? bobbed(source, size) : make === "drop" ? dropped(source, size) : make === "copy" ? source.slice() : blank(size);
+    showFrame(to);
+    const said = {bob: `bobs: frame ${from + 1} with everything above the feet sunk a pixel`, drop: `is frame ${from + 1} a pixel lower`,
+                  copy: `is a copy of frame ${from + 1}: change a few pixels of it with paint`,
+                  clear: to === 1 && frameCount(list) <= 2 ? "is empty: the game bobs frame 1" : "is empty"}[make];
+    return {text: `${small ? "The small version's frame" : "Frame"} ${to + 1} ${said}. The animation has ${frameCount(current.frames)} frames.`,
+            image: small ? picture(shownSmall(current), SMALL) : strip()};
+  },
+  small(input) {
+    if (current.type !== "item") throw new Problem("Only items have a small version.");
+    if (input.auto === true) {
+      current.smallHand = false; changed();
+      return {text: "The small version is the drawing halved again.", image: picture(shownSmall(current), SMALL)};
+    }
+    const f = frameOf(input), px = pixelsOf(input.rows, SMALL, `the small version's frame ${f + 1}`);
+    if (!current.smallHand) { current.smallHand = true; current.small = blanks(SMALL); }
+    frame = f; checkpoint("small");
+    current.small[f] = px; current.smallOf = pictureOf(current);
+    showFrame(f);
+    const count = frameCount(current.frames), missing = [];
+    for (let i = 1; i < count; i++) if (!hasPixels(current.small[i])) missing.push(i + 1);
+    const left = count === 2 && missing.length ? " Its frame 2 is empty, so the game bobs it."
+      : missing.length ? ` It needs ${count} frames, like the drawing: frame ${missing.join(" and ")} still to draw.` : "";
+    return {text: `Drew the small version's frame ${f + 1} by hand: it's the one the game shows now.${left}`, image: picture(shownSmall(current), SMALL)};
+  },
+  details(input) {
+    const c = current, f = c.fields, monster = c.type === "monster", next = {};
+    const allowed = monster ? ["name", "tier", "hp", "defense", "attack", "damage", "xp", "tags", "weak", "intelligent", "tell", "desc", "dungeons"]
+                            : ["name", "kind", "tier", "damage", "defense", "heal", "escape", "tags", "desc"];
+    const whole = (k, lo, hi) => {
+      const v = input[k];
+      if (!Number.isInteger(v) || v < lo || (hi !== undefined && v > hi)) throw new Problem(`${k} is a whole number ${hi === undefined ? `of at least ${lo}` : `from ${lo} to ${hi}`}.`);
+      return v;
+    };
+    const words = (k, most) => { if (typeof input[k] !== "string" || input[k].length > most) throw new Problem(`${k} is text of up to ${most} letters.`); return input[k].trim(); };
+    const list = k => {
+      if (!Array.isArray(input[k]) || !input[k].every(s => typeof s === "string")) throw new Problem(`${k} is a list of words.`);
+      return [...new Set(input[k].map(tagify).filter(Boolean))];
+    };
+    const flag = k => { if (typeof input[k] !== "boolean") throw new Problem(`${k} is true or false.`); return input[k]; };
+    const has = k => allowed.includes(k) && k in input;
+    // everything is checked before anything changes
+    if (has("name")) next.name = words("name", 40);
+    if (has("tier")) next.tier = monster ? whole("tier", 1, 4) : whole("tier", 0, 3);
+    if (has("hp")) next.hp = whole("hp", 1);
+    if (has("defense")) next.defense = monster ? whole("defense", 0) : whole("defense", 1);
+    if (has("attack")) next.attack = whole("attack", -10);
+    if (has("xp")) next.xp = whole("xp", 0);
+    if (has("heal")) next.heal = whole("heal", 0);
+    if (has("intelligent")) next.intelligent = flag("intelligent");
+    if (has("escape")) next.escape = flag("escape");
+    if (has("tell")) next.tell = words("tell", 100);
+    if (has("desc")) next.desc = words("desc", monster ? 400 : 300);
+    if (has("tags")) next.tags = list("tags");
+    if (has("weak")) next.weak = list("weak");
+    if (has("dungeons")) {
+      next.dungeons = list("dungeons");
+      const keys = dungeons().map(d => d.key), wrong = next.dungeons.filter(k => !keys.includes(k));
+      if (wrong.length) throw new Problem(`dungeons are floors by key: ${keys.join(", ")} (not ${wrong.join(", ")}).`);
+    }
+    if (has("kind")) { if (!KIND_LABELS[input.kind]) throw new Problem("kind is weapon, armor, consumable or trinket."); next.kind = input.kind; }
+    if (has("damage")) { const d = words("damage", 20).replace(/\s+/g, ""); if (!DICE.test(d)) throw new Problem("damage is dice, like 1d6 or 2d4+1."); next.damage = d; }
+    if (next.kind && next.kind !== f.kind) { delete f.damage; delete f.defense; delete f.heal; delete f.escape; f.kind = next.kind; applyItemDefaults(); }
+    if ("tier" in next) f.tier = next.tier;
+    if (input.tier_defaults === true) { if (monster) applyMonsterDefaults(); else applyItemDefaults(); }
+    Object.assign(f, next);
+    if (!monster && f.escape) delete f.heal;
+    $("name").value = f.name || "";
+    showDetails(); refreshPreview(); saveSoon();
+    const lines = [`Now: ${describe(c.type, f)}.`];
+    if (monster) lines.push(where(f).text);
+    const left = Object.keys(input).filter(k => k !== "tier_defaults" && !allowed.includes(k));
+    if (left.length) lines.push(`Left out ${left.join(", ")}: not a${monster ? " monster" : "n item"} detail.`);
+    lines.push(`The maker says: ${problems(c) || "nothing stops it being saved."}`);
+    return {text: lines.join(" ")};
+  },
+  new_creation(input) {
+    if (input.type !== "monster" && input.type !== "item") throw new Problem('type is "monster" or "item".');
+    keep(current);
+    openCreation(fresh(input.type));
+    return {text: `A fresh ${input.type} board. What was on the board before is in My work.`};
+  },
+  game_art(input) {
+    if (!library) throw new Problem("The game's library isn't loaded here.");
+    const all = [...library.monsters.map(e => ["monster", e]), ...library.items.map(e => ["item", e])];
+    const name = e => `${e.fields.name} (${e.key})`;
+    if (input.name === undefined || input.name === "")
+      return {text: `Monsters: ${library.monsters.map(name).join(", ")}.\nItems: ${library.items.map(name).join(", ")}.`};
+    if (typeof input.name !== "string") throw new Problem("name is text.");
+    const want = input.name.trim().toLowerCase(), key = tagify(want);
+    const found = all.find(([, e]) => e.key === key || e.fields.name.toLowerCase() === want)
+               || all.find(([, e]) => e.fields.name.toLowerCase().includes(want) || e.key.includes(key));
+    if (!found) throw new Problem(`Nothing in the game is called "${input.name}". Leave out name for the list.`);
+    const [type, entry] = found;
+    if (input.edit === true) {
+      keep(current); openCreation(fromLibrary(type, entry));
+      return {text: `${entry.fields.name} is on the board now, as a change to the game's own (${entry.key}).`, image: strip()};
+    }
+    const f = entry.fields, frames = decodeArt(entry.art), count = frameCount(frames);
+    const lines = [`${name(entry)}: a${type === "monster" ? " monster" : "n item"}${entry.special ? ", a " + entry.special : ""}${entry.by ? ", created by " + entry.by : ""}.`,
+      `Details: ${describe(type, f)}.`, `Tags: ${(f.tags || []).join(", ") || "none"}.${f.tell ? ` Tell: ${f.tell}.` : ""}`,
+      `Description: ${f.desc || "(none)"}`];
+    if (!entry.art) return {text: lines.concat("It has no picture yet.").join("\n")};
+    lines.push(...framesText(frames, SIZE, count, "it bobs"));
+    const images = [picture(shownFrames({frames}))];
+    if (entry.small) {
+      const small = decodeArt(entry.small, SMALL);
+      lines.push("", "Its small version:", ...framesText(small, SMALL, count, "it bobs").slice(1));
+      images.push(picture(shown(small, SMALL, count), SMALL));
+    }
+    return {text: lines.join("\n"), image: images};
+  },
+  async see_in_game() {
+    if (!hasPixels(current.frames[0])) throw new Problem("Frame 1 is empty: draw something first.");
+    const out = await apiJson("preview", {creation: payload(current)});
+    if (!out.ok) throw new Problem(out.said);
+    return {text: out.said, image: out.image};
+  },
+  async check() {
+    const out = await apiJson("check", {creation: payload(current)}), problem = problems(current);
+    return {text: [`The maker: ${problem || "nothing stops it being saved (once the person puts their name in Created by)."}`,
+      `The game's art tests: ${out.art && out.art.length ? out.art.join(" ") : "nothing to say."}`,
+      `The game's importer: ${out.ok ? "it would take it. " : "it refuses it: "}${out.said.join(" ")}`].join("\n")};
+  },
+};
+const ACTS = {look: () => "looking at the board", draw: i => `drawing frame ${i.frame}`, paint: i => `touching up frame ${i.frame}`,
+  make_frame: i => `frame ${i.frame || 2}${i.board === "small" ? " of the small version" : ""}: ${i.make}`,
+  small: i => i.auto ? "the small version: halved again" : `drawing the small version's frame ${i.frame}`,
+  details: () => "setting the details", new_creation: i => `a fresh ${i.type}`,
+  game_art: i => i.name ? `looking at the game's ${i.name}` : "the game's monsters and items", see_in_game: () => "seeing it in a fight",
+  check: () => "the game's checks"};
+
+async function runTool(use) {
+  const input = use.input && typeof use.input === "object" && !Array.isArray(use.input) ? use.input : null;
+  const line = say("act", "→ " + (input && ACTS[use.name] ? ACTS[use.name](input) : use.name));
+  let out;
+  try {
+    if (!input) throw new Problem(JSON.stringify({INVALID_JSON: JSON.stringify(use.input)}));
+    if (!STUDIO_TOOLS[use.name]) throw new Problem(`There's no tool called ${use.name}.`);
+    out = await STUDIO_TOOLS[use.name](input);
+  } catch (e) {
+    out = {problem: e instanceof Problem ? e.message : `That went wrong: ${e.message}`};
+  }
+  if (out.problem) { line.classList.add("bad"); line.textContent += ` ✗ ${out.problem}`; }
+  const content = [{type: "text", text: out.problem || out.text || "Done."}];
+  for (const data of [out.image].flat().filter(Boolean)) content.push({type: "image", source: {type: "base64", media_type: "image/png", data}});
+  return {type: "tool_result", tool_use_id: use.id, content, ...(out.problem ? {is_error: true} : {})};
+}
+const unanswered = (use, why) => ({type: "tool_result", tool_use_id: use.id, is_error: true, content: [{type: "text", text: why}]});
+
+async function readEvents(res, on) {  // server-sent events, one JSON object each
+  const reader = res.body.getReader(), decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const {value, done} = await reader.read();
+    if (done) return;
+    buffer += decoder.decode(value, {stream: true});
+    for (let cut; (cut = buffer.indexOf("\n\n")) >= 0; buffer = buffer.slice(cut + 2))
+      if (buffer.startsWith("data: ")) on(JSON.parse(buffer.slice(6, cut)));
+  }
+}
+async function turn(attempt = 0) {  // one call to Claude, shown as it streams; its whole message, or null
+  let reply = null, problem = "", words = null, note = null;
+  studio.abort = new AbortController();
+  try {
+    const res = await api("claude", {messages: studio.messages, model: $("studio-model").value, effort: $("studio-effort").value}, studio.abort.signal);
+    if (!res.ok) problem = (await res.json().catch(() => ({}))).error || `ptg maker answered ${res.status}`;
+    else await readEvents(res, e => {
+      if (e.type === "text") { words = words || say("claude"); words.textContent += e.text; note = null; }
+      else if (e.type === "note") { note = note || say("note"); note.textContent += e.text; words = null; }
+      else if (e.type === "tool") words = note = null;
+      else if (e.type === "fallback") say("note", `(carrying on with ${studio.models[e.model] || e.model || "another model"})`);
+      else if (e.type === "message") reply = e;
+      else if (e.type === "retry") reply = {retry: true};
+      else if (e.type === "error") problem = e.message;
+      $("studio-log").scrollTop = $("studio-log").scrollHeight;
+    });
+  } catch (e) {
+    if (!studio.stopped) problem = "Lost touch with ptg maker: is it still running?";
+  } finally {
+    studio.abort = null;
+  }
+  if (reply && reply.retry) return attempt < 2 ? turn(attempt + 1) : (say("bad", "Claude's drawing came back garbled: ask again."), null);
+  if (problem) say("bad", problem);
+  if (reply) count(reply);
+  return reply;
+}
+function count(reply) {  // what this chat has cost so far, roughly
+  const u = reply.usage, t = studio.used, p = PRICES[reply.model] || PRICES[$("studio-model").value];
+  for (const k of ["input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]) t[k] = (t[k] || 0) + (u[k] || 0);
+  t.dollars = (t.dollars || 0) + (u.input_tokens * p[0] + u.output_tokens * p[1] + u.cache_read_input_tokens * p[2] + u.cache_creation_input_tokens * p[3]) / 1e6;
+  const k = n => n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
+  $("studio-cost").textContent = `This chat: ${k(t.input_tokens + t.cache_read_input_tokens + t.cache_creation_input_tokens)} tokens in `
+    + `(${k(t.cache_read_input_tokens)} from the cache), ${k(t.output_tokens)} out, about $${t.dollars.toFixed(2)}.`;
+}
+function busy(on) {
+  studio.busy = on;
+  $("studio-send").disabled = on; $("studio-stop").hidden = !on; $("studio-new").disabled = on; $("studio-add").disabled = on;
+}
+async function ask(text) {
+  text = text.trim();
+  if (studio.busy || !text) return;
+  busy(true); studio.stopped = false;
+  say("you", text);
+  studio.messages.push({role: "user", content: [{type: "text", text}]});
+  try {
+    for (let turns = 1; ; turns++) {
+      const reply = await turn();
+      if (!reply) break;
+      if (reply.stop_reason === "refusal") { say("bad", "Claude won't make that one: try asking for something else."); break; }  // (not kept)
+      studio.messages.push({role: "assistant", content: reply.content});
+      const uses = reply.content.filter(b => b.type === "tool_use");
+      if (!uses.length) break;  // its answer
+      const results = [];
+      for (const use of uses) {  // every call gets its result, run or not, or the conversation can't go on
+        if (studio.stopped) results.push(unanswered(use, "The person pressed Stop, so this wasn't done."));
+        else if (reply.stop_reason === "max_tokens") results.push(unanswered(use, "This was cut off before it was finished, so it wasn't done: send it again, in smaller pieces."));
+        else results.push(await runTool(use));
+      }
+      studio.messages.push({role: "user", content: results});
+      if (studio.stopped) break;
+      if (turns >= MAX_TURNS) { say("note", `That's ${MAX_TURNS} steps: say "go on" to let Claude carry on.`); break; }
+    }
+  } finally {
+    busy(false);
+  }
+}
+async function startStudio() {
+  if (!["127.0.0.1", "localhost"].includes(location.hostname)) return;  // ptg maker only ever serves this computer
+  let info = null;
+  try { const res = await fetch("studio.json", {cache: "no-store"}); if (res.ok) info = await res.json(); } catch (e) { /* not ptg maker */ }
+  if (!info || !info.token) return;
+  studio.token = info.token; studio.models = info.models;
+  $("studio-model").replaceChildren(...Object.entries(info.models).map(([id, name]) => new Option(name, id, false, id === info.model)));
+  $("studio-effort").replaceChildren(...info.efforts.map(e => new Option(`${e} effort`, e, false, e === info.effort)));
+  $("studio").hidden = false;
+  document.body.classList.add("studio-on");
+  requestAnimationFrame(sizeGrid);
+  if (!info.enabled) { say("bad", info.problem + "."); $("studio-send").disabled = true; }
+}
+$("studio-send").addEventListener("click", () => { const text = $("studio-input").value; $("studio-input").value = ""; ask(text); });
+$("studio-input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("studio-send").click(); } });
+$("studio-stop").addEventListener("click", () => { studio.stopped = true; if (studio.abort) studio.abort.abort(); say("note", "Stopped."); });
+$("studio-new").addEventListener("click", () => {
+  studio.messages = []; studio.used = {};
+  $("studio-log").replaceChildren($("studio-log").firstElementChild);
+  $("studio-cost").textContent = "";
+});
+$("studio-add").addEventListener("click", async () => {  // into the game's data here, as `uv run ptg import` would
+  const problem = problems(current);
+  if (problem) { say("bad", problem); return; }
+  if (!(current.by || "").trim()) { say("bad", "Put your name in Created by first: it's the credit in the game."); $("by").focus(); return; }
+  const data = payload(current);
+  try {
+    const checked = await apiJson("check", {creation: data});
+    if (!checked.ok) { say("bad", "The game won't take it yet: " + checked.said.join(" ")); return; }
+    const art = checked.art && checked.art.length ? `\n\nThe art tests say:\n${checked.art.join("\n")}` : "";
+    if (!confirm(`Add ${data.fields.name} to the game on this computer?\n\n${checked.said.join("\n")}${art}\n\nThis writes the game's data files, as uv run ptg import does.`)) return;
+    const added = await apiJson("add", {creation: data});
+    say(added.ok ? "ok" : "bad", added.said.join(" "));
+    if (added.ok) {
+      keep(current);
+      library = await fetch("library.json", {cache: "no-store"}).then(r => r.json()).catch(() => library);
+    }
+  } catch (e) {
+    say("bad", e instanceof Problem ? e.message : "Lost touch with ptg maker: is it still running?");
+  }
+});
 
 // --- start -----------------------------------------------------------------------------------------------------------
 async function start() {
@@ -1298,6 +1823,7 @@ async function start() {
   const draft = saved.drafts && saved.drafts.monster;
   openCreation(draft && draft.fields && "hp" in draft.fields ? revive(draft) : fresh("monster"), "monster");
   window.addEventListener("resize", () => { if (!$("maker").hidden) sizeGrid(); });
+  startStudio();
   await arrived();
   window.addEventListener("hashchange", arrived);
 }

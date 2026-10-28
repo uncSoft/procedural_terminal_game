@@ -110,6 +110,9 @@ rewind. Tests rely on this (`tests/bot.py` games are compared run to run).
 - **The Monster & Item Maker** (`docs/maker/index.html`, a static page) is where the kids draw and describe things.
   `ptg export` writes `docs/maker/library.json` for it; `ptg import` brings creations back (from a link, a file, the
   Maker's saves or GitHub issues), writing sprites and TOML entries, checking the game still loads, and re-signing.
+  `ptg maker` (`maker.py`) serves the page on this computer with a Claude panel: the page runs Claude's tools on its
+  own boards, and the server holds the key, makes each call, renders the fight poses and runs the game's art tests
+  and importer as a dry run.
 - **Loot, NPCs and powers are data-driven**: a new item drops by its role and tier (`loot.py`); what an item does is
   a list of named powers (`powers.py`); characters are tagged `npc` and given behaviour in `npcs.py`.
 - **Statuses are data too** (`statuses.toml`, `statuses.py`): a status says when it ticks (a step, a fight's turn),

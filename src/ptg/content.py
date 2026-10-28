@@ -128,7 +128,13 @@ class MonsterDef:
     tell: str = "winds up a powerful attack"
     desc: str = ""  # what it looks like and how it behaves, in its creator's words (the narrator gets it too)
     tricks: list[str] = field(default_factory=list)  # what it does in a fight beyond hitting you (TRICKS)
+    dungeons: list[str] = field(default_factory=list)  # the only ones it turns up in (theme keys): see lives_in
     art: str = ""
+
+    def lives_in(self, theme: Theme) -> bool:
+        """One of the theme's own monsters: kept to some dungeons (`dungeons`), it's one of theirs whatever its tags;
+        otherwise it's one of every theme's that calls for one of its tags (Theme.monster_tags)."""
+        return theme.key in self.dungeons if self.dungeons else bool(set(self.tags) & set(theme.monster_tags))
 
     @property
     def npc(self) -> bool:
@@ -233,7 +239,7 @@ SCHEMAS: dict[str, dict[str, tuple[str, bool]]] = {
                 "attack": ("int", True), "damage": ("dice", True), "xp": ("count", True), "tier": ("tier", True),
                 "tags": ("names", False), "intelligent": ("bool", False), "boss": ("bool", False),
                 "ghost": ("bool", False), "weak": ("names", False), "tell": ("text", False),
-                "desc": ("text", False), "tricks": ("tricks", False)},
+                "desc": ("text", False), "tricks": ("tricks", False), "dungeons": ("names", False)},
     "perk": {"name": ("text", True), "desc": ("text", True), "color": ("color", False)},
     "unlock": {"name": ("text", True), "icon": ("text", True), "cost": ("count", True), "desc": ("text", True),
                "item": ("name", False), "requires": ("name", False)},
@@ -442,8 +448,15 @@ def _cross_check(content: Content) -> list[str]:
             problems.append(f"themes.toml theme {theme.key}: unknown key item {theme.key_item!r}")
         pool = [m for m in content.monsters.values() if m.roams]
         for tier in (1, 2, 3):
-            if not any(set(m.tags) & set(theme.monster_tags) and m.tier == tier for m in pool):
-                problems.append(f"themes.toml theme {theme.key}: no tier {tier} monsters match its tags")
+            if not any(m.lives_in(theme) and m.tier == tier for m in pool):
+                problems.append(f"themes.toml theme {theme.key}: no tier {tier} monsters match its tags "
+                                f"(or are kept to it with dungeons)")
+    for monster in content.monsters.values():
+        for key in monster.dungeons:
+            if key not in content.themes:
+                close = difflib.get_close_matches(key, list(content.themes), n=1)
+                hint = f" (did you mean {close[0]!r}?)" if close else ""
+                problems.append(f"monsters.toml [monster.{monster.key}]: unknown dungeon {key!r}{hint}")
     for item in content.items.values():
         if item.kind == "weapon" and not item.damage:
             problems.append(f"items.toml [item.{item.key}]: a weapon needs damage, like \"1d6\"")

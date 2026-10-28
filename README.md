@@ -190,8 +190,9 @@ uv run python -m ptg.room_picture 7     # every room on the first floor of seed 
 Pages so friends can contribute. It works on a laptop, a tablet or a phone, with nothing to install:
 
 - **Draw** on a 24x24 grid in the game's own 32 colours plus any colour you pick (kept as "your colours"), with
-  pencil, eraser, fill, colour picker, mirror mode, undo and redo (B, E, G, I, M and Ctrl/Cmd+Z), and a second frame
-  for the idle animation. The preview shows it moving, the way it'll look in the dungeon.
+  pencil, eraser, fill, colour picker, mirror mode, undo and redo (B, E, G, I, M and Ctrl/Cmd+Z), and up to four
+  frames for the idle animation: two is the usual (an empty second one bobs), and frames 3 and 4 make a longer loop,
+  each drawn over a faint copy of the one before. The preview shows it moving, the way it'll look in the dungeon.
 - **A small version** (items): a 12x12 board under the drawing for how the game shows the item where it's short of
   room (the inventory's tiles on a smaller screen, the room's picture).
   It starts as the drawing halved exactly the way the game would; draw on it to fix it up by hand, with the same
@@ -288,6 +289,26 @@ be imported with `uv run ptg import`. The URL is visible in the page source, so 
 To publish the page: on GitHub, Settings → Pages → "Deploy from a branch", pick the branch and the `/docs` folder.
 It appears at `https://uncsoft.github.io/procedural_terminal_game/` (which forwards to `/maker/`). To try it
 locally: `python3 -m http.server --directory docs`, then open http://localhost:8000/maker/.
+
+**Claude at the drawing board**: `uv run ptg maker` serves the maker on this computer with a Claude panel beside the
+boards. Ask for a monster or an item and Claude draws it on the maker's own boards, frame by frame (you watch each
+stroke land, and can undo it or draw over it), gives it fair numbers for its tier, looks at it the way a fight shows
+it (the game's own poses: idle, windup, dizzy, lunge, shake, hit, death) and at an item's small version, and runs the
+checks: the maker's rules, the game's own art tests (an outline, filling its frame, idle frames that keep their feet,
+a small version that matches, the floors' splash colours) and the importer, as a dry run. Then save it as usual, or
+press "Add to the game…", which does what `uv run ptg import` would once you've seen what that is. The art rules are
+in its instructions (`src/ptg/maker.py`), so what it makes goes in as it is.
+
+```bash
+uv run ptg maker                        # opens http://127.0.0.1:8770
+uv run ptg maker --port 8800 --no-browser
+```
+
+It needs the claude extra (`uv sync --extra claude --extra web`) and a key: `ANTHROPIC_API_KEY`, an `ant auth login`
+profile, or the Claude key in the game's settings. The key stays with the server, which makes every call to Claude:
+the page never sees it, and the server answers only this computer. Claude Opus 5.5 at medium effort is the default
+(the panel picks Sonnet 5.5 or Haiku 5.5 and the effort too), a declined request is retried on another model, and the
+panel keeps a running estimate of what the chat has cost. On GitHub Pages there's no panel.
 
 ## Sound
 
@@ -561,6 +582,7 @@ src/ptg/
   dice_art.py      the pixel-art d20
   sound.py         sound effects and music: the sound bank, your own sounds, and playing them
   library.py       the Monster & Item Maker's library: export it, and import what's made there
+  maker.py         `ptg maker`: the maker on this computer, with Claude to draw, and the game's checks for its art
   glossary.py      the terms highlighted in the story
   integrity.py     fingerprints of the shipped data, and noticing edits
   story/           story events: file format, checker, and the engine that plays them

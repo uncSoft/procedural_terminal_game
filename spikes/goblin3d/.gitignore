@@ -1,0 +1,2 @@
+# The 256-pixel renders each build_<boss>.py writes (its "frames" step makes them again from the .blend): see README.md
+frames_hd/

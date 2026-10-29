@@ -26,6 +26,11 @@ ROOMS = {1: 7, 2: 7, 3: 8, 4: 10}  # rooms on each floor (and a secret one, and 
 DEPTH = {3: {"hp_mult": 1.1, "attack_mod": 0, "defense_mod": 0, "damage_mod": 1},
          4: {"hp_mult": 1.25, "attack_mod": 1, "defense_mod": 0, "damage_mod": 1}}
 VENOMOUS = 0.5  # on a floor with poison of its own, how many of its monsters bite with venom (combat.VENOM)
+# A dungeon's boss who holds it whichever floor it's on, not only as the last dungeon: at its stairs on an earlier one,
+# cut down to that floor's size (HP, attack, defense, damage off its dice, as npcs.sized takes them). Worth a warden's
+# tier there, and half a boss's souls. Above a floor-1 warden (16 HP or so, a d8) and a floor-2 one (an elite).
+EARLY_BOSSES = {"goblin_king": {1: (25, 3, 12, -3), 2: (32, 4, 13, -3)}}
+EARLY_BOSS_SOULS = 0.5
 
 def generate(seed: int, player_name: str = "Adventurer", content: Content | None = None,
              player: Player | None = None, ghost: dict | None = None) -> GameState:
@@ -241,11 +246,16 @@ def _place_monsters(rng, content, state, theme, rooms: list[Room], end_id: int, 
         boss = content.monster(theme.boss)
         rooms[end_id].monster = MonsterState(key=boss.key, name=boss.name, hp=boss.hp, max_hp=boss.hp)
     else:
-        # Every staircase has a warden; from floor 2 on, it's an elite.
+        # Every staircase has a warden; from floor 2 on, it's an elite. A dungeon's boss who always holds it is there
+        # instead (EARLY_BOSSES), the warden drawn all the same (not met): the rest of the floor is as it was.
+        early = EARLY_BOSSES.get(theme.boss, {}).get(state.floor)
         elite = rng.choice(sorted(ELITES)) if state.floor > 1 else ""
         rooms[end_id].monster = monster_for(rng, content, theme.key, warden_tier(state.floor, state.floors_total),
-                                             elite=elite, met=state.met, floor=state.floor)
+                                             elite=elite, met=list(state.met) if early else state.met,
+                                             floor=state.floor)
         rooms[end_id].monster.warden = True
+        if early:
+            rooms[end_id].monster = early_boss(content, theme.boss, state.floor, state.floors_total)
 
     candidates = [r for r in rooms if r.id not in (0, end_id) and r.fixture != "shrine"]
     rng.shuffle(candidates)
@@ -254,6 +264,15 @@ def _place_monsters(rng, content, state, theme, rooms: list[Room], end_id: int, 
         elite = rng.choice(sorted(ELITES)) if rng.random() < elite_chance else ""
         room.monster = monster_for(rng, content, theme.key, tier_for(state.floor, state.floors_total), elite,
                                    met=state.met, floor=state.floor)
+
+
+def early_boss(content: Content, key: str, floor: int, floors: int = FLOORS) -> MonsterState:
+    """A dungeon's boss at its stairs on an earlier floor than the last dungeon's (EARLY_BOSSES): the floor's size,
+    a warden's tier, half a boss's souls."""
+    boss = npcs.sized(content, key, floor, EARLY_BOSSES[key], warden=True)
+    boss.tier = warden_tier(floor, floors)
+    boss.reward_mult = EARLY_BOSS_SOULS
+    return boss
 
 
 def _place_loot(rng, content: Content, state: GameState, theme, rooms: list[Room], end_id: int, max_distance: int,

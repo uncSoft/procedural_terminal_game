@@ -165,28 +165,22 @@ Clickable:hover {
     margin: 1 0;
 }
 
-.floor-header {
+/* What happens in the story is marked inside its frame without frames of its own, which fought it: a bar down the
+   left (your words, a character's, a moment's, a quest), or words between ornaments in the middle (a new floor, a
+   secret room or a shop found, a run picked up again). */
+.floor-header {  /* a new floor (game_screen.add_floor_header) */
     width: 100%;
     height: auto;
     margin: 1 0;
-    border-top: heavy $accent;
-    border-bottom: heavy $accent;
     text-align: center;
     color: $accent;
 }
 
-.secret-banner {  /* a floor's secret room, found (game_screen.secret_banner) */
+.secret-banner {  /* a floor's secret room, or a shop, found (game_screen.secret_banner) */
     width: 100%;
     height: auto;
     margin: 1 0;
-    border-top: heavy $warning;
-    border-bottom: heavy $warning;
     text-align: center;
-}
-
-.secret-banner.shop {  /* a shop, found */
-    border-top: heavy $success;
-    border-bottom: heavy $success;
 }
 
 #setup-box {
@@ -760,8 +754,6 @@ ChartScreen .chart-notes { width: auto; max-width: 160; }
     width: 100%;
     height: auto;
     margin: 1 0;
-    border-top: dashed $primary;
-    border-bottom: dashed $primary;
     text-align: center;
     color: $primary;
 }
@@ -784,21 +776,19 @@ ChartScreen .chart-notes { width: auto; max-width: 160; }
 }
 
 .quest-banner {
-    border: round $secondary;
+    border-left: thick $secondary;
     color: $secondary;
     text-style: bold;
     padding: 0 1;
+    margin-top: 1;
     height: auto;
-    width: auto;
 }
 
-.story-card {
+.story-card {  /* an authored moment: its name, its picture, what happens (game_screen.add_card) */
     height: auto;
     margin-top: 1;
     padding: 0 1;
-    border: heavy $accent;
-    border-title-color: $accent;
-    border-title-style: bold;
+    border-left: thick $accent;
 }
 
 #choices.scene {

@@ -153,7 +153,11 @@ def test_beat_him_and_the_diaper_is_yours_anyway(content, everyone):
 # --- King Mouse ---------------------------------------------------------------------
 
 def test_king_mouse_guards_the_stairs_now_and_then_cut_down_to_size(content, everyone):
-    state = generate(5)
+    warren = next(s for s in map(generate, range(40)) if s.themes[1] == "goblin_warren")
+    warren.floor = 2
+    build_floor(warren, content)
+    assert next(r for r in warren.rooms if r.fixture == "stairs").monster.key == "goblin_king"  # (the King's own)
+    state = next(s for s in map(generate, range(5, 40)) if s.themes[1] != "goblin_warren")
     assert next(r for r in state.rooms if r.fixture == "stairs").monster.key != npcs.KING_MOUSE  # not on floor 1
     state.floor = 2
     build_floor(state, content)

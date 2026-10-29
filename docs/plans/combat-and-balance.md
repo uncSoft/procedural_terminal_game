@@ -305,3 +305,43 @@ gets the same; the others sweep in. King Mouse followed, with all four clips in 
 pixels tall, what the stage picks from), and guardians are called out by name as bosses are ("GUARDIAN OF THE
 STAIRS"). Still to come: hurt and death clips, a second act's, the other bosses' clips, and the hero (the body sprite
 on the stage's edge, facing the foe, and the portrait beside the hearts on the status bar), which wait on the files.
+
+Serpentis, the Drowned Abbot and the Thornmother followed (2026-10-28), each with all four clips in four sizes:
+Serpentis drops in and lands coiled, rears for a heavy blow and strikes to the side; the Abbot drops in with a splash,
+raises his crozier and brings it down; the Thornmother's bud blooms as she lands, and she lashes out with a vine.
+Every boss has its own entrance now; only the monsters sweep in.
+
+## 10. The Goblin King holds his Warren, and what six wins in a row say
+
+**The King on any floor.** He used to be met only when the Warren was the last of the three dungeons; on floors 1 and
+2 its stairs had a warden like any other. Now he holds it whichever floor it is (`world.EARLY_BOSSES`): at its stairs,
+cut down to that floor's size, with a warden's tier and half a boss's souls, and his name card, music and clips as
+ever. The floor is drawn as it was (the warden is still drawn, then replaced), King Mouse never takes his place, its
+card says the goal, and beating him says "The stairs down are yours" rather than the last dungeon's line about the
+air from Norfel. His sizes were set with the simulator, 600 runs each, against the game without him:
+
+| Floor 1 / floor 2 (HP, attack, defense, damage) | Plain bot F1 / F2 deaths | Average player F1 / F2 |
+|---|---|---|
+| Without him (a warden) | 12% / 29% | 20% / 43% |
+| 28, 4, 12, -3 / 38, 5, 13, -2 | 14% / 30% | 25% / 51% |
+| 22, 3, 12, -4 / 30, 4, 13, -3 | 9% / 26% | 17% / 45% |
+| 25, 3, 12, -3 / 32, 4, 13, -3 (chosen) | 12% / 26% | 22% / 48% |
+
+A boss winds up a heavy blow 40% of the time (a monster 22%), and the average player misses warnings: that's what he
+costs it. Adding another dungeon's boss is a line in `EARLY_BOSSES`.
+
+**The owner's last six runs (runs 55-60), all won** with a veteran's adventurer:
+- Serpentis died in 4 to 8 turns and dealt 0 to 38 damage (about 11 in the middle): the last boss is no fight.
+- The most dangerous thing in five of the six was Swoogy, an optional fight; in the sixth, a floor-1 Hymn Toad's
+  heavy blow (15) to 0 HP, saved by Last Breath. The Goblin King, the one time he was met (floor 3), was the closest
+  call after it: a failed flee, six Fate rerolls, heavy blows of 4, 10 and 12, down to 12/48.
+- 4 to 16 rests a run, healing 23 to 108 HP: nearly every fight starts near full HP, so there's no wearing down; only
+  a single fight's spikes (a heavy blow, a crit) can kill.
+- 213 to 520 gold left unspent at the end, 4 to 11 Fate spent.
+- Damage perks stack (Brawler, Glass Cannon, Ruthless): by floor 4, level 7, things die in a few hits.
+
+So the curve flattens after floor 2: you grow faster than the monsters do once their tiers stop. More floors, each
+deeper (DEPTH's rows going on), will help, as the owner says; on their own they won't make it desperate while resting
+is free and the bosses fold in a few turns. Next to look at, with the deeper floors: what a rest costs (a wandering
+monster's chance that grows, or rests a floor), Serpentis's numbers (75 HP and an attack of 3), and somewhere for the
+gold to go.

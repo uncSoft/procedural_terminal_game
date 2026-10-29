@@ -96,7 +96,8 @@ def place(state: GameState, content: Content, rooms: list[Room], end_id: int) ->
             and DIAPER not in state.rares:  # (once his diaper's gone, won or beaten out of him, so is he)
         secret.monster = sized(content, SWOOGY, floor, SWOOGY_SIZE, hostile=False, mood="challenge")
     if rooms[end_id].fixture == "stairs" and floor in KING_MOUSE_SIZE \
-            and dice.stream(seed, KING_MOUSE, floor).random() < ODDS[KING_MOUSE]:
+            and dice.stream(seed, KING_MOUSE, floor).random() < ODDS[KING_MOUSE] \
+            and not (rooms[end_id].monster and content.monster(rooms[end_id].monster.key).boss):  # (the King's own)
         rooms[end_id].monster = sized(content, KING_MOUSE, floor, KING_MOUSE_SIZE, warden=True)
     others = sorted(m.key for m in content.monsters.values()
                     if m.npc and m.key not in PLACED and "shopkeeper" not in m.tags)

@@ -570,11 +570,15 @@ def defeat(state: GameState, content: Content, rng: random.Random, how: str = "s
         state.cause = f"conquered {theme.name}"
         events.append(Event("victory", f"You have conquered {theme.name}. {theme.goal} Done.", data=data))
         return events
-    if monster_def.boss:  # the last dungeon's: behind it, the way down (its room's stairs)
+    if monster_def.boss and state.boss_floor:  # the last dungeon's: behind it, the way down (its room's stairs)
         theme = content.themes[state.theme]
         events.append(Event("conquered", f"You have conquered {theme.name}. {theme.goal} Done. But it isn't over: "
                                          "behind where it stood, stairs lead further down, and the air coming up "
                                          "them stings your throat.", data=data))
+    elif monster_def.boss:  # one holding its dungeon on an earlier floor (world.EARLY_BOSSES), by its stairs
+        theme = content.themes[state.theme]
+        events.append(Event("conquered", f"You have conquered {theme.name}. {theme.goal} Done. The stairs down are "
+                                         "yours.", data=data))
     if "vampiric" in player.perks and player.hp < player.max_hp:
         healed = min(3, player.max_hp - player.hp)
         player.hp += healed

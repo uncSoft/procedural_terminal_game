@@ -25,6 +25,7 @@ from ..outcome import AWFUL, BAD, GOOD, GREAT, overall, tone, verdict
 from ..room_picture import look_of, picture_text
 from ..rules import no_go, no_way
 from ..sprites import DEATH_FRAMES, clips, splash_sizes
+from ..world import EARLY_BOSSES
 from ..text import cap, mid_sentence, the
 from . import effects
 from ..llm.interpreter import looks
@@ -150,9 +151,14 @@ def shown(widget: Widget) -> str:
         return widget.name
     if isinstance(widget, Picture):
         return f"sprite: {widget.key}"
-    if widget.has_class("story-card"):
-        return "story card: " + str(widget.border_title).removeprefix("✧").strip()
     return str(widget.render()) if isinstance(widget, Static) else type(widget).__name__
+
+
+def boss_here(state, content) -> bool:
+    """Whether this floor's dungeon has its boss on it (the last dungeon's, or one that always holds its own:
+    world.EARLY_BOSSES): its card says what you're there to do."""
+    theme = content.themes[state.theme]
+    return state.boss_floor or state.floor in EARLY_BOSSES.get(theme.boss, {})
 
 
 FIGHT_MUSIC = ("battle_music", "boss_music")
@@ -703,27 +709,31 @@ class GameScreen(Screen):
 
     def add_card(self, title: str, text: str, lexicon: Lexicon | None = None, sprite: str = "",
                  speech: bool = False) -> Widget:
-        """A character's words (`speech`) or an authored moment's, in their own. Speech is words only: a bar down the
-        left, who is speaking as its first line (so a card scrolled half out of view still says), then what they say;
-        their picture is Here's. An authored moment keeps its picture, if it has one (the mirror of the Mirror Trial)."""
-        if speech or not (sprite and self._sprites_on()):
+        """A character's words (`speech`) or an authored moment's, in their own, each marked by a bar down the left as
+        your own words are, never boxed: a box inside the story's frame fought it (and one scrolled half away left
+        its bottom edge floating at the top). Speech is words only: who is speaking as its first line (so a card
+        scrolled half out of view still says), then what they say; their picture is Here's. An authored moment: its
+        name, its picture if it has one (the mirror of the Mirror Trial), then what happens."""
+        if speech:
             words = Text(f"{title}:\n" if title else "", style="bold #ff4f9a")
-            words.append_text(highlight(f"“{text}”" if speech else text, lexicon, "italic #e8e8f4" if speech else ""))
-            card = self.add_line(words, "say" if speech else "story-card")
-            if not speech:
-                card.border_title = f"✧ {title}" if title else "✧"
-            return card
-        region = self.query_one("#story", VerticalScroll).scrollable_content_region
-        art = Picture(sprite, "", min(region.width or 40, self.STORY_WIDTH) - 4, max(4, (region.height or 12) - 4),
-                      content=self.game.content, sprites=True, classes="card-sprite")
-        card = Vertical(art, StoryLine(highlight(text, lexicon)), classes="story-card")
-        self.query_one("#story", VerticalScroll).mount(card)
+            words.append_text(highlight(f"“{text}”", lexicon, "italic #e8e8f4"))
+            return self.add_line(words, "say")
+        story = self.query_one("#story", VerticalScroll)
+        parts: list[Widget] = [StoryLine(Text(f"✧ {title.upper()}" if title else "✧", style="bold #ff4f9a"))]
+        if sprite and self._sprites_on():
+            region = story.scrollable_content_region
+            parts.append(Picture(sprite, "", min(region.width or 40, self.STORY_WIDTH) - 4,
+                                 max(4, (region.height or 12) - 4), content=self.game.content, sprites=True,
+                                 classes="card-sprite"))
+        parts.append(StoryLine(highlight(text, lexicon)))
+        card = Vertical(*parts, classes="story-card", name=f"story card: {title}")  # (the turn log's name for it)
+        story.mount(card)
         self._follow()
-        card.border_title = f"✧ {title}" if title else "✧"
         return card
 
     def add_quest(self, text: str, new: bool = False) -> Widget:
-        """A quest starting, moving on or done, in a box of its own: "★ NEW QUEST · Lucky Lenny's bad tooth"."""
+        """A quest starting, moving on or done, with a gold bar down its left: "★ NEW QUEST · Lucky Lenny's bad
+        tooth"."""
         done = text.startswith("Quest complete: ")
         words = text.removeprefix("New quest: ").removeprefix("Quest complete: ").rstrip(".")
         label = "NEW QUEST" if new else "QUEST DONE" if done else "QUEST UPDATE"
@@ -750,8 +760,10 @@ class GameScreen(Screen):
                 self.notify(event.data.get("title", ""), title="✧ Secret found", timeout=6)
 
     def add_floor_header(self, title: str, name: str, before=None) -> Static:
-        """A banner across the story where a new floor begins."""
-        text = Text(f"↓   {title.upper()}  ·  {name.upper()}   ↓", style="bold")
+        """Where a new floor begins, as a chapter's heading in the middle of the story: "── ↓ FLOOR 2 OF 4 ↓ ──" over
+        the floor's name. Words between ornaments, not rules across it: those made a box inside the story's frame."""
+        text = Text(f"───  ↓  {title.upper()}  ↓  ───\n", style="#b8336a")
+        text.append(name.upper(), style="bold")
         return self.add_line(text, "floor-header", before=before)
 
     def add_entry(self, entry: LogEntry, lexicon: Lexicon | None = None) -> None:
@@ -779,7 +791,8 @@ class GameScreen(Screen):
         self.busy = True  # (a turn taken while the recap is awaited would be logged twice, and before the seam)
         try:
             marker = self._mark_turn()
-            seam = self.add_line(Text(f"↺  CONTINUED  ·  TURN {state.turn}", style="bold"), "continued")
+            seam = self.add_line(Text("┄┄┄  ", style="dim") + Text(f"↺  CONTINUED  ·  TURN {state.turn}", style="bold")
+                                 + Text("  ┄┄┄", style="dim"), "continued")
             self.add_line(self._whereabouts(), "system-line")
             self.relayout()
             while state.pending_perks:  # (left mid level-up)
@@ -910,7 +923,7 @@ class GameScreen(Screen):
         marker = self._mark_turn()
         self.add_floor_header(f"Floor {state.floor} of {state.floors_total}", self.game.theme.name)
         if splash_sizes(self.game.theme.key) and not state.test_room:  # a first floor with art has its card too
-            self.app.push_screen(FloorScreen(state.floor, state.floors_total, self.game.theme, state.boss_floor))
+            self.app.push_screen(FloorScreen(state.floor, state.floors_total, self.game.theme, boss_here(state, self.game.content)))
         narration, on_text = self._narration_sink()
         result = await self.game.opening(on_text)
         narration.update(highlight(result.narration, self.lexicon()))
@@ -1099,7 +1112,7 @@ class GameScreen(Screen):
         game = self.game
         state = game.state
         self.add_floor_header(f"Floor {state.floor} of {state.floors_total}", game.theme.name, before=narration)
-        self.app.push_screen(FloorScreen(state.floor, state.floors_total, game.theme, state.boss_floor))
+        self.app.push_screen(FloorScreen(state.floor, state.floors_total, game.theme, boss_here(state, self.game.content)))
 
     def _toasts(self, events: list[Event]) -> None:
         for event in events:

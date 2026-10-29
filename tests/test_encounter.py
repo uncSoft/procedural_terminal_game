@@ -228,6 +228,21 @@ def test_the_goblin_king_has_an_entrance_and_an_idle_in_three_sizes():
     assert stands == [21, 25, 32, 42]  # (the heights the stage picks from: docs/plans/combat-and-balance.md §9)
 
 
+@pytest.mark.parametrize("boss", ["serpentis", "drowned_abbot", "thornmother"])
+def test_every_other_boss_drops_in_too(boss):
+    """Their clips came from the same Blender pipeline: Serpentis drops in and lands coiled, rears for a heavy blow
+    and strikes to the side; the Abbot drops in with a splash, raises his crozier and brings it down; the
+    Thornmother's bud blooms as she lands, and she lashes out with a vine."""
+    from ptg import sprites
+
+    clips = sprites.clips(boss)
+    assert set(clips) == {"entrance", "idle", "attack", "windup"}
+    assert {tuple(c.size for c in sizes) for sizes in clips.values()} == {(40, 48, 64, 84)}
+    entrance = clips["entrance"][1]
+    assert (len(entrance.frames), entrance.fps, entrance.land) == (72, 24, 10)
+    assert [len(clips[clip][0].frames) for clip in ("idle", "attack", "windup")] == [24, 20, 10]
+
+
 def test_a_boss_with_an_entrance_clip_drops_in_and_stands_in_its_idle(content):
     """The stage plays the clip (at most 12 frames a second: every other of its 24), the sting on the frame its feet
     land, then its banner; and it fights in the clip's idle, at the biggest size whose standing art fits."""
@@ -250,7 +265,7 @@ def test_a_boss_with_an_entrance_clip_drops_in_and_stands_in_its_idle(content):
     assert not tiny.clips and [s for _, s, _ in list(tiny.entrance())[:7]] == [0.035] * 7
 
 
-def test_a_boss_is_called_out_by_name_as_it_lands(content):
+def test_a_boss_is_called_out_by_name_as_it_lands(content, monkeypatch):
     """After it lands, a boss's name is spelled out on a card where its banner will be, a tick for each frame of it,
     and what it's boss of under it; then the banner. One that sweeps in (no clip) gets its card once it's there."""
     state = generate(7)
@@ -266,9 +281,11 @@ def test_a_boss_is_called_out_by_name_as_it_lands(content):
     assert "T H E   G O B L I N   K I N G" in card and "BOSS OF THE GOBLIN WARREN" in card
     assert "✦" not in frames[-1][0].plain and "The Goblin King" in frames[-1][0].plain
 
-    abbot = put_monster(state, content, key="drowned_abbot")
-    swept = list(encounter.Fight(state, content, abbot, 110, 16).entrance())
-    assert [cue for _, _, cue in swept][7] == "boss_encounter" and "D R O W N E D" in swept[-2][0].plain
+    thornmother = put_monster(state, content, key="thornmother")
+    with monkeypatch.context() as bare:  # (every boss has its clips now: one without sweeps in)
+        bare.setattr(encounter.sprites, "clips", lambda key: {})
+        swept = list(encounter.Fight(state, content, thornmother, 110, 16).entrance())
+    assert [cue for _, _, cue in swept][7] == "boss_encounter" and "T H O R N M O T H E R" in swept[-2][0].plain
     mouse = state.room.monster = npcs.sized(content, npcs.KING_MOUSE, 2, npcs.KING_MOUSE_SIZE, warden=True)
     guarded = list(encounter.Fight(state, content, mouse, 110, 16).entrance())  # (a guardian is called out too)
     assert "K I N G   M O U S E" in guarded[-2][0].plain and "GUARDIAN OF THE STAIRS" in guarded[-2][0].plain

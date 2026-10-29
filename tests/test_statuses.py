@@ -25,9 +25,11 @@ def quiet(seed=3):
 
 
 def venomous(content, key="goblin", trick="deadly_venom"):
+    """A copy of the content with that monster given the trick. (It used to give it to the shared, cached content's
+    goblin, for every test after it on the same worker: one checking a goblin's next move saw "venom!".)"""
     monster = content.monster(key)
-    content.monsters[key] = dataclasses.replace(monster, tricks=[*monster.tricks, trick])
-    return content
+    return dataclasses.replace(content, monsters={**content.monsters,
+                                                  key: dataclasses.replace(monster, tricks=[*monster.tricks, trick])})
 
 
 def test_poison_takes_hold_once_and_a_guard_stops_it():

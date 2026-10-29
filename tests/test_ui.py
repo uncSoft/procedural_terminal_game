@@ -20,7 +20,7 @@ from ptg.ui.panels import (BestiaryScreen, CharacterScreen, FloorScreen, HelpScr
                            JournalScreen, LevelUpScreen, LookScreen, MapScreen, ShopScreen, floor_card_fit)
 from ptg.meta import start_run
 from ptg.ui.screens import AbandonScreen, IntroScreen, SetupScreen, TitleScreen
-from ptg.ui.widgets import ChoiceItem, Picture, PictureClock, roll_text
+from ptg.ui.widgets import ChoiceItem, Picture, PictureClock, StoryLine, roll_text
 
 
 async def settle(app, pilot, limit: float = 10.0) -> None:
@@ -1535,6 +1535,29 @@ async def test_f1_to_f7_work_inside_every_panel():
         await pilot.press("1")
         await settle(app, pilot)
         assert app.screen is screen and len(game.state.player.perks) == 1
+
+
+async def test_what_happens_in_the_story_is_marked_without_frames_of_its_own():
+    """A card, a quest, a new floor, a secret room found and a run picked up again each drew a frame inside the
+    story's own, and fought it (a card scrolled half away left its bottom edge floating at the top). Now each is a
+    bar down the left, or words between ornaments; and a moment's name is said once, not in its frame and again."""
+    from ptg.ui.game_screen import secret_banner
+
+    app = PTGApp(Config(backend="offline", layout="grid", player_name="T"), seed=1)
+    async with app.run_test(size=(160, 48)) as pilot:
+        screen = await into_a_run(app, pilot)
+        screen.add_quest("New quest: Lucky Lenny's bad tooth", new=True)
+        card = screen.add_card("The Mirror Trial", "The glass ripples.")
+        screen.add_card("Lucky Lenny", "Got a tooth that's killing me.", speech=True)
+        screen.add_floor_header("Floor 2 of 4", "The Goblin Warren")
+        screen.add_line(secret_banner(0), "secret-banner")
+        screen.add_line(secret_banner(0, "SHOP", "#4cff8a"), "secret-banner shop")
+        await pilot.pause(0.3)
+        for piece in screen.query_one("#story").children:
+            edges = piece.styles.border
+            assert not any(edge[0] not in ("", "none") for edge in (edges.top, edges.right, edges.bottom)), piece
+        said = " ".join(str(line.render()) for line in card.query(StoryLine))
+        assert said.count("MIRROR TRIAL") == 1 and shown(card) == "story card: The Mirror Trial"
 
 
 async def test_a_level_up_waits_for_a_perk():

@@ -256,6 +256,60 @@ def test_beating_floor_3s_boss_opens_the_stairs_and_serpentis_ends_the_run(conte
     assert state.status == "won" and any(e.kind == "victory" for e in events)
 
 
+def test_the_goblin_king_holds_his_warren_whichever_floor_it_is(content, monkeypatch):
+    """The Warren's boss used to wait only when it was the last dungeon: on floors 1 and 2 its stairs had a warden
+    like any other's. Now he's there whichever floor it is, cut down to that floor's size (a warden's tier, half a
+    boss's souls), King Mouse never takes his place, and the rest of the floor is as it would have been."""
+    from ptg import world
+
+    def warren(seed: int):
+        state = generate(seed, content=content)
+        number = state.themes.index("goblin_warren") + 1
+        if number > 1:
+            state.floor = number
+            build_floor(state, content)
+        return state, number
+
+    floors = set()
+    for seed in range(40):
+        state, number = warren(seed)
+        stairs = next(r for r in state.rooms if r.fixture == "stairs")
+        if number == 3:
+            assert stairs.is_boss and stairs.monster.hp == content.monster("goblin_king").hp
+            continue
+        floors.add(number)
+        king = stairs.monster
+        size = world.EARLY_BOSSES["goblin_king"][number]
+        assert (king.key, king.max_hp, king.tier, king.reward_mult, king.warden) == \
+            ("goblin_king", size[0], world.warden_tier(number), world.EARLY_BOSS_SOULS, True)
+        assert not stairs.is_boss and king.key not in state.met
+        with monkeypatch.context() as patched:
+            patched.setattr(world, "EARLY_BOSSES", {})
+            before, _ = warren(seed)
+        assert [(r.id, r.monster and r.monster.key) for r in before.rooms if r.id != stairs.id] == \
+            [(r.id, r.monster and r.monster.key) for r in state.rooms if r.id != stairs.id]
+    assert floors == {1, 2}
+
+
+def test_beating_the_goblin_king_early_clears_the_stairs_without_norfels_air(content):
+    from conftest import put_monster
+
+    from ptg.rules import available_actions, perform
+
+    state = next(s for s in (generate(seed, content=content) for seed in range(40))
+                 if s.themes[0] == "goblin_warren")
+    stairs = next(r for r in state.rooms if r.fixture == "stairs")
+    state.room_id = stairs.id
+    put_monster(state, content, key="goblin_king", hp=1)
+    state.player.might = 50
+    while state.room.monster and not state.over:
+        events = perform(state, content, "attack")
+    state.pending_perks = []
+    said = next(e.text for e in events if e.kind == "conquered")
+    assert said.endswith("The stairs down are yours.") and "stings" not in said
+    assert "descend" in [a.id for a in available_actions(state, content)]
+
+
 def test_norfels_monsters_are_stronger_and_half_of_them_venomous(content):
     venomous = deeper = 0
     for seed in range(30):

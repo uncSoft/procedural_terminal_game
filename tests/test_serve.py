@@ -19,13 +19,22 @@ def test_a_name_is_its_folder_however_it_is_typed(tmp_path):
     assert json.loads((home / "config.json").read_text())["player_name"] == "Ava Rose"
 
 
-def test_the_narrator_is_claude_only_with_a_key(monkeypatch):
+def test_the_narrator_is_offline_unless_the_server_says_claude(monkeypatch):
+    """Offline by default, the server's key or not; PTG_NARRATOR=claude has Claude narrate every game, a test room
+    can ask for Claude alone, and nothing is narrated by Claude without the key."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("PTG_NARRATOR", raising=False)
     assert serve.command().endswith("-m ptg --continue --offline")
+    assert serve.command(narrator="claude").endswith("--offline")  # (no key: no Claude, whatever's asked)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    assert serve.command().endswith("-m ptg --continue --offline")  # (a key alone doesn't turn it on)
+    assert serve.command(("lenny", "new", 1), "claude").endswith(f"--backend anthropic --model {serve.DEFAULT_MODEL}")
+    monkeypatch.setenv("PTG_NARRATOR", "claude")
     assert serve.command().endswith(f"--backend anthropic --model {serve.DEFAULT_MODEL}")
     monkeypatch.setenv("PTG_MODEL", "claude-sonnet-5-5")
     assert serve.command().endswith("--model claude-sonnet-5-5")
+    monkeypatch.setenv("PTG_NARRATOR", "offline")
+    assert serve.command().endswith("--offline")
 
 
 async def test_one_link_asks_who_is_playing_and_each_name_gets_its_own_game(tmp_path):
@@ -116,6 +125,39 @@ async def test_the_test_rooms_page_sends_you_next_door_to_whoever_you_pick(tmp_p
         assert server.playing["ava"].command.split()[-7:] == ["--test-room", "lenny", "--loadout",
                                                              "items=pickle+pickle", "--floor", "2", "--offline"]
         await socket.close()
+
+
+async def test_a_test_room_can_be_narrated_by_claude_to_try_it_out(tmp_path, monkeypatch):
+    """With the server's key, the test-rooms page offers Claude to narrate the test room it starts (its address ends
+    /claude, and so does its game's): every other game stays offline. No key, no offer, and asking does nothing."""
+    monkeypatch.delenv("PTG_NARRATOR", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    server = serve.make_server(tmp_path, "localhost", 8000, "http://localhost:8000", test_rooms=True)
+    async with TestClient(TestServer(await server._make_app())) as client:
+        assert 'name="narrator"' not in await (await client.get("/test")).text()
+        moved = await client.get("/test/play?name=Ava&who=lenny&narrator=claude", allow_redirects=False)
+        assert moved.headers["Location"] == "/test/ava/lenny/0/random"
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        page = await (await client.get("/test")).text()
+        assert 'name="narrator"' in page and 'value="claude"' in page
+        moved = await client.get("/test/play?name=Ava&who=lenny&narrator=claude", allow_redirects=False)
+        assert moved.headers["Location"] == "/test/ava/lenny/0/random/claude"
+        game = await (await client.get(moved.headers["Location"])).text()
+        assert 'data-session-websocket-url="ws://localhost:8000/test/ava/lenny/0/random/claude/ws"' in game
+        assert 'data-touch-websocket-url="ws://localhost:8000/test/ava/lenny/0/random/claude/ws/touch"' in game
+        assert (await client.get("/test/ava/lenny/0/random/gpt", allow_redirects=False)).status == 404
+        asked = []
+
+        def started(test=None, narrator=""):  # (the game it would start, noted, and none started)
+            asked.append((test, narrator))
+            raise RuntimeError("not starting a game here")
+        monkeypatch.setattr(serve, "command", started)
+        for path in ("/test/ava/lenny/0/random/claude/ws", "/test/ava/lenny/0/random/ws"):
+            socket = await client.ws_connect(f"{path}?width=120&height=40")
+            await socket.close()
+        assert asked == [(("lenny", "random", 0), "claude"), (("lenny", "random", 0), "")]
+        monkeypatch.setenv("PTG_NARRATOR", "claude")  # (every game has Claude already: nothing to choose)
+        assert 'name="narrator"' not in await (await client.get("/test")).text()
 
 
 async def test_the_game_page_is_made_for_phones(tmp_path):

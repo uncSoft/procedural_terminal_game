@@ -520,7 +520,8 @@ Then open http://localhost:8000.
    | Variable | What it does |
    | --- | --- |
    | `PTG_PASSWORD` | Asks for this on the name page, once a browser. Without it, anyone with the link can play. |
-   | `ANTHROPIC_API_KEY` | Your key: every player's game is narrated by Claude on it, and players need no AI of their own (they never see it). Without it, the offline narrator. |
+   | `ANTHROPIC_API_KEY` | Your key, for Claude to narrate with: players need no AI of their own (they never see it). On its own it changes nothing: the games stay offline. |
+   | `PTG_NARRATOR` | `claude` has Claude narrate every player's game, on your key. Without it (the default), every game is narrated offline: the facts told as they are, nothing spent. With the key set, a test room can still have Claude for itself (below). |
    | `PTG_MODEL` | The Claude model: `claude-haiku-5-5` (the default, a few cents a run) or `claude-sonnet-5-5`. |
    | `PTG_MAX_GAMES` | Games running at once (5). Each is about 80 MB, and the Starter plan has 512. |
    | `PTG_TEST_ROOMS` | `1` adds a **Test rooms** link to the name page (below). Leave it off for players. |
@@ -584,7 +585,9 @@ uv run ptg --test-room goblin --loadout "weapon=war_pick,items=pickle+pickle"
 
 On the debug screen (F12, then 0) the same choices show the kit you'll get before you go (↻ for another draw). On
 the browser version, `PTG_TEST_ROOMS=1` puts a test-rooms page at `/test`, under the tester's own name: when they
-leave a test room they're back at their own title screen, their run where they left it.
+leave a test room they're back at their own title screen, their run where they left it. With `ANTHROPIC_API_KEY`
+set, its **Narrator** choice has Claude narrate just that test room, to try the narrator out while every other game
+stays offline.
 
 ## Project layout
 

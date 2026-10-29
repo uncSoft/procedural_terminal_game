@@ -14,9 +14,13 @@ least 40 columns, keeps the terminal above the keyboard, scrolls with a swipe an
 button is tapped. A browser whose pointer is a finger opens its game's websocket at .../ws/touch, and that game runs
 with PTG_TOUCH=1 (see config.touch): touch mode follows the input, not the screen's size.
 
-The narrator is Claude when ANTHROPIC_API_KEY is set (PTG_MODEL picks the model, Haiku by default) and offline
-otherwise. Every game runs hosted (PTG_HOSTED=1, see config.hosted), and its sound plays in the player's browser, not
-on the server (PTG_SOUND=web): the game sends each sound to the page as a message (sound.Browser), passed on here, and
+The narrator is offline unless the server says otherwise: the facts told as they are, no model, nothing spent.
+PTG_NARRATOR=claude has Claude narrate every game (with ANTHROPIC_API_KEY set; PTG_MODEL picks the model, Haiku by
+default), and with the key there, the test-rooms page can have Claude narrate just the test room it starts (its
+Narrator choice: the room's address ends /claude), for trying the narrator out without turning it on for everyone.
+
+Every game runs hosted (PTG_HOSTED=1, see config.hosted), and its sound plays in the player's browser, not on the
+server (PTG_SOUND=web): the game sends each sound to the page as a message (sound.Browser), passed on here, and
 the page loads the file from /sounds and plays it. A sound's address has a stamp of them all in it, so a browser
 keeps each one for good, and a sound changed is a new address.
 """
@@ -65,12 +69,28 @@ def player_folder(data: Path, name: str) -> Path:
     return home
 
 
-def command(test: tuple[str, str, int] | None = None) -> str:
+NARRATED = "claude"  # PTG_NARRATOR's value (and a test room's) for Claude to narrate: anything else is offline
+
+
+def can_narrate() -> bool:
+    """Whether Claude could narrate here at all: the server has a key (ANTHROPIC_API_KEY, only ever in its
+    environment)."""
+    return bool(os.environ.get("ANTHROPIC_API_KEY"))
+
+
+def narrated(asked: str = "") -> bool:
+    """Whether a game is narrated by Claude: never without the server's key; with it, a test room that asked for it
+    (`asked`: the test-rooms page's Narrator), or every game when PTG_NARRATOR=claude. Offline is the default."""
+    wanted = asked == NARRATED or os.environ.get("PTG_NARRATOR", "").strip().lower() == NARRATED
+    return wanted and can_narrate()
+
+
+def command(test: tuple[str, str, int] | None = None, narrator: str = "") -> str:
     """What a player's tab runs: their game, back into their run if one is going (or a test room: who, kit, floor),
-    with the server's narrator."""
+    narrated offline, or by Claude where the server says (narrated)."""
     args = [sys.executable, "-m", "ptg"]
     args += ["--test-room", test[0], "--loadout", test[1], "--floor", str(test[2])] if test else ["--continue"]
-    if os.environ.get("ANTHROPIC_API_KEY"):
+    if narrated(narrator):
         args += ["--backend", "anthropic", "--model", os.environ.get("PTG_MODEL") or DEFAULT_MODEL]
     else:
         args.append("--offline")
@@ -155,6 +175,7 @@ TEST_PAGE = HEAD + """<body>
   <select id="kit" name="kit">{kit}</select>
   <label for="own">Or a kit of your own</label>
   <input id="own" name="own" value="{own}" placeholder="weapon=war_pick,items=holy_water+pickle,level=3,gold=50">
+  {narrator}
   <button type="submit">Go</button>
   <p style="margin-top:1rem">Esc twice in the game to leave a test room. <a href="/">Back to the game</a></p>
 </form>
@@ -183,9 +204,20 @@ def options(pairs, chosen) -> str:
                    f'{html.escape(words)}</option>' for value, words in pairs)
 
 
+def narrator_field(chosen: str = "") -> str:
+    """The test-rooms page's Narrator: offline, or Claude for this test room alone (only offered with the server's
+    key; with PTG_NARRATOR=claude, every game has Claude already)."""
+    if not can_narrate() or narrated():
+        return ""
+    pairs = [("offline", "offline: the facts as they are (the default)"), (NARRATED, "Claude, to try it out")]
+    return (f'<label for="narrator">Narrator</label>'
+            f'<select id="narrator" name="narrator">{options(pairs, chosen)}</select>')
+
+
 def test_page(name: str = "", error: str = "", ask_password: bool = False, who: str = "lenny", kit: str = "random",
-              floor: int = 0) -> str:
-    """The test-rooms page: who's testing, then who they'd like next door, on which floor, with which kit."""
+              floor: int = 0, narrator: str = "") -> str:
+    """The test-rooms page: who's testing, then who they'd like next door, on which floor, with which kit (and, with
+    the server's key, who narrates it)."""
     from .content import load_content
     from .testrooms import LOADOUTS, choices
 
@@ -193,7 +225,8 @@ def test_page(name: str = "", error: str = "", ask_password: bool = False, who: 
     return TEST_PAGE.format(name=html.escape(name), max_name=MAX_NAME, password=password_field(ask_password),
                             error=error_line(error), who=options(choices(load_content()).items(), who),
                             floor=options([(0, "its own floor")] + [(n, f"floor {n}") for n in (1, 2, 3)], floor),
-                            kit=options(LOADOUTS.items(), kit if kit in LOADOUTS else "new"), own=html.escape(own))
+                            kit=options(LOADOUTS.items(), kit if kit in LOADOUTS else "new"), own=html.escape(own),
+                            narrator=narrator_field(narrator))
 
 
 def test_problem(who: str, kit: str, floor: int) -> str:
@@ -280,15 +313,24 @@ def make_server(data: Path, host: str, port: int, public_url: str, password: str
                     web.get("/test/{player}/{who}/{floor}/{kit}/ws", self.handle_websocket, name="test-websocket"),
                     web.get("/test/{player}/{who}/{floor}/{kit}/ws/touch", self.handle_websocket,
                             name="test-websocket-touch"),
+                    # (narrated by Claude: the same room, its address ending /claude, the websocket's after it)
+                    web.get("/test/{player}/{who}/{floor}/{kit}/{narrator:claude}", self.handle_index,
+                            name="test-index-narrated"),
+                    web.get("/test/{player}/{who}/{floor}/{kit}/{narrator:claude}/ws", self.handle_websocket,
+                            name="test-websocket-narrated"),
+                    web.get("/test/{player}/{who}/{floor}/{kit}/{narrator:claude}/ws/touch", self.handle_websocket,
+                            name="test-websocket-narrated-touch"),
                 ])
             app.on_startup.append(self.on_startup)
             app.on_shutdown.append(self.on_shutdown)
             return app
 
         async def on_startup(self, app: web.Application) -> None:
+            told = "by Claude" if narrated() else "offline" + (" (Claude for a test room that asks)"
+                                                               if can_narrate() and test_rooms else "")
             self.console.print(f"Procedural Terminal Game on {self.public_url}"
                                f"{' (with a password)' if password else ''}, up to {max_games} games at once"
-                               f"{', with test rooms at /test' if test_rooms else ''}")
+                               f"{', with test rooms at /test' if test_rooms else ''}, narrated {told}")
 
         def let_in(self, request: web.Request) -> bool:
             return not token or hmac.compare_digest(request.cookies.get(PASS_COOKIE, ""), token)
@@ -309,11 +351,16 @@ def make_server(data: Path, host: str, port: int, public_url: str, password: str
             return web.Response(text=test_page(ask_password=not self.let_in(request)), content_type="text/html")
 
         async def handle_test_play(self, request: web.Request) -> web.StreamResponse:
-            """The test-rooms page's answer: their folder (made the first time), then the test room, in it."""
+            """The test-rooms page's answer: their folder (made the first time), then the test room, in it (narrated
+            by Claude, if they asked and the server has its key: the address ends /claude)."""
             who, floor = request.query.get("who", ""), to_int(request.query.get("floor", "0"), 0)
             kit = request.query.get("own", "").strip() or request.query.get("kit", "random")
-            return self.enter(request, lambda name, error, ask: test_page(name, error, ask, who, kit, floor),
-                              lambda player: f"/test/{player}/{quote(who, safe='')}/{floor}/{quote(kit, safe='')}",
+            narrator = request.query.get("narrator", "")
+            told = f"/{NARRATED}" if narrator == NARRATED and can_narrate() and not narrated() else ""
+            return self.enter(request, lambda name, error, ask: test_page(name, error, ask, who, kit, floor,
+                                                                          narrator),
+                              lambda player: f"/test/{player}/{quote(who, safe='')}/{floor}/{quote(kit, safe='')}"
+                                             f"{told}",
                               test_problem(who, kit, floor))
 
         def enter(self, request: web.Request, page, onward, problem: str = "") -> web.Response:
@@ -370,7 +417,8 @@ def make_server(data: Path, host: str, port: int, public_url: str, password: str
                 url = f"{self.public_url}{request.app.router[name].url_for(**request.match_info)}"
                 return scheme + url.split(":", 1)[1]
 
-            name = "test-websocket" if test else "websocket"
+            name = ("test-websocket-narrated" if "narrator" in request.match_info else "test-websocket") if test \
+                else "websocket"
             font_size = request.query.get("fontsize", "")
             return aiohttp_jinja2.render_template("app_index.html", request, {
                 "font_size": int(font_size) if font_size.isdigit() else "",  # (none: the page picks one)
@@ -407,7 +455,8 @@ def make_server(data: Path, host: str, port: int, public_url: str, password: str
                 if older is not None:  # the same player in a second tab: the first one ends, its game saved
                     await older.stop()
                 touch = request.match_info.route.name.endswith("-touch")
-                service = PlayerService(command(test), data / player, touch, write_bytes=websocket.send_bytes,
+                service = PlayerService(command(test, request.match_info.get("narrator", "")), data / player, touch,
+                                        write_bytes=websocket.send_bytes,
                                         write_str=websocket.send_str, close=websocket.close,
                                         download_manager=self.download_manager, debug=self.debug)
                 self.playing[player] = service

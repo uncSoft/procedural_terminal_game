@@ -173,6 +173,8 @@ class Player(BaseModel):
     coated: int = 0  # hits the coating has left
     statuses: dict[str, int] = Field(default_factory=dict)  # what's afflicting you, and how strongly (statuses.py)
     guards: dict[str, int] = Field(default_factory=dict)  # charges against a status: the next ones don't take
+    burnt: int = 0  # flames of the torch you're burning that you've spent (light.py): 0, a fresh one
+    lit: bool = False  # your torch burning on a dark floor, as you were last told (light.settle)
 
     @property
     def attack_bonus(self) -> int:

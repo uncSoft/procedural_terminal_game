@@ -53,7 +53,7 @@ def build_floor(state: GameState, content: Content) -> None:
     rng = dice.stream(state.seed, "floor", state.floor)
     theme = content.themes[state.themes[state.floor - 1]]
     state.theme = theme.key
-    final, boss = state.final_floor, state.boss_floor
+    final, boss = state.final_floor, state.boss_floor and bool(theme.boss)  # (one still being made waits for its own)
     size = ROOMS.get(state.floor, 8)
 
     coords, edges = _layout(rng, size)
@@ -376,10 +376,11 @@ def _shop(state: GameState, content: Content, rooms: list[Room], end_id: int) ->
     there's a shop changes nothing else about the floor."""
     rng = dice.stream(state.seed, "shop", state.floor)
     keepers = [k for k in (loot.SHOPKEEPER, loot.SHINY) if k in content.monsters]
-    status = content.themes[state.theme].status  # (a floor with poison of its own: a shop more often, with the cure)
-    below = state.themes[state.floor] if state.floor < len(state.themes) else ""  # (and the floor above it: always)
-    chance = loot.STATUS_SHOP_CHANCE if status else \
-        loot.BEFORE_STATUS_SHOP_CHANCE if below and content.themes[below].status else loot.SHOP_CHANCE
+    theme = content.themes[state.theme]
+    status = theme.status  # (a floor with poison of its own: a shop more often, with the cure; a dark one, lights)
+    below = content.themes[state.themes[state.floor]] if state.floor < len(state.themes) else None
+    chance = loot.STATUS_SHOP_CHANCE if status or theme.dark else \
+        loot.BEFORE_STATUS_SHOP_CHANCE if below and (below.status or below.dark) else loot.SHOP_CHANCE  # (above: all)
     if not keepers or rng.random() >= chance:
         return None
     keeper = keepers[-1] if len(keepers) > 1 and rng.random() < loot.SHINY_CHANCE else keepers[0]
@@ -396,7 +397,8 @@ def _shop(state: GameState, content: Content, rooms: list[Room], end_id: int) ->
                 distance=rooms[by].distance + 1, fixture="shop",
                 shop=Shop(keeper=keeper, wares=[Ware(item=k, price=p, count=n) for k, p, n in
                                                 loot.wares(rng, content, state.rares, keeper, state.floor,
-                                                           cure_for=status)]))
+                                                           cure_for=status,
+                                                           lights=theme.dark or bool(below and below.dark))]))
     rooms[by].exits[door] = Exit(to=room.id, locked=True, key="small_key")
     room.exits[OPPOSITE[door]] = Exit(to=by)
     return room

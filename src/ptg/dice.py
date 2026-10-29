@@ -119,10 +119,11 @@ class Roll:
 @dataclass(frozen=True)
 class Hindrance:
     """What a status does to the player's rolls (statuses.hindrance): why ("poisoned"), a penalty off each, or a
-    disadvantage."""
+    disadvantage; and the dark's (light.hindrance), a disadvantage of its own (`why_worse`: "in the dark")."""
     why: str = ""
     penalty: int = 0
     disadvantage: bool = False
+    why_worse: str = ""  # why the disadvantage, when it isn't `why`'s
 
 
 # What a status does to the player's rolls this turn: set by the turn (rules.perform), so every roll of the player's
@@ -140,7 +141,7 @@ def check(rng: random.Random, label: str, bonuses: list[tuple[str, int]], dc: in
     dice = [d20(rng)] if advantage == 0 else [d20(rng), d20(rng)]
     kept = max(dice) if advantage > 0 else min(dice)
     result = Roll(label, actor, dice, kept, [b for b in bonuses if b[1]], dc, False, advantage, impossible,
-                  hindered=hindrance.why if hindrance.disadvantage else "")
+                  hindered=(hindrance.why_worse or hindrance.why) if hindrance.disadvantage else "")
     if impossible:
         result.success = False
     else:

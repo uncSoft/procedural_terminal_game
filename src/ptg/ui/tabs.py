@@ -34,7 +34,7 @@ from textual.containers import Center, Grid, Horizontal, Vertical, VerticalScrol
 from textual.widget import Widget
 from textual.widgets import Footer, Input, Static
 
-from .. import config, npcs, powers, sheet, statuses
+from .. import config, light, npcs, powers, sheet, statuses
 from ..events import Action
 from ..room_picture import look_of
 from ..world import map_glyph, render_map
@@ -345,6 +345,13 @@ def status_lines(state, content) -> Table:
     for key, charges in player.guards.items():
         row("✚", "#5fe3ff", f"Guard against {statuses.WORDS.get(key, (key, key))[1].removeprefix('the ')}",
             str(charges), "the next times it would take hold, it doesn't")
+    if light.lit(state, content):  # (down in the dark: your torch, or what you're in without one)
+        row("☼", "#feae34", "Torch", f"{light.left(state)}/{light.FLAMES}",
+            "lit: each thing you burn with it costs a flame, and lamp oil fills it")
+    elif light.dark_floor(state, content):
+        dark = light.darkness(state, content) == light.DARK
+        row("☼", "#ff7b7b" if dark else "#8b9bb4", "Light", "none",
+            "in the dark: every roll at a disadvantage" if dark else f"your searches at a disadvantage. {light.HINT}")
     row("⛨", "#6c8cff", "Defense", str(player.defense(content)), "what a blow must roll to hit you")
     row("✦", GOLD, "Fate", f"{player.fate}/{player.max_fate()}", "spend one to roll a die again")
     row("¤", ACCENT, "Gold", str(player.gold), "for shops, and to calm some")

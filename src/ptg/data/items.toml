@@ -403,7 +403,7 @@ kind = "trinket"
 tier = 1
 tags = ["fire", "light", "wood"]
 desc = "A pitch-soaked torch. Dark corners stop being so dark, and secrets stop being so secret."
-powers = ["seeker"]
+powers = ["seeker", "torch"]
 
 [item.weighted_dice]
 name = "Weighted Dice"

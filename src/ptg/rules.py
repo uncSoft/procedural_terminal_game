@@ -14,8 +14,8 @@ from __future__ import annotations
 import random
 from collections import deque
 
-from . import dice, hazards, interactions, inventory, layout, loot, npcs, powers, statuses
-from .combat import (bomb_monster, discover, distract, dodge, flee, flee_direction, fortune, holds_its_ground,
+from . import dice, hazards, interactions, inventory, layout, light, loot, npcs, powers, statuses
+from .combat import (bomb_monster, burn, discover, distract, dodge, flee, flee_direction, fortune, holds_its_ground,
                      monster_turn, player_attack, stand_firm_warning, telegraph, throw, what_is_left)
 from .content import Content, ItemDef
 from .creative import perform_creative as _creative
@@ -108,6 +108,10 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
                                       "once a fight"))
         if player.bombs:
             actions.append(Action("bomb", f"Throw a bomb at {the(monster.name)}", f"{player.bombs} left"))
+        if light.lit(state, content):  # (a fire on hand, down in the dark)
+            weak = "fire!" if "fire" in state.known_weak.get(monster.key, []) else "fire"
+            actions.append(Action("burn", f"Burn {the(monster.name)} with your torch",
+                                  f"{weak} · a flame ({light.flames(state)})"))
         actions += npcs.actions(state, content)  # an angry Swoogy can still be calmed down
         if flee_direction(state) and not player.tangled:
             actions.append(Action("flee", "Try to flee"))
@@ -119,8 +123,12 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
     for index, feature in room.visible_features():
         if not feature.searched:
             gassed = "the vent's live: it'll gas you" if feature.trapped and room.vent == "live" else ""
-            actions.append(Action(f"search:{index}", f"Search {the(feature.name)}",
-                                  gassed or (TIP if feature.told else "")))
+            wrapped = light.wrapped(state, content, feature)
+            hint = gassed or ("wrapped tight: fire opens it" if wrapped else TIP if feature.told else "")
+            actions.append(Action(f"search:{index}", f"Search {the(feature.name)}", hint))
+            if wrapped and light.lit(state, content):
+                actions.append(Action(f"burn:{index}", f"Burn {the(feature.name)} open with your torch",
+                                      f"a flame ({light.flames(state)})"))
     actions += _fixture_actions(state, content)
     if room.vent == "live":
         careful = powers.roll_bonuses(state, content, "disarm")
@@ -162,6 +170,9 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
         if (item.heal and player.hp < player.max_hp) or cures:
             actions.append(Action(f"use:{item.key}", f"{heal_verb(item)} {the(item.name)}",
                                   " · ".join(filter(None, [how_many(player, item.key), cures]))))
+    if light.lit(state, content) and player.burnt and light.OIL in player.inventory:
+        actions.append(Action("refill", f"Fill your torch with {the(content.item(light.OIL).name)}",
+                              f"every flame back · {how_many(player, light.OIL)}"))
     if not room.room_searched and not room.shop:  # (her shop is hers: nothing hidden for you to find)
         actions.append(Action("search_room", "Search the room for secrets"))
         for item in (content.item(k) for k in _distinct(player.inventory)):
@@ -317,8 +328,9 @@ def _fixture_actions(state: GameState, content: Content) -> list[Action]:
 
 def perform(state: GameState, content: Content, action_id: str) -> list[Event]:
     """Resolve one engine action. Unknown or impossible actions return an info event saying why, and cost nothing.
-    A status that hinders you (poison) is off every roll of yours this turn (dice.HINDERED)."""
-    token = dice.HINDERED.set(statuses.hindrance(state))
+    A status that hinders you (poison) is off every roll of yours this turn, and so is the dark (dice.HINDERED:
+    light.hindrance)."""
+    token = dice.HINDERED.set(light.hindrance(state, content))
     try:
         return _perform(state, content, action_id)
     finally:
@@ -346,7 +358,7 @@ def _perform(state: GameState, content: Content, action_id: str) -> list[Event]:
     elif verb == "dodge":
         events = dodge(state, content, rng)
     elif verb == "go":
-        events, took_turn = _move(state, content, arg)
+        events, took_turn = _move(state, content, rng, arg)
     elif verb == "take":  # free, and no narrator for it: picking up is bookkeeping
         events, took_turn = quietly(inventory.take(state, content, arg)), False
     elif verb == "take_all":
@@ -358,7 +370,15 @@ def _perform(state: GameState, content: Content, action_id: str) -> list[Event]:
         if not took_turn:
             events = quietly(events)
     elif verb == "search":
-        events = _search_feature(state, content, state.room.features[int(arg)])
+        feature = state.room.features[int(arg)]
+        if light.wrapped(state, content, feature):  # (no hand gets in: it says so, for nothing)
+            return [Event("info", f"You pull at {the(feature.name)}, but the threads are tough as wire and stick to "
+                                  "everything: your hands come away with nothing. Fire would open it.")]
+        events = _search_feature(state, content, feature)
+    elif verb == "burn":
+        events = _burn_open(state, content, state.room.features[int(arg)]) if arg else burn(state, content, rng)
+    elif verb == "refill":
+        events = light.refill(state, content)
     elif verb == "search_room":
         events = _search_room(state, content, rng)
     elif verb == "use":
@@ -444,7 +464,7 @@ def perform_creative(state: GameState, content: Content, intent: Intent) -> tupl
     not, it's a stunt (creative.py), which wastes nothing."""
     if state.over:
         return intent, []
-    token = dice.HINDERED.set(statuses.hindrance(state))
+    token = dice.HINDERED.set(light.hindrance(state, content))
     try:
         return _perform_creative(state, content, intent)
     finally:
@@ -497,7 +517,7 @@ def finish_turn(state, content, rng, events, took_turn, was_in_combat, room_befo
         after_drops = max((i + 1 for i, e in enumerate(events) if e.kind == "drop"), default=len(events))
         events[after_drops:after_drops] = collect(state, content)
     powers.settle_stats(state, content)  # what you carry now, in your stats
-    return events
+    return events + light.settle(state, content)  # (a torch taken, bought or come down with: it's lit)
 
 
 def quietly(events: list[Event]) -> list[Event]:
@@ -602,7 +622,7 @@ def check_traits(state: GameState) -> list[Event]:
 
 # --- moving around -----------------------------------------------------------
 
-def _move(state: GameState, content: Content, direction: str) -> tuple[list[Event], bool]:
+def _move(state: GameState, content: Content, rng: random.Random, direction: str) -> tuple[list[Event], bool]:
     exit_ = state.room.exits.get(direction)
     if not exit_:
         return [Event("info", f"There is no way {direction}.")], False
@@ -620,7 +640,12 @@ def _move(state: GameState, content: Content, direction: str) -> tuple[list[Even
             return [Event("locked", f"The door to the {direction} is locked. It looks like it needs {the(key.name)}.")], False
         exit_.locked = False
         events.append(Event("unlock", f"You unlock the door to the {direction} with {the(key.name)}."))
-    return events + travel(state, content, direction, exit_.to), True
+    events += travel(state, content, direction, exit_.to)
+    if state.in_combat and not state.over and light.darkness(state, content) == light.DARK:
+        monster = state.room.monster  # (in the dark, it finds you before you find it)
+        events += [Event("ambush", f"In the dark, {the(monster.name)} finds you first!",
+                         data={"monster": monster.key})] + monster_turn(state, content, rng)
+    return events, True
 
 
 def travel(state: GameState, content: Content, direction: str, to: int) -> list[Event]:
@@ -639,7 +664,7 @@ def travel(state: GameState, content: Content, direction: str, to: int) -> list[
     if room.monster and room.monster.hostile:
         events += telegraph(state, content) + stand_firm_warning(state, content)
     hazards.came_in(state, direction)
-    return events + statuses.tick(state, "step")
+    return events + light.entering(state, content) + statuses.tick(state, "step")
 
 
 # Quick travel: back to a room you've been in, from the map. Now and then something's wandered into a room on the way
@@ -768,6 +793,7 @@ gone: run 59's Swoogy), and on a return what happened here since. (room_facts is
     room = state.room
     lines = ["A secret room, walled off until a bomb opened it."] if room.secret else []
     lines += hazards.facts(state)  # (a river to cross, a vent: seen as you come in)
+    lines += [fact for fact in [light.facts(state, content)] if fact]  # (your torch, the glow, or the dark)
     if room.shop:
         lines.append(shop_facts(room.shop, content))
     monster = room.monster
@@ -801,6 +827,7 @@ def room_facts(state: GameState, content: Content) -> str:
     elif room.fixture and not room.fixture_used:
         lines.append(FIXTURE_FACTS[room.fixture])
     lines += hazards.facts(state)
+    lines += [fact for fact in [light.facts(state, content)] if fact]
     lines.append(f"Exits: {exit_notes(state)}.")
     monster = room.monster
     if monster:
@@ -859,6 +886,7 @@ def _descend(state: GameState, content: Content) -> list[Event]:
     text = " ".join(part for part in told if part)
     journal = f"You went down to floor {state.floor}, {theme.name}, arriving in {the(room.name)}."
     events = [Event("descend", text, data={"first": True, "room": room.id, "floor": state.floor, "journal": journal})]
+    events += light.arrival(state, content)  # (no torch: what you're in for. One, and it's lit: light.settle)
     player = state.player
     for item in powers.holders(state, content, "cursed"):
         player.max_hp = max(10, player.max_hp - 2)
@@ -896,6 +924,15 @@ def _searched(state: GameState, content: Content, feature: Feature) -> list[Even
     return events or [Event("search", f"You search {the(feature.name)} but find nothing useful.")]
 
 
+def _burn_open(state: GameState, content: Content, feature: Feature) -> list[Event]:
+    """A thing wrapped tight in threads (light.wrapped), burnt open with your torch: a flame of its light, and what's
+    inside is yours to find, as a search would."""
+    burnt = Event("burn", f"You hold your torch to {the(feature.name)}. The threads shrivel, blacken and fall away.",
+                  data={"feature": feature.name})
+    state.room.remember(f"you burnt {the(feature.name)} open")
+    return [burnt] + _searched(state, content, feature) + light.burn(state, content)
+
+
 def _search_room(state: GameState, content: Content, rng: random.Random) -> list[Event]:
     room, player = state.room, state.player
     room.room_searched = True
@@ -905,7 +942,11 @@ def _search_room(state: GameState, content: Content, rng: random.Random) -> list
         bonuses.append(("Keen Eye", 3))
     if "treasure_nose" in player.traits:
         bonuses.append(("Treasure Nose", 2))
-    roll = dice.check(rng, "wits (search)", bonuses + powers.roll_bonuses(state, content, "search"), 12)
+    dim = light.darkness(state, content) == light.DIM  # (by the glow alone, small things hide: in the dark, all do)
+    roll = dice.check(rng, "wits (search)", bonuses + powers.roll_bonuses(state, content, "search"), 12,
+                      advantage=-1 if dim else 0)
+    if dim:
+        roll.hindered = roll.hindered or light.DIM
     hidden = [f for f in room.features if f.hidden]
     beside = hidden_room_beside(state)
     events = fortune(state, roll)
@@ -1399,7 +1440,33 @@ def why_not(state: GameState, content: Content, action_id: str) -> str:
             return "Not in the middle of a fight."
         if item and arg not in room.items:
             return f"There's no {item.name} here."
+    if verb in ("burn", "refill"):
+        return _no_fire(state, content, verb, arg)
     return ""
+
+
+def _no_fire(state: GameState, content: Content, verb: str, arg: str) -> str:
+    """Why there's no burning or no filling a torch now (light.py)."""
+    room, player = state.room, state.player
+    if not light.torch(state, content):
+        return "You have no torch."
+    if not light.lit(state, content):
+        return "Your torch is packed away up here: it's for the dark below, and its flames are too few to waste."
+    if verb == "refill":
+        if light.OIL not in player.inventory:
+            return f"You have no {content.item(light.OIL).name}."
+        return "Your torch is burning as bright as it can already." if not player.burnt else ""
+    if not arg:
+        return "There's nothing here to burn." if not state.in_combat else ""
+    if state.in_combat:
+        return f"Not with {the(room.monster.name)} at you."
+    feature = room.features[int(arg)] if arg.isdigit() and int(arg) < len(room.features) else None
+    if feature is None or feature.hidden:
+        return "There's nothing like that here."
+    if feature.searched:
+        return f"You've been through {the(feature.name)} already: there's nothing more in it."
+    return f"There's nothing to burn off {the(feature.name)}: search it." if not light.wrapped(state, content,
+                                                                                              feature) else ""
 
 
 def _buy(state: GameState, content: Content, index: int) -> list[Event]:

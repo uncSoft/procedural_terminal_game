@@ -42,8 +42,8 @@ QUIET_KINDS = {"perk"}  # resolved without asking the narrator
 # a trick, a weakness found: docs/plans/combat-and-balance.md §3.7).
 EXCHANGE = {"hit", "miss", "monster_hit", "monster_miss", "dodge_ready", "dodge_fail", "dodge", "evade", "guard",
             "telegraph", "stunned", "heal"}
-MECHANICS = {"fate_spent", "level", "trait", "warning", "status_tick"}  # the screen says these (a line, the level-up
-# screen, a banner, a warning's line, poison's burn): not told
+MECHANICS = {"fate_spent", "level", "trait", "warning", "status_tick", "light"}  # the screen says these (a line, the
+# level-up screen, a banner, a warning's line, poison's burn, your torch lit or out): not told
 
 
 def roll_said(event: Event) -> str:

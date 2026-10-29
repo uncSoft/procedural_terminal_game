@@ -6,7 +6,9 @@ game's test-rooms page (PTG_TEST_ROOMS=1).
 You start next door, so walking in plays out as it would in a run: Swoogy's wall to bomb (a bomb's in your pack), a
 shop's door (a small key, two bombs and 100 gold to spend), a boss's locked door (its key), Lucky Lenny with his bad
 tooth in your pack (as if you'd found it first: lenny), or still missing it, hidden somewhere on his floor, for him to
-tell you where (lenny_quest). His tooth is only ever on his own floor (there's no going back up), so there's no room
+tell you where (lenny_quest). Or down in the Underbloom, floor 5, below any run yet (docs/plans/floor-5.md): next door
+to a room nothing lights, with something in it, a torch and a flask of lamp oil in your pack (underbloom), or no light
+at all (underbloom_dark). His tooth is only ever on his own floor (there's no going back up), so there's no room
 for it on the floor above him.
 
 Kits (`loadout`): "new" (a new adventurer), "random" (gear, level and perks about where a run is by that floor),
@@ -18,10 +20,11 @@ from __future__ import annotations
 
 import random
 
-from . import loot, npcs, powers
-from .content import Content
+from . import light, loot, npcs, powers
+from .content import Content, load_content
 from .models import DELTA, DUNGEONS, FLOORS, LEVEL_XP, GameState, MonsterState, Player, Room
-from .world import build_floor, generate
+from .text import a, cap, the
+from .world import build_floor, generate, monster_for, tier_for
 
 # Who you can test besides the bosses and the monsters, and the floor each is tried on unless you say.
 SPECIAL = {"lenny": ("Lucky Lenny, with his bad tooth in your pack", 1),
@@ -30,12 +33,15 @@ SPECIAL = {"lenny": ("Lucky Lenny, with his bad tooth in your pack", 1),
            "king_mouse": ("King Mouse, guarding the floor-2 stairs", 2),
            "poison": ("Poisoned already, with a Pure in your pack and a shrine next door", 1),
            "shop": ("Granny Gristle's shop, at its door, with gold to spend", 1),
-           "shiny_shop": ("Granny Kamultruk's shop, at its door, with gold to spend", 1)}
+           "shiny_shop": ("Granny Kamultruk's shop, at its door, with gold to spend", 1),
+           "underbloom": ("The Underbloom, floor 5: the Dark Hollow next door, with a torch and lamp oil", 5),
+           "underbloom_dark": ("The Underbloom, floor 5, with no light of your own: the Dark Hollow next door", 5)}
+DARK_ROOMS = {"underbloom": True, "underbloom_dark": False}  # the dark floor's rooms: whether you bring a torch
 LENNYS = {"lenny": npcs.LENNY, "lenny_quest": npcs.LENNY}  # the rooms with Lucky Lenny next door
 SHOP_GOLD = 100
 LOADOUTS = {"new": "a new adventurer", "random": "random gear, as a run would have it on that floor",
             "strong": "the best of everything"}
-LEVELS = {1: 1, 2: 3, 3: 5, 4: 6}  # about where a run is on each floor
+LEVELS = {1: 1, 2: 3, 3: 5, 4: 6, 5: 7}  # about where a run is on each floor (5: where one would be, down that far)
 STRONG = {"weapon": "silvered_blade", "armor": "scale_hauberk", "level": 5, "gold": 200, "bombs": 3, "keys": 2,
           "items": ["superior_healing_potion"] * 3 + ["holy_water", "smoke_bomb"]}
 FIELDS = ("weapon", "armor", "items", "level", "gold", "bombs", "keys")  # a kit of your own
@@ -46,7 +52,8 @@ def choices(content: Content) -> dict[str, str]:
     tagged npc, then every monster."""
     found = {key: words for key, (words, _) in SPECIAL.items()}
     for theme in sorted(content.themes.values(), key=lambda t: t.name):
-        found[theme.boss] = f"{content.monster(theme.boss).name}, the boss of {theme.name}"
+        if theme.boss:  # (a floor still being made may have none yet)
+            found[theme.boss] = f"{content.monster(theme.boss).name}, the boss of {theme.name}"
     for monster in sorted(content.monsters.values(), key=lambda m: (m.tier, m.name)):
         if monster.npc and monster.key not in npcs.PLACED and "shopkeeper" not in monster.tags:
             found.setdefault(monster.key, f"{monster.name}, to talk to")
@@ -69,8 +76,8 @@ def floor_for(content: Content, who: str) -> int:
 
 def fixed_floor(content: Content, who: str) -> int:
     """The one floor `who` can be on, or 0 if it's up to you."""
-    return floor_for(content, who) if who == "king_mouse" or any(t.boss == who for t in content.themes.values()) \
-        else 0
+    return floor_for(content, who) if who in ("king_mouse", *DARK_ROOMS) or \
+        any(t.boss == who for t in content.themes.values()) else 0
 
 
 def build(content: Content, who: str, loadout: str = "random", floor: int = 0, name: str = "Tester",
@@ -80,7 +87,7 @@ def build(content: Content, who: str, loadout: str = "random", floor: int = 0, n
         raise ValueError(f"no test room {who!r}: try {', '.join(choices(content))}")
     rng = random.Random(seed)
     seed = rng.randrange(1_000_000) if seed is None else seed
-    floor = fixed_floor(content, who) or max(1, min(FLOORS, floor or floor_for(content, who)))
+    floor = fixed_floor(content, who) or max(1, min(FLOORS, floor or floor_for(content, who)))  # (5: the Underbloom)
     boss_of = next((t.key for t in content.themes.values() if t.boss == who), None)
     if boss_of:
         state, start = _boss(content, seed, boss_of)
@@ -92,6 +99,8 @@ def build(content: Content, who: str, loadout: str = "random", floor: int = 0, n
         state, start = _king_mouse(content, seed)
     elif who == "poison":
         state, start = _shrine_floor(content, seed, floor)
+    elif who in DARK_ROOMS:
+        state, start = _dark_room(content, seed, floor)
     else:
         state, start = _next_door(content, seed, floor, LENNYS.get(who, who))
     state.test_room, state.run_id, state.daily, state.ghost = who, None, "", None
@@ -117,13 +126,17 @@ def build(content: Content, who: str, loadout: str = "random", floor: int = 0, n
     elif boss_of:
         player.inventory.append(content.themes[boss_of].key_item)
         _only_yours(state, content.themes[boss_of].key_item)
+    elif who in DARK_ROOMS:  # (a torch to try, and oil to fill it with; or none, and you're by the glow)
+        player.inventory = [k for k in player.inventory if "torch" not in content.item(k).powers]
+        player.inventory += ["torch", light.OIL] if DARK_ROOMS[who] else []
     powers.settle_stats(state, content)
     room = state.rooms[start]
     state.room_id, room.visited = start, True
     room.far = room.river and room.exits.get(room.across) is not None \
-        and room.exits[room.across].to == target(state).id  # (by the river's bank next door: no crossing first)
+        and room.exits[room.across].to == target(state, content).id  # (by the river's bank next door: no crossing)
     if room.monster and room.monster.hostile:
         room.monster = None  # (somewhere safe to stand)
+    player.lit = light.lit(state, content)  # (your torch is lit already, down there: no telling you on your first go)
     return state
 
 
@@ -181,12 +194,15 @@ def custom(spec: str) -> dict:
     return out
 
 
-def target(state: GameState) -> Room:
-    """The room whoever you're testing is in (a shop, for a shop; the shrine, poisoned)."""
+def target(state: GameState, content: Content | None = None) -> Room:
+    """The room whoever you're testing is in (a shop, for a shop; the shrine, poisoned; the room nothing lights, down
+    in the dark)."""
     who = {**LENNYS, "swoogy": npcs.SWOOGY}.get(state.test_room, state.test_room)
     keeper = {"shop": loot.SHOPKEEPER, "shiny_shop": loot.SHINY}.get(who)
+    content = content or load_content()  # (which rooms are dark is the content's to say)
     here = state.room
     return min((r for r in state.rooms if (r.fixture == "shrine" if who == "poison" else
+                                          light.pitch_dark(content, r) if who in DARK_ROOMS else
                                           r.shop.keeper == keeper if keeper and r.shop else
                                           r.monster is not None and r.monster.key == who)),
                key=lambda r: abs(r.x - here.x) + abs(r.y - here.y))
@@ -194,10 +210,12 @@ def target(state: GameState) -> Room:
 
 def describe(content: Content, state: GameState) -> list[tuple[str, str]]:
     """What a test run is, in a few lines: who's where, and your kit."""
-    room, player = target(state), state.player
+    room, player = target(state, content), state.player
     way = next((d for d, (dx, dy) in DELTA.items() if (state.room.x + dx, state.room.y + dy) == (room.x, room.y)), "")
     name = content.monster(room.shop.keeper).name + "'s shop" if room.shop else \
-        "A shrine" if state.test_room == "poison" else room.monster.name
+        "A shrine" if state.test_room == "poison" else \
+        f"{cap(the(room.name))}, pitch dark, {a(room.monster.name)} in it" if state.test_room in DARK_ROOMS \
+        else room.monster.name
     gear = [content.item(k).name for k in (player.weapon, player.armor) if k]
     pack = {}
     for key in player.inventory:
@@ -228,6 +246,10 @@ def _only_yours(state: GameState, key: str) -> None:
 
 def _at_floor(content: Content, seed: int, floor: int):
     state = generate(seed, content=content)
+    below = {t.floor: t.key for t in content.themes.values() if t.floor > len(state.themes)}
+    if floor > len(state.themes):  # (a floor below the run's, still being made: as if the run went that far)
+        state.themes += [below[f] for f in range(len(state.themes) + 1, floor + 1)]
+        state.floors_total = floor
     if floor > 1:  # (straight there: what the floors before would have had doesn't matter here)
         state.floor = floor
         build_floor(state, content)
@@ -288,6 +310,22 @@ def _king_mouse(content: Content, seed: int):
     stairs = next(r for r in state.rooms if r.fixture == "stairs")
     stairs.monster = npcs.sized(content, npcs.KING_MOUSE, 2, npcs.KING_MOUSE_SIZE, warden=True)
     return state, next(e.to for e in stairs.exits.values() if not e.locked)
+
+
+def _dark_room(content: Content, seed: int, floor: int):
+    """A dark floor (the Underbloom: below the run, so built as a run would build it if it went that far, with
+    nothing at its end yet) with a room nothing lights next to where you start, something hostile in it."""
+    def beside(s):
+        hollow = next((r for r in s.rooms if light.pitch_dark(content, r) and not r.secret), None)
+        start = next((s.rooms[e.to] for e in hollow.exits.values() if not e.locked and not s.rooms[e.to].secret
+                      and not s.rooms[e.to].shop and not light.pitch_dark(content, s.rooms[e.to])), None) \
+            if hollow else None
+        return (hollow, start) if start else None
+    state, (hollow, start) = _first(content, seed, floor, beside)
+    if not (hollow.monster and hollow.monster.hostile):
+        hollow.monster = monster_for(random.Random(seed), content, state.theme, tier_for(floor, state.floors_total),
+                                     floor=floor)
+    return state, start.id
 
 
 def _boss(content: Content, seed: int, theme: str):

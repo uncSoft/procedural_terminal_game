@@ -69,14 +69,17 @@ class Theme:
     key: str
     name: str
     blurb: str
-    goal: str
     archetypes: list[str]
     monster_tags: list[str]
-    boss: str
-    boss_room: str
-    key_item: str
+    # What you're there to do, and who and what it takes: every floor in a run has them; one still being made, below
+    # the run (floor past models.FLOORS), may wait for them (see _cross_check).
+    goal: str = ""
+    boss: str = ""
+    boss_room: str = ""
+    key_item: str = ""
     floor: int = 0  # the one floor it's always on (Norfel: 4), or 0: one of a run's first three, shuffled
     status: str = ""  # its own status (Norfel's poison): its shops sell the cure, and it always has a shrine
+    dark: bool = False  # no light but what grows there and the torch you bring (light.py: the Underbloom)
     lore: str = ""  # its story, told on its card when you arrive (ui/panels.py FloorScreen), over its splash art
 
 
@@ -224,10 +227,10 @@ def _parse_art(text: str) -> dict[str, str]:
 
 # What each kind of entry may contain: field -> (kind of value, required?)
 SCHEMAS: dict[str, dict[str, tuple[str, bool]]] = {
-    "theme": {"key": ("name", True), "name": ("text", True), "blurb": ("text", True), "goal": ("text", True),
-              "archetypes": ("names", True), "monster_tags": ("names", True), "boss": ("name", True),
-              "boss_room": ("name", True), "key_item": ("name", True), "floor": ("count", False),
-              "status": ("status", False), "lore": ("text", False)},
+    "theme": {"key": ("name", True), "name": ("text", True), "blurb": ("text", True), "goal": ("text", False),
+              "archetypes": ("names", True), "monster_tags": ("names", True), "boss": ("name", False),
+              "boss_room": ("name", False), "key_item": ("name", False), "floor": ("count", False),
+              "status": ("status", False), "dark": ("bool", False), "lore": ("text", False)},
     "archetype": {"names": ("texts", True), "blurb": ("text", True), "features": ("texts", True),
                   "decor": ("text", False)},
     "item": {"name": ("text", True), "kind": ("item_kind", True), "damage": ("dice", False),
@@ -437,18 +440,23 @@ def load_content() -> Content:
 
 def _cross_check(content: Content) -> list[str]:
     """Fail loudly on broken data instead of silently playing without it (the v1 monsters.json bug)."""
+    from .models import FLOORS  # (models imports this module)
+
     problems = []
     for theme in content.themes.values():
-        for key in [*theme.archetypes, theme.boss_room]:
+        waiting = theme.floor > FLOORS  # a floor below the run, still being made: it may wait for its boss and monsters
+        for key in [*theme.archetypes, *([theme.boss_room] if theme.boss_room or not waiting else [])]:
             if key not in content.archetypes:
                 problems.append(f"themes.toml theme {theme.key}: unknown archetype {key!r}")
-        if theme.boss not in content.monsters:
+        if not theme.goal and not waiting:
+            problems.append(f"themes.toml theme {theme.key}: a floor in a run needs a goal")
+        if theme.boss not in content.monsters and not (waiting and not theme.boss):
             problems.append(f"themes.toml theme {theme.key}: unknown boss {theme.boss!r}")
-        if theme.key_item not in content.items:
+        if theme.key_item not in content.items and not (waiting and not theme.key_item):
             problems.append(f"themes.toml theme {theme.key}: unknown key item {theme.key_item!r}")
         pool = [m for m in content.monsters.values() if m.roams]
         for tier in (1, 2, 3):
-            if not any(m.lives_in(theme) and m.tier == tier for m in pool):
+            if not waiting and not any(m.lives_in(theme) and m.tier == tier for m in pool):
                 problems.append(f"themes.toml theme {theme.key}: no tier {tier} monsters match its tags "
                                 f"(or are kept to it with dungeons)")
     for monster in content.monsters.values():

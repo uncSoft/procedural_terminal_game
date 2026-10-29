@@ -23,6 +23,8 @@ def edited(file: str, old: str, new: str):
     ("items.toml", 'damage = "1d6"\ntier = 0', "tier = 0", "a weapon needs damage"),
     ("perks.toml", 'name = "Brawler"', 'name = "Brawler', "perks.toml: Illegal character"),
     ("themes.toml", 'boss = "goblin_king"', 'boss = "goblin_emperor"', "unknown boss 'goblin_emperor'"),
+    ("themes.toml", 'boss = "goblin_king"\n', "", "theme goblin_warren: unknown boss ''"),  # (a floor in a run)
+    ("themes.toml", 'goal = "Dethrone the Goblin King."\n', "", "theme goblin_warren: a floor in a run needs a goal"),
     ("monsters.toml", "[monster.goblin]\n", '[monster.goblin]\ndungeons = ["sunken_crypts"]\n',
      "[monster.goblin]: unknown dungeon 'sunken_crypts' (did you mean 'sunken_crypt'?)"),
     ("tags.toml", 'cauldron = ["heavy", "fire", "food"]', 'cauldron = "heavy"', "tags.toml [keywords] cauldron"),
@@ -66,3 +68,15 @@ def test_the_lines_load_one_or_a_list():
     content = build_content()
     lenny = content.dialogue["lucky_lenny"]
     assert len(lenny["meet"]) == 1 and len(lenny["point_room"]) == 3 and "{place}" in lenny["point_room"][0]
+
+
+def test_a_floor_below_the_run_may_wait_for_its_boss():
+    """The Underbloom (floor 5) has its rooms and its look, but not yet its monsters or its boss: it loads, waiting,
+    and no run goes down to it."""
+    from ptg.models import FLOORS
+    from ptg.world import generate
+
+    content = build_content()
+    underbloom = content.themes["underbloom"]
+    assert underbloom.floor > FLOORS and not underbloom.boss and not underbloom.key_item
+    assert all("underbloom" not in generate(seed, content=content).themes for seed in range(10))

@@ -6,8 +6,9 @@ from collections import defaultdict
 
 from ptg import layout, sprites, testrooms
 from ptg.models import OPPOSITE, Exit, Feature, MonsterState
-from ptg.room_picture import (BRASS, DARK, PROPS, PROPS_HALF, SPRITE_PROPS, Picture, _shadow, draw, fixture_image,
-                              look_of, picture_text, prop_at, prop_colours, prop_image, prop_kind, shop_stall)
+from ptg.room_picture import (BRASS, DARK, FLAME, PROPS, PROPS_HALF, SELF_LIT, SPRITE_PROPS, Picture, _shadow,
+                              carries_light, draw, fixture_image, look_of, picture_text, prop_at, prop_colours,
+                              prop_image, prop_kind, shop_stall)
 from ptg.world import build_floor, generate
 
 DOORS = ("", "north", "south", "east", "west")  # "" is where a floor begins: as if you'd come in from the south
@@ -427,3 +428,86 @@ def test_a_room_with_more_than_six_items_shows_them_all(content):
     picture = Picture(state, content, 72, 30)
     picture.draw()
     assert sum(p.tag == "item" for p in picture.placed) == 8
+
+
+# --- the Underbloom: dark, but for what grows there and the torch you bring -------------------------------------------
+
+def luminance(img) -> float:
+    return sum(0.299 * r + 0.587 * g + 0.114 * b for r, g, b in img.get_flattened_data()) / (img.width * img.height)
+
+
+def test_the_underbloom_is_lit_by_what_grows_there_and_the_torch_you_bring(content):
+    """A dark floor: no light but what grows there (a cold teal, bright where it's thickest) and what you carry. With
+    a torch, the floor near you is warm and the room lighter; without one, eyes used to the dark. In the Dark Hollow
+    nothing grows, so nothing glows."""
+    warm = set(look_of("underbloom").floor_warm[1:])
+    for archetype in content.themes["underbloom"].archetypes:
+        state = room_of(content, archetype)
+        assert state.theme == "underbloom"
+        pictures = {torch: Picture(state, content, 72, 30, torch=torch) for torch in (False, True)}
+        images = {torch: picture.draw() for torch, picture in pictures.items()}
+        assert luminance(images[True]) > luminance(images[False]) + 3, archetype
+        for torch, picture in pictures.items():
+            near = [images[torch].getpixel((x, y)) for y in range(24, 30) for x in range(10, 62)
+                    if picture.kind[y][x] == "floor"]
+            assert (sum(p in warm for p in near) > len(near) / 2) == torch, (archetype, torch)
+        glowing = set(images[False].get_flattened_data()) & SELF_LIT
+        assert bool(glowing) == (archetype != "dark_hollow"), archetype
+
+
+def test_a_torch_of_your_own_is_in_the_picture(content):
+    """Carry a torch and it's in the bottom left of a dark floor's pictures, big enough to see at a glance on a
+    stage with room for it, its flame flickering between the stage's frames; and a picture kept from before you had it
+    isn't shown again after."""
+    state = room_of(content, "glowcap_grove")
+    assert not carries_light(state, content)
+    before = picture_text(state, content, 72, 30)
+    state.player.inventory.append("torch")
+    assert carries_light(state, content) and picture_text(state, content, 72, 30).spans != before.spans
+    corner = [[draw(state, content, 72, 30, frame=f).getpixel((x, y)) for x in range(9) for y in range(12, 30)]
+              for f in (0, 1)]
+    assert all(set(FLAME) & set(seen) for seen in corner) and corner[0] != corner[1]  # (its flame, moving)
+    flame = [(x, y) for x in range(9) for y in range(12, 30) if draw(state, content, 72, 30).getpixel((x, y)) in FLAME]
+    assert len(flame) >= 25 and max(y for _, y in flame) - min(y for _, y in flame) >= 8  # (a torch, not a spark)
+    small = [draw(state, content, 40, 20).getpixel((x, y)) for x in range(8) for y in range(10, 20)]
+    assert set(FLAME) & set(small)  # (a small stage has the little one)
+    state.theme = "sunken_crypt"  # (a lit floor: your lantern does, and no torch is drawn)
+    assert not set(FLAME[2:]) & {draw(state, content, 72, 30).getpixel((x, y)) for x in range(4) for y in range(26, 30)}
+
+
+def test_what_the_underbloom_gets_into_sprouts_glowing_caps(content):
+    """A prop there has glowing caps on its top (two rows taller for them) and glows; the same prop elsewhere
+    doesn't; and the fungus itself doesn't sprout more fungus."""
+    crypt, bloom = look_of("sunken_crypt"), look_of("underbloom")
+    plain, grown = prop_image("crate", crypt, "a crate"), prop_image("crate", bloom, "a crate")
+    assert grown.height == plain.height + 2 and not {p[:3] for p in plain.get_flattened_data()} & SELF_LIT
+    assert {p[:3] for p in grown.get_flattened_data()} & SELF_LIT
+    assert prop_image("cap", bloom, "a giant glowcap's stalk").size == prop_image("cap", crypt, "a stalk").size
+    assert prop_kind("a fallen glowcap, soft as bread") == "cap" and prop_kind("a pillar's hollow cap") == "crate"
+
+
+def test_the_underbloom_keeps_to_its_colour_budget_with_a_torch_or_without(content):
+    """As every dungeon does (test_pictures_keep_to_the_colours_the_sprites_use), torch or no torch."""
+    pairs = set()
+    for archetype in content.themes["underbloom"].archetypes:
+        state = room_of(content, archetype)
+        for torch in (False, True):
+            if torch:
+                state.player.inventory.append("torch")
+            for door in ("", "east"):
+                state.room.entered_from = door
+                pairs |= {(s.style.color, s.style.bgcolor) for s in picture_text(state, content, 72, 30).spans}
+            state.player.inventory.clear()
+    assert len(pairs) < 520, len(pairs)
+
+
+def test_the_underbloom_s_decor_is_painted_on_its_room_maps():
+    """Glowcaps as tall as trees, never side by side; curtains of threads; puffballs."""
+    from ptg.models import Room
+
+    room = Room(id=0, name="", archetype="glowcap_grove", x=0, y=0, exits={"south": Exit(to=1)})
+    layout.build(random.Random(3), room, "caps threads puffballs")
+    cells = [(x, y, ch) for y, line in enumerate(room.grid) for x, ch in enumerate(line)]
+    caps = [(x, y) for x, y, ch in cells if ch == "♠"]
+    assert len(caps) >= 3 and any(ch == "¦" for *_, ch in cells) and any(ch == "●" for *_, ch in cells)
+    assert all(abs(a - c) + abs(b - d) > 4 for i, (a, b) in enumerate(caps) for c, d in caps[i + 1:])

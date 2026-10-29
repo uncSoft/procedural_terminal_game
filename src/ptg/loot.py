@@ -81,8 +81,10 @@ SHOP_CHANCE, SHINY_CHANCE = 0.25, 0.15  # a floor has a shop; of the shops, how 
 STATUS_SHOP_CHANCE = 0.5  # a floor with a status of its own (Norfel's poison) has a shop more often
 GRISTLE_RARE = 0.2  # how often Granny Gristle has something rare where her trinket would be
 STOCK = {"potion": 2, "cure": 2}  # how many of a ware she has: one of anything else
-# On the floor above one with poison of its own, a shop always (rules._ask: asked, she brings out the snakeskin).
+# On the floor above one with poison of its own, a shop always (rules._ask: asked, she brings out the snakeskin); and
+# above a dark one, so you can buy a light before you go down.
 BEFORE_STATUS_SHOP_CHANCE = 1.0
+LIGHTS = ("torch", "oil_flask")  # on a dark floor and the one above it, she always has these, two of each (light.py)
 SNAKESKIN, SNAKESKIN_PRICE = "shed_snakeskin", 80
 SHINY_WARES = ["potion 2+", "gear 3+", "rare", "rare"]
 FINDS = ["food 0", "food 0", "potion 1", "escape 1", "trinket"]  # what a stunt that pays off can turn up
@@ -188,10 +190,10 @@ def produce(rng: random.Random, content: Content, rares: list[str], slots: list[
 
 
 def wares(rng: random.Random, content: Content, rares: list[str], keeper: str, floor: int,
-          cure_for: str = "") -> list[tuple[str, int, int]]:
+          cure_for: str = "", lights: bool = False) -> list[tuple[str, int, int]]:
     """What a shopkeeper lays out on her counter (rare things noted in `rares`, as anywhere), with their prices and
     how many: potions come in twos (STOCK). On a floor with a status of its own (`cure_for`: floor 4's poison), she
-    always has its cure, two of it."""
+    always has its cure, two of it; on a dark floor or the one above it (`lights`), torches and lamp oil (LIGHTS)."""
     if keeper == SHINY:
         slots = SHINY_WARES
     else:
@@ -205,6 +207,10 @@ def wares(rng: random.Random, content: Content, rares: list[str], keeper: str, f
     for item in sorted(content.items.values(), key=lambda i: i.key):
         if cure_for and cure_for in item.cures and not item.heal:
             out.append((item.key, price(item, floor, keeper == SHINY), STOCK["cure"]))
+    for key in LIGHTS if lights else ():
+        if key in content.items:  # (two of each, even if one's on the counter already: it's what she's there for)
+            out = [ware for ware in out if ware[0] != key]
+            out.append((key, price(content.item(key), floor, keeper == SHINY), 2))
     return out
 
 

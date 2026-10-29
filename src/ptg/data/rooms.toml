@@ -2,8 +2,10 @@
 # description used when no language model is available, `features` are
 # things in the room the player can search, and `decor` picks how the room's
 # map is painted (water, pillars, bones, rubble, tables, cages, junk, fungus,
-# roots, plants, shelves, furniture, pool, embers). Add `sky` for a room open
-# to the sky: its picture shows broken walls under the stars.
+# roots, plants, shelves, furniture, pool, embers, caps, threads, puffballs).
+# Add `sky` for a room open to the sky: its picture shows broken walls under
+# the stars. Add `dark` for a room where nothing glows, on a dark floor: only
+# your torch lights it.
 
 # --- The Sunken Crypt -------------------------------------------------------
 
@@ -224,3 +226,55 @@ decor = "pool embers"
 names = ["Serpentis's Lair"]
 blurb = "A round cavern ringed with stone fangs that hang from the ceiling like a jaw about to close. The floor is pocked with round red cells that glow and pulse, and coils of shed skin lie everywhere, each bigger than the last."
 features = ["a heap of shed skins", "a glowing red floor cell"]
+
+# --- The Underbloom (floor 5, under Norfel: not in a run yet) ----------------
+# Norfel's poison drips down here, and something learned to drink it. Black
+# rock furred with white threads, lit only by what grows (and your torch).
+
+[archetype.glowcap_grove]
+decor = "caps fungus"
+names = ["Glowcap Grove", "The Lantern Wood"]
+blurb = "Mushrooms as tall as trees stand in the dark, their caps glowing cold blue and violet overhead. Spores drift down through their light like slow snow, and settle on you."
+features = ["a giant glowcap's stalk", "a fallen glowcap, soft as bread", "a ring of little caps in the moss"]
+
+[archetype.puffball_field]
+decor = "puffballs fungus"
+names = ["Puffball Field", "The Spore Drift"]
+blurb = "The floor is crowded with pale puffballs, from fist-sized to cart-sized. Each one you brush sighs out a cloud of glittering spores, and they hang in the air a long time."
+features = ["a puffball as big as a cart", "a burst puffball, empty and wrinkled", "a trail of footprints in the spore dust"]
+
+[archetype.thread_hall]
+decor = "threads fungus"
+names = ["Thread Hall", "The Weave"]
+blurb = "White threads hang from the ceiling to the floor in curtains, fine as hair and slightly sticky. They sway when you breathe. Things are wrapped up in them here and there, and some of the things are moving."
+features = ["a cocoon wrapped in white threads", "a curtain of threads, thick as a rope", "a bundle that might be a backpack"]
+
+[archetype.mouldering_ossuary]
+decor = "bones fungus"
+names = ["The Compost", "Mouldering Ossuary"]
+blurb = "This is where the dead of the floors above end up, washed down through the cracks: bones and old gear, all of it furred in soft grey mould and sprouting little glowing caps. The floor is soft. You try not to think about why."
+features = ["an adventurer's skeleton, sprouting caps", "a heap of mouldering gear", "a skull with a mushroom growing out of one eye"]
+
+[archetype.runoff_pool]
+decor = "pool fungus"
+names = ["The Drip", "Runoff Pool"]
+blurb = "Norfel's poison drips from a crack in the ceiling into a pool, still glowing pink. The fungus crowds round its edge to drink, and glows brightest where it does."
+features = ["a glowcap leaning down to drink", "a drip from the ceiling", "a puffball floating in the pool"]
+
+[archetype.sporerat_burrow]
+decor = "junk fungus"
+names = ["Sporerat Burrow", "The Nibbled Tunnels"]
+blurb = "Tunnels gnawed through the soft rock, lined with shredded caps and stolen things. Something squeaks, a long way off. Then a lot of somethings do."
+features = ["a nest of shredded mushroom", "a gnawed satchel", "a hoard of shiny bits"]
+
+[archetype.dark_hollow]
+decor = "rubble dark"
+names = ["The Dark Hollow", "Blind Cave"]
+blurb = "Nothing grows here, and nothing glows. The dark is so thick it feels like a wall pressing on your eyes. Without a light of your own, you'd be feeling your way."
+features = ["bones that crunch underfoot", "a toppled statue, worn smooth", "a cold draught from somewhere"]
+
+[archetype.swallowed_chapel]
+decor = "pillars fungus"
+names = ["The Swallowed Chapel", "Overgrown Chapel"]
+blurb = "Somebody built a chapel down here once. The fungus has eaten most of it: the pillars are furred white, the pews have gone soft as cake, and a pale light glows where the altar was."
+features = ["a pew soft as cake", "a saint's statue in a coat of mould", "the altar, glowing faintly"]

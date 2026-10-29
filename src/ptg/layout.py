@@ -142,11 +142,30 @@ def _paint(rng: random.Random, grid, style: str, free, centre) -> None:
         scatter("π", 5)
     elif style == "embers":
         scatter("^", 8)
+    elif style == "caps":  # mushrooms as tall as trees, never side by side
+        placed: list[tuple[int, int]] = []
+        for _ in range(rng.randint(3, 5)):
+            for _ in range(20):
+                x, y = rng.randint(2, WIDTH - 1), rng.randint(2, HEIGHT - 1)
+                if free(x, y) and all(abs(x - px) + abs(y - py) > 4 for px, py in placed):
+                    grid[y][x] = "♠"
+                    placed.append((x, y))
+                    break
+    elif style == "threads":  # curtains of threads hanging from the ceiling, each a short line across the room
+        for _ in range(rng.randint(2, 3)):
+            x, y = rng.randint(3, WIDTH - 2), rng.randint(2, HEIGHT - 1)
+            dx, dy = rng.choice([(1, 0), (0, 1)])
+            for k in range(rng.randint(3, 6)):
+                if free(x + k * dx, y + k * dy):
+                    grid[y + k * dy][x + k * dx] = "¦"
+    elif style == "puffballs":
+        scatter("●", 8)
 
 
 STYLE_OF_GLYPH = {"#": "wall", ".": "floor", "+": "door", "~": "water", "O": "pillar", "%": "bones",
                   ":": "rubble", "=": "furniture", "&": "junk", "♣": "plant", "\"": "plant", "≀": "plant",
-                  "▤": "furniture", "π": "furniture", "^": "fire", CAGE: "cage"}
+                  "▤": "furniture", "π": "furniture", "^": "fire", CAGE: "cage", "♠": "plant", "¦": "plant",
+                  "●": "plant"}
 
 
 def item_spots(room: Room) -> list[tuple[int, int]]:

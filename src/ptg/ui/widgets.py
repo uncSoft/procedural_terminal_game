@@ -24,7 +24,7 @@ from textual.types import NoActiveAppError
 from textual.visual import VisualType
 from textual.widgets import Static
 
-from .. import layout, loot, powers, sound, statuses
+from .. import layout, light, loot, powers, sound, statuses
 from ..content import Content
 from ..events import Action, Event
 from ..glossary import Lexicon
@@ -198,6 +198,9 @@ class Hud(Static):
         parts["hp"].append(f" {player.hp}/{player.max_hp}", style="bold")
         if ailing:  # (right by your health: it's what it's eating)
             parts["status"] = Text.assemble(*[(f"{d.icon} {d.name}", f"bold {d.colour}") for d in ailing])
+        cue = light_cue(state, content)
+        if cue:  # (down in the dark: your torch's flames, or what you're in without one)
+            parts["light"] = cue
         parts["defense"] = Text.assemble(("⛨ ", "#6c8cff"), str(player.defense(content)))
         parts["fate"] = Text.assemble(*[("✦", "bold #ffd166") if i < player.fate else ("✧", "#5a5030")
                                         for i in range(player.max_fate())])
@@ -244,6 +247,21 @@ class Hud(Static):
 
 
 HUD_DROPS = ("turn", "theme", "daily", "souls", "xp", "keys", "bombs", "defense")  # the HUD's least, first to go
+LIT, UNLIT, BLIND = "#feae34", "#8b9bb4", "#ff7b7b"  # your torch lit; no light, by the glow; in the dark
+
+
+def light_cue(state: GameState, content: Content) -> Text | None:
+    """Your light, down on a dark floor (light.py), for the status bar: your torch lit, a flame for each thing it has
+    left to burn ("☼ torch ▲▲▲▲△"); or no light, by the glow ("☼ no light"); or none in the dark ("☼ in the dark", in
+    red: every roll's at a disadvantage). Nothing on a floor that isn't dark."""
+    if not light.dark_floor(state, content):
+        return None
+    if light.lit(state, content):
+        left = light.left(state)
+        return Text.assemble(("☼ ", f"bold {LIT}"), ("torch ", f"bold {LIT}"), ("▲" * left, LIT),
+                             ("△" * (light.FLAMES - left), "#5a5030"))
+    dark = light.darkness(state, content) == light.DARK
+    return Text.assemble(("☼ ", "#3a4466"), ("in the dark" if dark else "no light", f"bold {BLIND if dark else UNLIT}"))
 
 
 def legend(entries: list[tuple[str, str, str]], width: int | None = None, words: str = "#9a9cc0") -> Text:

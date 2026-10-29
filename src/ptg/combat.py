@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
-from . import dice, hazards, inventory, loot, powers, statuses
+from . import dice, hazards, inventory, light, loot, powers, statuses
 from .content import Content, ItemDef
 from .events import Event
 from .models import GameState, MonsterState
@@ -24,6 +24,7 @@ TRICK_WORDS = {"steal": "grabs", "tangle": "vines", "venom": "venom", "venom_spi
 # Winning in style pays (docs/plans/combat-and-balance.md §3.6): each a fifth more XP (1 at least) and 3 gold a tier.
 STYLES = {"flawless": ("Flawless", "not a scratch on you"), "exploited": ("Exploited", "finished with its weakness")}
 STYLE_XP, STYLE_GOLD = 0.2, 3
+BURN = "1d6"  # a torch's flame, held to a monster (burn)
 
 
 @dataclass(frozen=True)
@@ -284,6 +285,36 @@ def throw(state: GameState, content: Content, rng: random.Random, key: str) -> l
     for tag in weak:
         events += discover(state, monster, tag)
     return events + (defeat(state, content, rng, exploited=bool(weak)) if monster.hp <= 0 else [])
+
+
+def burn(state: GameState, content: Content, rng: random.Random) -> list[Event]:
+    """Your torch held to the monster, down in the dark where it's lit (light.py): a might roll against its defense,
+    with advantage and 2 more damage if fire's its weakness, for the flame's BURN. Landed, it costs a flame of the
+    torch's light; missed, it costs only the turn."""
+    player, monster = state.player, state.room.monster
+    weak = "fire" in content.monster(monster.key).weak
+    events: list[Event] = [] if monster.hostile else [provoked(monster, content)]
+    monster.hostile = True
+    bonuses = [("might", player.might), ("level", player.level)] + powers.roll_bonuses(state, content, "attack")
+    roll = dice.check(rng, "burn", bonuses, monster_defense(monster, content), advantage=1 if weak else 0)
+    roll.hits_for = BURN
+    luck = fortune(state, roll)
+    if not roll.success:
+        return events + [Event("miss", f"You thrust your torch at {the(monster.name)}, and it ducks the flame.",
+                               dice=roll)] + luck
+    parts = [(BURN, dice.roll(BURN, rng))]
+    if roll.crit:  # (a critical burn, twice the flame, as a critical blow is twice the weapon)
+        parts.append((f"crit {BURN}", dice.roll(BURN, rng)))
+    if weak:
+        parts.append(("fire!", 2))
+    roll.damage = parts
+    damage = sum(value for _, value in parts)
+    monster.hp -= damage
+    events.append(Event("hit", f"You hold your torch to {the(monster.name)} and it burns for {damage} damage "
+                               f"({max(monster.hp, 0)}/{monster.max_hp} HP left).{' [fire!]' if weak else ''}",
+                        dice=roll, data={"damage": damage, "burn": True}))
+    events += light.burn(state, content) + (discover(state, monster, "fire") if weak else []) + luck
+    return events + (defeat(state, content, rng, exploited=weak) if monster.hp <= 0 else [])
 
 
 def distract(state: GameState, content: Content, key: str) -> list[Event]:

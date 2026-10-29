@@ -34,13 +34,13 @@ import math
 import sys
 import threading
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 
 from rich.style import Style
 from rich.text import Text
 
-from . import layout, sprites
+from . import layout, light, sprites
 from .content import Content
 from .models import GameState, Room
 from .sprites import Image
@@ -79,10 +79,14 @@ class Look:
     above: str  # vault | rock
     ambient: float
     lantern: float
-    sconces: str  # candles | torches | ""
+    sconces: str  # candles | torches | brackets (glowing shelf fungi) | ""
     fog: float
     accent: str  # the story card's border
     props: list | None = None  # stone props and doorframes, if not in `stone`: two steps above dark walls, to stand out
+    glow: list | None = None  # what the cold light of things growing there turns any surface (the Underbloom's teal)
+    dark: bool = False  # no light but what grows there and what you carry: `lantern` is a torch's, warm (see carried)
+    glimmer: float = 0.0  # on a dark floor without a torch, all you see by: eyes used to the dark
+    overgrown: bool = False  # props sprout glowing caps and pale threads (see _overgrow), and glow a little
 
     @property
     def prop_stone(self) -> list:
@@ -138,12 +142,42 @@ LOOKS = {
         moss=_ramp("#193c3e", "#265c42", "#3e8948", "#63c74d"),  # a vent's crystals
         walls="bubbles", ground="dirt", above="rock", ambient=0.34, lantern=0.55, sconces="", fog=0.30,
         accent="#b55088"),
+    # Under Norfel, where its poison drips down and something drinks it: black rock furred with white threads, and no
+    # light but what grows on it (cold teal, violet, mint) and the torch you bring, warm, if you thought to.
+    "underbloom": Look(
+        wall=_ramp("#181425", "#262b44", "#3a4466", "#5a6988", "#8b9bb4"),
+        wall_warm=_ramp("#181425", "#3e2731", "#733e39", "#b86f50", "#e4a672"),
+        floor=_ramp("#181425", "#262b44", "#3a4466", "#5a6988"),
+        floor_warm=_ramp("#181425", "#3e2731", "#733e39", "#b86f50"),
+        ceiling=_ramp("#181425", "#262b44", "#3a4466"),
+        water=_ramp("#68386c", "#b55088", "#f6757a", "#ead4aa"),  # Norfel's poison, dripped down
+        wood=_ramp("#3e2731", "#733e39", "#b86f50", "#c28569"),
+        stone=_ramp("#262b44", "#3a4466", "#5a6988", "#8b9bb4", "#c0cbdc"),  # pale threads, pale stalks
+        moss=_ramp("#193c3e", "#124e89", "#0099db", "#2ce8f5"),  # what grows on things glows
+        walls="hyphae", ground="mycelium", above="glowworms", ambient=0.05, lantern=0.66, sconces="brackets",
+        fog=0.30, accent="#2ce8f5", props=_ramp("#3a4466", "#5a6988", "#8b9bb4", "#c0cbdc", "#ffffff"),
+        glow=_ramp("#181425", "#193c3e", "#124e89", "#0099db", "#2ce8f5"), dark=True, glimmer=0.11,
+        overgrown=True),
 }
 DEFAULT_LOOK = LOOKS["sunken_crypt"]  # for a dungeon added without a look of its own
+# Your torch in the picture's corner (Picture._torch_in_hand): its flame in two frames, then its pitch-soaked head and
+# its handle, in prop_colours' letters. Big on a stage with room for it, so it's the first thing you see down there.
+TORCH_FLAMES = (["...y...", "....Y..", "...YY..", "..YwY..", "..FYF..", ".fFYFf.", ".fFwFf.", ".rfFfr.", "..rfr.."],
+                ["..y....", "..Y....", "..YY...", "..YwY..", "..FYF..", ".fFYFf.", ".fFwFf.", ".rfFfr.", "..rfr.."])
+TORCH_HELD = ["..aba..", "..bab..", "..cb...", ".cb....", ".cb....", "cb.....", "cb....."]
+SMALL_FLAMES = (["...Y..", "..YFY.", "..FfF.", "...fr."], ["..Y...", ".YFY..", ".FfF..", "..fr.."])
+SMALL_HELD = ["...cb.", "..cb..", ".cb...", "cb...."]
+# Colours that glow on their own: in a dark look they're never shadowed (see Picture._place), as fungus isn't.
+SELF_LIT = {_rgb(c) for c in ("#2ce8f5", "#96e6ff", "#b4ffd6", "#f261ff", "#c900db")}
 
 
 def look_of(theme: str) -> Look:
     return LOOKS.get(theme, DEFAULT_LOOK)
+
+
+def carries_light(state: GameState, content: Content) -> bool:
+    """Whether you've a light of your own for a dark floor: a torch in your pack (light.torch)."""
+    return light.torch(state, content) is not None
 
 
 # --- pixel helpers ------------------------------------------------------------------------------------------
@@ -322,8 +356,15 @@ PROPS = {
     "rock": ["...6776...", ".67788876.", "6778888776", "5667777665", ".55666655."],
     "bin": [".R.y.M.", "mMMMMMm", "mmmmmmm", "mmnmmnm", "mmmmmmm", ".nnnnn."],
     "saddle": ["..bb......", ".bccb...bb", "bccccbbbcb", "bcccccccb.", ".bbbbbbb..", "..a....a.."],
+    # The Underbloom's: a glowcap as tall as you, a cocoon in its threads, a curtain of threads
+    "cap": ["....jjj=....", "..j=====~~..", ".j==w=====~.", "j=====w==~~~", "~~~=====~~~~", ".uuuuuuuuuu.",
+            "....eBBs....", "....eBBs....", "....eBBs....", "...eeBBss...", "..eeeeesss.."],
+    "cocoon": ["...s....", "...s....", "..sees..", ".seBBes.", ".eBezBe.", ".eBBzBe.", ".seBBes.", "..seBs..",
+               "...ss...", "....s..."],
+    "threads": ["s.e.s..e", "e.s.e..s", "s.e.s.ze", "e.s.e..s", "s.z.s..e", ".se.e..s", "s.e..s.e", "e.s..e.."],
 }
 FLAT = {"grate", "hole", "mosaic", "sap"}  # lie on the floor: never sunk, never in front of anything
+FUNGAL = {"fungus", "cap", "cocoon", "threads", "puffball"}  # fungus already: nothing grows on them (see _overgrow)
 # Half-size props drawn by hand, for those that halved block by block (sprites.halve) come out one flat colour.
 PROPS_HALF = {
     "shelf": ["aaaaaa", "aRuGPa", "aaaaaa", "acBRua"],
@@ -339,8 +380,12 @@ PROP_OF_WORD = {"pew": "pew", "bench": "bench", "altar": "altar", "case": "case"
                 "skulls": "niche", "creepers": "vines", "vine": "vines", "lantern": "lantern", "throne": "throne",
                 "chandelier": "chandelier", "fountain": "fountain", "chest": "chest", "box": "chest",
                 "cloche": "cloche", "compost": "pit", "pit": "pit", "basket": "basket", "rock": "rock", "bin": "bin",
-                "saddle": "saddle", "ledge": ""}
-PHRASES = {"burial": "niche", "potting": "table"}  # words that settle what a feature is wherever they come
+                "saddle": "saddle", "ledge": "", "toadstool": "cap", "caps": "fungus", "threads": "threads",
+                "satchel": "sack", "backpack": "sack", "hoard": "junk", "drip": "", "footprints": "", "draught": ""}
+# Words that settle what a feature is wherever they come ("a puffball as big as a cart" is a puffball). Not "cap" on
+# its own: Norfel's pillars have hollow caps.
+PHRASES = {"burial": "niche", "potting": "table", "glowcap": "cap", "puffball": "puffball", "cocoon": "cocoon",
+           "curtain": "threads", "skeleton": "bones", "skull": "bones", "nest": "nest"}
 PROP_OF_GLYPH = {"π": "table", "θ": "barrel", "Ö": "cauldron", "Ω": "statue", "ı": "candle", "▯": "wardrobe",
                  "∪": "basin", "%": "bones", "≡": "chest", "◊": "fountain", "Å": "bell", "═": "rail",
                  "▒": "grate", "Ð": "cart", "▤": "shelf", "▭": "coffin", "§": "rope", "╥": "altar", "°": "plates",
@@ -349,14 +394,14 @@ PROP_OF_GLYPH = {"π": "table", "θ": "barrel", "Ö": "cauldron", "Ω": "statue"
                  "¶": "lectern", "♣": "fungus", "▪": "plinth", "†": "sword", "o": "stump", "ö": "nest", "~": "sap",
                  "♥": "heart", "◘": "basin", "⁘": "table", "▫": "mosaic"}
 GLOWS = {"candle": 1.0, "lantern": 1.0, "cauldron": 1.0, "forge": 1.0, "chandelier": 1.0, "altar": 1.0,
-         "heart": 0.0}  # props that give light, and how warm it is
+         "heart": 0.0, "cap": 0.0, "cocoon": 0.0}  # props that give light, and how warm it is (the rest: a cold glow)
 SPRITE_PROPS = {"chest": "chest", "fountain": "fountain", "altar": "shrine"}  # props that are fixture sprites
 
 
 def prop_kind(name: str) -> str:
     """What a feature looks like, from its name, the noun winning: "a half-sunken pew" is a pew, "a vine-covered
     plinth" a plinth. Anything else is a crate; "" is nothing to draw (a ledge is just the wall)."""
-    words = name.lower().replace("'", " ").replace("-", " ").split()
+    words = name.lower().replace("'", " ").replace("-", " ").replace(",", " ").split()
     for word in words:
         if word in PHRASES:
             return PHRASES[word]
@@ -383,7 +428,8 @@ def prop_colours(look: Look) -> dict:
              "M": "#a6aaba", "q": "#c2a078", "Q": "#e4a672", "y": "#feae34", "Y": "#fee761", "r": "#be4a2f",
              "f": "#f77622", "F": "#feae34", "B": "#ead4aa", "e": "#c0cbdc", "~": "#0099db", "=": "#2ce8f5",
              "s": "#8b9bb4", "R": "#e43b44", "u": "#124e89", "p": "#f6757a", "P": "#b55088", "i": "#68386c",
-             "k": "#181425", "v": "#3e8948", "V": "#63c74d", "z": "#b4ffd6"}
+             "k": "#181425", "v": "#3e8948", "V": "#63c74d", "z": "#b4ffd6", "j": "#96e6ff", "w": "#ffffff",
+             "x": "#c900db", "X": "#f261ff", "o": "#6e5a8c"}
     colours = {k: _rgb(v) for k, v in fixed.items()}
     colours.update({str(5 + i): look.prop_stone[i] for i in range(5)})
     colours.update({"g": look.moss[1], "G": look.moss[2], "h": look.moss[-1]})
@@ -393,13 +439,16 @@ def prop_colours(look: Look) -> dict:
 def prop_image(kind: str, look: Look, name: str = "", spent: bool = False):
     """A feature's prop: a fixture's sprite for chests, fountains and altars, otherwise its little drawing. A `spent`
     one looks it: a chest emptied, an altar's candles out, a fountain dry."""
-    if kind in SPRITE_PROPS:
-        return fixture_image(SPRITE_PROPS[kind], look, spent or (kind == "fountain" and "dry" in name.lower()))
     if kind == "fungus":
-        return _mushroom(sum(map(ord, name)))
-    img = _grid_image(PROPS[kind], prop_colours(look))
-    if any(word in name.lower() for word in ("toppled", "fallen")) and kind in ("statue", "bell", "coffin"):
-        img = img.transpose(Image.Transpose.ROTATE_90)
+        return _mushroom(sum(map(ord, name)), look)
+    if kind in SPRITE_PROPS:
+        img = fixture_image(SPRITE_PROPS[kind], look, spent or (kind == "fountain" and "dry" in name.lower()))
+    else:
+        img = _grid_image(PROPS[kind], prop_colours(look))
+        if any(word in name.lower() for word in ("toppled", "fallen")) and kind in ("statue", "bell", "coffin", "cap"):
+            img = img.transpose(Image.Transpose.ROTATE_90)
+    if look.overgrown and kind not in FUNGAL:
+        img = _overgrow(img, sum(map(ord, name or kind)))
     return img
 
 
@@ -443,9 +492,44 @@ def _tuft(seed: int, look: Look):
     return _grid_image(shapes[int(_hash01(seed, 7) * len(shapes))], prop_colours(look))
 
 
-def _mushroom(seed: int):
-    rows = [".=~~=.", "=~==~=", "..BB..", "..BB.."] if _hash01(seed, 3) < 0.5 else [".~=.", "~==~", ".B..", ".B.."]
-    return _grid_image(rows, prop_colours(DEFAULT_LOOK))
+GLOWCAPS = (("=", "~"), ("X", "x"), ("z", "~"))  # a glowing cap's top and rim: cyan, violet, mint (a cyan rim)
+
+
+def _mushroom(seed: int, look: Look = DEFAULT_LOOK):
+    """A little mushroom, cap glowing cyan; where things are overgrown, violet or mint too, and some taller."""
+    shapes = [[".TRRT.", "TRTTRT", "..BB..", "..BB.."], [".RT.", "RTTR", ".B..", ".B.."]]
+    top, rim = GLOWCAPS[0]
+    if look.overgrown:
+        shapes.append(["..T..", ".TTT.", "RRRRR", "..B..", "..B..", ".BB.."])
+        top, rim = GLOWCAPS[int(_hash01(seed, 4) * len(GLOWCAPS))]
+    rows = shapes[min(len(shapes) - 1, int(_hash01(seed, 3) * len(shapes)))]
+    return _grid_image([row.replace("T", top).replace("R", rim) for row in rows], prop_colours(look))
+
+
+def _overgrow(img, seed: int):
+    """Something the Underbloom has got into: little glowing caps sprouting along its top on pale stalks, and pale mould
+    along its top between them; two rows taller, for the caps. What glows stays bright in the dark (SELF_LIT). (No more
+    than that: each colour it adds meets every colour of what it grows on, and a terminal caches every pair.)"""
+    colours = prop_colours(DEFAULT_LOOK)
+    src = img.convert("RGBA")
+    w, h = src.size
+    out = Image.new("RGBA", (w, h + 2), (0, 0, 0, 0))
+    out.alpha_composite(src, (0, 2))
+    px = out.load()
+    tops = {x: next((y for y in range(2, h + 2) if px[x, y][3] >= 128), None) for x in range(w)}
+    x = 0
+    while x < w:
+        top, roll = tops[x], _hash01(seed, x, 151)
+        if top is not None and roll < 0.2 and x + 1 < w and tops[x + 1] is not None:
+            cap, rim = GLOWCAPS[int(_hash01(seed, x, 152) * len(GLOWCAPS))]
+            px[x, top - 2], px[x + 1, top - 2] = (*colours[cap], 255), (*colours[rim], 255)
+            px[x, top - 1] = (*colours["e"], 255)  # its stalk
+            x += 3  # (caps never touching)
+            continue
+        if top is not None and roll < 0.42:
+            px[x, top] = (*colours["e"], 255)  # mould along the top
+        x += 1
+    return out
 
 
 def _trimmed(img):
@@ -502,6 +586,7 @@ class Light:
     power: float
     radius: float
     warm: float = 1.0
+    glow: float = 0.0  # how much of it is the cold light of something growing (a look's `glow` shows it)
 
 
 @dataclass
@@ -521,12 +606,22 @@ class Picture:
     ceiling, object); `placed` lists the sprites drawn, and `owner` which of them each pixel shows (-1 for none)."""
 
     def __init__(self, state: GameState, content: Content, w: int, h: int, room: Room | None = None,
-                 frame: int = 0) -> None:
+                 frame: int = 0, torch: bool | None = None) -> None:
         self.state, self.content, self.room = state, content, room or state.room
         self.frame = frame  # which frame of their idle animation whoever's here and what lies about are drawn in
         self.look = look_of(state.theme)
         archetype = content.archetypes.get(self.room.archetype)
         self.sky = bool(archetype) and "sky" in archetype.decor.split()
+        self.unlit = bool(archetype) and "dark" in archetype.decor.split()  # nothing grows here, and nothing glows
+        if self.unlit and self.look.overgrown:
+            self.look = replace(self.look, overgrown=False)
+        # The light you carry: a lantern's, or on a dark floor, a torch's (warm) if you have one (`torch`: as if you
+        # did or didn't), else only eyes used to the dark.
+        self.torch = carries_light(state, content) if torch is None else torch
+        look = self.look
+        self.carried = look.glimmer if look.dark and not self.torch else look.lantern
+        self.carried_warm = 0.85 if look.dark and self.torch else 0.0
+        self.brackets: list[tuple[float, float, float, int]] = []  # glowing shelf fungi on the walls: (a, z, v, seed)
         self.view = View(self.room)
         self.lens = Lens(w, h, self.view)
         self.w, self.h = w, h
@@ -554,6 +649,8 @@ class Picture:
         self._objects()
         self._reflections()
         self._flames()
+        self._growth()
+        self._torch_in_hand()
         return self.img
 
     def showing(self, index: int) -> float:
@@ -562,13 +659,15 @@ class Picture:
         return shown / max(1, self.placed[index].pixels)
 
     # light ----------------------------------------------------------------------------------------------
-    def light(self, a: float, z: float, v: float) -> tuple[float, float]:
-        """How lit a point is, and how much of that is warm (candle or torch) light."""
+    def light(self, a: float, z: float, v: float) -> tuple[float, float, float]:
+        """How lit a point is, and how much of that is warm (a candle or a torch: your own, on a dark floor) and how
+        much the cold glow of something growing."""
         look, view = self.look, self.view
         na, nz = a / view.half, z / view.depth
         level = look.ambient + (0.25 if self.sky else 0.0) * (0.6 + 0.4 * v)
-        level += look.lantern * max(0.0, 1 - 0.9 * nz) ** 1.6 * (1 - 0.2 * abs(na))
-        warm = 0.0
+        carried = self.carried * max(0.0, 1 - 0.9 * nz) ** 1.6 * (1 - 0.2 * abs(na))
+        level += carried
+        warm, cold = carried * self.carried_warm, 0.0
         for lt in self.lights:
             da, dz, dv = (a - lt.a) / (2 * view.half), (z - lt.z) / view.depth, (v - lt.v) * 0.5
             dist = math.sqrt(da * da + dz * dz + dv * dv)
@@ -576,15 +675,18 @@ class Picture:
                 glow = lt.power * (1 - dist / lt.radius) ** 2
                 level += glow
                 warm += glow * lt.warm
-        return level * (1 - look.fog * nz), warm
+                cold += glow * lt.glow
+        return level * (1 - look.fog * nz), warm, cold
 
     def shade(self, shades: list, warm_shades: list, a: float, z: float, v: float, x: int, y: int,
               bias: float = 0.0, dither: float = 0.45) -> tuple:
-        level, warm = self.light(a, z, v)
+        level, warm, cold = self.light(a, z, v)
         cx, cy = (x - self.w / 2) / (self.w / 2), (y - self.h / 2) / (self.h / 2)
         level = (level + bias) * (1 - 0.18 * cx * cx - 0.12 * cy * cy)  # a soft vignette
         if warm > 0.32 or (warm > 0.22 and _bayer(x, y) > 0.5):
             return _pick(warm_shades, level, x, y, dither)
+        if self.look.glow and (cold > 0.2 or (cold > 0.12 and _bayer(x, y) > 0.5)):
+            return _pick(self.look.glow, level, x, y, dither)  # (what grows there lights it teal)
         return _pick(shades, level, x, y, dither)
 
     # what's where ---------------------------------------------------------------------------------------
@@ -604,8 +706,11 @@ class Picture:
         return 0.09 * 2 * self.view.half if wall == "back" else 0.12 * self.view.depth
 
     def _sconces(self) -> None:
-        """Candles or torches on the walls, away from the doors."""
+        """Candles or torches on the walls, away from the doors; or in the Underbloom, glowing shelf fungi."""
         if not self.look.sconces:
+            return
+        if self.look.sconces == "brackets":
+            self._bracket_spots()
             return
         view, torch = self.view, self.look.sconces == "torches"
         for wall, t in (("left", 0.32), ("left", 0.78), ("right", 0.32), ("right", 0.78), ("back", -0.55),
@@ -621,21 +726,56 @@ class Picture:
             self.lights.append(Light(a, z, 0.55, 0.55 if torch else 0.42, 0.30 if torch else 0.24))
             self.flames.append((a, z, 0.55, 2 if torch else 1))
 
+    def _bracket_spots(self) -> None:
+        """Where shelf fungi grow out of the walls in glowing clusters, a few to a room and away from the doors (none
+        in a room where nothing grows): the Underbloom's light, drawn last (see _bracket)."""
+        if self.unlit:
+            return
+        view = self.view
+        spots = [("left", 0.22), ("left", 0.55), ("left", 0.85), ("right", 0.3), ("right", 0.68), ("back", -0.7),
+                 ("back", -0.15), ("back", 0.4)]
+        for i, (wall, t) in enumerate(spots):
+            if _hash01(self.seed, i, 131) < 0.4:
+                continue  # (each room its own few)
+            v = 0.2 + 0.5 * _hash01(self.seed, i, 132)
+            if wall == "back":
+                a, z = t * view.half, view.depth - 0.05
+                along = a
+            else:
+                a, z = (-view.half + 0.05 if wall == "left" else view.half - 0.05), t * view.depth
+                along = z
+            if wall in self.doors and abs(along - self.doors[wall][0]) < self._door_half(wall) * 1.8:
+                continue
+            self.lights.append(Light(a, z, v, 0.42, 0.26, warm=0.0, glow=1.0))
+            self.brackets.append((a, z, v, i))
+
     def _feature_lights(self) -> None:
-        room = self.room
+        room, look = self.room, self.look
         for feature in room.features:
+            if feature.hidden:
+                continue
             kind = prop_kind(feature.name)
-            if not feature.hidden and kind in GLOWS and not _unlit(kind, feature.searched or bool(feature.used)):
-                a, z = self.view.cell(*feature.pos)
-                self.lights.append(Light(a, z, 0.2, 0.6, 0.30, warm=GLOWS[kind]))
+            a, z = self.view.cell(*feature.pos)
+            if kind in GLOWS and not _unlit(kind, feature.searched or bool(feature.used)) \
+                    and not (self.unlit and kind in FUNGAL):
+                self.lights.append(Light(a, z, 0.2, 0.6, 0.30, warm=GLOWS[kind], glow=1.0 - GLOWS[kind]))
+            elif look.overgrown and not self.unlit:  # (what's grown over it glows a little)
+                self.lights.append(Light(a, z, 0.25, 0.22, 0.18, warm=0.0, glow=1.0))
         if room.fixture == "shrine" and not room.fixture_used:
             a, z = self.view.cell(CX, CY)
             self.lights.append(Light(a, z, 0.2, 0.55, 0.30))
+        grows = 1.5 if look.overgrown else 1.0  # (where it's dark, what glows is brighter)
         for y, line in enumerate(room.grid):
             for x, ch in enumerate(line):
-                if ch == "♣" and _hash01(x, y, 5) < 0.6:
+                if ch == "♣" and _hash01(x, y, 5) < 0.6 and not self.unlit:
                     a, z = self.view.cell(x, y)
-                    self.lights.append(Light(a, z, 0.05, 0.30, 0.16, warm=0.0))
+                    self.lights.append(Light(a, z, 0.05, 0.30 * grows, 0.16 * grows, warm=0.0, glow=1.0))
+                elif ch == "♠" and not self.unlit:  # a glowcap's cap, overhead
+                    a, z = self.view.cell(x, y)
+                    self.lights.append(Light(a, z, 0.7, 0.55, 0.32, warm=0.0, glow=1.0))
+                elif ch == "●" and look.overgrown:  # a puffball's faint glow
+                    a, z = self.view.cell(x, y)
+                    self.lights.append(Light(a, z, 0.1, 0.18, 0.12, warm=0.0, glow=1.0))
                 elif ch == "^":
                     a, z = self.view.cell(x, y)
                     self.lights.append(Light(a, z, 0.02, 0.35, 0.16))
@@ -715,6 +855,10 @@ class Picture:
         return ("f", row, math.floor((a + (row % 2) * size / 2 * flags) / size))
 
     def _wall_tile(self, wall: str, along: float, v: float):
+        if self.look.walls == "hyphae":  # strips of rock between the threads hanging down it (see _wall)
+            spacing = 2 * self.view.half / 6
+            wobble = (_noise(along / spacing * 0.6, v * 2.2, 33) - 0.5) * 0.9 * spacing
+            return (wall, 0, math.floor((along + wobble) / spacing))
         bricks = self.look.walls == "bricks"
         row = math.floor(v * (7 if bricks else 4))
         length = 2 * self.view.half / (11 if bricks else 6)
@@ -768,9 +912,11 @@ class Picture:
             self.px[x, y] = self._floor(x, y, a, z, tiles) if kind == "floor" else self._water(x, y, a, z)
         elif kind == "ceiling":
             bias = 0.12 if self._mortar(x, y, tiles) else -0.05  # the vault's ribs
-            if look.above == "rock":
+            if look.above in ("rock", "glowworms"):
                 bias = (_noise(a * 0.9, z * 0.9, 12) - 0.5) * 0.3
             self.px[x, y] = self.shade(look.ceiling, look.ceiling, a, z, 1.0, x, y, bias)
+            if look.above == "glowworms" and not self.unlit and _hash01(x, y, self.seed, 141) < 0.045:
+                self.px[x, y] = self._speck(x, y, 142)  # a glow-worm in the rock
 
     def _tint(self, tile) -> float:
         return _hash01(*[hash(t) & 0xFFFF for t in tile], self.seed)
@@ -790,6 +936,11 @@ class Picture:
             mortar = False
         elif look.walls == "bubbles":
             bias, mortar = self._bubble(a if wall == "back" else z, v), False
+        elif look.walls == "hyphae":
+            bias = (_noise((a if wall == "back" else z) * 0.8, v * 3.0, 9) - 0.5) * 0.26
+            if mortar and not self.unlit and v > self._thread_end(tiles[y][x]):  # a thread, from the ceiling
+                return self.shade(look.wall, look.wall_warm, a, z, v, x, y, 0.3)
+            mortar = False
         colour = self.shade(look.wall, look.wall_warm, a, z, v, x, y, bias - (0.22 if mortar else 0.0))
         if look.walls == "marble" and self._moss(wall, a, z, v, x):
             colour = _pick(look.moss, self.light(a, z, v)[0] * 0.9, x, y)
@@ -799,11 +950,13 @@ class Picture:
         look = self.look
         mortar = self._mortar(x, y, tiles)
         bias = (-0.06 if self._tint(tiles[y][x]) < 0.3 else 0.0) + 0.14 * (1 - z / self.view.depth) + 0.06
-        if look.ground == "dirt":
+        if look.ground in ("dirt", "mycelium"):
             bias, mortar = (_noise(a * 1.1, z * 1.1, 4) - 0.5) * 0.3, False
         elif look.ground == "mosaic":
             bias += 0.04 if sum(tiles[y][x][1:]) % 2 else -0.03
         colour = self.shade(look.floor, look.floor_warm, a, z, 0.0, x, y, bias - (0.2 if mortar else 0.0))
+        if look.ground == "mycelium" and not self.unlit and _noise(a * 0.55 + 3, z * 0.55, 27) > 0.64:
+            colour = self.shade(look.floor, look.floor_warm, a, z, 0.0, x, y, bias + 0.16)  # pale mats of threads
         if look.ground == "dirt" and _hash01(x, y, 21) < 0.025:
             colour = _pick(look.moss, self.light(a, z, 0)[0], x, y)  # straw
         if look.ground == "mosaic" and _noise(a * 0.7, z * 0.7, 23) > (0.5 if mortar else 0.68):
@@ -811,7 +964,7 @@ class Picture:
         return colour
 
     def _water(self, x: int, y: int, a: float, z: float) -> tuple:
-        level, _ = self.light(a, z, 0.0)
+        level = self.light(a, z, 0.0)[0]
         ripple = _hash01(math.floor(z * 5), math.floor((a + 7 * math.floor(z * 5)) * 1.3), 31) < 0.12
         return _pick(self.look.water, level * 0.55 + (0.35 if ripple else 0.0), x, y)
 
@@ -842,6 +995,20 @@ class Picture:
         if d > r - 0.09:
             return -0.24  # (a bubble's rim)
         return 0.2 if dx < -0.05 and dy > 0.05 and d < r * 0.55 else 0.04  # (its cap, lit: v runs up the wall)
+
+    def _thread_end(self, tile) -> float:
+        """How far down the wall a thread hangs (as v: 0 is the floor): a quarter of them all the way, the rest part
+        way."""
+        wall, strip = WALL_NUMBER[tile[0]], tile[2]
+        if _hash01(strip, wall, self.seed, 34) < 0.25:
+            return 0.0
+        return 0.35 + 0.5 * _hash01(strip, wall, self.seed, 35)
+
+    def _speck(self, x: int, y: int, salt: int) -> tuple:
+        """A point of glow (a glow-worm, a spore): bright, or between the stage's frames, a twinkle dimmer."""
+        if _hash01(x, y, salt, self.frame) < 0.25:
+            return _rgb("#0099db")
+        return _rgb("#2ce8f5")
 
     def _beam(self, wall: str, a: float, z: float, v: float) -> bool:
         """Timber props holding up a goblin tunnel."""
@@ -902,26 +1069,33 @@ class Picture:
         room, view, lens, look = self.room, self.view, self.lens, self.look
         scenery, things = [], []  # (z, draw)
         tables = {(gx, gy) for gy, line in enumerate(room.grid) for gx, ch in enumerate(line) if ch == "="}
-        decor = {"π": "table", "&": "junk", "▤": "shelf", layout.CAGE: "cage", "#": "cage"}  # (an older save's cages)
+        decor = {"π": "table", "&": "junk", "▤": "shelf", layout.CAGE: "cage", "#": "cage",  # (an older save's cages)
+                 "●": "puffball"}
         for gy, line in enumerate(room.grid):
             for gx, ch in enumerate(line):
                 a, z = view.cell(gx, gy)
                 inside = 1 <= gx <= WIDTH and 1 <= gy <= HEIGHT
-                if not inside or z < (2.0 if ch in ("#", "▤", layout.CAGE) else 1.2):  # right beside you: not seen
+                if not inside or z < (2.0 if ch in ("#", "▤", layout.CAGE, "♠") else 1.2):  # beside you: not seen
                     continue
                 if ch == "O":
                     scenery.append((z, lambda a=a, z=z: self._pillar(a, z)))
+                elif ch == "♠":
+                    scenery.append((z, lambda a=a, z=z, seed=gx * 31 + gy: self._giant_cap(a, z, seed)))
+                elif ch == "¦":
+                    scenery.append((z, lambda a=a, z=z, seed=gx * 37 + gy: self._curtain(a, z, seed)))
                 elif ch == "=":
                     scenery.append((z + 0.01, lambda gx=gx, gy=gy: self._table(gx, gy, tables)))
                 elif ch == "\"" and _hash01(gx, gy, 91) < 0.8:
                     img = _at_scale(_tuft(gx * 31 + gy, look), lens.scale(z) * 1.4)
                     scenery.append((z, lambda a=a, z=z, img=img: self._place(img, a, z, tag="decor")))
                 elif ch == "♣":
-                    img = _at_scale(_mushroom(gx * 17 + gy), lens.scale(z) * 1.4)
+                    img = _at_scale(_mushroom(gx * 17 + gy, look), lens.scale(z) * 1.4)
                     scenery.append((z, lambda a=a, z=z, img=img: self._place(img, a, z, lit=True, tag="decor")))
                 elif ch in decor:
                     img = prop_at(decor[ch], look, lens.scale(z) * 1.2)
-                    scenery.append((z, lambda a=a, z=z, img=img: self._place(img, a, z, tag="decor")))
+                    lit = look.overgrown and decor[ch] in FUNGAL  # (a puffball glows faintly, where it's dark)
+                    scenery.append((z, lambda a=a, z=z, img=img, lit=lit: self._place(img, a, z, lit=lit,
+                                                                                      tag="decor")))
         for feature in room.features:
             if not feature.hidden and prop_kind(feature.name):
                 things.append(self._feature(feature))
@@ -930,7 +1104,8 @@ class Picture:
             if room.shop:
                 img, lit = self._stall(a, z), True
             else:
-                img = _at_scale(fixture_image(room.fixture, look, room.fixture_used), lens.scale(z) * 1.2)
+                img = fixture_image(room.fixture, look, room.fixture_used)
+                img = _at_scale(_overgrow(img, room.id + 7) if look.overgrown else img, lens.scale(z) * 1.2)
                 lit = room.fixture == "shrine" and not room.fixture_used
             self.centre = self._box(img, a, z)  # known before anything's drawn, for what's around it to keep clear of
             self.plans.append(Placed("fixture", img, self.centre, z))
@@ -959,7 +1134,7 @@ class Picture:
         gx, gy = feature.pos
         sunk = kind not in FLAT and any(self._glyph(gx + dx, gy + dy) == "~"
                                         for dx, dy in ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)))
-        lit = kind in GLOWS and not _unlit(kind, spent)
+        lit = (kind in GLOWS and not _unlit(kind, spent)) or (self.look.overgrown and kind in FUNGAL)
         order = z + (0.3 if kind in FLAT else 0.0)
         plan = Placed("feature", img, self._box(img, a, z), order)
         self.plans.append(plan)
@@ -1116,9 +1291,10 @@ class Picture:
         standing in water loses its lower third to it. A `framed` one, something you can do something with, is kept
         wholly inside the picture (see _fit) and only ever a little shadowed."""
         img, left, top = self._fit(img, a, z, framed)
-        level, _ = self.light(a, z, 0.3)
+        level = self.light(a, z, 0.3)[0]
         dim = 1.0 if lit else (0.5 if level < 0.22 else (0.72 if level < 0.42 else 1.0))
-        dim = max(dim, 0.72) if framed else dim
+        dim = max(dim, 1.0 if self.look.dark else 0.72) if framed else dim  # (on a dark floor, what you can use glows)
+        glows = bool(self.look.glow)  # (in a dark look, what glows is never shadowed)
         x0, y0, x1, y1 = img.getbbox() or (0, 0, 0, 0)
         placed = Placed(tag, img, (left + x0, top + y0, left + x1, top + y1), z)
         index = len(self.placed)
@@ -1131,7 +1307,8 @@ class Picture:
                 tx, ty = left + x, top + y
                 if alpha < 128 or not (0 <= tx < self.w and 0 <= ty < self.h):
                     continue
-                self.px[tx, ty] = (r, g, b) if dim == 1.0 else _shadow((r, g, b), dim)
+                self.px[tx, ty] = (r, g, b) if dim == 1.0 or (glows and (r, g, b) in SELF_LIT) \
+                    else _shadow((r, g, b), dim)
                 self.kind[ty][tx] = "object"
                 self.owner[ty][tx] = index
                 placed.pixels += 1
@@ -1188,6 +1365,12 @@ class Picture:
                 colour = self.shade(look.stone, look.wall_warm, a, z - 0.5, v, x, y, round_ + 0.06 * flare, dither=0)
                 if self.sky and top - y > -1.5 and _hash01(x, y, 62) < 0.5:
                     colour = _pick(look.moss, 0.7, x, y)
+                if look.overgrown:  # furred white with mould, a glowing cap on its edges here and there
+                    edge, roll = x in (x0 - flare, x1 - 1 + flare), _hash01(x, y, round(a * 10), 63)
+                    if edge and roll < 0.16:
+                        colour = prop_colours(look)[GLOWCAPS[int(_hash01(x, y, 64) * len(GLOWCAPS))][0]]
+                    elif roll < 0.11:
+                        colour = prop_colours(look)["e"]
                 self.px[x, y] = colour
                 self.kind[y][x] = "object"
 
@@ -1279,6 +1462,125 @@ class Picture:
                 self.px[x, y] = _rgb("#f6757a") if _hash01(i, 103) < 0.7 else _rgb("#faa096")
 
 
+    def _growth(self) -> None:
+        """What grows where things are overgrown, drawn over the room: shelf fungi glowing on the walls, threads
+        hanging from the ceiling with a glowing bead at their ends, and spores drifting up through the air (a pixel a
+        frame, on the stage). None of it in a room where nothing grows."""
+        if not self.look.overgrown or self.unlit:
+            return
+        for bracket in self.brackets:
+            self._bracket(*bracket)
+        if self.look.above == "glowworms":
+            for i in range(max(3, self.w // 9)):
+                x = int(_hash01(i, self.seed, 161) * self.w)
+                top = next((y for y in range(self.h) if self.kind[y][x] != "ceiling"), self.h)
+                length = 2 + int(_hash01(i, self.seed, 162) * 6)
+                for k in range(length):
+                    y = top + k
+                    if y >= self.h or self.kind[y][x] not in ("wall", "void"):
+                        break
+                    self.px[x, y] = self._speck(x, i, 163) if k == length - 1 else _rgb("#5a6988")
+        for i in range(self.w * self.h // 240):
+            x = int(_hash01(i, self.seed, 171) * self.w)
+            y = int(_hash01(i, self.seed, 172) * self.h * 0.95) - self.frame % 2
+            if 0 <= y < self.h and self.kind[y][x] in ("wall", "floor", "ceiling", "water"):
+                self.px[x, y] = self._speck(x, y, 173)
+
+    def _bracket(self, a: float, z: float, v: float, seed: int) -> None:
+        """Shelf fungi on a wall, two or three stacked, bigger nearer you: each a glowing top, a rim under it and its
+        dark gills, over the wall but behind anything standing in front of it."""
+        lens, colours = self.lens, prop_colours(self.look)
+        sx, sy = lens.at(a, z, v)
+        s = lens.s(z)
+        top, rim = GLOWCAPS[int(_hash01(self.seed, seed, 133) * len(GLOWCAPS))]
+        width = max(4, round(3 + 6 * s))
+        shelves = [(0, 0, width), (-round(width * 0.45), 2 + round(2 * s), max(3, width - 2))]
+        if s > 0.6:
+            shelves.append((round(width * 0.35), 4 + round(3 * s), max(3, width - 3)))
+        for dx, dy, w in shelves:
+            x0, y0 = round(sx - w / 2) + dx, round(sy) + dy
+            pixels = [(x0 + i, y0, colours[top]) for i in range(1, w - 1)]
+            pixels += [(x0 + i, y0 + 1, colours[rim]) for i in range(w)]
+            pixels += [(x0 + i, y0 + 2, colours["u"]) for i in range(1, w - 1) if w > 4]
+            for x, y, colour in pixels:
+                if 0 <= x < self.w and 0 <= y < self.h and self.kind[y][x] == "wall":
+                    self.px[x, y] = colour
+
+    def _torch_in_hand(self) -> None:
+        """Your torch, held up at the bottom left of the picture, its flame flickering between the stage's frames and
+        a spark or two going up: on a dark floor, you can see at a glance that you brought one, and that it's lit (a
+        stage too small for TORCH_HELD has the little one)."""
+        if not (self.look.dark and self.torch) or self.h < 16:
+            return
+        big = self.h >= 28 and self.w >= 48
+        flame, held = (TORCH_FLAMES if big else SMALL_FLAMES)[self.frame % 2], TORCH_HELD if big else SMALL_HELD
+        rows, colours = flame + held, prop_colours(self.look)
+        for dy, row in enumerate(rows):
+            for dx, ch in enumerate(row):
+                x, y = 1 + dx, self.h - len(rows) + dy
+                if ch != "." and 0 <= x < self.w and 0 <= y < self.h:
+                    self.px[x, y] = colours[ch]
+
+    def _giant_cap(self, a: float, z: float, seed: int) -> None:
+        """A mushroom as tall as a tree: a pale stalk up from the floor, lit by its own cap, and the cap itself, broad,
+        glowing, its rim a shade deeper and its gills dark under it."""
+        lens, look, colours = self.lens, self.look, prop_colours(self.look)
+        s = lens.s(z)
+        bottom, ceiling = lens.floor_y(s), lens.ceil_y(s)
+        under = bottom - (0.66 + 0.2 * _hash01(seed, 181)) * (bottom - ceiling)  # the cap's underside
+        cx, stalk = lens.x(a, s), max(1.0, 0.35 * lens.kx * s)
+        cap = max(4.0, (1.6 + 0.6 * _hash01(seed, 182)) * lens.kx * s)
+        thick = max(2.0, 0.16 * (bottom - ceiling))
+        top, rim = GLOWCAPS[int(_hash01(seed, 183) * len(GLOWCAPS))]
+        for y in range(max(0, math.floor(under)), min(self.h, math.ceil(bottom))):
+            for x in range(round(cx - stalk), round(cx + stalk) + 1):
+                if 0 <= x < self.w:
+                    lit = 0.34 if x + 0.5 < cx else 0.12  # (pale, rounded: lit from the left)
+                    v = (bottom - y - 0.5) / max(1.0, bottom - ceiling)
+                    self.px[x, y] = self.shade(look.stone, look.wall_warm, a, z, v, x, y, lit, dither=0)
+                    self.kind[y][x] = "object"
+        for x in range(math.floor(cx - cap), math.ceil(cx + cap) + 1):
+            u = (x + 0.5 - cx) / cap
+            if abs(u) > 1 or not 0 <= x < self.w:
+                continue
+            dome = thick * math.sqrt(1 - u * u)
+            first, last = math.floor(under - dome), math.floor(under)
+            for y in range(max(0, first), min(self.h, last + 2)):
+                if y > last:
+                    if abs(u) > 0.8:
+                        continue
+                    letter = "u"  # its gills
+                elif y == last:
+                    letter = rim
+                elif y == first and u < -0.2 or _hash01(x, y, seed, 184) < 0.07:
+                    letter = "z" if top != "z" else "="  # its shine, and its spots
+                else:
+                    letter = top
+                self.px[x, y] = colours[letter]
+                self.kind[y][x] = "object"
+
+    def _curtain(self, a: float, z: float, seed: int) -> None:
+        """A curtain of threads hanging from the ceiling, fine as hair and gappy enough to see through, a bead of glow
+        here and there."""
+        lens, look = self.lens, self.look
+        s = lens.s(z)
+        bottom, ceiling = lens.floor_y(s), lens.ceil_y(s)
+        half = max(1.0, 0.55 * lens.kx * s)
+        for x in range(round(lens.x(a, s) - half), round(lens.x(a, s) + half) + 1):
+            if not 0 <= x < self.w or x % 3:
+                continue  # (a thread, a gap)
+            reach = bottom - (0.15 + 0.45 * _hash01(x, seed, 191)) * (bottom - ceiling)  # how far down it hangs
+            for y in range(max(0, math.floor(ceiling)), min(self.h, math.ceil(reach))):
+                if _hash01(x, y, seed, 192) < 0.22:
+                    continue
+                v = (bottom - y - 0.5) / max(1.0, bottom - ceiling)
+                bead = look.glow and _hash01(x, y, seed, 193) < 0.05
+                self.px[x, y] = self._speck(x, y, 194) if bead else self.shade(look.wall, look.wall_warm, a, z, v,
+                                                                               x, y, 0.36, dither=0)
+                self.kind[y][x] = "object"
+
+
+WALL_NUMBER = {"back": 0, "left": 1, "right": 2}  # (a wall by number, for a picture that's the same every run)
 COMPASS = Style(bold=True, color="#fee761", bgcolor="#181425")  # a doorway's way, marked on it
 WOOD = {"edge": _rgb("#181425"), "dark": _rgb("#3e2731"), "board": _rgb("#733e39"), "plank": _rgb("#b86f50"),
         "top": _rgb("#c28569"), "shine": _rgb("#e4a672")}
@@ -1327,12 +1629,13 @@ def shop_stall(shop, width: int | None = None) -> Image.Image:
     return img
 
 
-def draw(state: GameState, content: Content, width: int, height: int, room: Room | None = None):
+def draw(state: GameState, content: Content, width: int, height: int, room: Room | None = None,
+         torch: bool | None = None, frame: int = 0):
     """The room you're in (or another on this floor) as an RGB image, or None without Pillow. `height` should be
-    even: two pixels to a row."""
+    even: two pixels to a row. `torch`: as if you had one (or didn't), whatever you carry."""
     if Image is None:
         return None
-    return Picture(state, content, width, height, room).draw()
+    return Picture(state, content, width, height, room, frame, torch).draw()
 
 
 PICTURES = 48  # room pictures kept: walking back into a room, or a fight's end, draws it again for free
@@ -1351,7 +1654,7 @@ def picture_text(state: GameState, content: Content, width: int, height: int, ro
         return None
     room = room or state.room
     key = (id(content), state.seed, state.floor, state.theme, width, height, compass, frame,
-           room.model_dump_json(exclude={"history", "description"}))
+           carries_light(state, content), room.model_dump_json(exclude={"history", "description"}))
     with _pictures_lock:
         kept = _pictures.get(key)
         if kept is not None:
@@ -1380,18 +1683,36 @@ def _picture_text(state: GameState, content: Content, width: int, height: int, r
 
 
 def main(argv: list[str]) -> None:
+    """Every room on the first floor of a seed; or with a dungeon's key after it, one of each of that dungeon's rooms
+    (a floor still being made too), and "torch" to see them as if you'd brought one."""
+    import random
+
     from rich.console import Console
 
     from .content import load_content
+    from .models import Feature
     from .world import generate
 
     console = Console()
     content = load_content()
     state = generate(int(argv[0]) if argv else 7, content=content)
-    for room in state.rooms:
-        state.room_id = room.id
-        console.print(f"[bold]{room.name}[/] ({room.archetype})")
-        console.print(picture_text(state, content, 72, 30))
+    torch = "torch" in argv[1:]
+    theme = next((content.themes[a] for a in argv[1:] if a in content.themes), None)
+    if theme is None:
+        for room in state.rooms:
+            state.room_id = room.id
+            console.print(f"[bold]{room.name}[/] ({room.archetype})")
+            console.print(picture_text(state, content, 72, 30))
+        return
+    state.theme, room = theme.key, state.room
+    for key in theme.archetypes:
+        kind = content.archetypes[key]
+        room.archetype, room.name = key, kind.names[0]
+        room.features = [Feature(name=f) for f in kind.features]
+        room.fixture, room.monster, room.items = "", None, []
+        layout.build(random.Random(key), room, kind.decor)
+        console.print(f"[bold]{room.name}[/] ({key}){' · with a torch' if torch else ''}")
+        console.print(sprites.image_text(draw(state, content, 72, 30, torch=torch).convert("RGBA"), snap=True))
 
 
 if __name__ == "__main__":

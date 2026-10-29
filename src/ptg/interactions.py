@@ -73,7 +73,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable
 
-from . import dice, inventory, npcs, powers
+from . import dice, inventory, light, npcs, powers
 from .combat import (bomb_monster, defeat, discover, distract, fortune, holds_its_ground, provoked, throw,
                      thrown_damage)
 from .content import Content, ItemDef
@@ -114,6 +114,7 @@ CLASSES = {
     "search": {"search", "rummage", "dig", "poke", "prod", "probe", "sift", "scour", "ransack", "examine", "inspect",
                "check"},
     "eat": {"eat", "drink", "quaff", "chug", "gulp", "swallow", "munch", "nibble", "sip", "guzzle"},
+    "burn": {"burn", "ignite", "scorch", "singe", "sear", "torch", "kindle"},  # your torch on it (light.py)
 }
 # Saying you put on, take off, put down or sell a thing you carry is that move (inventory.py), when the verb starts
 # what you say (or a part of it after "and") with the thing as what it's done to: not "leave the room with the war
@@ -470,6 +471,9 @@ def _plan_use(state, content, view, use, target) -> Row | None:
         monster = state.room.monster
         if key == "bomb":
             return _at_creature(state, content, view, use, target)
+        if "torch" in item.powers and light.lit(state, content):
+            return Row(alias="burn", label=f"Burn {the(monster.name)} with your torch",
+                       hint=f"a flame ({light.flames(state)})")
         if item.escape or ("dazzle" in item.powers and state.in_combat):
             firm = monster is not None and holds_its_ground(state, content, monster)
             return Row(alias=f"use:{key}", label=f"{'Throw' if item.escape else 'Eat'} {what}",
@@ -564,6 +568,11 @@ def _on_feature(state, content, use: Use, target: Ref) -> Row | None:
     feature = state.room.features[int(target.key)]
     if feature.searched:
         return Row(refusal=f"You've been through {the(target.name)} already: there's nothing more in it.")
+    if light.wrapped(state, content, feature):  # (only fire opens it: a torch burning, down in the dark)
+        if "torch" in item.powers:
+            return Row(alias=f"burn:{target.key}", label=f"Burn {the(target.name)} open with your torch",
+                       hint=f"a flame ({light.flames(state)})")
+        return Row(refusal=f"{cap(_name(state, content, use))} won't get through the threads: fire would.")
     return Row(alias=f"search:{target.key}", label=f"Search {the(target.name)} with {_name(state, content, use)}")
 
 
@@ -572,6 +581,8 @@ def _recipe(state, content, use: Use, target: Ref) -> Row:
     nothing, and nothing's used up."""
     item = content.item(use.subject) if use.subject in content.items else None
     on = content.item(target.key) if target.key in content.items else None
+    if use.subject == light.OIL and on and "torch" in on.powers:  # (lamp oil on a torch: every flame back)
+        return Row(alias="refill", label=f"Fill your torch with {the(item.name)}", hint="every flame back")
     tag = RECIPES.get((use.subject, on.kind)) if on else None
     if tag and target.kind != "gear":
         return Row(refusal=f"Take {the(on.name)} in hand first: a coating's no good on a spare.")
@@ -819,6 +830,7 @@ def verbs(state: GameState, content: Content, ref_id: str) -> list[Action]:
         if ref.state["hostile"]:
             offer("lenny", named["lenny"])  # (hit, his tooth still calms Lenny down)
             offer("attack", "Attack")
+            offer("burn", "Burn")
             picker(use_id("use", target=ref.id), "Use…")
             if ref.state["npc"]:  # (an angry Swoogy: what calms him)
                 picker(use_id("give", target=ref.id), "Calm him down…" if key == npcs.SWOOGY else "Give…",
@@ -845,6 +857,7 @@ def verbs(state: GameState, content: Content, ref_id: str) -> list[Action]:
         if content.item(key).kind in inventory.GEAR:
             offer(f"equip:{key}", "Equip", inventory.versus(state, content, key))
     elif kind == "feature":
+        offer(f"burn:{key}", "Burn it open")
         offer(f"search:{key}", "Search")
     elif kind == "fixture":
         names = {"chest_key": "Unlock", "chest": "Pick the lock", "chest_smash": "Smash it open",
@@ -869,6 +882,8 @@ def verbs(state: GameState, content: Content, ref_id: str) -> list[Action]:
         for prefix, label in (("use", "Eat" if "food" in item.tags else "Drink" if item.heal else "Use"),
                               ("throw", "Throw"), ("distract", "Distract"), ("reveal", "Light it")):
             offer(f"{prefix}:{key}", label)
+        if key == light.OIL or "torch" in item.powers:
+            offer("refill", "Fill your torch" if key == light.OIL else "Fill it with oil")
         if kind == "item" and item.kind in inventory.GEAR:
             offer(f"equip:{key}", "Equip", inventory.versus(state, content, key))
         if kind == "gear" and ref.state["slot"] == "armor":
@@ -1167,6 +1182,11 @@ def read(view: RoomView, summary: str, moves: bool = True) -> Use | None:
         return Use(verb, subject.key, target.id if target else "", amount_said(clause.obj))
     if kind == "give":
         return _read_give(view, clause)
+    if kind == "burn":  # your torch on it, named or not ("burn the cocoon open", "singe the cap with the torch")
+        target = _target(view, clause.obj, "use") or _target(view, clause.aimed(), "use")
+        lamp = light.torch(view.state, view.content)
+        tool = _subject(view, clause.phrase("with", "using")) or (view.get(f"item:{lamp.key}") if lamp else None)
+        return Use("use", tool.key, target.id) if tool and target and target.kind in ("monster", "feature") else None
     if kind in ("open", "smash", "search", "bomb"):
         target = _target(view, clause.obj, "open") or _target(view, clause.aimed(), "open")
         if target is None or target.kind in ("monster", "keeper", "self"):

@@ -34,8 +34,8 @@ from .here import CARD, MINI, ROW, Thing, Tile, arrange, things_here
 from .panels import (BestiaryScreen, CharacterScreen, FloorScreen, HelpScreen, InfoScreen, InventoryScreen,
                      JournalScreen, LevelUpScreen, LookScreen, MapScreen, MenuScreen, Panel, PickScreen, ShopScreen)
 from .plan import Plan, make_plan
-from .widgets import (ARROWS, IDLE, ChoiceItem, Clickable, ClickableBox, DiceLine, DPad, Hud, Picture, StoryLine, hearts,
-                      highlight, map_text, monster_pose, roll_text, room_text)
+from .widgets import (ARROWS, IDLE, LIT, UNLIT, ChoiceItem, Clickable, ClickableBox, DiceLine, DPad, Hud, Picture,
+                      StoryLine, hearts, highlight, map_text, monster_pose, roll_text, room_text)
 
 # (sprite, steps of (frame, pose, flash)) for the moment you use a fixture. A chest and a shrine end on their used-up
 # last frame (emptied; candles out), as the room's picture shows them from then on.
@@ -1020,6 +1020,9 @@ class GameScreen(Screen):
             self.add_line(Text(exchange), "pickup-line")
         for warning in (e for e in result.events if e.kind == "warning"):  # (said as it is, never by the narrator)
             self.add_line(Text("  ⚠ " + warning.text, style="bold #ff7b39"), "system-line")
+        for lamp in (e for e in result.events if e.kind == "light"):  # (your torch lit, filled or out: light.py)
+            self.add_line(Text("  ☼ " + lamp.text, style=f"bold {LIT if lamp.data.get('lit') else UNLIT}"),
+                          "system-line")
         for burn in (e for e in result.events if e.kind == "status_tick"):  # (poison's: in its own colour)
             status = statuses.DEFS.get(burn.data.get("status", ""))
             self.add_line(Text("  " + burn.text, style=f"bold {status.colour if status else '#b55088'}"), "system-line")

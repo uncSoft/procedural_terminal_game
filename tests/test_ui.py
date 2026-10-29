@@ -1519,7 +1519,7 @@ async def test_f1_to_f7_work_inside_every_panel():
             if isinstance(app.screen, LevelUpScreen):
                 break
         level_up = app.screen
-        assert isinstance(level_up, LevelUpScreen) and level_up.query_one("#close")  # a panel's frame, and its ✕
+        assert isinstance(level_up, LevelUpScreen) and not level_up.query("#close")  # a panel's frame, but no ✕
         await pilot.press("f2")
         await pilot.pause(0.3)
         assert isinstance(app.screen, InventoryScreen) and app.screen_stack[-2] is level_up
@@ -1537,10 +1537,12 @@ async def test_f1_to_f7_work_inside_every_panel():
         assert app.screen is screen and len(game.state.player.perks) == 1
 
 
-async def test_a_level_up_can_wait():
-    """The level-up was the one pop-up you couldn't close (no ✕, Esc ignored). Now it closes like any panel, and that
-    puts the choice off: the perks wait as the choices, and picking one there is a turn like any other."""
+async def test_a_level_up_waits_for_a_perk():
+    """The level-up could be put off (Esc, the ✕ or a click outside), and with it the arrows and the map, till a perk
+    was picked from the choices. Now it waits for one: no ✕, and Esc or a click outside only say so. A card looked at
+    (a number, an arrow key) is lit, and so is what it would change on the sheet under the cards; Enter takes it."""
     from ptg.rules import check_level
+    from ptg.ui.panels import PerkCard, Sheet
 
     app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
     async with app.run_test(size=(80, 24)) as pilot:
@@ -1554,18 +1556,63 @@ async def test_a_level_up_can_wait():
             await pilot.pause(0.1)
             if isinstance(app.screen, LevelUpScreen):
                 break
-        box = app.screen.query_one(".panel-box").region
-        assert box.y >= 0 and box.bottom <= 24 and all(card.region.bottom < box.bottom
-                                                      for card in app.screen.query(".perk-card"))
+        level_up = app.screen
+        box = level_up.query_one(".panel-box").region
+        assert box.y >= 0 and box.bottom <= 24 and level_up.query_one("#levelup-button").region.bottom < box.bottom
+        assert not level_up.query("#close")
         await pilot.press("escape")
-        await settle(app, pilot)
-        assert app.screen is screen and [a.id for a in game.choices()] == [f"perk:{key}" for key in perks]
-        await pilot.press("2", "enter")
+        await pilot.click(offset=(0, 0))  # (the dimmed screen round the box)
+        await pilot.press("enter")  # (nothing looked at yet: nothing taken)
+        await pilot.pause(0.3)
+        assert app.screen is level_up and "can't wait" in str(level_up.query_one("#levelup-hint").render())
+        assert game.state.pending_perks == perks
+
+        await pilot.press("2")
+        await pilot.pause(0.2)
+        cards = list(level_up.query(PerkCard))
+        assert level_up.looking == 1 and [c.has_class("-looking") for c in cards] == [False, True, False]
+        assert game.content.perks[perks[1]].name in str(level_up.query_one("#levelup-button").render())
+        await pilot.press("right", "right", "left")
+        await pilot.pause(0.2)
+        assert level_up.looking == 2
+        await pilot.press("left")
+        await pilot.pause(0.2)
+        assert level_up.looking == 1 and not game.state.player.perks  # (only looked at)
+        assert "★ new" in str(level_up.query_one(Sheet).query_one(".sheet-growth").render())
+        await pilot.press("enter")
         for _ in range(50):
             await pilot.pause(0.1)
             if not screen.busy:
                 break
         assert app.screen is screen and game.state.player.perks == [perks[1]] and not game.state.pending_perks
+
+
+def test_a_perks_card_says_what_it_changes_on_the_sheet():
+    """A level-up's card says what its perk would change, worked out on a copy of the game (the game's untouched):
+    each stat, the blow, the rolls it raises, a fall in red; or that it changes no number."""
+    from types import SimpleNamespace
+
+    from ptg.ui.panels import perk_changes, taken
+    from ptg.world import generate
+
+    content = load_content()
+    state = generate(1, content=content)
+    game = SimpleNamespace(state=state, content=content)
+    hp, most = state.player.hp, state.player.max_hp
+    said = {key: perk_changes(game, taken(game, key)).plain for key in content.perks}
+    assert said["tough"] == f"▲ HP {hp}/{most} → {hp + 8}/{most + 8}"
+    assert said["glass_cannon"].startswith("▼ HP") and "▲ Damage" in said["glass_cannon"]
+    assert "▲ +1 to Throw, Dodge, Flee and Pick a lock" in said["nimble"] and "▲ Defense" in said["nimble"]
+    assert said["vampiric"] == "No number on your sheet: it works in play."
+    assert not state.player.perks and state.player.max_hp == most  # (only ever a copy)
+
+
+def test_the_hero_portrait_is_art_not_a_monster():
+    """The hero's face was brought in through the maker as a monster: it's the level-up's picture, and nothing else."""
+    from ptg import sprites
+    from ptg.ui.panels import PORTRAIT
+
+    assert PORTRAIT not in load_content().monsters and len(sprites.frames(PORTRAIT)) == 4
 
 
 def test_help_wraps_under_its_words():

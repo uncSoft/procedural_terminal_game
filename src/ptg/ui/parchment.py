@@ -10,6 +10,7 @@ meets, and a map in a thousand shades of brown would fill it."""
 from __future__ import annotations
 
 import zlib
+from functools import lru_cache
 
 from PIL import Image
 from rich.style import Style
@@ -204,7 +205,7 @@ def draw(state, width: int, height: int, title: str, labels: dict[int, str],
         reachable = not here and journey(state, room.id) is not None
         tip = Style(meta={"tip": labels[room.id] + (" (you're here)" if here else " (click to travel there)"
                                                     if reachable else ""),
-                          **({"travel": room.id} if reachable else {})})
+                          "room": room.id, **({"travel": room.id} if reachable else {})})
         for y in range(top, bottom + 1):
             for x in range(left, right + 1):
                 meta[(x, y)] = tip
@@ -223,25 +224,43 @@ def draw(state, width: int, height: int, title: str, labels: dict[int, str],
     pixels = img.load()
     text = Text(no_wrap=True)
     for y in range(rows):
-        for x in range(cols):
-            style = meta.get((x, y))
+        run: list[str] = []
+        style = None
+        for x in range(cols):  # (cells alike side by side are one run in one style: a few, not a cell each)
+            tip = meta.get((x, y))
             if (x, y) in letters:
                 ch, ink, under = letters[(x, y)]
-                cell = Style(color=ink, bgcolor=under, bold=ink in (INK, RED))
-                text.append(ch, cell + style if style else cell)
-                continue
-            top, bottom = _hex(pixels[x, y * 2]), _hex(pixels[x, y * 2 + 1])
-            if top is None and bottom is None:
-                text.append(" ", style)
-            elif top == bottom:
-                text.append(" ", Style(bgcolor=top) + style if style else Style(bgcolor=top))
-            elif bottom is None:
-                text.append("▀", Style(color=top) + style if style else Style(color=top))
-            elif top is None:
-                text.append("▄", Style(color=bottom) + style if style else Style(color=bottom))
+                cell = _style(ink, under, ink in (INK, RED))
             else:
-                cell = Style(color=top, bgcolor=bottom)
-                text.append("▀", cell + style if style else cell)
+                ch, cell = _paper(pixels[x, y * 2], pixels[x, y * 2 + 1])
+            cell = cell + tip if cell and tip else cell or tip
+            if run and cell is not style and cell != style:
+                text.append("".join(run), style)
+                run = []
+            style = cell
+            run.append(ch)
+        if run:
+            text.append("".join(run), style)
         text.append("\n")
     text.rstrip()
     return text
+
+
+@lru_cache(maxsize=1024)
+def _style(color: str | None = None, bgcolor: str | None = None, bold: bool | None = None) -> Style:
+    return Style(color=color, bgcolor=bgcolor, bold=bold)
+
+
+@lru_cache(maxsize=4096)
+def _paper(upper: tuple, lower: tuple) -> tuple[str, Style | None]:
+    """A cell of the drawing from its two pixels: its half-block and its style (each pair worked out once)."""
+    top, bottom = _hex(upper), _hex(lower)
+    if top is None and bottom is None:
+        return " ", None
+    if top == bottom:
+        return " ", _style(bgcolor=top)
+    if bottom is None:
+        return "▀", _style(top)
+    if top is None:
+        return "▄", _style(bottom)
+    return "▀", _style(top, bottom)

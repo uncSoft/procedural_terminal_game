@@ -23,7 +23,8 @@ from ..game import Game
 from ..models import LogEntry
 from ..outcome import AWFUL, BAD, GOOD, GREAT, overall, tone, verdict
 from ..room_picture import look_of, picture_text
-from ..sprites import DEATH_FRAMES, splash_sizes
+from ..rules import no_go, no_way
+from ..sprites import DEATH_FRAMES, clips, splash_sizes
 from ..text import cap, mid_sentence, the
 from . import effects
 from ..llm.interpreter import looks
@@ -49,6 +50,7 @@ FIXTURE_MOMENTS = {
 
 SIDE_WORDS = 27  # the columns inside the side column's panels (a panel's frame and padding less its width)
 RESIZE_WAIT = 0.12  # seconds a window must hold still before the screen is laid out for its size again
+PRELOAD_AFTER = 3.0  # seconds into a run that its floors' art and its bosses' clips are read, in the background
 FIRST = ("dodge", "flee", "bomb", "use:", "throw:", "distract:", "go:")  # fight tactics and ways out, before the rest
 
 COMMANDS = {
@@ -73,6 +75,7 @@ TOASTS = {
 SPARKS = "✧✦★✦"
 LEAVE_WINDOW = 2.0  # seconds for the second Esc that leaves for the title
 NARRATION_STEP = 0.12  # seconds between repaints of narration still arriving: re-colouring it every word costs
+MUSIC_AFTER_STING = 0.8  # seconds after a fight's sting (its foe landing) that its music comes in
 
 
 def secret_banner(frame: int, words: str = "SECRET ROOM", colour: str = "#ffd166") -> Text:
@@ -252,6 +255,18 @@ class GameScreen(Screen):
             self.pick_up_again()
         self.query_one("#command", Input).focus()
         self.refresh_music()
+        self.set_timer(PRELOAD_AFTER, lambda: self.run_worker(self._preload, thread=True, group="preload"))
+
+    def _preload(self) -> None:
+        """The run's floors' splash art and the clips of the bosses and guardians it may meet, read ahead in the
+        background: each was decoded on the game's thread the moment it was first wanted (a floor's card, a boss
+        coming in)."""
+        state, content = self.game.state, self.game.content
+        for theme in dict.fromkeys(state.themes):
+            splash_sizes(theme)
+        for key, monster in content.monsters.items():
+            if monster.boss or "guardian" in monster.tags:
+                clips(key)
 
     def on_unmount(self) -> None:
         sound.stop_music(only=GAME_MUSIC)  # (to the title: its own may have started already)
@@ -777,7 +792,7 @@ class GameScreen(Screen):
                 await self.query_one("#story", VerticalScroll).mount(line, after=seam)
                 self.game.profile.log(state.run_id, state.turn, [("shown", shown(line))])
         finally:
-            self.busy = False
+            self._settle()  # (a move made during the recap was kept, and then never made: nor was any after it)
         await self.suggest_later()
 
     def _whereabouts(self) -> Text:
@@ -796,9 +811,8 @@ class GameScreen(Screen):
     def submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
         if self.busy:
-            if text and self.narration_stop is not None and self.queued is None:
+            if text and self.later(lambda: self.take_input(text)):
                 event.input.value = ""
-                self.later(lambda: self.take_input(text))
             return
         if self.game.state.over:
             self.app.end_run(self)
@@ -854,11 +868,32 @@ class GameScreen(Screen):
             else:
                 await self._turn(text, action)
         finally:
-            self.busy = False
-            self.query_one("#command", Input).focus()
-            queued, self.queued = self.queued, None
-            if queued is not None:
-                self.call_later(queued)  # (once this turn's worker is done: it's the same group)
+            self._settle()
+
+    @work(exclusive=True, group="turn")
+    async def pick_perk(self, then) -> None:
+        """The perk cards again, after they were put off (a click outside them does it): a move tried while the perks
+        wait as the choices can't be made till one's picked, so it brings them back, and is made once one is."""
+        self.busy = True
+        picked = False
+        try:
+            marker = self._mark_turn()
+            while self.game.state.pending_perks and await self._level_up():
+                picked = True
+            self._record_shown(marker)
+        finally:
+            self._settle()
+        if picked and not self.game.state.pending_perks:
+            self.call_later(then)
+
+    def _settle(self) -> None:
+        """A turn done (or a recap, or a perk picked): moves can be made again, and the one made meanwhile is."""
+        self.busy = False
+        for command in self.query("#command"):  # (none if the game's closing with the turn still waiting)
+            command.focus()
+        queued, self.queued = self.queued, None
+        if queued is not None:
+            self.call_later(queued)  # (once this worker is done: a turn's is the same group)
 
     def _record_shown(self, since: Widget | None) -> None:
         """What the story has shown since the turn began (after its marker), top to bottom, in the run's turn log
@@ -1018,12 +1053,12 @@ class GameScreen(Screen):
         self.app.push_screen(ShopScreen(self.game, selected), done)
 
     async def _level_up(self) -> bool:
-        """The perk cards, until you pick one. Whether you did: closing them puts it off, and the perks wait as the
-        choices (picked from there, it's an ordinary turn), with the cards back after your next move."""
+        """The level-up window, until you pick a perk (it can't be put off now). Whether you did: a run saved while
+        they could be has its perks waiting as the choices, and a move brings this back (see pick_perk)."""
         game = self.game
         choices = list(game.state.pending_perks)
         sound.play("level_up")
-        perk = await self.app.push_screen_wait(LevelUpScreen(game.content, choices, game.state.player.level))
+        perk = await self.app.push_screen_wait(LevelUpScreen(game, choices))
         if perk is None:
             return False
         index = next(i for i, a in enumerate(game.choices(), 1) if a.id == f"perk:{perk}")
@@ -1232,6 +1267,8 @@ class GameScreen(Screen):
                 art.update(frame)
                 await asyncio.sleep(0.055)
         spoils = encounter.Spoils.of(events, fight.monster.name) if slain else None
+        self.refresh_music()  # (the floor's music back under the spoils, not after them)
+        self.refresh_hud()
         if spoils is not None:
             player, back = state.player, last
             for i in range(1, 9):
@@ -1241,6 +1278,8 @@ class GameScreen(Screen):
             if spoils.levels:
                 sound.play("level_up")
             await asyncio.sleep(0.2)
+            self.refresh_around_stage()  # (the foe gone from Here and the map, what it dropped lying there: once its
+            # tile's dissolve is done)
             for step in range(1, 2 + len(spoils.drops)):
                 last = encounter.spoils_text(back, spoils, content, player.level, player.xp, step=step)
                 art.update(last)
@@ -1264,10 +1303,12 @@ class GameScreen(Screen):
         """A fight starting (one walked into, an ambush, one you started): the foe comes in onto the dimmed stage, its
         own entrance if it has one (the Goblin King drops in from above) or else sweeping in from the side, a sting
         as it lands (a boss's, deeper, and its name called out on a card: encounter.Fight.entrance), and its banner
-        comes up under it. The battle music follows."""
+        comes up under it, the battle music just after. The status bar, Here, the map and the buttons are brought up to
+        date first: the entrance can take a few seconds, and they showed the room before till it was over."""
         state, content = self.game.state, self.game.content
         if not state.in_combat or (fighting and state.room_id == room_before):
             return
+        self.refresh_around_stage()
         known = content.monster(state.room.monster.key)
         boss = known.boss or "guardian" in known.tags  # (a guardian is met as a boss is: encounter.Fight.called)
         plan = self.plan
@@ -1286,10 +1327,18 @@ class GameScreen(Screen):
                     sound.play(cue)
                 if cue in encounter.STINGS:
                     effects.pulse(self.query_one("#stage"), AWFUL if boss else BAD, blinks=2)
+                    self.set_timer(MUSIC_AFTER_STING, self.refresh_music)  # (not after the whole entrance)
                 await asyncio.sleep(seconds)
             await asyncio.sleep(0.15)
         finally:
             self.animating = False
+
+    def refresh_around_stage(self) -> None:
+        """Everything but the stage brought up to date (the status bar, Here, the map, the buttons), while the stage
+        plays a moment of its own: a fight coming in, its spoils."""
+        self.refresh_hud()
+        self.refresh_here()
+        self.refresh_choices()
 
     async def _play_scene(self, picture: Picture, steps: list[tuple[str, int, bool]]) -> None:
         """A fight's moment on the foe's tile, steps of (pose, frame, flash): its picture plays them, and the lines under
@@ -1370,12 +1419,18 @@ class GameScreen(Screen):
         else:
             self.run_worker(self.update_suggestion(), group="suggest", exclusive=True)
 
-    def later(self, call) -> None:
-        """A move made mid-turn: while the narrator's still talking, it cuts the narration short (whole sentences
-        told so far stand) and is made as soon as the turn's done. Otherwise, mid-turn, it waits for nothing."""
-        if self.narration_stop is not None and self.queued is None:
-            self.queued = call
+    def later(self, call) -> bool:
+        """A move made mid-turn (a button, a choice, the map, the compass, words typed): it's made as soon as the
+        turn's done, and while the narrator's still talking it cuts the narration short (whole sentences told so far
+        stand). The first such move counts; one after it, before the turn's done, doesn't. Moves made during a turn's
+        animations (a fight coming in, its spoils: seconds, now) used to be lost, and the map seemed not to take
+        clicks. Whether it was kept."""
+        if self.queued is not None:
+            return False
+        self.queued = call
+        if self.narration_stop is not None:
             self.narration_stop.set()
+        return True
 
     # --- panels ---
 
@@ -1429,6 +1484,24 @@ class GameScreen(Screen):
             self.run_turn(str(index))
         elif locked:
             self.run_turn(locked.label, locked)
+        elif self.game.state.pending_perks:  # (the cards put off: back they come, and then this way)
+            self.pick_perk(lambda: self.action_go(direction))
+        else:  # (never nothing at all: that felt like the arrows had stopped working)
+            self.notify(no_go(self.game.state, self.game.content, direction), timeout=3)
+
+    def why_not_travel(self, room_id: int) -> None:
+        """A room on the map clicked that there's no way to now: mid-turn, it's tried once the turn's done (the map
+        may be a moment behind); with the perk cards put off, they come back, and then it's tried; otherwise, why
+        not, in a few words (rules.no_way)."""
+        if self.busy:
+            self.later(lambda: self.action_travel(room_id))
+            return
+        state = self.game.state
+        if state.pending_perks and not state.over:
+            self.pick_perk(lambda: self.action_travel(room_id))
+        elif 0 <= room_id < len(state.rooms) and not state.over:
+            room = state.rooms[room_id]  # (one you haven't been in keeps its name to itself, as on the map)
+            self.notify(no_way(state, room_id), title=room.name if room.visited else "Unexplored", timeout=3)
 
     def action_travel(self, room_id: int) -> None:
         """Clicked a room on the map: quick travel back to it (rules.journey), as a turn of its own."""

@@ -23,7 +23,7 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Label, ListItem, ListView, Static
 
-from .. import config, glossary, interactions, inventory, layout, npcs, sheet, sound
+from .. import config, glossary, interactions, inventory, layout, npcs, rules, sheet, sound
 from ..content import Content, Theme
 from ..game import Game
 from ..meta import epithet
@@ -111,13 +111,14 @@ class Panel(ModalScreen[str | None]):
     It's sized as it opens, from the screen's size (see fit), and never again while it's open, only if the screen
     itself is resized: what you pick or click in it changes what's inside, and that scrolls inside, so nothing moves
     under the mouse. F1-F7 close it and open that panel instead (its own key just closes it: see action_switch);
-    Esc, q, the ✕ or a click outside it close it."""
+    Esc, q, the ✕ or a click outside it close it, unless it's one that waits for an answer (`closable`)."""
 
     BINDINGS = [Binding("escape,q", "close", "Close"),
                 *[Binding(key, f"switch('{name}')", show=False) for key, name in PANEL_KEYS.items()]]
     size_class = "card"
     panel_name = ""  # which of PANEL_KEYS' panels it is, if it's one of them
     opening_sound: str | None = "open"
+    closable = True  # whether it can be closed without an answer: a level-up can't (no ✕; its action_close says so)
     peek = False  # opened over a choice still to be made (a level-up): it only shows, and what you'd do waits
 
     @property
@@ -137,7 +138,8 @@ class Panel(ModalScreen[str | None]):
                 box.styles.border = ("double", PANEL_INKS[self.panel_name])
                 box.styles.border_title_color = PANEL_INKS[self.panel_name]
         self.fit()
-        self.mount(CloseButton())
+        if self.closable:
+            self.mount(CloseButton())
         self.screen_layout_refresh_signal.subscribe(self, lambda _: self.place_close())
 
     def on_resize(self) -> None:
@@ -699,94 +701,101 @@ def part_text(content: Content, part: sheet.Part, signed: bool = True) -> Text:
     return Text(value + part.name, style=WORDS)
 
 
-class CharacterScreen(Panel):
+class Sheet(Vertical):
     """A character sheet, laid out like a tabletop one: who you are; your stats in boxes, each with what it's made of;
     what you have on and carry and what it does for you (or to you); every kind of roll you make with all that adds
     to it and where that comes from; and your perks, traits and blessings. The sums are sheet.py's. Anything you
-    carry is a link to its card (Panel.action_lookup)."""
+    carry is a link to its card (Panel.action_lookup). The Character panel's, and a level-up's under its perk cards:
+    `show` draws it again for another state (a perk taken), lighting what's changed since the one it was made for."""
 
-    panel_name = "character"
-    size_class = "wide"
+    DEFAULT_CSS = """
+    Sheet { height: auto; }
+    """
 
-    def __init__(self, game: Game) -> None:
-        super().__init__()
-        self.game = game
+    def __init__(self, game: Game, inner: int, header: bool = True, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.game, self.inner, self.header = game, inner, header
 
     def compose(self) -> ComposeResult:
-        state, content = self.game.state, self.game.content
-        player = state.player
-        width = min(SHEET_WIDTH, self.app.size.width - 2)
-        inner = width - 6  # less the frame, the padding and the scrollbar
-        with VerticalScroll(classes="panel-box sheet-box") as box:
-            box.border_title = "Character Sheet"
-            box.styles.width = width
-            yield Static(self._header(state, inner), classes="sheet-header")
-            stats = Grid(*[self._stat_card(line) for line in self._stats()], id="sheet-stats")
-            stats.styles.grid_size_columns = 6 if inner >= 90 else 3 if inner >= 48 else 2
-            yield stats
-            two = inner >= 90
-            cols = Grid(StoryLine(self._gear(), classes="sheet-section"),
-                        StoryLine(self._rolls(), classes="sheet-section"),
-                        id="sheet-cols")
-            cols.styles.grid_size_columns = 2 if two else 1
-            yield cols
-            yield StoryLine(self._growth(), classes="sheet-section sheet-growth")
+        state = self.game.state
+        if self.header:
+            yield Static(self._header(state), classes="sheet-header")
+        stats = Grid(*[self._stat_card(line) for line in self._stats(state)], id="sheet-stats")
+        stats.styles.grid_size_columns = 6 if self.inner >= 90 else 3 if self.inner >= 48 else 2
+        yield stats
+        cols = Grid(StoryLine(self._gear(state), classes="sheet-section sheet-gear"),
+                    StoryLine(self._rolls(state), classes="sheet-section sheet-rolls"),
+                    id="sheet-cols")
+        cols.styles.grid_size_columns = 2 if self.inner >= 90 else 1
+        yield cols
+        yield StoryLine(self._growth(state), classes="sheet-section sheet-growth")
+
+    def show(self, state: GameState, perk: str = "") -> None:
+        """The sheet as it would be in `state` (the game's with `perk` taken), what's changed from the game's own lit:
+        a stat's box, a roll, the blow, the perk itself."""
+        was = self.game.state
+        for card, line, old in zip(self.query(".stat-card"), self._stats(state), self._stats(was)):
+            self._fill(card, line, old)
+        self.query_one(".sheet-gear", StoryLine).update(self._gear(state, was))
+        self.query_one(".sheet-rolls", StoryLine).update(self._rolls(state, was))
+        self.query_one(".sheet-growth", StoryLine).update(self._growth(state, perk))
 
     # --- the parts of the sheet ----------------------------------------------------------------------------------
 
-    def _header(self, state: GameState, inner: int) -> Text:
+    def _header(self, state: GameState) -> Text:
         player = state.player
         text = Text(player.name, style="bold #ffb000")
         text.append(f"  {epithet(state)}", style="italic #ffd166")
         text.append(f"\nLevel {player.level}", style="bold")
-        need = player.next_level_xp()
-        if need:
-            filled = round(16 * min(player.xp, need) / need)
-            text.append(f"   XP {player.xp}/{need} ", style=WORDS)
-            text.append("█" * filled, style="#ff4f9a")
-            text.append("░" * (16 - filled), style="#3a2a44")
-        else:
-            text.append(f"   XP {player.xp} (the most there is)", style=WORDS)
+        text.append("   ")
+        text.append_text(xp_bar(player))
         text.append(f"   ·   ¤ {player.gold} gold   ·   ☽ {state.souls} souls this descent", style=WORDS)
         return text
 
-    def _stats(self) -> list[sheet.Line]:
-        state, content = self.game.state, self.game.content
+    def _stats(self, state: GameState) -> list[sheet.Line]:
+        content = self.game.content
         return [*(sheet.stat_line(state, content, stat) for stat in sheet.STATS), sheet.hp_line(state, content),
                 sheet.defense_line(state, content), sheet.fate_line(state, content)]
 
     def _stat_card(self, line: sheet.Line) -> StoryLine:
         """One stat in its box: the number big, what it's made of under it."""
-        content, player = self.game.content, self.game.state.player
-        colour = STAT_COLOURS.get(line.label, "bold")
-        if line.label == "HP":
-            big, parts = f"{line.total}/{line.parts[0].value}", line.parts[1:]
-        elif line.label == "Fate":
-            big = "✦" * line.total + "✧" * (player.max_fate() - line.total) + f" {line.total}/{player.max_fate()}"
-            parts = line.parts
-        else:
-            big, parts = f"{line.total:+d}" if line.label in [s.capitalize() for s in sheet.STATS] else str(line.total), \
-                line.parts
-        text = Text(big, style=f"bold {colour}", justify="center")
-        for part in parts:
-            text.append("\n")
-            text.append_text(part_text(content, part))
-        card = StoryLine(text, classes="stat-card")
+        card = StoryLine(Text(), classes="stat-card")
         card.border_title = line.label.upper()
-        card.styles.border = ("round", colour)
-        card.styles.border_title_color = colour
+        self._fill(card, line)
         return card
 
-    def _gear(self) -> Group:
+    def _fill(self, card: StoryLine, line: sheet.Line, was: sheet.Line | None = None) -> None:
+        """A stat's box, for `line`; if it's not what it `was`, lit, with an arrow up or down and what it was."""
+        colour = STAT_COLOURS.get(line.label, "bold")
+        big, parts = stat_big(line), line.parts[1:] if line.label == "HP" else line.parts
+        changed = was is not None and stat_big(was) != big
+        text = Text(big, style=f"bold {colour}", justify="center")
+        if changed:
+            up = line.total > was.total or line.parts[0].value > was.parts[0].value
+            text.append(" ▲" if up else " ▼", style="bold #4cff8a" if up else "bold #ff4b4b")
+            text.append(f"\nwas {stat_big(was)}", style=DIM)
+        for part in parts:
+            text.append("\n")
+            text.append_text(part_text(self.game.content, part))
+        card.update(text)
+        card.styles.border = ("heavy" if changed else "round", colour)
+        card.styles.border_title_color = colour
+        card.set_class(changed, "-changed")
+
+    def _gear(self, state: GameState, was: GameState | None = None) -> Group:
         """What you have on and carry that works on you, and what it does: damage, defense, powers, curses. A grid,
         so what's said of a thing wraps under its name, not under its icon."""
-        state, content = self.game.state, self.game.content
+        content = self.game.content
         damage = sheet.damage_line(state, content)
         blow = Text("A blow: ", style="bold") + Text(damage.note, style="bold #ffb000")
         for part in damage.parts[1:]:
             blow.append(" + " if part.value >= 0 else " - ", style=DIM)
             blow.append_text(part_text(content, part, signed=False) if part.value else
                              (link(content, part.item, part.name, WORDS) if part.item else Text(part.name, style=WORDS)))
+        before = sheet.damage_line(was, content).total if was is not None else damage.total
+        if before != damage.total:
+            up = damage.total > before
+            blow.append(" ▲" if up else " ▼", style="bold #4cff8a" if up else "bold #ff4b4b")
         table = Table.grid(padding=(0, 1), expand=True)
         table.add_column(no_wrap=True)
         table.add_column(ratio=1)
@@ -802,10 +811,11 @@ class CharacterScreen(Panel):
             table.add_row(Text(icons.get(effect.worn, "◆"), style="#ffb000" if effect.worn else "#c084fc"), words)
         return Group(Text("WHAT YOU CARRY", style="bold #ff4f9a"), blow, Text(""), table)
 
-    def _rolls(self) -> Group:
+    def _rolls(self, state: GameState, was: GameState | None = None) -> Group:
         """Every kind of roll you make: the d20 plus this, and where each bit comes from (a grid, so the sources
-        wrap in their own column)."""
-        state, content = self.game.state, self.game.content
+        wrap in their own column). A roll that's changed since `was` is lit."""
+        content = self.game.content
+        before = {line.label: line.total for line in sheet.roll_lines(was, content)} if was is not None else {}
         table = Table.grid(padding=(0, 1), expand=True)
         table.add_column(no_wrap=True)
         table.add_column(justify="right", no_wrap=True)
@@ -818,33 +828,80 @@ class CharacterScreen(Panel):
                 sources.append_text(part_text(content, part))
             if line.note:
                 sources.append(f"{' · ' if sources.plain else ''}{line.note}", style="italic #ffd166")
-            table.add_row(Text(line.label, style="bold"), Text(f"{line.total:+d}", style="bold #ffb000"), sources)
+            total = Text(f"{line.total:+d}", style="bold #ffb000")
+            if line.label in before and before[line.label] != line.total:
+                total = Text(f"▲{line.total:+d}" if line.total > before[line.label] else f"▼{line.total:+d}",
+                             style="bold reverse #4cff8a" if line.total > before[line.label] else "bold reverse #ff4b4b")
+            table.add_row(Text(line.label, style="bold"), total, sources)
         return Group(Text("YOUR ROLLS ", style="bold #ff4f9a") + Text("d20 +", style=DIM), table)
 
-    def _growth(self) -> Text:
-        """Perks you chose, traits you earned by how you play, and the campfire's blessings."""
-        state, content = self.game.state, self.game.content
-        player = state.player
-        text = Text("PERKS\n", style="bold #ff4f9a")
-        for key in player.perks or []:
-            perk = content.perks[key]
-            text.append(f"  {perk.name}", style=f"bold {PERK_COLORS.get(perk.color, '')}")
-            text.append(f"  {perk.desc}\n", style=WORDS)
-        if not player.perks:
-            text.append("  none yet: level up to choose one\n", style=DIM)
-        text.append("\nTRAITS  (earned by how you play)\n", style="bold #ff4f9a")
-        for key, (name, counter, threshold, desc) in TRAITS.items():
-            have = key in player.traits
-            progress = min(player.style.get(counter, 0), threshold)
-            mark = "★" if have else f"{progress}/{threshold}"
-            text.append(f"  {mark:>5} {name}", style="bold #4cff8a" if have else SOFT)
-            text.append(f"  {desc}\n", style=WORDS if have else DIM)
-        if player.blessings:
-            text.append("\nBLESSINGS\n", style="bold #ff4f9a")
-            for key in player.blessings:
-                unlock = content.unlocks[key]
-                text.append(f"  {unlock.icon} {unlock.name}  {unlock.desc}\n", style=WORDS)
-        return text
+    def _growth(self, state: GameState, new: str = "") -> Text:
+        return growth_text(state, self.game.content, new)
+
+
+def growth_text(state: GameState, content: Content, new: str = "") -> Text:
+    """Perks you chose (one about to be, `new`, marked), traits you earned by how you play, and the campfire's
+    blessings: the sheet's last part, and the Tabs layout's sheet pane's."""
+    player = state.player
+    text = Text("PERKS\n", style="bold #ff4f9a")
+    for key in player.perks or []:
+        perk = content.perks[key]
+        text.append(f"  {perk.name}", style=f"bold {PERK_COLORS.get(perk.color, '')}")
+        text.append(f"  {perk.desc}", style=WORDS)
+        text.append("  ★ new\n" if key == new else "\n", style="bold #ffd166")
+    if not player.perks:
+        text.append("  none yet: level up to choose one\n", style=DIM)
+    text.append("\nTRAITS  (earned by how you play)\n", style="bold #ff4f9a")
+    for key, (name, counter, threshold, desc) in TRAITS.items():
+        have = key in player.traits
+        progress = min(player.style.get(counter, 0), threshold)
+        mark = "★" if have else f"{progress}/{threshold}"
+        text.append(f"  {mark:>5} {name}", style="bold #4cff8a" if have else SOFT)
+        text.append(f"  {desc}\n", style=WORDS if have else DIM)
+    if player.blessings:
+        text.append("\nBLESSINGS\n", style="bold #ff4f9a")
+        for key in player.blessings:
+            unlock = content.unlocks[key]
+            text.append(f"  {unlock.icon} {unlock.name}  {unlock.desc}\n", style=WORDS)
+    return text
+
+
+def stat_big(line: sheet.Line) -> str:
+    """A stat's number as its box shows it big: "+2" (might, agility, wits), "32/40" (HP), "✦✦✧ 2/3" (fate), "11"."""
+    if line.label == "HP":
+        return f"{line.total}/{line.parts[0].value}"
+    if line.label == "Fate":
+        most = int(line.note.removeprefix("of "))
+        return "✦" * line.total + "✧" * (most - line.total) + f" {line.total}/{most}"
+    return f"{line.total:+d}" if line.label.lower() in sheet.STATS else str(line.total)
+
+
+def xp_bar(player, width: int = 16) -> Text:
+    """"XP 30/80 ████░░░░" to the next level, or that there's none."""
+    need = player.next_level_xp()
+    if not need:
+        return Text(f"XP {player.xp} (the most there is)", style=WORDS)
+    filled = round(width * min(player.xp, need) / need)
+    return (Text(f"XP {player.xp}/{need} ", style=WORDS) + Text("█" * filled, style="#ff4f9a")
+            + Text("░" * (width - filled), style="#3a2a44"))
+
+
+class CharacterScreen(Panel):
+    """Your character sheet (Sheet), in a wide panel."""
+
+    panel_name = "character"
+    size_class = "wide"
+
+    def __init__(self, game: Game) -> None:
+        super().__init__()
+        self.game = game
+
+    def compose(self) -> ComposeResult:
+        width = min(SHEET_WIDTH, self.app.size.width - 2)
+        with VerticalScroll(classes="panel-box sheet-box") as box:
+            box.border_title = "Character Sheet"
+            box.styles.width = width
+            yield Sheet(self.game, width - 6)  # (less the frame, the padding and the scrollbar)
 
 
 def exits_text(state: GameState, room: Room) -> Text:
@@ -1138,39 +1195,208 @@ class FloorScreen(Panel):
         self.action_close()
 
 
-class LevelUpScreen(Panel):
-    """Tiny Rogues style: pick one of three perk cards (1-3, or click one). Esc, the ✕ or a click outside puts the
-    choice off: the perks wait as the game's choices, and the cards come back after your next move. F1-F7 show that
-    panel over this one, for a look before you choose."""
+PORTRAIT = "hero_portrait"  # your face (data/sprites, art only): a level-up shows it
+PORTRAIT_LOOP = [0, 0, 0, 1, 1, 0, 0, 0, 3, 3, 0, 0, 2]  # IDLE seconds a frame: ahead, a glance left, right, a blink
+GAIN_STEP = 0.14  # seconds between a level-up's gains appearing, one row after another
 
-    BINDINGS = [Binding("1", "pick(0)", "First"), Binding("2", "pick(1)", "Second"), Binding("3", "pick(2)", "Third")]
-    size_class = "small"
+
+def taken(game: Game, key: str) -> GameState:
+    """The game's state as it would be with the perk `key` taken: a copy, for a level-up's preview of it."""
+    state = game.state.model_copy(deep=True)
+    rules.apply_perk(state, game.content, key)
+    return state
+
+
+def perk_changes(game: Game, state: GameState) -> Text:
+    """What a perk would change on your sheet, a line a stat ("▲ HP 32/32 → 40/40"), then the blow, then the rolls
+    it raises ("▲ +1 to Throw, Dodge, Flee and Pick a lock"); or that it changes no number but works in play."""
+    content, was = game.content, game.state
+    text = Text()
+
+    def line(up: bool, words: str) -> None:
+        text.append("\n" if text else "")
+        text.append("▲ " if up else "▼ ", style="bold #4cff8a" if up else "bold #ff4b4b")
+        text.append(words, style=WORDS)
+
+    def lines(s: GameState) -> list[sheet.Line]:
+        return [*(sheet.stat_line(s, content, k) for k in sheet.STATS), sheet.hp_line(s, content),
+                sheet.defense_line(s, content), sheet.fate_line(s, content)]
+
+    for new, old in zip(lines(state), lines(was)):
+        if stat_big(new) != stat_big(old):
+            up = new.total > old.total or new.parts[0].value > old.parts[0].value
+            line(up, f"{new.label} {stat_big(old)} → {stat_big(new)}")
+    blow, blow_was = sheet.damage_line(state, content), sheet.damage_line(was, content)
+    if blow.total != blow_was.total:
+        line(blow.total > blow_was.total, f"Damage {blow_was.total:+d} → {blow.total:+d} a blow")
+    raised: dict[int, list[str]] = {}
+    for new, old in zip(sheet.roll_lines(state, content), sheet.roll_lines(was, content)):
+        if new.total != old.total:
+            raised.setdefault(new.total - old.total, []).append(new.label.replace("Anything", "anything"))
+    for change, labels in raised.items():
+        named = labels[0] if len(labels) == 1 else f"{', '.join(labels[:-1])} and {labels[-1]}"
+        line(change > 0, f"{change:+d} to {named}")
+    return text or Text("No number on your sheet: it works in play.", style=f"italic {DIM}")
+
+
+class LevelUpScreen(Panel):
+    """A level-up, with the care the other windows get: your face (PORTRAIT, its eyes glancing about), what the level
+    gave you, appearing a row at a time, three perk cards to choose from, and your whole sheet under them. Looking at
+    a card (1-3, ← →, or a click) shows what it would change: on the card, and lit on the sheet. Enter, the button
+    under them, or the same card again takes it. It can't be put off: there's no ✕, and Esc or a click outside only
+    says so. F1-F7 still show a panel over it, for a look before you choose."""
+
+    BINDINGS = [Binding("1", "look(0)", "First"), Binding("2", "look(1)", "Second"), Binding("3", "look(2)", "Third"),
+                Binding("left", "step(-1)", show=False), Binding("right", "step(1)", show=False),
+                Binding("enter", "take", "Take it")]
+    size_class = "wide"
+    closable = False
     opening_sound = None  # (a level-up has its own)
 
-    def __init__(self, content: Content, choices: list[str], level: int) -> None:
+    def __init__(self, game: Game, choices: list[str]) -> None:
         super().__init__()
-        self.content = content
+        self.game = game
         self.choices = choices
-        self.level = level
+        self.looking: int | None = None  # the card looked at, which Enter takes
+        self.previews = [taken(game, key) for key in choices]
+        self.shown = 0  # the gains' rows shown so far (they come in a row at a time)
 
     def compose(self) -> ComposeResult:
+        width = min(SHEET_WIDTH, self.app.size.width - 2)
+        inner = width - 6  # less the frame, the padding and the scrollbar
+        face = 24 if self.app.size.height >= TALL and inner >= 76 else 12 if inner >= 56 else 0
         with Vertical(classes="panel-box levelup-box") as box:
-            box.border_title = f"LEVEL UP · level {self.level}"
-            yield Static(Text("CHOOSE ONE  ", style="bold #e8e8f4") + Text("(press 1-3, or click a card)", style=DIM))
-            for i, key in enumerate(self.choices):
-                perk = self.content.perks[key]
-                color = PERK_COLORS.get(perk.color, "#e8e8f4")
-                text = Text(f"{i + 1}  ", style="bold #ffb000")
-                text.append(perk.name + "\n", style=f"bold {color}")
-                text.append(f"   {perk.desc}", style=WORDS)
-                card = PerkCard(text, i)
-                card.styles.border = ("heavy", color)
-                yield card
+            box.border_title = f"Level up · level {self.game.state.player.level}"
+            box.styles.width = width
+            with VerticalScroll(id="levelup-body"):
+                with Horizontal(id="levelup-top"):
+                    if face:
+                        with Vertical(id="levelup-face") as frame:
+                            frame.border_title = self.game.state.player.name
+                            yield Picture(PORTRAIT, "portrait", face, loop=PORTRAIT_LOOP, content=self.game.content,
+                                          ascii=Text("\n" * (face // 4) + " " * (face // 2 - 1) + "@",
+                                                     style="bold #ffd166"),
+                                          sprites=self.game.config.art == "sprites")
+                    yield Static(self._gains(0), id="levelup-gains")
+                yield Static(Text("CHOOSE A PERK  ", style="bold #ff4f9a")
+                             + Text("1-3, ← → or a click to look at one · Enter, or the same again, to take it",
+                                    style=DIM), classes="levelup-rule")
+                cards = Grid(*[PerkCard(self._card(i), i, self._colour(i)) for i in range(len(self.choices))],
+                             id="levelup-perks")
+                cards.styles.grid_size_columns = len(self.choices) if inner >= 84 else 1
+                yield cards
+                yield Static(Text("YOUR SHEET", style="bold #ff4f9a") + Text("  with the perk you look at, lit",
+                                                                             style=DIM), classes="levelup-rule")
+                yield Sheet(self.game, inner, header=False)
+            with Horizontal(classes="panel-action", id="levelup-take"):
+                yield Clickable(self._button(), action="screen.take", id="levelup-button", classes="card-verb")
+                yield Static("", id="levelup-hint")
 
-    def action_pick(self, index: int) -> None:
-        if index < len(self.choices) and self.app.screen is self:
-            sound.play("select")
-            self.dismiss(self.choices[index])
+    def on_mount(self) -> None:
+        super().on_mount()
+        box = self.box
+        box.border_title = ornate(str(box.border_title))
+        box.styles.border_title_align = "center"
+        self.set_interval(GAIN_STEP, self._more_gains, repeat=len(GAIN_ROWS))
+
+    # --- what the level gave you ----------------------------------------------------------------------------------
+
+    def _more_gains(self) -> None:
+        self.shown += 1
+        self.query_one("#levelup-gains", Static).update(self._gains(self.shown))
+
+    def _gains(self, rows: int) -> Group:
+        """Who you are and what the level gave you (GAIN_ROWS): the level, your max HP (and as much healed), your
+        attack, and how far it is to the next; the first `rows` of them, the rest left blank till they come in (so
+        nothing under them moves)."""
+        state, content = self.game.state, self.game.content
+        player = state.player
+        who = Text(f"★ LEVEL {player.level} ★\n", style="bold #ffd166")
+        who.append(player.name, style="bold #ffb000")
+        who.append(f" {epithet(state)}", style="italic #ffd166")
+        who.append(" has grown harder to kill.", style=WORDS)
+        attack = next(line.total for line in sheet.roll_lines(state, content) if line.label == "Attack")
+        gains = [("LEVEL", str(player.level - 1), str(player.level), "", "#ffd166"),
+                 ("MAX HP", str(player.max_hp - rules.LEVEL_HP), str(player.max_hp),
+                  f"+{rules.LEVEL_HP}, and {rules.LEVEL_HP} healed", STAT_COLOURS["HP"]),
+                 ("ATTACK", f"{attack - 1:+d}", f"{attack:+d}", "+1 a level, on every swing", "#ffb000")]
+        table = Table.grid(padding=(0, 2))
+        for justify in ("left", "right", "center", "left", "left"):
+            table.add_column(justify=justify, no_wrap=True)
+        for n, (label, old, new, note, colour) in enumerate(gains):
+            shown = n < rows
+            table.add_row(Text(f"▲ {label}" if shown else "", style=f"bold {colour}"), Text(old * shown, style=DIM),
+                          Text("→" * shown, style=DIM), Text(new * shown, style=f"bold {colour}"),
+                          Text(note * shown, style=SOFT))
+        last = Text("")
+        if rows >= len(GAIN_ROWS):
+            last = (xp_bar(player) + Text(f"  to level {player.level + 1}", style=DIM) if player.next_level_xp()
+                    else Text("The most a level goes: there's no more XP to earn.", style=DIM))
+        return Group(who, Text(""), table, Text(""), last)
+
+    # --- the cards ------------------------------------------------------------------------------------------------
+
+    def _colour(self, index: int) -> str:
+        return PERK_COLORS.get(self.game.content.perks[self.choices[index]].color, "#e8e8f4")
+
+    def _card(self, index: int) -> Text:
+        perk = self.game.content.perks[self.choices[index]]
+        text = Text(f"{index + 1}  ", style="bold #ffb000")
+        text.append(perk.name.upper(), style=f"bold {self._colour(index)}")
+        text.append(f"\n{perk.desc}\n\n", style=WORDS)
+        text.append_text(perk_changes(self.game, self.previews[index]))
+        return text
+
+    def _button(self) -> Text:
+        if self.looking is None:
+            return Text(" ▶ pick a perk first ", style=DIM)
+        name = self.game.content.perks[self.choices[self.looking]].name
+        return Text(f" ▶ Take {name}  [enter] ", style="bold #ffb000")
+
+    def action_look(self, index: int) -> None:
+        """A card looked at: lit, with what it would change lit on the sheet. The one looked at already is taken."""
+        if self.app.screen is not self or not 0 <= index < len(self.choices):
+            return
+        if index == self.looking:
+            self.action_take()
+            return
+        sound.play("dice_tick")
+        self.looking = index
+        for card in self.query(PerkCard):
+            card.set_class(card.index == index, "-looking")
+            card.styles.border = ("heavy" if card.index == index else "round", self._colour(card.index))
+            if card.index == index:
+                card.scroll_visible()  # (on a small screen, the cards are one under another)
+        self.query_one(Sheet).show(self.previews[index], self.choices[index])
+        self.query_one("#levelup-button", Clickable).update(self._button())
+        self.query_one("#levelup-hint", Static).update("")
+
+    def action_step(self, step: int) -> None:
+        """← →: the card beside the one looked at."""
+        count = len(self.choices)
+        self.action_look((0 if step > 0 else count - 1) if self.looking is None else (self.looking + step) % count)
+
+    def action_take(self) -> None:
+        if self.app.screen is not self:
+            return
+        if self.looking is None:
+            self.action_close()
+            return
+        sound.play("select")
+        self.dismiss(self.choices[self.looking])
+
+    def action_close(self) -> None:
+        """Esc, or a click outside: a level-up can't wait, so it only says so."""
+        if self.app.screen is self:
+            self.query_one("#levelup-hint", Static).update(
+                Text("  Choose one to go on: a level-up can't wait.", style="bold #ff4f9a"))
+
+    def action_lookup(self, term_id: str) -> None:
+        """A thing named on the sheet clicked: its card over this one, to look at only (see Panel.peek)."""
+        if self.app.screen is self:
+            card = InfoScreen(self.game, term_id)
+            card.peek = True
+            self.app.push_screen(card)
 
     def action_switch(self, name: str) -> None:
         if self.app.screen is self:
@@ -1189,13 +1415,20 @@ class LevelUpScreen(Panel):
             self.app.push_screen(panel)
 
 
+GAIN_ROWS = ("level", "max hp", "attack", "xp")  # what a level-up's gains show, a row at a time
+
+
 class PerkCard(Static):
-    def __init__(self, text: Text, index: int) -> None:
+    """One perk to choose, in its colour: its name, what it does, and what it would change on your sheet."""
+
+    def __init__(self, text: Text, index: int, colour: str) -> None:
         super().__init__(text, classes="perk-card")
         self.index = index
+        self.styles.border = ("round", colour)
 
-    def on_click(self) -> None:
-        self.screen.action_pick(self.index)
+    def on_click(self, event: Click) -> None:
+        event.stop()
+        self.screen.action_look(self.index)
 
 
 # --- what a word in the story is --------------------------------------------------------------------------------------
@@ -1381,13 +1614,17 @@ class InfoScreen(Panel):
         return Text("Nothing more is known about that."), "?"
 
     def action_act(self) -> None:
-        if self.app.screen is self:
+        if self.peek:
+            self.notify("Choose your perk first: then it's yours to use.", timeout=3)
+        elif self.app.screen is self:
             sound.play("select")
             self.dismiss(self.action)
 
     def action_act_more(self, index: int) -> None:
         """One of the buttons beside the main one (equip the sword you'd take)."""
-        if self.app.screen is self and 0 <= index < len(self.more):
+        if self.peek:
+            self.notify("Choose your perk first: then it's yours to use.", timeout=3)
+        elif self.app.screen is self and 0 <= index < len(self.more):
             sound.play("select")
             self.dismiss(self.more[index])
 

@@ -585,3 +585,30 @@ tags = ["fire", "loud", "shiny", "rare"]
 powers = ["twin_bombs"]
 desc = "A sassy fairy who loves chaos. Find a bomb? Now it's two bombs!"
 found = ["chest", "secret", "shop"]
+
+# drawn by maker (2026-10-28)
+[item.firebird_plume]
+name = "Firebird Plume"
+kind = "consumable"
+heal = 24
+tier = 2
+tags = ["feather", "fire", "holy", "light"]
+desc = "A warm golden-red feather that smells faintly of campfire and glows like a sunset. In old stories it brings fallen heroes back to their feet. Tickling a monster with it is not recommended, but we don't judge. Saves you from a death once if in your pack."
+
+# drawn by maker (2026-10-28)
+[item.the_butcher_s_cleaver]
+name = "The Butcher's Cleaver"
+kind = "weapon"
+damage = "1d10+1"
+tier = 2
+tags = ["sharp", "heavy", "metal", "kitchen"]
+desc = "A huge, chipped meat cleaver, spotted with rust and heavy enough to split a door. Its last owner wore a stained apron and greeted every visitor by sizing them up for supper. It still hums a little whenever someone opens a cellar door."
+
+# drawn by maker (2026-10-28)
+[item.wall_chicken]
+name = "Wall Chicken"
+kind = "consumable"
+heal = 16
+tier = 1
+tags = ["food", "meat", "hot", "smelly"]
+desc = "A whole roast chicken, piping hot, found inside a dungeon wall. Nobody knows who keeps putting them there, or how they stay so crispy. Smash the wall, eat the chicken, feel much better. Don't think about it too hard."

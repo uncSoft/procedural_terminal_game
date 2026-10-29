@@ -32,6 +32,8 @@ from __future__ import annotations
 
 import math
 import sys
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -1333,13 +1335,38 @@ def draw(state: GameState, content: Content, width: int, height: int, room: Room
     return Picture(state, content, width, height, room).draw()
 
 
+PICTURES = 48  # room pictures kept: walking back into a room, or a fight's end, draws it again for free
+_pictures: OrderedDict = OrderedDict()
+_pictures_lock = threading.Lock()  # (the stage's second idle frame is drawn on a worker thread)
+
+
 def picture_text(state: GameState, content: Content, width: int, height: int, room: Room | None = None,
                  compass: bool = False, frame: int = 0) -> Text | None:
     """The room you're in (or another on this floor) as half-block text, `width` cells across and height / 2 rows.
     With `compass`, each doorway you can see is marked with the way it goes (N, E, S or W), as on the floor map.
-    `frame`: which frame of their idle animation whoever's here and what lies about are in (the stage swaps two)."""
+    `frame`: which frame of their idle animation whoever's here and what lies about are in (the stage swaps two).
+    The same room drawn the same size again comes from those kept (a room's picture is a fifth of a second's work on
+    the game's thread, every time you walk in: docs/plans/performance.md)."""
     if Image is None:
         return None
+    room = room or state.room
+    key = (id(content), state.seed, state.floor, state.theme, width, height, compass, frame,
+           room.model_dump_json(exclude={"history", "description"}))
+    with _pictures_lock:
+        kept = _pictures.get(key)
+        if kept is not None:
+            _pictures.move_to_end(key)
+            return kept.copy()
+    text = _picture_text(state, content, width, height, room, compass, frame)
+    with _pictures_lock:
+        _pictures[key] = text
+        while len(_pictures) > PICTURES:
+            _pictures.popitem(last=False)
+    return text.copy()
+
+
+def _picture_text(state: GameState, content: Content, width: int, height: int, room: Room, compass: bool,
+                  frame: int) -> Text:
     picture = Picture(state, content, width, height, room, frame)
     text = sprites.image_text(picture.draw().convert("RGBA"), snap=True)
     if not compass:

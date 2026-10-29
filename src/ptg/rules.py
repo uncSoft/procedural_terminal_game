@@ -532,13 +532,16 @@ def things_here(state: GameState, content: Content) -> list[Action]:
 
 # --- progression -------------------------------------------------------------
 
+LEVEL_HP = 2  # what a level adds to your most HP, and heals
+
+
 def check_level(state: GameState, content: Content) -> list[Event]:
     player = state.player
     events = []
     while player.next_level_xp() is not None and player.xp >= player.next_level_xp():
         player.level += 1
-        player.max_hp += 2
-        player.hp += 2
+        player.max_hp += LEVEL_HP
+        player.hp += LEVEL_HP
         if state.pending_perks:
             state.perk_debt += 1
         else:
@@ -642,6 +645,39 @@ def travel(state: GameState, content: Content, direction: str, to: int) -> list[
 # Quick travel: back to a room you've been in, from the map. Now and then something's wandered into a room on the way
 # (TRAVEL_ODDS a trip), but no more than TRAVEL_MEETINGS times a floor, so it's no way to farm a floor for XP.
 TRAVEL_ODDS, TRAVEL_MEETINGS = 0.2, 2
+
+
+def no_way(state: GameState, target: int) -> str:
+    """Why a room on the map can't be travelled to now (journey has no way there), in a few words: a click on it
+    that did nothing at all felt like a click that didn't land."""
+    if state.in_combat:
+        return "Not in the middle of a fight."
+    if state.pending_perks:
+        return "First, choose a perk."
+    if state.scene:
+        return "First, choose what to do: the choices are numbered."
+    if state.over:
+        return "Not now."
+    if target == state.room_id:
+        return "You're here."
+    if not state.rooms[target].visited:
+        return "You haven't been in there yet."
+    return "There's no clear way back there."
+
+
+def no_go(state: GameState, content: Content, direction: str) -> str:
+    """Why there's no going `direction` now (no choice for it, and no locked door there to try), in a few words: an
+    arrow key that did nothing at all felt like one that had stopped working."""
+    room = state.room
+    if state.pending_perks:
+        return "First, choose a perk."
+    if state.scene:
+        return "First, choose what to do: the choices are numbered."
+    if state.in_combat:
+        return f"Not with {the(room.monster.name)} in the way: fight it, or flee."
+    if direction not in room.exits:
+        return f"There's no way {direction} from here."
+    return why_not(state, content, f"go:{direction}") or f"You can't go {direction} just now."
 
 
 def journey(state: GameState, target: int) -> list[tuple[str, int]] | None:

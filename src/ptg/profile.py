@@ -47,6 +47,7 @@ class Profile:
         if "modded" not in columns:  # added after the first profiles were created
             self.db.execute("alter table runs add column modded integer default 0")
         self.db.commit()
+        self._bestiary: dict[str, dict] | None = None  # (kept: the story's words are looked up in it on every redraw)
 
     @classmethod
     def open(cls) -> Profile:
@@ -142,6 +143,7 @@ class Profile:
 
     def _beast(self, monster: str) -> None:
         self.db.execute("insert or ignore into bestiary (monster, first_seen) values (?, ?)", (monster, time.time()))
+        self._bestiary = None  # (read again next time it's wanted: every change to the bestiary comes through here)
 
     def bump_beast(self, monster: str, column: str) -> int:
         """Increment seen/killed/pacified/killed_you; returns the new count."""
@@ -167,8 +169,11 @@ class Profile:
         self.db.commit()
 
     def bestiary(self) -> dict[str, dict]:
-        return {r["monster"]: {**dict(r), "weak": json.loads(r["weak"])}
-                for r in self.db.execute("select * from bestiary")}
+        """Every monster you've met, and what you know of it (kept until it changes)."""
+        if self._bestiary is None:
+            self._bestiary = {r["monster"]: {**dict(r), "weak": json.loads(r["weak"])}
+                              for r in self.db.execute("select * from bestiary")}
+        return self._bestiary
 
     # --- story memory (survives death) ---
 

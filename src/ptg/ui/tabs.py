@@ -40,7 +40,7 @@ from ..room_picture import look_of
 from ..world import map_glyph, render_map
 from .game_screen import GameScreen
 from .here import DEAD_VERB, DIE, PLAIN_VERB, VERB_STYLES, Thing, verb_lines
-from .panels import CharacterScreen, item_note
+from .panels import growth_text, item_note
 from .plan import Plan
 from .widgets import (
     ARROWS,
@@ -189,7 +189,7 @@ def big_map(state, width: int, height: int) -> Text | None:
         name = room.name if room.visited else "unexplored" + (f": a {room.fixture}" if room.fixture else "")
         reachable = not here and journey(state, room.id) is not None
         tip = Style(meta={"tip": name + (" (you're here)" if here else " (click to travel there)" if reachable else ""),
-                          **({"travel": room.id} if reachable else {})})
+                          "room": room.id, **({"travel": room.id} if reachable else {})})
         left, right = "{}" if room.secret else "[]"
         for dx, ch in ((-1, left), (0, glyph), (1, right)):
             grid[cy][cx + dx] = (ch, Style.parse(f"bold {ACCENT}" if here else MAP_STYLES.get(ch, DIM)) + tip)
@@ -221,7 +221,8 @@ def big_map(state, width: int, height: int) -> Text | None:
 
 def small_map(state) -> Text:
     """The floor map as world.render_map draws it, each room saying where it is when hovered (and taking you there
-    when clicked, if you can get back to it: rules.journey)."""
+    when clicked, if you can get back to it: rules.journey). A room's three marks ([#]) were all a mouse could hit:
+    its place takes in the passage after it and the row under it too, four cells by two."""
     from ..rules import journey
 
     text = Text()
@@ -238,12 +239,16 @@ def small_map(state) -> Text:
     for room in rooms:
         cx, cy = (room.x - min_x) * 4 + 1, (room.y - min_y) * 2
         name = room.name if room.visited else "unexplored" + (f": a {room.fixture}" if room.fixture else "")
-        at = starts[cy] + cx - 1
         here = room.id == state.room_id
         reachable = not here and journey(state, room.id) is not None
-        text.stylize(Style(meta={"tip": name + (" (you're here)" if here else " (click to travel there)" if reachable
-                                                 else ""),
-                                 **({"travel": room.id} if reachable else {})}), at, at + 3)
+        tip = Style(meta={"tip": name + (" (you're here)" if here else " (click to travel there)" if reachable else ""),
+                          "room": room.id, **({"travel": room.id} if reachable else {})})
+        for row in (cy, cy + 1):
+            if row + 1 < len(starts):  # (each row as long as it is: its end is where the next one starts)
+                length = starts[row + 1] - starts[row] - 1
+                start, end = max(0, cx - 1), min(length, cx + 3)
+                if start < end:
+                    text.stylize(tip, starts[row] + start, starts[row] + end)
     return text
 
 
@@ -905,7 +910,7 @@ class TabsScreen(GameScreen):
                 Static(stats, classes="pane-text"), Static("", classes="pane-gap"),
                 Static(rule("ROLLS · a d20 plus", width), classes="pane-text"), Static(rolls, classes="pane-text"),
                 Static("", classes="pane-gap"),
-                Static(CharacterScreen._growth(self), classes="pane-text")]  # (it only reads self.game)
+                Static(growth_text(state, content), classes="pane-text")]
 
     def pane_journal(self, width: int, rows: int) -> list[Widget]:
         state = self.game.state

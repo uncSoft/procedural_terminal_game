@@ -610,3 +610,128 @@ def test_a_rolls_badge_keeps_its_colour_to_itself():
     text = roll_headline(hit)
     damage = text.plain.index("→")
     assert not text.style and all(span.end <= damage for span in text.spans if "on " in str(span.style))
+
+
+def test_every_cell_of_a_rooms_box_on_the_map_is_that_room(content):
+    """Where a passage met a room's wall, the cell was nobody's, and a click there did nothing ("finicky", 10-28)."""
+    from rich.console import Console
+
+    state = generate(1)
+    for room in state.rooms:
+        room.visited = True
+    text = chart(state, 60, 30, False)
+    console = Console()
+    joints = [i for i, ch in enumerate(text.plain) if ch in "├┤┬┴"]
+    assert joints and all("room" in text.get_style_at_offset(console, i).meta for i in joints)
+
+
+async def test_a_move_made_mid_turn_waits_for_the_turn_and_a_room_with_no_way_says_why(monkeypatch):
+    """A click while a turn's animations played (a fight coming in, its spoils) was lost unless the narrator was
+    talking: now it's made once the turn's done. The map's rooms come back to life when a fight ends where you
+    stand, and one there's no way to says why."""
+    from conftest import put_monster
+
+    app = grid_app()
+    async with app.run_test(size=(160, 48)) as pilot:
+        screen = await into_a_run(app, pilot)
+        state, content = screen.game.state, screen.game.content
+        start = state.room_id
+        direction = next(d for d, e in state.room.exits.items()
+                         if not e.locked and not (state.rooms[e.to].monster and state.rooms[e.to].monster.hostile))
+        await pilot.press(KEYS[direction])
+        await settle(app, pilot)
+
+        def travels(line) -> bool:
+            return any(seg.style is not None and "travel" in seg.style.meta
+                       for y in range(line.size.height) for seg in line.render_line(y))
+
+        side = screen.query_one("#map-art")
+        put_monster(state, content, key="goblin")
+        screen.refresh_panels()
+        await pilot.pause(0.3)
+        assert not travels(side)  # (no travelling out of a fight)
+        state.room.monster = None
+        screen.refresh_panels()
+        await pilot.pause(0.3)
+        assert travels(side)
+
+        screen.busy = True  # (mid-turn, the narrator quiet: an animation playing)
+        screen.action_travel(start)
+        assert screen.queued is not None and not screen.later(lambda: None)  # (the first move counts)
+        screen.busy = False
+        queued, screen.queued = screen.queued, None
+        queued()
+        await settle(app, pilot)
+        assert state.room_id == start
+
+        said = []
+        monkeypatch.setattr(screen, "notify", lambda message, **kw: said.append(message))
+        far = next(r.id for r in state.rooms if not r.visited)
+        screen.why_not_travel(far)
+        screen.why_not_travel(state.room_id)
+        assert said == ["You haven't been in there yet.", "You're here."]
+
+
+async def test_an_arrow_always_answers_and_a_perk_left_waiting_comes_back_with_it(monkeypatch):
+    """The arrows could stop working, the map with them: the perk cards could be put off, and while the perks waited
+    as the choices an arrow did nothing at all. The cards can't be put off now, but a run saved while they could be
+    still has perks waiting: an arrow or a room on the map brings the cards back, and goes once one's taken. Any other
+    arrow that can't go says why, and ↑ still goes with words left typed."""
+    from ptg.rules import check_level
+    from ptg.ui.panels import LevelUpScreen
+
+    app = grid_app()
+    async with app.run_test(size=(160, 48)) as pilot:
+        screen = await into_a_run(app, pilot)
+        state, content = screen.game.state, screen.game.content
+        said = []
+        monkeypatch.setattr(screen, "notify", lambda message, **kw: said.append(message))
+        wall = next(d for d in KEYS if d not in state.room.exits)
+        await pilot.press(KEYS[wall])
+        await settle(app, pilot)
+        assert said == [f"There's no way {wall} from here."]
+
+        async def cards() -> LevelUpScreen:
+            for _ in range(50):
+                await pilot.pause(0.1)
+                if isinstance(app.screen, LevelUpScreen):
+                    break
+            assert isinstance(app.screen, LevelUpScreen)
+            return app.screen
+
+        direction = next(d for d, e in state.room.exits.items()
+                         if not e.locked and not (state.rooms[e.to].monster and state.rooms[e.to].monster.hostile))
+        start, ahead = state.room_id, state.room.exits[direction].to
+        state.player.xp = state.player.next_level_xp()
+        check_level(state, content)  # (the perks waiting, with no cards: as a run saved with them put off)
+        screen.refresh_panels()
+        await pilot.press(KEYS[direction])
+        await cards()
+        assert state.room_id == start
+        await pilot.press("1", "enter")
+        await settle(app, pilot)
+        assert len(state.player.perks) == 1 and not state.pending_perks and state.room_id == ahead
+        assert not screen.busy and screen.queued is None
+
+        state.player.xp = state.player.next_level_xp()
+        check_level(state, content)
+        screen.refresh_panels()
+        screen.why_not_travel(start)  # the map's the same
+        await cards()
+        await pilot.press("2", "2")  # (the same card again takes it)
+        await settle(app, pilot)
+        assert len(state.player.perks) == 2 and state.room_id == start
+
+        screen.query_one("#command").value = "hum"
+        north_or_south = next((d for d in ("north", "south") if d in state.room.exits), None)
+        await pilot.press(KEYS[north_or_south or "north"])
+        await settle(app, pilot)
+        if north_or_south:
+            assert state.room_id != start and screen.query_one("#command").value == "hum"
+
+        put_monster(state, content, key="goblin")
+        screen.refresh_panels()
+        screen.query_one("#command").value = ""
+        said.clear()
+        screen.action_go(next(iter(state.room.exits)))
+        assert said and said[0].startswith("Not with the") and "flee" in said[0]

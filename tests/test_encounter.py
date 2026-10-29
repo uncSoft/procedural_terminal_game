@@ -188,7 +188,7 @@ def test_the_fight_view_fits_its_stage(content, rows):
     assert fight.scale in ((1.5, 2.0) if rows >= 30 else (1.0,) if rows >= 12 else (0.5,))
     frames = [frame for frame, _, _ in fight.entrance()]
     assert len(frames) == 8 and "Troll" not in frames[0].plain and "Troll" in frames[-1].plain
-    assert len(fight.shatter()) == encounter.SHATTER_FRAMES
+    assert len(list(fight.shatter())) == encounter.SHATTER_FRAMES
 
 
 def test_the_spoils_card_and_the_wipe(content):
@@ -242,7 +242,7 @@ def test_a_boss_with_an_entrance_clip_drops_in_and_stands_in_its_idle(content):
     assert all(seconds == pytest.approx(2 / 24) for _, seconds, _ in frames[:-1])
     assert "Goblin King" not in frames[0][0].plain and "Goblin King" in frames[-1][0].plain
     assert fight.foe(0).tobytes() != fight.foe(1).tobytes()  # (it breathes: its idle's first and middle)
-    assert len(fight.shatter()) == encounter.SHATTER_FRAMES
+    assert len(list(fight.shatter())) == encounter.SHATTER_FRAMES
 
     big = encounter.Fight(state, content, king, 120, 24)
     assert big.clips["idle"].size == 64

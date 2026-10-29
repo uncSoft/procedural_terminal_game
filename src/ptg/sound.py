@@ -45,9 +45,17 @@ import sys
 import threading
 import time
 import tomllib
+import warnings
 import wave
 from array import array
 from dataclasses import dataclass
+
+with warnings.catch_warnings():  # (deprecated, and gone from Python 3.13: there, resampling is done in Python)
+    warnings.simplefilter("ignore", DeprecationWarning)
+    try:
+        import audioop
+    except ImportError:
+        audioop = None
 from importlib import resources
 from pathlib import Path
 
@@ -244,6 +252,10 @@ def resample(samples: array, rate: int, target: int, smooth: bool = False) -> ar
     count = int(len(samples) / step)
     if not smooth:
         return array("h", (samples[int(i * step)] for i in range(count)))
+    if audioop is not None:  # (in C: a track of music in 5 ms, against a quarter of a second in Python)
+        out = array("h")
+        out.frombytes(audioop.ratecv(samples.tobytes(), 2, 1, rate, target, None)[0])
+        return out
     last = len(samples) - 1
     out = array("h", bytes(2 * count))
     for i in range(count):
@@ -290,6 +302,18 @@ class Mixer:
             smooth = smooth or sample_width(clip.source) == 2
             self.cache[key] = resample(*decode(clip.source), self.rate, smooth=smooth)
         return self.cache[key]
+
+    def prepare(self, clips: list[Clip]) -> None:
+        """Every clip made ready ahead of its first play (on the caller's thread: Sound.start's, in the background),
+        so a sound never waits on its decoding, nor music on its resampling, mid-game: the battle music's took the
+        game's thread from it for a seventh of a second just as a fight began (docs/plans/performance.md)."""
+        for clip in clips:
+            if self.closed:
+                return
+            try:
+                self._samples(clip)
+            except Exception:  # (a broken file is the one that plays nothing, when it's asked for)
+                pass
 
     def play(self, clip: Clip, gain: float) -> None:
         samples = self._samples(clip)
@@ -570,6 +594,10 @@ class Sound:
         self.player = open_player() or Silent()
         if self.wanted:
             self.music(self.wanted)
+        prepare = getattr(self.player, "prepare", None)
+        if prepare is not None:  # (the music first: a track's the longest wait)
+            clips = [clip for clips in self.bank.values() for clip in clips]
+            prepare(sorted(clips, key=lambda clip: not clip.moment.endswith("_music")))
 
     def play(self, moment: str, variant: int | None = None) -> bool:
         """Play a moment's sound: one of its variants at random, or the one asked for (thunder near or far)."""

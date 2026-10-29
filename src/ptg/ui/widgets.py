@@ -96,6 +96,8 @@ class StoryLine(Static):
             self.screen.action_lookup(meta["term"])
         elif "travel" in meta and hasattr(self.screen, "action_travel"):
             self.screen.action_travel(meta["travel"])
+        elif "room" in meta and hasattr(self.screen, "why_not_travel"):  # (one there's no way to: why not)
+            self.screen.why_not_travel(meta["room"])
 
     def update(self, content: VisualType = "", *, layout: bool = True) -> None:
         super().update(content, layout=layout)

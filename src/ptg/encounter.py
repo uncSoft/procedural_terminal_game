@@ -397,17 +397,17 @@ class Fight:
         for i in range(0, len(clip.frames), every):
             yield self.still(i, clip="attack"), every / clip.fps
 
-    def shatter(self, side: int = -1) -> list[Text]:
-        """Its end: the sprite breaks into its pixels, flung away from the blow (`side` -1 to the left, 1 the right)
-        and falling, fading as they go; the room behind it all along, and its banner gone dark."""
+    def shatter(self, side: int = -1):
+        """Its end, frame by frame (each drawn as it's asked for): the sprite breaks into its pixels, flung away from
+        the blow (`side` -1 to the left, 1 the right) and falling, fading as they go; the room behind it all along,
+        and its banner gone dark."""
         foe = self.foe()
         if self.back is None or foe is None:
-            return []
+            return
         ax, ay = self.anchor(foe)
         x0, y0 = self.width // 2 - ax, self.feet() - ay
         src = foe.load()
         bits = [(x, y, src[x, y]) for y in range(foe.height) for x in range(foe.width) if src[x, y][3] >= 128]
-        frames = []
         for step in range(1, SHATTER_FRAMES + 1):
             canvas = self.back.convert("RGBA")
             px = canvas.load()
@@ -426,8 +426,7 @@ class Fight:
             lines = self._text(canvas)
             for row in range(len(lines) - self.banner_rows, len(lines)):
                 lines[row] = _band(self.width)
-            frames.append(Text("\n", no_wrap=True, overflow="crop").join(lines))
-        return frames
+            yield Text("\n", no_wrap=True, overflow="crop").join(lines)
 
     def empty(self) -> Text:
         """The dimmed room, nobody in it: under the spoils."""

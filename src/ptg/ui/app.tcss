@@ -972,22 +972,66 @@ Panel {
     padding: 0 1;
 }
 
-/* A level-up's three perk cards (LevelUpScreen). */
+/* A level-up (ui/panels.py LevelUpScreen): your face and what the level gave you, three perk cards, and your sheet
+   under them, which scroll; the button that takes the perk looked at stays put under them. */
 .panel-box.levelup-box {
-    width: 70;
+    border: double #ffd166;
+    border-title-color: #ffd166;
+    border-title-style: bold;
+}
+
+#levelup-body {
+    height: 1fr;
+}
+
+#levelup-top {
+    height: auto;
+}
+
+#levelup-face {
+    width: auto;
+    height: auto;
+    border: round #ffd166;
+    border-title-color: #ffb000;
+    border-title-align: center;
+    padding: 0 1;
+    margin-right: 3;
+}
+
+#levelup-gains {
+    width: 1fr;
+    height: auto;
+}
+
+.levelup-rule {
+    height: auto;
+    margin: 1 0 0 0;
+}
+
+#levelup-perks {
+    height: auto;
+    grid-gutter: 0 1;
+    grid-rows: auto;
 }
 
 .perk-card {
-    height: auto;
-    margin-top: 1;
+    height: 100%;  /* (a row's cards as tall as its tallest) */
     padding: 0 1;
 }
 
-.-tiny .perk-card {
-    margin-top: 0;
+.perk-card:hover, .perk-card.-looking {
+    background: $panel;
 }
 
-.perk-card:hover {
+#levelup-take {
+    height: auto;
+}
+
+#levelup-hint {
+    width: 1fr;
+}
+
+.stat-card.-changed {
     background: $panel;
 }
 

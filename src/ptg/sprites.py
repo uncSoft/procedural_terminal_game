@@ -206,24 +206,42 @@ def posed(img, pose: str, frame: int = 0):
 
 def image_text(img, flash: bool = False, snap: bool = False) -> Text:
     """Any RGBA image as half-block text. With `snap`, colours an effect made up (a flash, a tint, a grey) become
-    the nearest colour the sprites are drawn in (see palette)."""
+    the nearest colour the sprites are drawn in (see palette). Neighbouring cells alike are one run of text in one
+    style: a fight's frame is a few hundred pieces rather than one a cell, which the screen lays out four times as
+    fast, and a terminal or a browser is sent a quarter of (docs/plans/performance.md)."""
     pixels = img.load()
+    width, height = img.size
     text = Text(no_wrap=True, overflow="crop")
-    for y in range(0, img.height, 2):
-        for x in range(img.width):
-            top = _colour(pixels[x, y], flash, snap)
-            bottom = _colour(pixels[x, y + 1], flash, snap) if y + 1 < img.height else None
-            if top and bottom:
-                text.append("▀", Style(color=top, bgcolor=bottom))
-            elif top:
-                text.append("▀", Style(color=top))
-            elif bottom:
-                text.append("▄", Style(color=bottom))
-            else:
-                text.append(" ")
-        if y + 2 < img.height:
+    for y in range(0, height, 2):
+        run: list[str] = []
+        style = None
+        for x in range(width):
+            ch, cell = _cell(pixels[x, y], pixels[x, y + 1] if y + 1 < height else None, flash, snap)
+            if run and cell is not style and cell != style:
+                text.append("".join(run), style)
+                run = []
+            style = cell
+            run.append(ch)
+        if run:
+            text.append("".join(run), style)
+        if y + 2 < height:
             text.append("\n")
     return text
+
+
+@lru_cache(maxsize=16384)
+def _cell(top: tuple, bottom: tuple | None, flash: bool, snap: bool) -> tuple[str, Style | None]:
+    """A cell's half-block and its style, from its two pixels (RGBA): the same few hundred pairs come up over and
+    over, so each is worked out once."""
+    upper = _colour(top, flash, snap)
+    lower = _colour(bottom, flash, snap) if bottom is not None else None
+    if upper and lower:
+        return "▀", Style(color=upper, bgcolor=lower)
+    if upper:
+        return "▀", Style(color=upper)
+    if lower:
+        return "▄", Style(color=lower)
+    return " ", None
 
 
 def engrave(img, words: dict[int, str], ink: tuple = (24, 20, 37)) -> Text:

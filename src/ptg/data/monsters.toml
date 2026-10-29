@@ -550,3 +550,60 @@ intelligent = true
 weak = ["water", "holy", "loud"]
 tell = "throws back its head and cackles, its belly flaring white-hot as its wings sweep high overhead."
 desc = "A knee-high red imp with stubby horns, a toothy grin and leathery purple wings that never stop flapping. An ember glows in its belly, and it zips about the room, flinging sparks and giggling at every miss. It loves a good trick, and it can be bribed with shiny things. Flying enemies need to be hit by something thrown to be able to hit them. Status flying and status downed"
+
+# drawn by maker (2026-10-28)
+[monster.hymn_toad]
+name = "Hymn Toad"
+hp = 16
+defense = 12
+attack = 4
+damage = "1d8"
+xp = 25
+tier = 2
+tags = ["aquatic", "beast"]
+weak = ["loud", "salt"]
+tell = "draws a deep, gurgling breath"
+desc = "A toad the size of a pew, who sings hymns to the drowned."
+
+# drawn by maker (2026-10-28)
+[monster.grinning_gasbag]
+name = "Grinning Gasbag"
+hp = 26
+defense = 14
+attack = 5
+damage = "1d10"
+xp = 50
+tier = 3
+tags = ["beast", "flying", "demon", "fire"]
+weak = ["holy", "light", "sharp"]
+tell = "puffs up like an angry balloon, its grin crackling with blue sparks."
+desc = "A floating red ball of grumpiness with one huge green eye, two stubby horns and a grin full of teeth. It drifts through the halls spitting sizzling fireballs and cackling at its own jokes, which are not funny. It flies, so something thrown reaches it best, and one good poke with something sharp makes it hiss like a popped balloon."
+
+# drawn by maker (2026-10-28)
+[monster.jar_warrior]
+name = "Jar Warrior"
+hp = 36
+defense = 13
+attack = 4
+damage = "1d8"
+xp = 25
+tier = 2
+tags = ["giant", "construct", "jar"]
+intelligent = true
+weak = ["heavy", "loud"]
+tell = "plants its stubby legs, booms \\\"Hrrrmmm!\\\" and leaps high to belly-flop with its whole jar."
+desc = "A warrior who is also a great clay jar, with a rope round its neck, stubby fists and two little eyes glinting from the dark inside its mouth. It speaks in a big cheerful voice about honor and the joy of a good scrap, and it sloshes when it walks. It loves a fair duel and hates being rude, so a polite word can talk it down. Whatever is inside, it would rather you didn't ask."
+
+# drawn by maker (2026-10-28)
+[monster.treasure_mimic]
+name = "Treasure Mimic"
+hp = 48
+defense = 14
+attack = 6
+damage = "2d6+1"
+xp = 40
+tier = 3
+tags = ["vermin", "mimic", "trickster"]
+weak = ["rope", "food"]
+tell = "flings its lid wide open, tongue flapping, and rattles every coin in its belly."
+desc = "A treasure chest that is not a treasure chest. Under the lid are rows of white teeth, two greedy yellow eyes and a long slobbery tongue, and it scuttles sideways on little crab legs. It snaps at anyone who reaches for the lock. Tie its lid shut with a rope or toss it a snack and it forgets all about you. Dungeon cooks say it tastes just like lobster."

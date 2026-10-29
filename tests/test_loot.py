@@ -48,8 +48,9 @@ def test_roles_come_from_the_data(content):
 
 
 def test_slots_read_tiers_and_keep_some_items_by_name(content):
-    assert loot.candidates(content, "gear 2") == {2: ["war_pick", "chain_shirt"]}  # the Snitch is rare: not here
-    assert loot.candidates(content, "potion 2+") == {2: ["greater_healing_potion"], 3: ["superior_healing_potion"]}
+    assert loot.candidates(content, "gear 2") == {2: ["war_pick", "chain_shirt", "the_butcher_s_cleaver"]}  # (no Snitch: rare)
+    assert loot.candidates(content, "potion 2+") == {2: ["greater_healing_potion", "firebird_plume"],
+                                                 3: ["superior_healing_potion"]}
     trinkets = [k for keys in loot.candidates(content, "trinket").values() for k in keys]
     assert "lucky_charm" not in trinkets and "oil_flask" in trinkets  # the charm only ever turns up by name
     assert loot.candidates(content, "lucky_charm") == {1: ["lucky_charm"]}
@@ -59,7 +60,7 @@ def test_slots_read_tiers_and_keep_some_items_by_name(content):
 def test_a_slot_with_one_item_gives_it_without_a_roll(content):
     rng = random.Random(5)
     before = rng.getstate()
-    assert loot.pick(rng, content, "weapon 2") == "war_pick"
+    assert loot.pick(rng, content, "armor 2") == "chain_shirt"
     assert rng.getstate() == before  # so a seed's dungeon only changes where there's something new to choose
 
 

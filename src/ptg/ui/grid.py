@@ -56,7 +56,7 @@ from .. import interactions, npcs, sprites
 from . import parchment
 from ..events import Action
 from ..room_picture import look_of
-from ..rules import journey, why_not
+from ..rules import journey, no_way, why_not
 from ..sprites import DEFAULT_WIDTH, SMALL, Image
 from ..world import map_glyph
 from .game_screen import GameScreen
@@ -86,6 +86,7 @@ BUTTON_LEAST = 20  # columns a big button keeps before the compass widens
 CARD = (28, 6)  # a thing's card under the buttons: the least columns (its picture, and words beside it), its rows
 LATELY_MOST, LATELY_LEAST = 10, 2  # the journal's last lines at the foot of Here: at most, and the fewest worth it
 FIRST_VERB = 7  # Here's verbs are numbered on from the six big buttons
+HOVER_WAIT = 0.06  # seconds the mouse rests on a room of the map before it's lit
 WORDS, DIM, FAINT, PINK, GOLD, ACCENT = "#c8c8e0", "#6c6f99", "#2a2d4a", "#ff4f9a", "#ffd166", "#ffb000"
 FOE = "#ff4b4b"  # (Here's colour for a hostile one: see here.FOE)
 GROUND = "#0b0c1a"  # the screen's own dark, that a button's tints are mixed into
@@ -312,7 +313,7 @@ def chart(state, width: int, height: int, roomy: bool, hover: int | None = None)
         for i, ch in enumerate(words):
             put(y, x + i, ch, style)
 
-    places = {}
+    places, tips = {}, {}
     for room in rooms:
         left, top = (room.x - min_x) * (box_w + gap_x), (room.y - min_y) * (box_h + gap_y)
         places[room.id] = (left, top)
@@ -321,7 +322,8 @@ def chart(state, width: int, height: int, roomy: bool, hover: int | None = None)
         label = labels[room.id]
         tip = Style(meta={"tip": room_label(room) + (" (you're here)" if here else " (click to travel there)"
                                                      if reachable else ""),
-                          **({"travel": room.id} if reachable else {})})
+                          "room": room.id, **({"travel": room.id} if reachable else {})})
+        tips[room.id] = tip
         lit = reachable and room.id == hover
         edge = Style.parse(f"bold {ACCENT}" if here else "bold #ffd166" if lit else GOLD if room.secret else "#5a6cb8"
                            if room.visited else "#34395e") + tip
@@ -355,13 +357,14 @@ def chart(state, width: int, height: int, roomy: bool, hover: int | None = None)
         left, top = places[room.id]
         bottom, right, mid = top + box_h - 1, left + box_w - 1, left + box_w // 2
         style = locked if exit_.locked else passage
+        joint = style + tips[room.id]  # (a door in a room's wall is still that room's, to hover and click)
         if direction in ("east", "west"):
-            put(top + 1, right if direction == "east" else left, "├" if direction == "east" else "┤", style)
+            put(top + 1, right if direction == "east" else left, "├" if direction == "east" else "┤", joint)
             span = range(right + 1, right + 1 + gap_x) if direction == "east" else range(left - gap_x, left)
             for x in span:
                 put(top + 1, x, "═" if exit_.locked else "─", style)
         else:
-            put(bottom if direction == "south" else top, mid, "┬" if direction == "south" else "┴", style)
+            put(bottom if direction == "south" else top, mid, "┬" if direction == "south" else "┴", joint)
             span = range(bottom + 1, bottom + 1 + gap_y) if direction == "south" else range(top - gap_y, top)
             for y in span:
                 put(y, mid, "║" if exit_.locked else "│", style)
@@ -393,6 +396,10 @@ class ChartScreen(Panel):
         super().__init__()
         self.game = game
         self.hover: int | None = None  # the room the mouse is on, that you can get back to: lit
+        self.drawn: tuple | None = None  # what the map was last drawn for: the screen's size, the room lit
+        self.drawings: dict[tuple, tuple[Text, bool]] = {}  # each drawing so far, and whether it's the parchment:
+        # nothing on the floor moves while the map's up
+        self._hover_timer = None
 
     def compose(self) -> ComposeResult:
         state, content = self.game.state, self.game.content
@@ -429,8 +436,21 @@ class ChartScreen(Panel):
         self.draw()
 
     def draw(self) -> None:
-        """The parchment (or the chart) as big as the rows the notes leave, the room the mouse is on lit."""
+        """The parchment (or the chart) as big as the rows the notes leave, the room the mouse is on lit. Drawn only
+        when that's changed (opening sizes it twice), and each drawing kept while the map is up: sweeping the mouse
+        over the rooms drew the whole map again for each, and the screen stopped answering for a while."""
         width, height = self.app.size
+        key = (width, height, self.hover)
+        if key == self.drawn:
+            return
+        self.drawn = key
+        if key not in self.drawings:
+            self.drawings[key] = self._drawing(width, height)
+        drawn, on_paper = self.drawings[key]
+        self.query_one(".chart-head").display = not on_paper  # (the parchment has the floor's name on it)
+        self.query_one("#chart", StoryLine).update(drawn)
+
+    def _drawing(self, width: int, height: int) -> tuple[Text, bool]:
         state, content = self.game.state, self.game.content
         inner = width - 6 - 6
         notes = 6 + len(npcs.quest_log(state, content))
@@ -439,16 +459,25 @@ class ChartScreen(Panel):
             drawn = parchment.draw(state, inner, height - 2 - 2 - 2 - notes, content.themes[state.theme].name,
                                    {r.id: room_label(r) for r in state.rooms},
                                    {r.id: room_notes(state, r) for r in state.rooms}, self.hover)
-        self.query_one(".chart-head").display = drawn is None  # (the parchment has the floor's name on it)
-        if drawn is None:
-            drawn = drawn_map(state, inner, height - 2 - 4 - 4 - notes, roomy=True, hover=self.hover)
-        self.query_one("#chart", StoryLine).update(drawn)
+        if drawn is not None:
+            return drawn, True
+        return drawn_map(state, inner, height - 2 - 4 - 4 - notes, roomy=True, hover=self.hover), False
 
     def hover_room(self, line: StoryLine, room: int | None) -> None:
-        """The mouse has come to a room you can get back to (or left it): it's lit, or not."""
-        if room != self.hover:
-            self.hover = room
-            self.draw()
+        """The mouse has come to a room you can get back to (or left it): it's lit, or not, once the mouse has
+        settled for a moment (a sweep across the map lights only where it stops)."""
+        if room == self.hover:
+            return
+        self.hover = room
+        if self._hover_timer is not None:
+            self._hover_timer.stop()
+        self._hover_timer = self.set_timer(HOVER_WAIT, self.draw)
+
+    def why_not_travel(self, room_id: int) -> None:
+        """A room clicked that there's no way to now: why not (rules.no_way)."""
+        state = self.game.state
+        room = state.rooms[room_id]  # (one you haven't been in keeps its name to itself, as on the map)
+        self.notify(no_way(state, room_id), title=room.name if room.visited else "Unexplored", timeout=3)
 
     def action_travel(self, room_id: int) -> None:
         """A room clicked: back to the game, and there (as GameScreen.action_travel)."""
@@ -822,9 +851,10 @@ class GridScreen(GameScreen):
         """The floor as a chart in the map's box (as much of each name as fits), the goal and the quests under it."""
         state, content, grid = self.game.state, self.game.content, self.grid
         quests = [line for _, line, still in npcs.quest_log(state, content) if still][:2]
-        shown = (grid, state.floor, state.room_id, tuple((r.id, r.visited, r.fixture_used, map_glyph(state, r))
-                                                         for r in state.rooms), state.mapped_floor, tuple(quests),
-                 self.map_hover)
+        shown = (grid, state.floor, state.room_id, tuple((r.id, r.visited, r.fixture_used, map_glyph(state, r),
+                                                          journey(state, r.id) is not None) for r in state.rooms),
+                 state.mapped_floor, tuple(quests), self.map_hover)  # (where you can travel to: a fight's end, a
+        # perk picked, a scene over make the rooms clickable again)
         if shown == self.map_drawn:
             return
         self.map_drawn = shown
@@ -1426,8 +1456,9 @@ class GridScreen(GameScreen):
 
     def action_bar(self, kind: str) -> None:
         """A big button: one thing to do it with, it's done (bar Bomb, which shows which wall first); more, their
-        options show (or hide again, if they're showing)."""
+        options show (or hide again, if they're showing). Mid-turn, once the turn's done (GameScreen.later)."""
         if self.busy:
+            self.later(lambda: self.action_bar(kind))
             return
         group = self.groups.get(kind, [])
         if not group:
@@ -1508,12 +1539,13 @@ class GridScreen(GameScreen):
         super().take_input(text)
 
     def action_arrow(self, direction: str) -> None:
-        """An arrow key: go that way, or, while there's something typed, move the cursor in it."""
+        """An arrow key: go that way, or, while there's something typed, ← and → move the cursor in it (↑ and ↓ still
+        go: there's nowhere up or down for a cursor in one line, and words left typed had them do nothing)."""
         command = self.query_one("#command", Input)
-        if command.value:
+        if command.value and direction in ("west", "east"):
             if direction == "west":
                 command.action_cursor_left()
-            elif direction == "east":
+            else:
                 command.action_cursor_right()
             return
         self.action_go(direction)

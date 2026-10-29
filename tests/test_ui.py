@@ -5,7 +5,7 @@ from textual import events
 from textual.geometry import Offset, Region
 from textual.widgets import Static
 
-from ptg import sound
+from ptg import model3d, sound
 from ptg.config import Config, load_game, save_game, save_path
 from ptg.content import load_content
 from ptg.dice import Roll
@@ -15,6 +15,7 @@ from ptg.ui.app import PTGApp
 from ptg.ui.dice import DiceScreen
 from ptg.ui.game_screen import GameScreen, shown
 from ptg.ui.hub import CROWN_GLINT, EndScreen, HubScreen
+from ptg.ui.model_view import FoundScreen, ModelView
 from ptg.ui.effects import Popup
 from ptg.ui.panels import (BestiaryScreen, CharacterScreen, FloorScreen, HelpScreen, InfoScreen, InventoryScreen,
                            JournalScreen, LevelUpScreen, LookScreen, MapScreen, ShopScreen, floor_card_fit)
@@ -889,8 +890,10 @@ async def test_a_run_has_its_floors_music_and_its_fights(monkeypatch):
         assert speakers.looping == "deep_music"
 
 
-async def test_items_drawn_in_the_maker_show_their_art():
-    """The same picture wherever it's shown, and animated: its card, the inventory's tile and its detail."""
+async def test_items_drawn_in_the_maker_show_their_art(monkeypatch):
+    """The same picture wherever it's shown, and animated: the pack's tile, Here, the shop. Its card and the pack's
+    detail turn its model, made from that picture (ui/model_view.py); a thing with no model has its picture there
+    too."""
     from ptg.ui.panels import ItemTile
 
     app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
@@ -899,18 +902,58 @@ async def test_items_drawn_in_the_maker_show_their_art():
         key = screen.game.state.player.inventory[0]
         screen.action_lookup(f"item:{key}")
         await pilot.pause(0.3)
+        assert app.screen.query_one(ModelView).model is model3d.load(key) and not app.screen.query(Picture)
+        await pilot.press("escape")
+        modelled = model3d.available
+        monkeypatch.setattr(model3d, "available", lambda k: k != key and modelled(k))  # (one with no model yet)
+        screen.action_lookup(f"item:{key}")
+        await pilot.pause(0.3)
         card = app.screen.query_one(Picture)
         assert card.art.sprite == f"item_{key}" and card in PictureClock.of(app).pictures
         await pilot.press("escape")
+        monkeypatch.setattr(model3d, "available", modelled)
         await pilot.press("f2")
         await pilot.pause(0.3)
         inventory = app.screen
         tile = next(t for t in inventory.query(ItemTile) if inventory.items[t.index][0] == key)
         tile.focus()
         await pilot.pause(0.2)
-        detail = inventory.query_one("#inv-art", Picture)
-        assert detail.art.sprite == tile.query_one(Picture).art.sprite == f"item_{key}"
-        assert all(p in PictureClock.of(app).pictures for p in inventory.query(Picture))  # they all move
+        assert tile.query_one(Picture).art.sprite == f"item_{key}"  # (its picture on its tile, its model beside)
+        turning = inventory.query_one("#inv-model", ModelView)
+        assert turning.display and turning.model is model3d.load(key) and not inventory.query_one("#inv-art").display
+        assert all(p in PictureClock.of(app).pictures for p in inventory.query(Picture) if p.display)
+
+
+async def test_the_first_time_a_thing_is_yours_its_card_holds_it_up_turning(found_cards):
+    """A thing that's never been yours before, taken: its card pops up over the story, its model turning, with what it
+    is and where it went; Enter carries on. The second time it's yours, it doesn't (ui/model_view.py FoundScreen)."""
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=4)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        state = screen.game.state
+        state.room.items = ["superior_healing_potion", "ten_foot_pole"]
+        screen.refresh_panels()  # (Here's tiles, with them)
+        await pilot.pause(0.2)
+        screen.action_verb("take:superior_healing_potion")
+        for _ in range(40):
+            await pilot.pause(0.1)
+            if isinstance(app.screen, FoundScreen):
+                break
+        card = app.screen
+        assert isinstance(card, FoundScreen) and card.key == "superior_healing_potion" and screen.busy
+        assert card.query_one(ModelView).model is model3d.load("superior_healing_potion")
+        words = str(card.query_one("#found-text").render())
+        assert "restores 24 HP" in words and "in your pack" in words and "NEW" in str(card.query_one(
+            "#found-banner").render())
+        await pilot.press("enter")
+        await settle(app, pilot)
+        assert isinstance(app.screen, GameScreen) and "superior_healing_potion" in state.player.inventory
+        state.room.items = ["superior_healing_potion"]  # (another, a thing you've had: no card)
+        screen.refresh_panels()
+        await pilot.pause(0.2)
+        screen.action_verb("take:superior_healing_potion")
+        await settle(app, pilot)
+        assert isinstance(app.screen, GameScreen) and state.player.inventory.count("superior_healing_potion") == 2
 
 
 async def test_the_inventory_is_tiles_and_enter_uses_the_one_picked(monkeypatch):
@@ -961,10 +1004,10 @@ async def test_found_loot_is_a_tile_to_take_or_leave():
         assert "superior_healing_potion" in state.room.items and not screen.query_one("#story").query(Picture)
         picture = next(p for p in screen.query(".here-art").results(Picture) if p.key == "superior_healing_potion")
         assert picture.art.sprite == "item_superior_healing_potion"
-        await pilot.click(picture)  # its card, with the full art and what it does
+        await pilot.click(picture)  # its card, with its model turning and what it does
         await pilot.pause(0.3)
         assert isinstance(app.screen, InfoScreen)
-        assert app.screen.query_one(Picture).art.sprite == "item_superior_healing_potion"
+        assert app.screen.query_one(ModelView).model.name == model3d.load("superior_healing_potion").name
         assert "Superior Healing Potion" in str(app.screen.query_one("#info-text").render())
         await pilot.press("escape")
         await pilot.pause(0.2)

@@ -1038,6 +1038,11 @@ class GameScreen(Screen):
         self.refresh_panels()
         self.refresh_music()
 
+        if game.config.art == "sprites":  # (a thing that's never been yours before: its card, its model turning)
+            from .model_view import FoundScreen  # (it builds on the panels)
+
+            for key in game.first_finds(result.events):
+                await self.app.push_screen_wait(FoundScreen(game, key))
         while game.state.pending_perks:
             if not await self._level_up():
                 break  # (put off: the perks wait as the choices)

@@ -13,7 +13,9 @@ A creation from the maker is a little JSON document: what it is (a monster or an
 it (the page turns a child's answers into balanced numbers using the reference stats exported here), which entry it
 edits if any, who drew it, and its pixel art as rows of palette letters. Importing writes the sprite and the entry
 (and, for a new monster, ASCII art for the ASCII mode), checks that the whole game still loads before anything is
-written, re-signs the data (so Hackerman knows it was you), and refreshes library.json.
+written, re-signs the data (so Hackerman knows it was you), and refreshes library.json. An item's 3D model, the one the
+game turns over, is made from its new sprite too (item_model.settle: a new item's way guessed, and written into
+data/models/ways.toml to change if it's wrong).
 """
 
 from __future__ import annotations
@@ -34,8 +36,8 @@ from statistics import median
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
-from . import integrity
-from .content import ContentError, build_content, load_content
+from . import integrity, item_model
+from .content import ContentError, ItemDef, build_content, load_content
 from .models import DUNGEONS
 from .sprites import SMALL, count_frames
 
@@ -417,6 +419,7 @@ def apply(creations: list[dict], folder: Path | None = None, dry_run: bool = Fal
     texts = {name: (folder / name).read_text(encoding="utf-8") for name in ("monsters.toml", "items.toml", "art.txt")}
     sprites: dict[Path, list[Image.Image]] = {}
     stale: list[Path] = []  # small versions drawn for a picture that's being replaced
+    drawn: list[tuple[ItemDef, Image.Image]] = []  # items with a new picture: their 3D models are made from it
     messages = []
     for creation in creations:
         kind = creation["type"]
@@ -470,7 +473,11 @@ def apply(creations: list[dict], folder: Path | None = None, dry_run: bool = Fal
                     and not _same_picture(picture, frames)):
                 stale.append(small_file(key, folder))
                 stale_note = " Its small version was drawn for the old picture, so it's halved until there's a new one."
-            sprites[picture] = frames
+            if not _same_picture(picture, frames):  # (one sent back as it was keeps its file, and its model)
+                sprites[picture] = frames
+            if kind == "item":
+                drawn.append((ItemDef(key=key, name=name, kind=fields.get("kind", "trinket"),
+                                      tags=list(fields.get("tags", []))), frames[0]))
             if kind == "monster" and not re.search(rf"^=== {re.escape(key)} ===$", texts["art.txt"], re.M):
                 texts["art.txt"] = _replace_art(texts["art.txt"], key, ascii_art(frames[0]))
         elif kind == "monster" and verb == "Added":
@@ -506,13 +513,14 @@ def apply(creations: list[dict], folder: Path | None = None, dry_run: bool = Fal
     except ContentError as error:
         raise ValueError(f"the game wouldn't load with that, so nothing was changed.\n{error}") from None
     if dry_run:
-        return messages + ["(dry run: nothing written)"]
+        return messages + item_model.settle(drawn, folder, dry_run=True) + ["(dry run: nothing written)"]
     for name, text in texts.items():
         (folder / name).write_text(text, encoding="utf-8")
     for path in stale:
         path.unlink(missing_ok=True)
     for path, frames in sprites.items():
         save_sprite(frames, path)
+    messages += item_model.settle(drawn, folder)  # (once their sprites are written: it reads them)
     integrity.sign(folder)
     if folder == data_folder() and (target := write_library()):
         messages.append(f"Refreshed {target}.")

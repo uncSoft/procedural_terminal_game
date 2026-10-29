@@ -106,8 +106,8 @@ opens it in a window, `ui/model_view.py`: drag it, arrows, space to spin, + and 
 
 ### Every item's model, and a new item's
 
-Every item with a sprite has a model the game draws live, made straight from its sprite by `item_model.py` (no
-Blender), in the sprite's own colours. `item_models.toml` lists how each is made, one line an item:
+Every item with a sprite has a model the game draws live, made straight from its sprite by `src/ptg/item_model.py`
+(no Blender), in the sprite's own colours. `src/ptg/data/models/ways.toml` lists how each is made, one line an item:
 
 | Way | For | What it does |
 |---|---|---|
@@ -119,24 +119,27 @@ Blender), in the sprite's own colours. `item_models.toml` lists how each is made
 | `blender` | the Jar o' Light | made by its own Blender script (`build_jar.py live`) |
 
 Whichever way, small things drawn apart from it (a sparkle, steam, a speech bubble) stay where they were drawn, beside
-it, however it's turned, and twinkle as the sprite's frames do. An item that isn't listed is made as a slab; an item
-with no model has no "Turn it over" in the pack.
+it, however it's turned, and twinkle as the sprite's frames do.
 
-**For a new item** (or one drawn again):
+**A new item gets its model by itself.** Importing it from the Monster & Item Maker (`ptg import`, or "add it to the
+game" in `ptg maker`) makes the model from its new sprite, as part of the import: its way is guessed from what it is
+and how it's drawn (a weapon or a key a slab, a potion turned, a loaf puffed, a jar a jar: `item_model.guess` picks
+what was picked by hand for nine items in ten), written into `ways.toml` with a note that it was guessed, and the
+import says so: "Made the Pickle Jar's 3D model: a jar (a guess: change its line in models/ways.toml)". An item drawn
+again is made again, its own way. Then:
 
-1. Its sprite is in `src/ptg/data/sprites/item_<key>.png`, as for any item (the Monster & Item Maker puts it there).
-2. Pick its way and add a line for it to `item_models.toml`, such as `pickle = "puffed"` or
-   `scroll = { way = "slab", thick = 1 }`. Any line can also set `pitch`, how far down it's looked at to begin with.
-3. Make it: `uv run python spikes/goblin3d/item_model.py <key>`. It writes `src/ptg/data/models/<key>.json`.
-4. Look at it turning: `uv run python -m ptg.ui.model_view <key>` (drag it, the arrows, space), or in the game's
-   debug screen (`ptg --debug`, or F12, then the 3D tab: every item's model and the bosses' clips, with how each was
-   made and whether its sprite was drawn again since), or every model beside its sprite:
-   `uv run python spikes/goblin3d/item_model.py --sheet models.png`.
-5. If it looks wrong, try another way. If none fits (the sprite is drawn from above, or the thing is a shape no drawing
-   gives), shape it by hand: a function in `item_model.py` like `dice` or `cheese`, in the sprite's colours, listed in
-   `WAYS` and named in its line.
-6. Run `uv run pytest tests/test_model3d.py`: every model must stay in its sprite's colours, and be made from the sprite
-   as it's drawn now (each model remembers which; a redrawn sprite fails until its model is made again).
-7. Commit its line and its `.json` with the sprite.
+1. Look at it turning: it pops up on its own the first time it's yours in a run, or `uv run python -m
+   ptg.ui.model_view <key>` (drag it, the arrows, space), or the debug screen's 3D tab (`ptg --debug`, or F12), or
+   every model beside its sprite: `uv run ptg models --sheet models.png`.
+2. If it looks wrong, change its line in `ways.toml` (`pickle = "puffed"`, `scroll = { way = "slab", thick = 1 }`;
+   any line can set `pitch`, how far down it's looked at to begin with) and make it again: `uv run ptg models <key>`.
+   If no way fits (the sprite is drawn from above, or the thing is a shape no drawing gives), shape it by hand: a
+   function in `item_model.py` like `dice` or `cheese`, in the sprite's colours, listed in `WAYS` and named in its line.
+3. Commit its line and its `.json` with the sprite (the import writes them beside it).
 
-To make every model again (after changing how a way works): `uv run python spikes/goblin3d/item_model.py all`.
+A sprite put in by hand, without the maker, has its model made by `uv run ptg models` (every one that's missing, or
+older than its sprite); until then the game makes it as it's wanted, so it turns over all the same.
+`uv run pytest tests/test_model3d.py` fails while any item with a sprite is left without its model, or with one older
+than its sprite, or one off its sprite's colours.
+
+To make every model again (after changing how a way works): `uv run ptg models --all`.

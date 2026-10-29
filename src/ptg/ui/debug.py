@@ -297,8 +297,9 @@ def overview(app) -> Group:
         problems.append(Text(f"Shown small by halving, with no hand-made 12×12 yet (sprites/small): {listed(halved)}",
                              style=WARN))
     if redrawn:
-        problems.append(Text(f"Drawn again since their 3D models were made, so they want making again (uv run python "
-                             f"spikes/goblin3d/item_model.py <item>): {listed(redrawn)}", style=WARN))
+        problems.append(Text(f"Drawn again since their 3D models were made, so they want making again (uv run ptg "
+                             f"models; the game makes them as they're wanted till then): {listed(redrawn)}",
+                             style=WARN))
     if config.backend == "offline":
         problems.append(Text("The narrator is offline: the game tells the facts plainly.", style=DIM))
 
@@ -1352,7 +1353,7 @@ class ThreeDTab(TableTab):
         if not model.sprite:
             drawn = Text("not made from it, so it can be drawn again without it", style=DIM)
         elif model3d.stale(key):
-            drawn = Text(f"drawn again since: make it again (uv run python spikes/goblin3d/item_model.py {key})",
+            drawn = Text(f"drawn again since: make it again (uv run ptg models {key}); shown made afresh",
                          style=WARN)
         else:
             drawn = Text("made from it as it's drawn now", style=GOOD)

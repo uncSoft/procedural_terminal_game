@@ -162,7 +162,7 @@ async def test_a_model_whose_sprite_was_drawn_again_is_pointed_out(monkeypatch):
         await pilot.pause(0.3)
         assert "Pickle" in plain(debug.overview(app)).split("making again")[1]
         three_d = tab(app, debug.ThreeDTab)
-        assert "item_model.py pickle" in plain(three_d.item_info("pickle"))
+        assert "ptg models pickle" in plain(three_d.item_info("pickle"))
         assert "drawn again" not in plain(three_d.item_info("torch"))
 
 

@@ -200,6 +200,29 @@ def test_a_new_item_with_art(data):
     assert (data / "sprites" / "item_spoon_of_destiny.png").is_file()
 
 
+def test_a_new_items_3d_model_is_made_as_it_comes_in(data):
+    """Its model, the one the game turns over, is made from its new sprite as part of the import (item_model.settle):
+    its way guessed from what it is and how it's drawn, and written into models/ways.toml, where a better one can go.
+    Drawn again, it's made again its own way. A dry run only says it would be."""
+    item = {"v": 1, "type": "item", "by": "Lily", "art": drawing("#feae34"),
+            "fields": {"name": "Spoon of Destiny", "kind": "weapon", "damage": "1d8", "tier": 1,
+                       "tags": ["shiny", "sharp"], "desc": "Stirs soup. Stirs trouble."}}
+    model_file, ways = data / "models" / "spoon_of_destiny.json", data / "models" / "ways.toml"
+    said = apply([item], data, dry_run=True)
+    assert "Would make Spoon of Destiny's 3D model: puffed (a guess: change its line in models/ways.toml)." in said
+    assert not model_file.exists() and "spoon_of_destiny" not in ways.read_text()
+    said = apply([item], data)
+    assert "Made Spoon of Destiny's 3D model: puffed (a guess: change its line in models/ways.toml)." in said
+    model = json.loads(model_file.read_text())
+    assert model["name"] == "Spoon of Destiny" and model["made"] == "puffed"
+    assert tomllib.loads(ways.read_text())["spoon_of_destiny"] == "puffed"
+    ways.write_text(ways.read_text().replace('spoon_of_destiny = "puffed"', 'spoon_of_destiny = "slab"'))
+    said = apply([{**item, "base": "spoon_of_destiny", "art": drawing("#63c74d")}], data)  # (drawn again, green)
+    assert "Made Spoon of Destiny's 3D model: a slab." in said
+    again = json.loads(model_file.read_text())
+    assert again["made"] == "slab" and again["sprite"] != model["sprite"]
+
+
 def test_nothing_is_written_when_something_is_wrong(data):
     before = {p.name: p.read_bytes() for p in data.iterdir() if p.is_file()}
     with pytest.raises(ValueError, match="needs a name"):

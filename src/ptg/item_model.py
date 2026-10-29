@@ -1,5 +1,5 @@
-"""Spike: an item's sprite made into a model the game can turn over (ptg/model3d.py), straight from its pixels, with
-no Blender. How each item is made is listed in item_models.toml; README.md says how to add one.
+"""An item's sprite made into the 3D model the game turns over (model3d.py), straight from its pixels, with no
+Blender. How each item is made is listed in data/models/ways.toml, a line an item.
 
 The ways, from the most automatic:
 
@@ -18,15 +18,24 @@ The ways, from the most automatic:
     ring, dice, cheese
             shaped by hand in the sprite's colours, where the sprite can only hint at the shape: a ring that wobbles
             as it turns, two dice with their pips, a cheese wheel with a wedge cut out of it.
+    blender made in Blender by its own build script (the Jar o' Light: spikes/goblin3d/build_jar.py "live")
 
 Whichever way, anything small drawn apart from the thing (a sparkle, steam, a speech bubble) stays where it was drawn,
 beside it however it's turned, and twinkles as the sprite's frames do. Everything is in the sprite's own colours.
 
-    uv run --no-sync python spikes/goblin3d/item_model.py all             # every item in item_models.toml
-    uv run --no-sync python spikes/goblin3d/item_model.py pickle torch    # just these (an item not listed: a slab)
-    uv run --no-sync python spikes/goblin3d/item_model.py --sheet         # every model beside its sprite, to look at
+A new item gets its model as it comes into the game: importing it from the Monster & Item Maker (library.apply, which
+`ptg import` and the maker's "add it to the game" both use) makes the model of everything it draws, a new item's way
+guessed from what it is and how it's drawn (guess: a weapon or a key a slab, a potion turned, a loaf puffed...) and
+written into ways.toml, where a better one can be put; one drawn again is made again its own way. A sprite put in by
+hand has its model made by `ptg models`, and until then the game makes it as it's wanted (model3d.load), so a thing
+with a sprite always turns over. tests/test_model3d.py fails while any item is left without its model.
 
-Each writes src/ptg/data/models/<item>.json, which the pack offers to turn over ("t").
+    uv run ptg models                     # make every model that's missing, or older than its sprite
+    uv run ptg models pickle torch        # make these again (after changing their lines in ways.toml)
+    uv run ptg models --all               # make every one again (after changing how a way works)
+    uv run ptg models --sheet models.png  # every model beside its sprite, to look over
+
+Each writes data/models/<item>.json, which the pack offers to turn over ("t").
 """
 
 from __future__ import annotations
@@ -37,21 +46,56 @@ import math
 import sys
 import tomllib
 from collections import Counter
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-from ptg.content import load_content
+from . import integrity
+from .content import ItemDef, load_content
 
-HERE = Path(__file__).parent
-ROOT = HERE.parents[1]
-SPRITES = ROOT / "src" / "ptg" / "data" / "sprites"
-MODELS = ROOT / "src" / "ptg" / "data" / "models"
-CATALOGUE = HERE / "item_models.toml"
+WAYS_FILE = "ways.toml"  # in data/models: how each item's model is made
 SIZE = 24  # a sprite's frame
 LIGHT, LIT_FROM = (-0.602, 0.501, 0.622), 0.25  # from the top left, as the sprites are lit (and the jar)
 APART = 0.3  # a piece drawn apart from the biggest, this much its size or more, is part of the thing; smaller, it's
 #              a sparkle, steam or a speech bubble, and stays put
+
+
+@dataclass
+class Making:
+    """Where models are being made: the data folder their sprites are read from and they're written to (the game's,
+    or a copy an import checks), the names of things not in the game's content yet (a new item being imported), and
+    whether they're written at all (else kept: made as the game wants one, model3d.load)."""
+
+    folder: Path
+    names: dict
+    write: bool = True
+    ways: dict = field(default_factory=dict)  # ways decided here, over ways.toml's: a guess, or a slab to fall back on
+    made: dict | None = None  # the last model made, as written
+
+
+NOW = Making(integrity.data_folder(), {})
+
+
+@contextmanager
+def making(folder: Path | None = None, names: dict | None = None, write: bool = True):
+    """Make models in this folder (the game's data, unless it says), knowing these names, written or not."""
+    global NOW
+    before, NOW = NOW, Making(folder or integrity.data_folder(), names or {}, write)
+    try:
+        yield NOW
+    finally:
+        NOW = before
+
+
+def sprite_path(key: str) -> Path:
+    return NOW.folder / "sprites" / f"item_{key}.png"
+
+
+def drawn(key: str) -> bool:
+    """Whether the item has a sprite to make a model from."""
+    return sprite_path(key).is_file()
 
 
 def hexed(rgb: tuple) -> str:
@@ -63,7 +107,7 @@ def bright(rgb: tuple) -> float:
 
 
 def frames(key: str) -> list[Image.Image]:
-    sheet = Image.open(SPRITES / f"item_{key}.png").convert("RGBA")
+    sheet = Image.open(sprite_path(key)).convert("RGBA")
     return [sheet.crop((SIZE * i, 0, SIZE * (i + 1), SIZE)) for i in range(max(1, sheet.width // SIZE))]
 
 
@@ -162,16 +206,26 @@ def sparkles(strip: list[Image.Image], centre_x: float) -> list[dict]:
 
 def save(key: str, parts: list, paints: Paints, centre: tuple, span: float, pitch: float, count: int = 1,
          outline: dict | None = None) -> dict:
-    drawn_from = hashlib.sha1((SPRITES / f"item_{key}.png").read_bytes()).hexdigest()[:12]
-    model = {"name": load_content().item(key).name, "made": way_of(key),
+    drawn_from = stamp(key)
+    name = NOW.names.get(key) or load_content().item(key).name
+    model = {"name": name, "made": way_of(key),
              "sprite": drawn_from,  # (a redrawn sprite: make it again)
              "frames": count, "fps": 24, "span": round(span, 2),
              "pitch": pitch, "centre": [round(c, 3) for c in centre], "light": LIGHT, "lit_from": LIT_FROM,
              **({"outline": outline} if outline else {}), "paints": dict(paints), "parts": parts}
-    path = MODELS / f"{key}.json"
+    NOW.made = model
+    faces = sum(len(p.get("faces", [])) for p in parts)
+    if not NOW.write:
+        return {"faces": faces}
+    path = NOW.folder / "models" / f"{key}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(model, separators=(",", ":")))
-    return {"kb": round(path.stat().st_size / 1024, 1), "faces": sum(len(p.get("faces", [])) for p in parts)}
+    return {"kb": round(path.stat().st_size / 1024, 1), "faces": faces}
+
+
+def stamp(key: str) -> str:
+    """The sprite a model is made from, as a stamp of its file: a redrawn one gets its model made again."""
+    return hashlib.sha1(sprite_path(key).read_bytes()).hexdigest()[:12]
 
 
 def framing(drawn: dict | set, extra: float = 9) -> tuple[tuple, float]:
@@ -534,25 +588,142 @@ WAYS = {"slab": lambda key, **o: relief(key, puffed=False, **o), "puffed": lambd
 
 def catalogue() -> dict:
     """How each item is made: its way, and anything else it says (a slab's thickness, how far it's looked down at)."""
-    listed = tomllib.loads(CATALOGUE.read_text())
+    path = NOW.folder / "models" / WAYS_FILE
+    listed = tomllib.loads(path.read_text()) if path.is_file() else {}
     return {key: ({"way": entry} if isinstance(entry, str) else dict(entry)) for key, entry in listed.items()}
 
 
 def way_of(key: str) -> str:
-    return (catalogue().get(key) or {"way": "slab"})["way"]
+    return NOW.ways.get(key) or (catalogue().get(key) or {"way": "slab"})["way"]
 
 
 def make(key: str) -> dict:
-    entry = dict(catalogue().get(key) or {"way": "slab"})
-    way = entry.pop("way")
+    """Its model, made its way (ways.toml), into the folder being made in. A way that can't be made from its drawing
+    (a turned thing drawn as a square) falls back on a slab, which can always be made, and says so."""
+    entry = dict(catalogue().get(key) or {})
+    entry.pop("way", None)
+    way = way_of(key)
     if way == "blender":
         return {"skipped": "made in Blender (see its build script)"}
-    return WAYS[way](key, **entry)
+    try:
+        return WAYS[way](key, **entry)
+    except (ValueError, IndexError, KeyError, ZeroDivisionError):
+        if way == "slab":
+            raise
+        NOW.ways[key] = "slab"
+        return {**WAYS["slab"](key), "fell_back": f"{way} didn't fit its drawing"}
+
+
+def build(key: str) -> dict | None:
+    """Its model, made as it's wanted and kept, not written (model3d.load: a sprite with no model, or a newer one): its
+    way, or a guess at one. None for one made in Blender, or no sprite."""
+    content = load_content()
+    if not drawn(key) or way_of(key) == "blender" or key not in content.items:
+        return None
+    with making(NOW.folder, NOW.names, write=False) as now:
+        if key not in catalogue():
+            now.ways[key] = guess(content.item(key), frames(key)[0])
+        make(key)
+        return now.made
+
+
+# -- a new item's way ------------------------------------------------------------------------------------------------
+
+TURNED = {"potion", "flask", "bottle", "vial", "bomb", "pot", "stewpot", "torch", "hat", "helmet", "urn", "cup",
+          "goblet", "lantern", "candle", "bell", "barrel", "water", "pure"}  # names of round, upright things
+SOFT = {"food", "cloth", "leather", "smelly", "sticky", "meat", "buttery", "flappy", "fur", "plush"}  # tags
+SOFT_NAMES = {"rubber", "plush", "bread", "loaf", "cake", "pie", "egg", "skull", "duck", "chicken", "fish"}
+FLAT_NAMES = {"key", "card", "cards", "book", "scroll", "map", "letter", "page", "disk", "coin"}
+
+
+def guess(item: ItemDef, frame: Image.Image) -> str:
+    """A new item's way, from what it is and how it's drawn (the first frame of its sprite): a glass jar with
+    something in it, a jar; a round, upright thing drawn symmetrical (a potion, a pot, a bomb), turned; a key, a
+    page, a blade, or anything drawn as a flat rectangle (a book, a card, a chip), a slab; armor, food and soft
+    things, puffed; else a thin drawing a slab and a full one puffed. It picks what was picked by hand for nine
+    items in ten (tests/test_model3d.py): a better way goes in its line in ways.toml, and `ptg models <item>`."""
+    tags, words = set(item.tags), set(item.name.lower().replace("'", " ").replace("-", " ").split())
+    body, _ = split(pixels(frame))
+    if not body:
+        return "slab"
+    xs, ys = [x for x, _ in body], [y for _, y in body]
+    fill = len(body) / ((max(xs) - min(xs) + 1) * (max(ys) - min(ys) + 1))
+    middle = (min(xs) + max(xs)) / 2
+    mirrored = {(round(2 * middle - x), y) for x, y in body}
+    symmetric = len(set(body) & mirrored) / len(set(body) | mirrored)
+    if "jar" in words or ("bottle" in words and "liquid" not in tags):
+        return "jar"
+    if symmetric >= 0.75 and (tags & {"liquid", "glass", "pot"} or words & TURNED):
+        return "turned"
+    if words & SOFT_NAMES:
+        return "puffed"
+    if item.kind == "key" or "paper" in tags or words & FLAT_NAMES:
+        return "slab"
+    if item.kind == "weapon" and (fill < 0.45 or {"sharp", "metal"} <= tags):
+        return "slab"
+    if fill >= 0.7 and symmetric >= 0.75 and item.kind == "trinket" and not tags & SOFT:
+        return "slab"  # (a flat rectangle: a book, a card, a disk, a sheet, a chip)
+    if item.kind == "armor" or tags & SOFT:
+        return "puffed"
+    return "slab" if fill < 0.42 else "puffed"
+
+
+def listed_as(key: str, way: str) -> None:
+    """Its line in ways.toml, for a new item: its way, guessed (an item listed already keeps its own)."""
+    path = NOW.folder / "models" / WAYS_FILE
+    text = path.read_text() if path.is_file() else ""
+    if key in tomllib.loads(text):
+        return
+    note = f"  # (guessed as it came in: change it, then ptg models {key})"
+    path.write_text(text.rstrip("\n") + f'\n{key} = "{way}"{note}\n')
+
+
+def wanted(keys: list[str] | None = None) -> list[str]:
+    """The items whose models are missing or older than their sprites (of these, or of every item with a sprite):
+    what `ptg models` makes."""
+    content = load_content() if NOW.folder == integrity.data_folder() else None
+    candidates = keys if keys is not None else sorted(
+        p.name[len("item_"):-len(".png")] for p in (NOW.folder / "sprites").glob("item_*.png"))
+    out = []
+    for key in candidates:
+        if not drawn(key) or way_of(key) == "blender" or (content is not None and key not in content.items):
+            continue
+        path = NOW.folder / "models" / f"{key}.json"
+        if not path.is_file() or json.loads(path.read_text()).get("sprite") != stamp(key):
+            out.append(key)
+    return out
+
+
+def settle(items: list[tuple[ItemDef, Image.Image]], folder: Path | None = None, dry_run: bool = False) -> list[str]:
+    """The models of items just drawn (an import's: each item, and the first frame of its new sprite), made: a new
+    item's way guessed and written into ways.toml first. What came of each, in a line, for the import to say."""
+    said = []
+    with making(folder, {item.key: item.name for item, _ in items}):
+        listed = catalogue()
+        for item, frame in items:
+            key = item.key
+            if key in listed and (listed[key]["way"] == "blender" or (not dry_run and not wanted([key]))):
+                continue  # (made in Blender; or made from this very sprite already: nothing to say)
+            way = listed[key]["way"] if key in listed else guess(item, frame)
+            if key not in listed and not dry_run:
+                listed_as(key, way)
+            guessed = "" if key in listed else f" (a guess: change its line in models/{WAYS_FILE})"
+            if dry_run:
+                said.append(f"Would make {item.name}'s 3D model: {_a(way)}{guessed}.")
+                continue
+            fell = make(key).get("fell_back")
+            said.append(f"Made {item.name}'s 3D model: {_a(way_of(key))}{f' ({fell})' if fell else guessed}.")
+    return said
+
+
+def _a(way: str) -> str:
+    said = {"slab": "a slab", "puffed": "puffed", "turned": "turned", "jar": "a jar"}
+    return said.get(way, f"shaped by hand ({way})")
 
 
 def sheet(path: Path, turns: tuple = (0, 50, 130)) -> None:
     """Every model beside its sprite, from a few sides, to look over."""
-    from ptg import model3d
+    from . import model3d
 
     keys = sorted(k for k in catalogue() if model3d.available(k))
     cell, label = 72, 12
@@ -573,11 +744,28 @@ def sheet(path: Path, turns: tuple = (0, 50, 130)) -> None:
     print(f"-> {path} ({len(keys)} models)")
 
 
-if __name__ == "__main__":
-    args = sys.argv[1:]
-    if args[:1] == ["--sheet"]:
-        sheet(Path(args[1]) if len(args) > 1 else ROOT / "item_models.png")
-        sys.exit()
-    keys = [k for k in catalogue() if catalogue()[k]["way"] != "blender"] if args == ["all"] else args
+def main(argv: list[str]) -> int:
+    """`ptg models`: see the module's docstring."""
+    if argv[:1] == ["--sheet"]:
+        sheet(Path(argv[1]) if len(argv) > 1 else Path("models.png"))
+        return 0
+    if argv == ["--all"]:
+        keys = [k for k in catalogue() if way_of(k) != "blender" and drawn(k)]
+    else:
+        keys = argv or wanted()
+    if not keys:
+        print("Every item with a sprite has its model, made from its sprite as it's drawn now.")
+        return 0
+    content = load_content()
     for key in keys:
-        print(f"{key:28} {make(key)}")
+        if key not in content.items or not drawn(key):
+            print(f"{key:28} no such item with a sprite")
+            continue
+        if key not in catalogue():
+            listed_as(key, guess(content.item(key), frames(key)[0]))
+        print(f"{key:28} {way_of(key):8} {make(key)}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

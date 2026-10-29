@@ -34,7 +34,7 @@ from textual.containers import Center, Grid, Horizontal, Vertical, VerticalScrol
 from textual.widget import Widget
 from textual.widgets import Footer, Input, Static
 
-from .. import config, light, npcs, powers, sheet, statuses
+from .. import config, light, model3d, npcs, powers, sheet, statuses
 from ..events import Action
 from ..room_picture import look_of
 from ..world import map_glyph, render_map
@@ -770,13 +770,20 @@ class TabsScreen(GameScreen):
             pane.remove_children()
             pane.mount_all(parts)
 
-    def frame_and_strip(self, things: list[Thing], focus_id: str, buttons, words=None) -> list[Widget]:
+    def frame_and_strip(self, things: list[Thing], focus_id: str, buttons, words=None,
+                        turning: bool = False) -> list[Widget]:
         """A frame with the thing in focus at full size (its picture plays the fight's moments: class here-art) and
         everything about it beside it (`words`, else facts), then all of them as thumbnails in a grid that scrolls
-        down, the one in the frame underlined."""
+        down, the one in the frame underlined. `turning`: a thing with a 3D model turns in the frame instead (the
+        pack's: ui/model_view.py), its picture still on its thumbnail."""
         focus = next((t for t in things if t.id == focus_id), things[0])
-        picture = Picture(focus.sprite, focus.kind, 24, pose=focus.pose, content=self.game.content, loop=focus.loop,
-                          action=f"screen.lookup('{self.lookup_id(focus)}')", classes="here-art focus-art")
+        picture: Widget = Picture(focus.sprite, focus.kind, 24, pose=focus.pose, content=self.game.content,
+                                  loop=focus.loop, action=f"screen.lookup('{self.lookup_id(focus)}')",
+                                  classes="here-art focus-art")
+        if turning and focus.kind == "item" and self._sprites_on() and model3d.available(focus.sprite):
+            from .model_view import CALM, SHOWN, ModelView
+
+            picture = ModelView(focus.sprite, spin=SHOWN, fps=CALM, classes="focus-art focus-model")
         about = words(focus) if words else facts(self.game.state, self.game.content, focus)
         side = [Static(about, classes="focus-words")]
         lines = buttons(focus)
@@ -906,7 +913,7 @@ class TabsScreen(GameScreen):
         head = Text.assemble(("¤ ", ACCENT), (f"{player.gold} gold", "bold #e8e8f4"), ("   ● ", "#ff7b39"),
                              (f"{player.bombs} bombs", WORDS), ("   ⚷ ", "#c0cbdc"), (f"{player.keys} small keys", WORDS))
         return [Static(head, classes="pane-text"), Static("", classes="pane-gap"),
-                *self.frame_and_strip(things, self.focus["pack"], buttons)]
+                *self.frame_and_strip(things, self.focus["pack"], buttons, turning=True)]
 
     def pane_sheet(self, width: int, rows: int) -> list[Widget]:
         state, content = self.game.state, self.game.content

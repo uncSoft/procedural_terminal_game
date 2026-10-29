@@ -201,6 +201,29 @@ async def test_the_tab_stays_where_you_put_it_from_room_to_room_and_a_fight_brin
         assert screen.tab == "map"
 
 
+async def test_the_packs_thing_in_focus_turns_and_its_thumbnail_keeps_its_picture():
+    """The Pack tab's frame turns the thing in focus (its 3D model: ui/model_view.py); the thumbnails under it are its
+    pictures, as drawn."""
+    from ptg import model3d
+    from ptg.ui.model_view import ModelView
+    from ptg.ui.widgets import Picture
+
+    app = PTGApp(Config(backend="offline", player_name="T"), test_room=("lenny", "new", 0))
+    async with app.run_test(size=(152, 43)) as pilot:
+        await pilot.pause(0.5)
+        await settle(app, pilot)
+        screen = app.screen
+        screen.game.state.player.inventory += ["cheese_wheel"]
+        await pilot.press("f2")
+        await pilot.pause(0.2)
+        screen.action_focus_thing("pack:cheese_wheel")
+        await pilot.pause(0.3)
+        turning = screen.query_one("#pane .focus-model", ModelView)
+        assert turning.model is model3d.load("cheese_wheel")
+        thumbs = [p.key for p in screen.query("#pane .thumb-art").results(Picture)]
+        assert "cheese_wheel" in thumbs and "rusty_sword" in thumbs
+
+
 async def test_a_bare_here_is_filled_with_the_floor_and_what_happened_lately():
     app = PTGApp(Config(backend="offline", player_name="T"), test_room=("lenny", "new", 0))
     async with app.run_test(size=(152, 43)) as pilot:

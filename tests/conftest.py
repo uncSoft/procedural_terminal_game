@@ -9,6 +9,21 @@ from ptg.profile import Profile
 
 
 @pytest.fixture(autouse=True)
+def no_found_cards(request, monkeypatch):
+    """The card a thing has the first time it's yours (ui/model_view.py FoundScreen) would pop up over whatever a UI
+    test is looking at, in a profile where everything's new: none, unless a test asks for them (found_cards)."""
+    if "found_cards" not in request.fixturenames:
+        from ptg.game import Game
+
+        monkeypatch.setattr(Game, "first_finds", lambda self, events: [])
+
+
+@pytest.fixture
+def found_cards():
+    """A thing's first card, as in play (see no_found_cards)."""
+
+
+@pytest.fixture(autouse=True)
 def isolated_home(tmp_path, monkeypatch):
     """Keep config, saves, the profile database and logs out of the real ~/.ptg, and the tests quiet."""
     monkeypatch.setenv("PTG_HOME", str(tmp_path))

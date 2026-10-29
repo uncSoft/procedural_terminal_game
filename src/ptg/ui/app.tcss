@@ -568,6 +568,7 @@ TabsScreen #shims { display: none; }
 TabsScreen ToastRack { dock: bottom; align: right bottom; }  /* in the decision's box (tabs.py) */
 TabsScreen .focus { height: auto; margin-top: 1; }
 TabsScreen .focus-art { margin-right: 2; width: auto; }
+TabsScreen .focus-model { width: 26; height: 13; }  /* the pack's thing in focus, turning (ui/model_view.py) */
 TabsScreen .focus-side { height: auto; width: 1fr; }
 TabsScreen .focus-words { height: auto; }
 TabsScreen .focus-verbs { height: auto; margin-top: 1; }
@@ -945,6 +946,47 @@ Panel {
 
 .panel-box.model-box {  /* a thing to turn over (ui/model_view.py): its picture, as big as fits, and the keys */
     padding: 0 1;
+}
+
+/* A thing that's never been yours before (ui/model_view.py FoundScreen): held up, its model turning as big as the
+   card allows over what it is and where it's gone, which scroll if they must; the button stays put under them. */
+.panel-box.found-box {
+    border: double #ffd166;
+    border-title-color: #ffd166;
+    border-title-style: bold;
+}
+
+#found-banner {
+    width: 100%;
+    height: auto;
+    content-align: center middle;
+    margin-bottom: 1;
+}
+
+#found-model {
+    height: 1fr;
+    min-height: 8;
+}
+
+#found-picture {
+    width: 100%;
+    height: 1fr;
+    content-align: center middle;
+}
+
+#found-words {
+    height: auto;
+    max-height: 12;
+    margin-top: 1;
+}
+
+#found-hint {
+    width: auto;
+    margin-left: 2;
+}
+
+#inv-model, .panel-model {  /* a model turning in a picture's place: the pack's, a card's (ui/model_view.py) */
+    width: 100%;
 }
 
 #model-hint {

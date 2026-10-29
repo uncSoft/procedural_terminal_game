@@ -1,8 +1,10 @@
 """3D models drawn as you watch: a thing you can pick up and turn over (every item with a sprite has one).
 
-A model is the flat faces of a thing, made from its sprite (spikes/goblin3d/item_model.py) or in Blender (the Jar o'
-Light: build_jar.py's "live" step), kept in ptg/data/models/<key>.json with any animation baked a frame at a time. render() draws it into pixels from any angle,
-with no graphics card and no image protocol: each face is turned and tipped to the view, lit or shaded in the sprite's
+A model is the flat faces of a thing, made from its sprite (item_model.py: as it comes into the game, or by `ptg
+models`) or in Blender (the Jar o' Light: spikes/goblin3d/build_jar.py's "live" step), kept in
+ptg/data/models/<key>.json with any animation baked a frame at a time. A thing with a sprite and no model yet (or one
+older than its sprite) has it made as it's wanted (load), so whatever's drawn turns over. render() draws it into
+pixels from any angle, with no graphics card and no image protocol: each face is turned and tipped to the view, lit or shaded in the sprite's
 own two colours for it (as the bosses' frames are), and the faces are painted from the farthest to the nearest. The
 pixels are shown in half blocks like any sprite (sprites.image_text), so it works wherever the game does, a browser too.
 
@@ -88,7 +90,7 @@ class Model:
     outline: dict  # an outline's colours, lit and shade, and how far down the lit side goes ("upper")
     paints: list
     parts: list
-    made: str = ""  # how: a way of spikes/goblin3d/item_model.py's (slab, puffed, turned, ...), or blender
+    made: str = ""  # how: a way of item_model.py's (slab, puffed, turned, ...), or blender
     sprite: str = ""  # the sprite it was made from, as a stamp of its file (a redrawn one: make it again)
 
 
@@ -97,8 +99,8 @@ def path_of(key: str):
 
 
 def available(key: str) -> bool:
-    """Whether there's a model of this thing to turn over."""
-    return path_of(key).is_file()
+    """Whether there's a model of this thing to turn over: one made, or a sprite to make it from (load)."""
+    return path_of(key).is_file() or (resources.files("ptg") / "data" / "sprites" / f"item_{key}.png").is_file()
 
 
 def keys() -> list[str]:
@@ -108,16 +110,26 @@ def keys() -> list[str]:
 
 
 def stale(key: str) -> bool:
-    """Whether the sprite a model was made from has been drawn again since: it wants making again
-    (uv run python spikes/goblin3d/item_model.py <item>). One made another way (in Blender) never is."""
-    made_from = load(key).sprite
+    """Whether the sprite a model was made from has been drawn again since its file was made, or it has no file yet:
+    it wants making (uv run ptg models <item>), and till then it's made as it's wanted (load). One made another way
+    (in Blender) never is."""
+    if not path_of(key).is_file():
+        return True
+    made_from = json.loads(path_of(key).read_text()).get("sprite", "")
     drawn = resources.files("ptg") / "data" / "sprites" / f"item_{key}.png"
     return bool(made_from) and drawn.is_file() and hashlib.sha1(drawn.read_bytes()).hexdigest()[:12] != made_from
 
 
 @lru_cache(maxsize=8)
 def load(key: str) -> Model:
-    data = json.loads(path_of(key).read_text())
+    """A thing's model: its file, or, with none yet or an older one than its sprite, made from the sprite now and kept
+    (item_model.build: its way, or a guess at one)."""
+    data = None
+    if stale(key):
+        from . import item_model  # (it reads the game's content: only wanted for a model with no file yet)
+
+        data = item_model.build(key)
+    data = data or json.loads(path_of(key).read_text())
     names = list(data["paints"])
     paints = [Paint(rgba(p["lit"]), rgba(p["shade"]), p["rule"], p.get("square", 0.0),
                     rgba(p["glint"]) if p.get("glint") else None, p.get("glint_from", 0.8))

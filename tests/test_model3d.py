@@ -4,8 +4,9 @@ import hashlib
 import json
 from importlib import resources
 
-from ptg import model3d
+from ptg import item_model, model3d
 from ptg.config import Config
+from ptg.content import load_content
 from ptg.sprites import frames
 from ptg.ui.app import PTGApp
 from ptg.ui.model_view import ModelScreen, ModelView
@@ -82,7 +83,7 @@ async def test_the_pack_turns_the_jar_over():
 
 
 def made_from_sprites() -> list[str]:
-    """The items whose models item_model.py made from their sprites (spikes/goblin3d/item_models.toml)."""
+    """The items whose models item_model.py made from their sprites (data/models/ways.toml)."""
     folder = resources.files("ptg") / "data" / model3d.FOLDER
     return sorted(p.name[:-5] for p in folder.iterdir()
                   if p.name.endswith(".json") and "sprite" in json.loads(p.read_text()))
@@ -107,10 +108,47 @@ def test_every_item_model_keeps_to_its_sprites_colours():
 
 def test_every_item_model_is_made_from_its_sprite_as_drawn_now():
     """Each model remembers the sprite it was made from: a sprite drawn again since needs its model made again
-    (uv run python spikes/goblin3d/item_model.py <item>)."""
+    (uv run ptg models: an import does it by itself)."""
     stale = []
     for key in made_from_sprites():
         drawn = hashlib.sha1((resources.files("ptg") / "data" / "sprites" / f"item_{key}.png").read_bytes())
         if json.loads(model3d.path_of(key).read_text())["sprite"] != drawn.hexdigest()[:12]:
             stale.append(key)
     assert not stale, f"redrawn since their models were made: {stale}"
+
+
+def test_every_item_with_a_sprite_has_its_model():
+    """Whatever's drawn turns over: every item with a sprite has its model made from it as it's drawn now (an import
+    makes it; `ptg models` makes one put in by hand), and its way listed in models/ways.toml."""
+    content = load_content()
+    drawn = [key for key in content.items if item_model.drawn(key)]
+    assert len(drawn) > 60
+    assert item_model.wanted() == [], "missing, or older than their sprites: uv run ptg models"
+    assert [key for key in drawn if key not in item_model.catalogue()] == []
+    assert [key for key in drawn if not model3d.path_of(key).is_file()] == []
+
+
+def test_a_new_items_way_is_guessed_as_one_picked_by_hand_would_be():
+    """item_model.guess: a new item's way, from what it is and how it's drawn, is the one picked by hand for nine items
+    in ten of those made a way it can guess (not shaped by hand, nor in Blender)."""
+    content = load_content()
+    picked = {key: entry["way"] for key, entry in item_model.catalogue().items()
+              if entry["way"] in ("slab", "puffed", "turned", "jar")}
+    agree = [key for key, way in picked.items()
+             if item_model.guess(content.item(key), item_model.frames(key)[0]) == way]
+    assert len(agree) >= 0.9 * len(picked), sorted(set(picked) - set(agree))
+
+
+def test_a_sprite_with_no_model_yet_has_one_made_as_its_wanted(monkeypatch, tmp_path):
+    """Drawn, with no model made yet (a sprite put in by hand), it turns over all the same: made as it's wanted, its
+    way from ways.toml, kept and not written (`ptg models` writes it)."""
+    monkeypatch.setattr(model3d, "path_of", lambda key: tmp_path / f"{key}.json")  # (no model files at all)
+    model3d.load.cache_clear()
+    try:
+        assert model3d.available("pickle") and model3d.stale("pickle")
+        model = model3d.load("pickle")
+        assert model.made == "puffed" and model.name == "Pickle" and model3d.render(model, 0, 30, size=48).getbbox()
+        assert not list(tmp_path.iterdir())
+    finally:
+        model3d.load.cache_clear()
+

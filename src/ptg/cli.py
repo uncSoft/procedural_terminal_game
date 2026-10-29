@@ -88,6 +88,10 @@ def main(argv: list[str] | None = None) -> None:
         from .maker import main as maker_main
 
         sys.exit(maker_main(argv[1:]))
+    if argv[:1] == ["models"]:  # every item's 3D model, made from its sprite (see ptg/item_model.py)
+        from .item_model import main as models_main
+
+        sys.exit(models_main(argv[1:]))
     args = parse_args(argv)
     if not preflight():
         sys.exit(1)

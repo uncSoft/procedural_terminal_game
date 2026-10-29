@@ -3,8 +3,15 @@ mouse or the keys. Drag it round, and let go with a flick to set it spinning; th
 or away; space starts or stops it turning on its own; + and - zoom, or the mouse wheel; r puts it back.
 
 The pack opens one on anything that has a model (t, or the "Turn it over" under its words: see panels.InventoryScreen):
-every item with a sprite has one, made from it (spikes/goblin3d/item_model.py and its README). The debug screen's 3D
+every item with a sprite has one, made from it (ptg/item_model.py: as it comes into the game). The debug screen's 3D
 tab shows every one turning, the view without the window (ui/debug.py).
+
+Where else a model turns, the sprite's place kept for it (its 2D art is still everywhere else: tiles, Here, the shop,
+the stage, the story):
+
+    FoundScreen     the first time a thing is ever yours (Game.first_finds): its card, the model big and turning
+    the pack        the one you've picked, turning beside the shelf of tiles (panels.InventoryScreen)
+    its card        a thing's card, a coloured word or a picture clicked (panels.InfoScreen)
 
     uv run python -m ptg.ui.model_view jar_o_light     # just the window, without a game
 """
@@ -19,17 +26,21 @@ from rich.text import Text
 from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widget import Widget
 from textual.widgets import Static
 
-from .. import model3d
+from .. import glossary, inventory, model3d, sound
 from ..content import load_content
+from ..game import Game
 from ..sprites import image_text
-from .panels import DIM, Panel
+from .panels import DIM, SOFT, WORDS, Clickable, Panel, Picture, box_rows, ornate, whereabouts
 from .theme import CRT
+from .widgets import power_lines
 
 SPIN = 30.0  # degrees a second it turns on its own
+SHOWN = 45.0  # how fast a thing turns where it's shown off (a card, the pack): a little brisker than in the window
+CALM = 12  # frames a second a model's drawn at where it's beside other things (the pack, a card): enough to turn
 DRAG = 5.0  # degrees it turns for each column the mouse is dragged across it (and tips, for each row up or down)
 FRICTION = 2.5  # how quickly a flicked spin dies away: by e^-FRICTION a second
 TILT = (-30.0, 75.0)  # how far it tips: from a little below to nearly straight down on it
@@ -44,9 +55,11 @@ class ModelView(Widget):
     ModelView { width: 100%; height: 1fr; content-align: center middle; }
     """
 
-    def __init__(self, key: str = "", **kwargs) -> None:
+    def __init__(self, key: str = "", spin: float = SPIN, fps: int = 0, **kwargs) -> None:
         super().__init__(**kwargs)
         self.model: model3d.Model | None = None
+        self.spin = spin  # degrees a second it turns on its own
+        self.fps = fps  # frames a second it's drawn at, at most (0: as many as its animation has)
         self.spinning = True
         self.swing = 0.0  # degrees a second it's still turning from a flick of the mouse
         self.dragging = False
@@ -69,7 +82,8 @@ class ModelView(Widget):
         self.yaw, self.pitch, self.zoom, self.swing = 0.0, self.model.pitch, 1.0, 0.0
 
     def on_mount(self) -> None:
-        self.set_interval(1 / (self.model.fps if self.model else 24), self.tick)
+        fps = self.model.fps if self.model else 24
+        self.set_interval(1 / min(fps, self.fps or fps), self.tick)
         self.tick()
 
     def tick(self) -> None:
@@ -78,7 +92,7 @@ class ModelView(Widget):
         if self.model is None:
             return
         if not self.dragging:
-            self.yaw += (SPIN if self.spinning else 0.0) * step + self.swing * step
+            self.yaw += (self.spin if self.spinning else 0.0) * step + self.swing * step
             self.swing *= math.exp(-FRICTION * step)
         width, height = self.content_size
         if not width or not height or not self.is_on_screen:  # not laid out yet, or out of sight (another tab)
@@ -174,6 +188,81 @@ class ModelScreen(Panel):
     def action_reset(self) -> None:
         self.view.reset()
         self.view.spinning = True
+
+
+class FoundScreen(Panel):
+    """The first time a thing is ever yours (Game.first_finds: taken, bought, won, given), its card: held up to the
+    light, as a hero holds up what they've found, its model big and turning (drag it to turn it over yourself), with
+    what it is and does and where it's gone. A thing with no model has its picture. Enter, space or a click carries
+    on, and a turn's other finds have theirs after it."""
+
+    BINDINGS = [Binding("enter,space", "close", "Carry on", priority=True),
+                Binding("left", "turn(-20)", show=False, priority=True),
+                Binding("right", "turn(20)", show=False, priority=True)]
+    size_class = "card"
+    opening_sound = None  # (its own fanfare)
+
+    def __init__(self, game: Game, key: str) -> None:
+        super().__init__()
+        self.game = game
+        self.key = key
+
+    def compose(self) -> ComposeResult:
+        content = self.game.content
+        item = content.item(self.key)
+        with Vertical(classes="panel-box found-box") as box:
+            box.border_title = "Found"
+            banner = Text("✧ ✦ ", style="bold #ffd166")
+            banner.append(" NEW ", style="bold #10122a on #ffd166")
+            banner.append(" ✦ ✧   ", style="bold #ffd166")
+            banner.append(item.name, style="bold #4cff8a")
+            yield Static(banner, id="found-banner")
+            if self.turning:
+                yield ModelView(self.key, spin=SHOWN, id="found-model")
+            else:
+                rows = max(8, box_rows(self.app.size.height) - 14)
+                yield Picture(self.key, "item", 40, rows, content=content, sprites=self.game.config.art == "sprites",
+                              id="found-picture")
+            with VerticalScroll(id="found-words"):
+                yield Static(self._words(), id="found-text")
+            with Horizontal(classes="panel-action"):
+                yield Clickable(Text(" ▶ Carry on  [enter] ", style="bold #ffb000"), action="screen.close",
+                                classes="card-verb")
+                hint = "drag it, or ← →, to turn it over" if self.turning else ""
+                yield Static(Text(hint, style=DIM), id="found-hint")
+
+    @property
+    def turning(self) -> bool:
+        """Whether it has a model to turn (sprites on): else its picture."""
+        return model3d.available(self.key) and self.game.config.art == "sprites"
+
+    def _words(self) -> Text:
+        """What it is (its kind and what it does, its powers), its tale, and where it's gone now: your pack, your
+        hand, your back, or a counter."""
+        content, state = self.game.content, self.game.state
+        item = content.item(self.key)
+        text = Text(glossary.item_stats(item) + "\n", style=SOFT)
+        text.append_text(power_lines(content, self.key))
+        if item.desc:
+            text.append(item.desc + "\n", style=f"italic {WORDS}")
+        where = whereabouts(self.game, self.key)
+        counter = inventory.PICKUPS.get(self.key)  # (a bomb or a small key: how many you have now)
+        where += [f"{getattr(state.player, counter)} {counter} now"] if counter else []
+        if where:
+            text.append("\n→ " + " · ".join(where), style="#ffb000")
+        text.rstrip()
+        return text
+
+    def on_mount(self) -> None:  # (Panel's own on_mount runs after this one: Textual calls each class's)
+        box = self.box
+        box.border_title = ornate(str(box.border_title))
+        box.styles.border_title_align = "center"
+        sound.play("rare_drop")
+
+    def action_turn(self, step: float) -> None:
+        for view in self.query(ModelView):
+            view.spinning, view.swing = False, 0.0
+            view.yaw -= step
 
 
 class Preview(App):

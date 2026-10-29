@@ -42,6 +42,7 @@ QUIET_KINDS = {"perk"}  # resolved without asking the narrator
 # a trick, a weakness found: docs/plans/combat-and-balance.md §3.7).
 EXCHANGE = {"hit", "miss", "monster_hit", "monster_miss", "dodge_ready", "dodge_fail", "dodge", "evade", "guard",
             "telegraph", "stunned", "heal"}
+FOUND = "found:"  # a profile mark for each thing that's ever been yours (Game.first_finds)
 MECHANICS = {"fate_spent", "level", "trait", "warning", "status_tick", "light"}  # the screen says these (a line, the
 # level-up screen, a banner, a warning's line, poison's burn, your torch lit or out): not told
 
@@ -171,6 +172,24 @@ class Game:
     def can_reroll(self) -> bool:
         primary = self.pending.primary if self.pending else None
         return bool(primary and not primary.dice.success and self._snapshot and self.fate_left() > 0)
+
+    def first_finds(self, events: list[Event]) -> list[str]:
+        """What came your way in these events that's never been yours before, in any run: taken, bought, won or
+        given (into your pack, your hand, onto your back or a counter: not moved from one to another), each once, in
+        the order it came. The first time a thing is yours it has a card of its own (ui/model_view.py FoundScreen).
+        Noted in the profile as it's found; a test room notes nothing (it writes nothing there), so there everything
+        found is new."""
+        seen, new = self.profile.marks(), []
+        mine = ("pack", "weapon", "armor", "counter")
+        for event in events:
+            key = event.data.get("item", "")
+            if event.data.get("to") in mine and event.data.get("from") not in mine and key in self.content.items \
+                    and FOUND + key not in seen and key not in new:
+                new.append(key)
+        if not self.state.test_room:
+            for key in new:
+                self.profile.set_mark(FOUND + key)
+        return new
 
     # --- turns ---
 

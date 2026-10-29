@@ -396,6 +396,12 @@ class InventoryScreen(Panel):
                               sprites=self.game.config.art == "sprites", id="inv-art")
                 art.display = art.sprites  # (an ASCII glyph would only be a lot of space)
                 yield art
+                if art.sprites:  # (the one picked turns here instead, if it has a model: ui/model_view.py)
+                    from .model_view import SHOWN, ModelView, CALM
+
+                    model = ModelView(spin=SHOWN, fps=CALM, id="inv-model")
+                    model.styles.height, model.display = min(detail_rows(height), side // 2), False
+                    yield model
                 with VerticalScroll(id="inv-words"):
                     yield Static("", id="inv-detail")
                 yield Vertical(id="inv-use")  # what you can do with it: a button for each (see show_detail)
@@ -414,7 +420,12 @@ class InventoryScreen(Panel):
         item = content.item(key)
         art = self.query_one("#inv-art", Picture)
         art.become(key)
-        blank = art.blank and art.display  # nobody has drawn it yet: it's its kind's grey stand-in
+        blank = art.blank and art.sprites  # nobody has drawn it yet: it's its kind's grey stand-in
+        for model in self.query("#inv-model"):  # (its model turning, if it has one: its picture's on its tile)
+            turns = model3d.available(key) and not blank
+            model.display, art.display = turns, not turns
+            if turns:
+                model.show(key)
         text = Text()
         text.append(item.name + "\n", style="bold #4cff8a")
         might = f" + {player.might} for your might" if key == player.weapon else ""
@@ -1481,7 +1492,7 @@ class InfoScreen(Panel):
         self.action_id: str | None = None  # what Enter does: the engine's own action for it (see _offer)
         self.action: Action | None = None
         self.more: list[Action] = []  # the other things the engine says you can do with it, a click each
-        self.picture: Picture | None = None  # what it is, drawn above the card's words
+        self.picture: Widget | None = None  # what it is, drawn above the card's words (a Picture, or a model)
 
     def compose(self) -> ComposeResult:
         kind, _, ref = self.term_id.partition(":")
@@ -1525,6 +1536,16 @@ class InfoScreen(Panel):
         return Picture(key, kind, LOOK_PICTURE, box_rows(self.app.size.height) - CARD_WORDS, content=self.game.content,
                        sprites=self.game.config.art == "sprites", classes="panel-sprite", **kwargs)
 
+    def _model(self, key: str) -> Widget:
+        """A thing's model turning, in its picture's place (ui/model_view.py): as tall as its picture would be, and
+        no taller than it is wide."""
+        from .model_view import SHOWN, ModelView, CALM
+
+        self.size_class = "card"
+        model = ModelView(key, spin=SHOWN, fps=CALM, classes="panel-model")
+        model.styles.height = max(8, min(22, box_rows(self.app.size.height) - CARD_WORDS))
+        return model
+
     def _monster(self, key: str) -> tuple[Text, str]:
         game = self.game
         content, state = game.content, game.state
@@ -1550,8 +1571,8 @@ class InfoScreen(Panel):
         game = self.game
         content = game.content
         item = content.item(key)
-        if game.config.art == "sprites":  # (its grey stand-in if nobody's drawn it yet)
-            self.picture = self._picture(key, "item")
+        if game.config.art == "sprites":  # (its model turning if it has one; else its picture, or its grey stand-in)
+            self.picture = self._model(key) if model3d.available(key) else self._picture(key, "item")
         text = Text()
         text.append(item.name + "\n", style="bold #4cff8a")
         tags = f" · {', '.join(item.tags)}" if item.tags else ""

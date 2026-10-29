@@ -398,3 +398,26 @@ def test_what_you_put_down_stays_yours_beside_the_same_thing_found(content):
     perform(state, content, "take:stale_bread")
     assert state.room.items == state.room.left == ["stale_bread"] and not any(i.startswith("take") for i in
                                                                                ids(state, content))
+
+
+def test_a_thing_is_new_to_you_the_first_time_its_ever_yours(content, profile, found_cards):
+    """Game.first_finds: what came your way that's never been yours, in any run (its card: ui/model_view.py
+    FoundScreen), each once and in the order it came; taken, bought, given, onto a counter too; never a move of your
+    own things between your pack, your hand and your back. A test room notes nothing, so there it's always new."""
+    from ptg.config import Config
+    from ptg.game import FOUND, Game
+
+    state = clear_room()
+    game = Game(state, Config(backend="offline"), None, content, profile)
+    state.room.items = ["oil_flask", "healing_potion", "bomb", "oil_flask"]
+    events = perform(state, content, "take_all")
+    assert game.first_finds(events) == ["oil_flask", "healing_potion", "bomb"]
+    assert {FOUND + key for key in ("oil_flask", "healing_potion", "bomb")} <= profile.marks()
+    state.room.items = ["oil_flask", "cheese_wheel"]
+    assert game.first_finds(perform(state, content, "take_all")) == ["cheese_wheel"]  # (once, ever)
+    state.player.inventory.append("hand_axe")
+    assert game.first_finds(perform(state, content, "equip:hand_axe")) == []  # (yours already: only moved)
+    state.test_room = "goblin"
+    state.room.items = ["pickle"]
+    assert game.first_finds(perform(state, content, "take:pickle")) == ["pickle"]
+    assert FOUND + "pickle" not in profile.marks() and game.first_finds(perform(state, content, "drop:pickle")) == []

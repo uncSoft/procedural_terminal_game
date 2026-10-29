@@ -4,7 +4,7 @@ import pytest
 from rich.console import Console
 from textual.widgets import DataTable, ProgressBar, Select, TabbedContent, Tree
 
-from ptg import sound
+from ptg import model3d, sound, sprites
 from ptg.config import Config
 from ptg.content import load_content
 from ptg.llm import check
@@ -14,6 +14,7 @@ from ptg.story import load_library
 from ptg.ui import debug
 from ptg.ui.app import PTGApp
 from ptg.ui.debug import DebugScreen
+from ptg.ui.model_view import ModelScreen, ModelView
 
 
 @pytest.fixture(autouse=True)
@@ -52,18 +53,21 @@ async def test_f12_opens_every_tab_and_closes_again():
         await pilot.press("f12")
         await pilot.pause(0.3)
         assert isinstance(app.screen, DebugScreen)
-        for n, key in zip("1234567890", debug.TABS):
+        assert len(debug.KEYS) >= len(debug.TABS)  # a key for every tab
+        for n, key in zip(debug.KEYS, debug.TABS):
             await pilot.press(n)
             await pilot.pause(0.2)
             assert app.screen.query_one(TabbedContent).active == f"debug-{key}"
             assert app.screen.query_one(f"#debug-{key}").query_one(debug.DebugTab).loaded
         rows = {key: app.screen.query_one(f"#debug-{key}").query_one(DataTable).row_count
-                for key in ("monsters", "items", "art", "sounds", "story")}
+                for key in ("monsters", "items", "art", "sounds", "story", "3d")}
         assert rows["monsters"] == len(content.monsters)
         assert rows["items"] == len(content.items)
         assert rows["sounds"] == len(sound.MOMENTS)
         assert rows["story"] == len(load_library(content).events)
         assert rows["art"] >= len(content.monsters)
+        assert rows["3d"] == (sum(bool(sprites.clips(key)) for key in content.monsters)
+                              + sum(model3d.available(key) for key in content.items))
         await pilot.press("2", "down")
         await pilot.pause(0.2)
         assert tab(app, debug.MonstersTab).current == list(content.monsters)[1]
@@ -103,6 +107,63 @@ async def test_the_art_tab_points_out_art_drawn_small_and_custom_colours():
     assert "draw it bigger" not in debug.fills_line("item_davy_j_skull").plain
     assert "#fbff00" in debug.colours_line("item_hard_hat").plain
     assert debug.colours_line("item_pizza_rat").plain.endswith("all from the maker's palette")
+
+
+async def test_the_3d_tab_plays_the_bosses_and_turns_the_items():
+    """The bosses come first, playing their clips in a fight's order (or one, picked with the arrows, at any size);
+    then the items, each one's model turning as you watch, the arrows turning it, Enter opening it in a window."""
+    app = PTGApp(Config(backend="offline", layout="classic"))
+    async with app.run_test(size=(140, 44)) as pilot:
+        await pilot.pause()
+        app.push_screen(DebugScreen("3d"))
+        await pilot.pause(0.3)
+        three_d = tab(app, debug.ThreeDTab)
+        clip, view = three_d.query_one(debug.ClipView), three_d.query_one(ModelView)
+        assert sprites.clips(three_d.current) and clip.display and not view.display
+        assert await until(pilot, lambda: clip.picture.plain.strip())
+        first = clip.shown
+        assert await until(pilot, lambda: clip.shown != first)  # playing
+        assert {name for name, _, _ in clip.reel} >= {"entrance", "idle", "windup", "attack"}
+        await pilot.press("right")  # all → entrance alone
+        await pilot.pause(0.1)
+        assert three_d.chosen_clip == "entrance" and {name for name, _, _ in clip.reel} == {"entrance"}
+        await pilot.click("#three-d-controls", offset=(len("Play:  all  entrance  idle  windup  attack      Size:  "
+                                                           "fits  ") + 1, 0))
+        await pilot.pause(0.2)
+        assert three_d.chosen_size == 40 and clip.playing_at == 40
+        table = three_d.query_one(DataTable)
+        table.move_cursor(row=[row.value for row in table.rows].index("item_jar_o_light"))
+        await pilot.pause(0.3)
+        assert view.display and not clip.display and view.model.name == "Jar o' Light"
+        about = plain(three_d.item_info("jar_o_light"))
+        assert "in Blender" in about and "not made from it" in about
+        turned = view.yaw
+        assert await until(pilot, lambda: view.yaw != turned)  # turning on its own
+        await pilot.press("left")
+        stopped = view.yaw
+        await pilot.pause(0.2)
+        assert not view.spinning and view.yaw == stopped
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, ModelScreen)
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, DebugScreen)
+
+
+async def test_a_model_whose_sprite_was_drawn_again_is_pointed_out(monkeypatch):
+    """Redraw an item (in the Monster & Item Maker, say) and its 3D model is out of date: the Overview and the 3D tab
+    both say so, and how to make it again."""
+    monkeypatch.setattr(model3d, "stale", lambda key: key == "pickle")
+    app = PTGApp(Config(backend="offline", layout="classic"))
+    async with app.run_test(size=(140, 44)) as pilot:
+        await pilot.pause()
+        app.push_screen(DebugScreen("3d"))
+        await pilot.pause(0.3)
+        assert "Pickle" in plain(debug.overview(app)).split("making again")[1]
+        three_d = tab(app, debug.ThreeDTab)
+        assert "item_model.py pickle" in plain(three_d.item_info("pickle"))
+        assert "drawn again" not in plain(three_d.item_info("torch"))
 
 
 async def test_ptg_debug_opens_it_straight_away():

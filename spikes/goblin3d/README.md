@@ -128,8 +128,10 @@ with no model has no "Turn it over" in the pack.
 2. Pick its way and add a line for it to `item_models.toml`, such as `pickle = "puffed"` or
    `scroll = { way = "slab", thick = 1 }`. Any line can also set `pitch`, how far down it's looked at to begin with.
 3. Make it: `uv run python spikes/goblin3d/item_model.py <key>`. It writes `src/ptg/data/models/<key>.json`.
-4. Look at it turning: `uv run python -m ptg.ui.model_view <key>` (drag it, the arrows, space), or every model beside
-   its sprite: `uv run python spikes/goblin3d/item_model.py --sheet models.png`.
+4. Look at it turning: `uv run python -m ptg.ui.model_view <key>` (drag it, the arrows, space), or in the game's
+   debug screen (`ptg --debug`, or F12, then the 3D tab: every item's model and the bosses' clips, with how each was
+   made and whether its sprite was drawn again since), or every model beside its sprite:
+   `uv run python spikes/goblin3d/item_model.py --sheet models.png`.
 5. If it looks wrong, try another way. If none fits (the sprite is drawn from above, or the thing is a shape no drawing
    gives), shape it by hand: a function in `item_model.py` like `dice` or `cheese`, in the sprite's colours, listed in
    `WAYS` and named in its line.

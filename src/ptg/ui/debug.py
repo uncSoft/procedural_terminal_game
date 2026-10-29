@@ -11,18 +11,21 @@ sounds to play and a model check to run.
     Models     the model check (ptg.llm.check) against any model, with earlier results to compare
     Log        the latest exchanges with the model (llm.log), guard cuts included
     Test rooms straight to a character, a shop, a boss or any monster, with the kit you pick (ptg/testrooms.py)
+    3D         the bosses' clips made in Blender, played as made, and every item's model, turned however you like
 
 It only looks, except where a button says otherwise.
 """
 
 from __future__ import annotations
 
+import bisect
 import os
 import platform
 import random
 import re
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -36,9 +39,10 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.coordinate import Coordinate
 from textual.events import Click
+from textual.widget import Widget
 from textual.widgets import Button, DataTable, Input, ProgressBar, Select, Static, TabbedContent, TabPane, Tree
 
-from .. import __version__, integrity, loot, powers, sound, testrooms
+from .. import __version__, integrity, loot, model3d, powers, sound, testrooms
 from ..config import DEFAULT_CLAUDE_MODEL, DEFAULT_URLS, Config, home, load_game, save_config
 from ..content import Content, load_content
 from ..game import Game
@@ -47,10 +51,11 @@ from ..llm import LLMError, check, make_llm
 from ..llm.base import Exchange, read_log
 from ..llm.openai_compat import OpenAICompatLLM
 from ..models import GameState, Player
-from ..sprites import (DEATH_FRAMES, DEFAULT_WIDTH, SMALL, count_frames, fill, frame_count, frames, has_small,
-                       side_by_side, sprite_text)
+from ..sprites import (CLIP_FPS, DEATH_FRAMES, DEFAULT_WIDTH, SMALL, Clip, clips, count_frames, fill, frame_count,
+                       frames, has_small, image_text, side_by_side, sprite_text)
 from ..story import StoryError, StoryEvent, load_library, reload_library
 from ..text import tell
+from .model_view import ModelScreen, ModelView
 from .panels import Panel
 from .widgets import Picture
 
@@ -275,8 +280,11 @@ def overview(app) -> Group:
     no_sprite = [m.name for m in monsters if not frame_count(m.key)]
     halved = [i.name for i in items if frame_count(f"item_{i.key}") and not has_small(f"item_{i.key}")]
     item_art = [i for i in items if frame_count(f"item_{i.key}")]
-    clips = [clip for found in engine.bank.values() for clip in found]
+    sound_files = [clip for found in engine.bank.values() for clip in found]
     sprites = sorted((integrity.data_folder() / "sprites").glob("*.png"))
+    models = [key for key in model3d.keys() if key in content.items]
+    redrawn = [content.item(key).name for key in models if model3d.stale(key)]
+    bosses_3d = [m for m in monsters if clips(m.key)]
 
     problems: list[Text] = []
     if report.tampered:
@@ -288,6 +296,9 @@ def overview(app) -> Group:
     if halved:
         problems.append(Text(f"Shown small by halving, with no hand-made 12×12 yet (sprites/small): {listed(halved)}",
                              style=WARN))
+    if redrawn:
+        problems.append(Text(f"Drawn again since their 3D models were made, so they want making again (uv run python "
+                             f"spikes/goblin3d/item_model.py <item>): {listed(redrawn)}", style=WARN))
     if config.backend == "offline":
         problems.append(Text("The narrator is offline: the game tells the facts plainly.", style=DIM))
 
@@ -315,7 +326,9 @@ def overview(app) -> Group:
         ("Story events", f"{len(library.events)} ({plural(sum(e.is_scene for e in library), 'scene')}, "
                          f"{plural(len(library.secrets), 'secret')})"),
         ("Sprites", f"{len(sprites)} ({sum(has_small(p.stem) for p in sprites)} with a hand-made small version)"),
-        ("Sounds", f"{len(clips)} files for {len(engine.bank)} moments ({sum(not c.builtin for c in clips)} yours)"),
+        ("Sounds", f"{len(sound_files)} files for {len(engine.bank)} moments "
+                   f"({sum(not c.builtin for c in sound_files)} yours)"),
+        ("3D", f"{len(models)} items' models, {len(bosses_3d)} bosses' clips ({listed(m.name for m in bosses_3d)})"),
     ]
     player = getattr(engine.player, "name", None) or "not open yet (it opens for the first sound)"
     folder = home()
@@ -1158,17 +1171,293 @@ class TestRoomsTab(DebugTab):
         self.app.start_test_room(*self.chosen(), seed=self.seed)
 
 
+# --- 3D -----------------------------------------------------------------------------------------------------------
+
+FIGHT = (("entrance", 1), ("idle", 2), ("windup", 2), ("attack", 1), ("idle", 2))  # "all": in the order a fight has them
+HOLD = 0.6  # seconds a clip played on its own rests on its last frame before it goes again (idle just loops)
+TURN = 15  # degrees ← and → turn a model
+BY_HAND = "shaped by hand in its sprite's colours, where the sprite can't say the shape"
+MADE = {"slab": "a slab: its sprite given depth", "puffed": "a relief of its sprite, thicker toward the middle",
+        "turned": "turned on a lathe from its sprite's rows",
+        "jar": "a jar: its glass an outline, what's in it floating inside",
+        "ring": BY_HAND, "dice": BY_HAND, "cheese": BY_HAND,
+        "blender": "in Blender, by its own build script (spikes/goblin3d)"}
+
+
+def at_size(sized: tuple[Clip, ...], size: int) -> Clip:
+    """A clip at a size, or the biggest it comes in under it (else its smallest)."""
+    under = [clip for clip in sized if clip.size <= size]
+    return under[-1] if under else sized[0]
+
+
+def clip_names(key: str) -> list[str]:
+    """A boss's clips, in the order a fight has them."""
+    found = clips(key)
+    return [name for name in dict.fromkeys(name for name, _ in FIGHT) if name in found] + sorted(
+        name for name in found if name not in dict(FIGHT))
+
+
+def clip_sizes(key: str) -> list[int]:
+    return sorted({clip.size for sized in clips(key).values() for clip in sized})
+
+
+class ClipView(Widget):
+    """A boss's clips (sprites.clips) at the size and speed they were made: one over and over, or all of them in the
+    order a fight has them, with which it is and what frame under it."""
+
+    DEFAULT_CSS = """
+    ClipView { width: 100%; height: 1fr; content-align: center middle; }
+    """
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.key, self.clip, self.wanted = "", "all", 0  # (wanted: 0 for the biggest that fits)
+        self.reel: list[tuple[str, int, Clip]] = []  # each frame in turn: its clip's name, its number, the clip
+        self.ends: list[float] = []  # when each frame is over, in seconds from the start
+        self.texts: dict[int, Text] = {}
+        self.started = time.monotonic()
+        self.shown = -1
+        self.picture = Text()
+
+    def on_mount(self) -> None:
+        self.set_interval(1 / 24, self.tick)
+
+    def play(self, key: str, clip: str = "all", size: int = 0) -> None:
+        """The boss's `clip` ("all": each in turn), at `size` (0: the biggest that fits), from its start."""
+        self.key, self.clip, self.wanted = key, clip, size
+        self.started, self.reel = time.monotonic(), []
+        self.tick()
+
+    def on_resize(self) -> None:
+        self.reel = []  # the biggest that fits may be another size now
+
+    @property
+    def playing_at(self) -> int:
+        """The size it's playing at."""
+        return self.reel[0][2].size if self.reel else 0
+
+    def fitting(self) -> int:
+        """The biggest size whose every frame fits, with a line under it (the smallest, if none does)."""
+        width, height = self.content_size
+        found = clips(self.key)
+        fit = [size for size in clip_sizes(self.key)
+               if size <= 2 * (height - 1) and all(at_size(sized, size).frames[0].width <= width
+                                                   for sized in found.values())]
+        return fit[-1] if fit else clip_sizes(self.key)[0]
+
+    def build(self) -> None:
+        found = clips(self.key)
+        size = self.wanted or self.fitting()
+        order = [(name, times) for name, times in FIGHT if name in found] if self.clip == "all" else [(self.clip, 1)]
+        self.reel, self.ends, self.texts, self.shown, end = [], [], {}, -1, 0.0
+        for name, times in order:
+            clip = at_size(found[name], size)
+            for _ in range(times):
+                for n in range(len(clip.frames)):
+                    end += 1 / clip.fps
+                    self.reel.append((name, n, clip))
+                    self.ends.append(end)
+        if self.clip not in ("all", "idle"):
+            self.ends[-1] += HOLD
+
+    def tick(self) -> None:
+        width, height = self.content_size
+        if not self.key or not width or not height or not self.is_on_screen:
+            return
+        if not self.reel:
+            self.build()
+        index = min(bisect.bisect_right(self.ends, (time.monotonic() - self.started) % self.ends[-1]),
+                    len(self.reel) - 1)
+        if index == self.shown:
+            return
+        self.shown = index
+        if index not in self.texts:
+            name, n, clip = self.reel[index]
+            caption = f"{name}  {n + 1}/{len(clip.frames)}" + ("  lands" if name == "entrance" and n == clip.land
+                                                              and clip.land else "")
+            self.texts[index] = Text.assemble(image_text(clip.frames[n]), "\n",
+                                              (caption.center(clip.frames[n].width), DIM), no_wrap=True,
+                                              overflow="crop")
+        self.picture = self.texts[index]
+        self.refresh()
+
+    def render(self) -> Text:
+        return self.picture
+
+
+class ThreeDTab(TableTab):
+    """Everything drawn in 3D: the bosses' clips, made in Blender (spikes/goblin3d) and played as made, and every
+    item's model, drawn as you watch and turned however you like (ptg.model3d), as the pack's "Turn it over" does."""
+
+    columns = ("Thing", "Is", "Made", "Moves", "Size")
+    BINDINGS = [Binding("left", "step(-1)", show=False, priority=True),
+                Binding("right", "step(1)", show=False, priority=True),
+                Binding("space", "spin", show=False, priority=True)]
+    chosen_clip, chosen_size = "all", 0  # what a boss plays, and at what size (0: the biggest that fits)
+
+    def compose(self) -> ComposeResult:
+        yield Static("", id="three-d-controls", classes="debug-toolbar")
+        with Horizontal(classes="debug-split"):
+            yield self.make_table()
+            with Vertical(classes="debug-detail"):
+                yield ModelView(id="three-d-model")
+                yield ClipView(id="three-d-clip")
+                with VerticalScroll(id="three-d-about"):
+                    yield Static("", classes="debug-info")
+
+    def rows(self):
+        self.content = load_content()
+        self.things: dict[str, str] = {}
+        for m in self.content.monsters.values():
+            if clips(m.key):
+                self.things[m.key] = "boss"
+                sizes = clip_sizes(m.key)
+                yield m.key, [Text(m.name, style="bold"), "boss" if m.boss else "monster", "Blender clips",
+                              plural(len(clips(m.key)), "clip"), f"{sizes[0]}-{sizes[-1]} px"]
+        for i in self.content.items.values():
+            if model3d.available(i.key):
+                self.things[f"item_{i.key}"] = "item"
+                model = model3d.load(i.key)
+                yield f"item_{i.key}", [Text(i.name, style="bold"), i.kind,
+                                        Text(model.made or "?", style=WARN if model3d.stale(i.key) else ""),
+                                        "still" if model.frames == 1 else f"{model.frames} frames",
+                                        size(Path(str(model3d.path_of(i.key))))]
+
+    @property
+    def is_item(self) -> bool:
+        return self.things.get(self.current) == "item"
+
+    def show(self, key: str) -> None:
+        self.current = key
+        model, clip = self.query_one(ModelView), self.query_one(ClipView)
+        model.display, clip.display = self.is_item, not self.is_item
+        if self.is_item:
+            model.show(key.removeprefix("item_"))
+            info = self.item_info(key.removeprefix("item_"))
+        else:
+            if self.chosen_clip not in clip_names(key):
+                self.chosen_clip = "all"
+            clip.play(key, self.chosen_clip, self.chosen_size)
+            info = self.boss_info(key)
+        self.query_one(".debug-info", Static).update(info)
+        self.controls()
+
+    def item_info(self, key: str) -> Group:
+        item, model = self.content.item(key), model3d.load(key)
+        faces = sum(len(part.faces) for part in model.parts)
+        start = time.perf_counter()
+        for turn in range(3):
+            model3d.render(model, turn, turn * 40, size=64)
+        took = (time.perf_counter() - start) / 3 * 1000
+        if not model.sprite:
+            drawn = Text("not made from it, so it can be drawn again without it", style=DIM)
+        elif model3d.stale(key):
+            drawn = Text(f"drawn again since: make it again (uv run python spikes/goblin3d/item_model.py {key})",
+                         style=WARN)
+        else:
+            drawn = Text("made from it as it's drawn now", style=GOOD)
+        rows = [("Made", MADE.get(model.made, model.made or "it doesn't say")), ("Its sprite", drawn),
+                ("Parts", f"{plural(len(model.parts), 'part')}, {plural(faces, 'face')}"),
+                ("Moves", "no: it's still" if model.frames == 1 else f"{model.frames} frames at {model.fps} a second"),
+                ("File", f"models/{key}.json, {size(Path(str(model3d.path_of(key))))}"),
+                ("Draws in", f"{took:.1f} ms a frame, 64 pixels across")]
+        return Group(Text.assemble((item.name, "bold #4cff8a"), (f"  {key}", DIM)), pairs(rows),
+                     Text("\nDrag it round, or ← →; space stops it turning or starts it again; the mouse wheel zooms. "
+                          "Enter turns it over in a window, as the pack does.", style=DIM))
+
+    def boss_info(self, key: str) -> Group:
+        m, found = self.content.monster(key), clips(key)
+        rows = []
+        for name in clip_names(key):
+            clip = found[name][-1]
+            rows.append((name, f"{len(clip.frames)} frames, {len(clip.frames) / clip.fps:.1f} s at {clip.fps:g} a "
+                               "second" + (f"; the feet land on frame {clip.land + 1}" if clip.land else "")))
+        rows += [("Sizes", listed(f"{n} px" for n in clip_sizes(key))),
+                 ("On the stage", f"at {CLIP_FPS} frames a second at most (here, as made)"),
+                 ("Made", "in Blender, from its sprite (spikes/goblin3d, and its README)")]
+        return Group(Text.assemble((m.name, "bold #ff4b4b"), (f"  {key}  ", DIM), ("boss" if m.boss else "", WARN)),
+                     pairs(rows), Text("\n← → or a click picks the clip; space or Enter plays it from the start. "
+                                       "Front view only: the bosses are made to be seen from the front.", style=DIM))
+
+    def controls(self) -> None:
+        def link(words: str, verb: str, value: object = "", on: bool = False) -> str:
+            return f"[reverse]{words}[/]" if on else f"[@click=screen.three_d('{verb}', '{value}')]{words}[/]"
+
+        if self.is_item:
+            line = (f"Turn:  {link('◀', 'turn', 'left')}  {link('▶', 'turn', 'right')}  ·  {link('spin', 'spin')}  ·  "
+                    f"{link('from the front', 'front')}  ·  {link('in a window', 'open')}")
+        else:
+            plays = "  ".join(link(name, "clip", name, name == self.chosen_clip)
+                              for name in ["all", *clip_names(self.current)])
+            sizes = "  ".join(link(words, "size", n, n == self.chosen_size)
+                              for words, n in [("fits", 0), *[(str(n), n) for n in clip_sizes(self.current)]])
+            line = f"Play:  {plays}      Size:  {sizes}"
+        self.query_one("#three-d-controls", Static).update(line)
+
+    def act(self, verb: str, value: str = "") -> None:
+        """What a link in the toolbar does."""
+        if verb == "turn":
+            self.action_step(-1 if value == "left" else 1)
+        elif verb == "spin":
+            self.action_spin()
+        elif verb == "front":
+            view = self.query_one(ModelView)
+            view.reset()
+            view.spinning = False
+        elif verb == "open":
+            self.open()
+        elif verb == "clip":
+            self.chosen_clip = value
+            self.show(self.current)
+        elif verb == "size":
+            self.chosen_size = int(value)
+            self.show(self.current)
+
+    def action_step(self, step: int) -> None:
+        """An item turns; a boss plays its clip before or after."""
+        if not self.current:
+            return
+        if self.is_item:
+            view = self.query_one(ModelView)
+            view.spinning, view.swing = False, 0.0
+            view.yaw -= step * TURN
+            return
+        names = ["all", *clip_names(self.current)]
+        self.chosen_clip = names[(names.index(self.chosen_clip) + step) % len(names)]
+        self.show(self.current)
+
+    def action_spin(self) -> None:
+        """An item stops turning, or starts again; a boss plays its clip from the start."""
+        if self.is_item:
+            view = self.query_one(ModelView)
+            view.spinning, view.swing = not view.spinning, 0.0
+        elif self.current:
+            self.query_one(ClipView).play(self.current, self.chosen_clip, self.chosen_size)
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        event.stop()
+        if self.is_item:
+            self.open()
+        else:
+            self.action_spin()
+
+    def open(self) -> None:
+        key = self.current.removeprefix("item_")
+        self.app.push_screen(ModelScreen(key, self.content.item(key).name))
+
+
 # --- the screen ---------------------------------------------------------------------------------------------------
 
 TABS = {"overview": ("Overview", OverviewTab), "monsters": ("Monsters", MonstersTab), "items": ("Items", ItemsTab),
         "art": ("Art", ArtTab), "sounds": ("Sounds", SoundsTab), "story": ("Story", StoryTab),
         "state": ("State", StateTab), "models": ("Models", ModelsTab), "log": ("Log", LogTab),
-        "test": ("Test rooms", TestRoomsTab)}
+        "test": ("Test rooms", TestRoomsTab), "3d": ("3D", ThreeDTab)}
+KEYS = (*"1234567890", "minus")  # each tab's key, in turn
 
 
 class DebugScreen(Panel):
     BINDINGS = [Binding("escape,f12", "close", "Close"), Binding("r", "reload", "Refresh", show=False),
-                *[Binding(n, f"tab('{key}')", show=False) for n, key in zip("1234567890", TABS)]]
+                *[Binding(n, f"tab('{key}')", show=False) for n, key in zip(KEYS, TABS)]]
     size_class = "full"
 
     def __init__(self, tab: str = "overview") -> None:
@@ -1178,7 +1467,7 @@ class DebugScreen(Panel):
     def compose(self) -> ComposeResult:
         with Vertical(classes="panel-box debug-box") as box:
             box.border_title = "Debug"
-            box.border_subtitle = "1-9, 0 tabs · r refresh · Esc close"
+            box.border_subtitle = "1-9, 0, - tabs · r refresh · Esc close"
             with TabbedContent(initial=f"debug-{self.first}", id="debug-tabs"):
                 for key, (title, tab) in TABS.items():
                     with TabPane(title, id=f"debug-{key}"):
@@ -1211,3 +1500,6 @@ class DebugScreen(Panel):
 
     def action_pose(self, pose: str) -> None:
         self.query_one(ArtTab).set_pose(pose)
+
+    def action_three_d(self, verb: str, value: str = "") -> None:
+        self.query_one(ThreeDTab).act(verb, value)

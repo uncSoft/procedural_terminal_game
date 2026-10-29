@@ -3,7 +3,8 @@ mouse or the keys. Drag it round, and let go with a flick to set it spinning; th
 or away; space starts or stops it turning on its own; + and - zoom, or the mouse wheel; r puts it back.
 
 The pack opens one on anything that has a model (t, or the "Turn it over" under its words: see panels.InventoryScreen):
-every item with a sprite has one, made from it (spikes/goblin3d/item_model.py and its README).
+every item with a sprite has one, made from it (spikes/goblin3d/item_model.py and its README). The debug screen's 3D
+tab shows every one turning, the view without the window (ui/debug.py).
 
     uv run python -m ptg.ui.model_view jar_o_light     # just the window, without a game
 """
@@ -43,32 +44,44 @@ class ModelView(Widget):
     ModelView { width: 100%; height: 1fr; content-align: center middle; }
     """
 
-    def __init__(self, key: str, **kwargs) -> None:
+    def __init__(self, key: str = "", **kwargs) -> None:
         super().__init__(**kwargs)
-        self.model = model3d.load(key)
+        self.model: model3d.Model | None = None
         self.spinning = True
         self.swing = 0.0  # degrees a second it's still turning from a flick of the mouse
         self.dragging = False
         self.moved = 0.0  # when the mouse last turned it
-        self.started = self.last = time.monotonic()
+        self.last = time.monotonic()
         self.picture = Text()
+        if key:
+            self.show(key)
+
+    def show(self, key: str) -> None:
+        """Another model in it (the debug screen's 3D tab shows one after another), from the front, turning."""
+        self.model = model3d.load(key)
+        self.started = time.monotonic()
+        self.spinning = True
         self.reset()
+        if self.is_mounted:
+            self.tick()
 
     def reset(self) -> None:
         self.yaw, self.pitch, self.zoom, self.swing = 0.0, self.model.pitch, 1.0, 0.0
 
     def on_mount(self) -> None:
-        self.set_interval(1 / self.model.fps, self.tick)
+        self.set_interval(1 / (self.model.fps if self.model else 24), self.tick)
         self.tick()
 
     def tick(self) -> None:
         now = time.monotonic()
         step, self.last = now - self.last, now
+        if self.model is None:
+            return
         if not self.dragging:
             self.yaw += (SPIN if self.spinning else 0.0) * step + self.swing * step
             self.swing *= math.exp(-FRICTION * step)
         width, height = self.content_size
-        if not width or not height:  # not laid out yet
+        if not width or not height or not self.is_on_screen:  # not laid out yet, or out of sight (another tab)
             return
         side = max(8, min(width, 2 * height))  # square, in pixels: two to a row of cells
         side -= side % 2

@@ -27,6 +27,7 @@ of the sprite's pixels that stay where they were drawn (a sparkle beside a potio
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import sys
@@ -87,6 +88,8 @@ class Model:
     outline: dict  # an outline's colours, lit and shade, and how far down the lit side goes ("upper")
     paints: list
     parts: list
+    made: str = ""  # how: a way of spikes/goblin3d/item_model.py's (slab, puffed, turned, ...), or blender
+    sprite: str = ""  # the sprite it was made from, as a stamp of its file (a redrawn one: make it again)
 
 
 def path_of(key: str):
@@ -96,6 +99,20 @@ def path_of(key: str):
 def available(key: str) -> bool:
     """Whether there's a model of this thing to turn over."""
     return path_of(key).is_file()
+
+
+def keys() -> list[str]:
+    """Everything there's a model of."""
+    folder = resources.files("ptg") / "data" / FOLDER
+    return sorted(p.name[:-5] for p in folder.iterdir() if p.name.endswith(".json")) if folder.is_dir() else []
+
+
+def stale(key: str) -> bool:
+    """Whether the sprite a model was made from has been drawn again since: it wants making again
+    (uv run python spikes/goblin3d/item_model.py <item>). One made another way (in Blender) never is."""
+    made_from = load(key).sprite
+    drawn = resources.files("ptg") / "data" / "sprites" / f"item_{key}.png"
+    return bool(made_from) and drawn.is_file() and hashlib.sha1(drawn.read_bytes()).hexdigest()[:12] != made_from
 
 
 @lru_cache(maxsize=8)
@@ -123,7 +140,8 @@ def load(key: str) -> Model:
     length = math.sqrt(sum(c * c for c in light))
     return Model(name=data["name"], frames=data["frames"], fps=data["fps"], span=data["span"], pitch=data["pitch"],
                  centre=tuple(data["centre"]), light=tuple(c / length for c in light), lit_from=data["lit_from"],
-                 outline=data.get("outline", {}), paints=paints, parts=parts)
+                 outline=data.get("outline", {}), paints=paints, parts=parts, made=data.get("made", ""),
+                 sprite=data.get("sprite", ""))
 
 
 # -- drawing -------------------------------------------------------------------------------------------------------

@@ -163,7 +163,8 @@ def sparkles(strip: list[Image.Image], centre_x: float) -> list[dict]:
 def save(key: str, parts: list, paints: Paints, centre: tuple, span: float, pitch: float, count: int = 1,
          outline: dict | None = None) -> dict:
     drawn_from = hashlib.sha1((SPRITES / f"item_{key}.png").read_bytes()).hexdigest()[:12]
-    model = {"name": load_content().item(key).name, "sprite": drawn_from,  # (a redrawn sprite: make it again)
+    model = {"name": load_content().item(key).name, "made": way_of(key),
+             "sprite": drawn_from,  # (a redrawn sprite: make it again)
              "frames": count, "fps": 24, "span": round(span, 2),
              "pitch": pitch, "centre": [round(c, 3) for c in centre], "light": LIGHT, "lit_from": LIT_FROM,
              **({"outline": outline} if outline else {}), "paints": dict(paints), "parts": parts}
@@ -535,6 +536,10 @@ def catalogue() -> dict:
     """How each item is made: its way, and anything else it says (a slab's thickness, how far it's looked down at)."""
     listed = tomllib.loads(CATALOGUE.read_text())
     return {key: ({"way": entry} if isinstance(entry, str) else dict(entry)) for key, entry in listed.items()}
+
+
+def way_of(key: str) -> str:
+    return (catalogue().get(key) or {"way": "slab"})["way"]
 
 
 def make(key: str) -> dict:

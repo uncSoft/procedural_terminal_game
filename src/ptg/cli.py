@@ -34,7 +34,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--name", help="your character's name")
     parser.add_argument("--event", metavar="ID", help="fire a story event right after the opening (to test it)")
     parser.add_argument("--debug", action="store_true",
-                        help="open the debug screen: the library, art, sounds, story, state and a model check (F12)")
+                        help="open the debug screen: the library, art, 3D, sounds, story, state and a model check (F12)")
     parser.add_argument("--test-room", metavar="WHO",
                         help="start next door to someone (lenny, swoogy, king_mouse, shop, shiny_shop, a boss, any "
                              "monster) in a run that counts for nothing; `--test-room list` for them all")

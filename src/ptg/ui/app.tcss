@@ -1410,6 +1410,12 @@ LogTab .debug-detail {
     margin-bottom: 1;
 }
 
+#three-d-about {
+    height: auto;
+    max-height: 10;
+    margin-top: 1;
+}
+
 #state-text, #state-tree {
     width: 1fr;
     height: 1fr;

@@ -457,7 +457,7 @@ def live() -> dict:
                       "paint": paint(WHITE)})
     light = kit.LIGHT
     model = {
-        "name": "Jar o' Light", "frames": FRAMES, "fps": kit.FPS, "span": SPAN, "pitch": ELEVATION,
+        "name": "Jar o' Light", "made": "blender", "frames": FRAMES, "fps": kit.FPS, "span": SPAN, "pitch": ELEVATION,
         "centre": [0, kit.GROUND - MIDDLE, 0],  # what it turns about and the view centres on: the jar's middle
         "light": [round(light.x, 3), round(light.y, 3), round(-light.z, 3)], "lit_from": kit.LIT_FROM,
         "outline": {"lit": PALE, "shade": SLATE, "upper": 0.62},

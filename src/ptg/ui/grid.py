@@ -710,6 +710,11 @@ class GridScreen(GameScreen):
                 *[Binding(key, f"arrow('{way}')", show=False, priority=True)
                   for key, way in (("up", "north"), ("down", "south"), ("left", "west"), ("right", "east"))]]
 
+    def story_frame(self) -> Widget:
+        """The box round the story and the command line: its border is the story's frame here (the story itself has
+        none), so it's the one a roll's colour lights up."""
+        return self.query_one("#story-box")
+
     def __init__(self, game, fresh: bool) -> None:
         super().__init__(game, fresh)
         self.grid: Grid | None = None

@@ -735,3 +735,27 @@ async def test_an_arrow_always_answers_and_a_perk_left_waiting_comes_back_with_i
         said.clear()
         screen.action_go(next(iter(state.room.exits)))
         assert said and said[0].startswith("Not with the") and "flee" in said[0]
+
+
+async def test_a_rolls_colour_lights_the_storys_frame_and_adds_none_inside_it():
+    """The story's frame is the box round it here (with the command line): a roll's colour lights that frame up, as
+    it lights the story's own border in the other layouts. Lighting the story itself gave it a frame of its own,
+    inside the frame, that blinked on and off with every roll and shifted the words in and out."""
+    from ptg.dice import Roll
+    from ptg.events import Event
+
+    app = grid_app()
+    async with app.run_test(size=(160, 48)) as pilot:
+        screen = await into_a_run(app, pilot)
+        game = screen.game
+        put_monster(game.state, game.content, key="orc", hp=30)
+        story, frame = screen.query_one("#story"), screen.query_one("#story-box")
+        before = story.content_region
+        hurt = Event("monster_hit", "", dice=Roll("Orc attacks", "monster", [16], 16, dc=11, success=True),
+                     data={"damage": 4})
+        game.state.player.hp -= 4
+        await screen._roll_feedback([hurt], game.state.player.hp + 4)
+        await pilot.pause()
+        assert screen.story_frame() is frame and frame.has_class("tone-bad") and not story.has_class("tone-bad")
+        assert story.content_region == before  # (no frame inside it: nothing shifts)
+        assert str(frame.styles.border_top[1]) != str(screen.query_one("#map").styles.border_top[1])  # (lit)

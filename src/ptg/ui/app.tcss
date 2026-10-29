@@ -892,30 +892,37 @@ DiceScreen {
     text-style: bold reverse;
 }
 
-/* How a roll went (see ui/effects.py): the dice box keeps its colour, the story panel pulses it. */
-#dice-box.tone-great, #story.tone-great, #map.tone-great {
+/* How a roll went (see ui/effects.py): the dice box keeps its colour, the story's frame pulses it. The frame is the
+   story's own border, or in the grid layout the box round it (GameScreen.story_frame): only ever recoloured, never a
+   second border inside the first (it blinked on and off with every roll, shifting the words in and out). */
+#dice-box.tone-great, #story.tone-great, #map.tone-great, #story-box.tone-great {
     border: double $warning;
     border-title-color: $warning;
 }
 
-#dice-box.tone-good, #story.tone-good {
+#dice-box.tone-good, #story.tone-good, #story-box.tone-good {
     border: double $success;
     border-title-color: $success;
 }
 
-#dice-box.tone-neutral, #story.tone-neutral {
+#dice-box.tone-neutral, #story.tone-neutral, #story-box.tone-neutral {
     border: double #c8c8e0;
     border-title-color: #c8c8e0;
 }
 
-#dice-box.tone-bad, #story.tone-bad {
+#dice-box.tone-bad, #story.tone-bad, #story-box.tone-bad {
     border: double $error;
     border-title-color: $error;
 }
 
-#dice-box.tone-awful, #story.tone-awful {
+#dice-box.tone-awful, #story.tone-awful, #story-box.tone-awful {
     border: double #ff2a6d;
     border-title-color: #ff2a6d;
+}
+
+GridScreen #story.tone-great, GridScreen #story.tone-good, GridScreen #story.tone-neutral, GridScreen #story.tone-bad,
+GridScreen #story.tone-awful {
+    border: none;  /* (its frame is #story-box's) */
 }
 
 /* --- panels (ui/panels.py Panel) ---

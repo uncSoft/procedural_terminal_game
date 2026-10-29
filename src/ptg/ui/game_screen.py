@@ -1141,13 +1141,19 @@ class GameScreen(Screen):
 
     # --- feedback ---
 
+    def story_frame(self) -> Widget:
+        """The box whose border frames the story, the one a roll's colour lights up: the story itself here (and in
+        the tabs layout); in the grid layout, the box round it, with the command line (GridScreen). Lighting a
+        widget with no border of its own gave it one, a frame inside the frame that blinked on and off with each
+        roll, shifting the words in and out."""
+        return self.query_one("#story")
+
     async def _roll_feedback(self, events: list[Event], hp_before: int, gold_before: int | None = None) -> None:
         """How the turn went, at a glance: the story's border lights up in its colour (and blinks and shakes for a
         natural 20 or 1), damage rises off the monster, and your hearts show what you lost or gained."""
-        story = self.query_one("#story")
         how = overall(events)
         if how:
-            effects.pulse(story, how, blinks=3 if how in (GREAT, AWFUL) else 1)
+            effects.pulse(self.story_frame(), how, blinks=3 if how in (GREAT, AWFUL) else 1)
         hits = [e for e in events if e.kind == "hit" and e.data.get("damage")]
         if hits:
             crit = any(e.dice and e.dice.crit for e in hits)
@@ -1172,7 +1178,7 @@ class GameScreen(Screen):
         if gold_before is not None and player.gold > gold_before:
             sound.play("coin")
         if how in (GREAT, AWFUL):
-            await self._shake(story)
+            await self._shake(self.story_frame())  # (the frame that lit up, and all in it)
 
     async def _purse_feedback(self, before: dict[str, int]) -> None:
         """Gold, bombs or keys gained: their counters light up on the status bar, the gain rises off them, and it
@@ -1389,10 +1395,9 @@ class GameScreen(Screen):
         if found is None:
             return
         self.set_timer(0.35, lambda: sound.play("secret_room"))
-        story = self.query_one("#story", VerticalScroll)
         banner = self.add_line(secret_banner(0), "secret-banner", before=narration)
         self._follow()
-        effects.pulse(story, GREAT, blinks=3)
+        effects.pulse(self.story_frame(), GREAT, blinks=3)
         effects.pulse(self.query_one("#map"), GREAT, blinks=3)
         room = self.game.state.rooms[found.data["room"]]
         self.notify(f"{room.name}, sealed until now.", title="✧ Secret room found", timeout=6)
@@ -1416,11 +1421,10 @@ class GameScreen(Screen):
         keeper = self.game.content.monster(room.shop.keeper).name
         sound.play("shop_shiny" if shiny else "shop")
         words, colour = (keeper.upper(), "#ffd166") if shiny else ("SHOP", "#4cff8a")
-        story = self.query_one("#story", VerticalScroll)
         banner = self.add_line(secret_banner(0, words, colour), "secret-banner" if shiny else "secret-banner shop",
                                before=narration)
         self._follow()
-        effects.pulse(story, GREAT if shiny else GOOD, blinks=3 if shiny else 2)
+        effects.pulse(self.story_frame(), GREAT if shiny else GOOD, blinks=3 if shiny else 2)
         self.notify(f"{keeper} has her wares out.", title="★ A rare shop!" if shiny else "¤ A shop", timeout=6)
         for frame in range(1, len(SPARKS) * (3 if shiny else 2)):
             await asyncio.sleep(0.09)

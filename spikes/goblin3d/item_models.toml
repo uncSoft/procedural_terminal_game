@@ -1,0 +1,76 @@
+# How each item's 3D model is made from its sprite (item_model.py makes them; README.md says how to add one).
+#
+#   slab     flat things, given depth: blades, keys, cards, sheets  (thick: how many pixels thick, 2 if it doesn't say)
+#   puffed   soft, round, lumpy things, as a relief thicker toward the middle: food, clothes, skulls, creatures
+#   turned   round, upright things, turned on a lathe from the sprite's rows: bottles, pots, bombs, torches
+#   jar      a glass jar with something in it: the glass as its outline, what's inside floating, facing you
+#   ring, dice, cheese   shaped by hand in the sprite's colours, where the sprite can't say the shape
+#   blender  made in Blender by its own build script (the Jar o' Light: build_jar.py, "live")
+#
+# Any of them can also say `pitch`: how far down it's looked at to begin with, in degrees.
+# An item that isn't listed is made as a slab.
+
+a_ring_probably_importan = "ring"
+adamant_stewpot = "turned"
+almanac_of_future_scores = { way = "slab", thick = 3 }
+bag_of_marbles = "puffed"
+basilisk_omelette = "puffed"
+bloodbath = "slab"
+bomb = "turned"
+bomb_fairy = "jar"
+bottle_o_baby = "jar"
+bubble_wrap = { way = "slab", thick = 1.5 }
+chain_shirt = "puffed"
+cheese_wheel = "cheese"
+davy_j_skull = "puffed"
+firebird_plume = { way = "slab", thick = 1.5 }
+glow_stick = "slab"
+greater_healing_potion = "turned"
+hallowed_hand_grenade = "puffed"
+hand_axe = "slab"
+hard_hat = "turned"
+healing_potion = "turned"
+holy_water = "turned"
+jar_o_light = "blender"
+king_mouses_vest = "puffed"
+laser_pointer = "slab"
+lava_rubies = "jar"
+leather_jerkin = "puffed"
+lenny_s_bad_tooth = "puffed"
+lenny_s_good_tooth = "puffed"
+lucky_charm = "puffed"
+magical_cards = { way = "slab", thick = 1 }
+mama_s_shillelagh = "slab"
+moonsilver_vest = "puffed"
+mysterious_floppy_disk = { way = "slab", thick = 1.5 }
+oil_flask = "turned"
+pickle = "puffed"
+pizza_rat = "puffed"
+pure = "turned"
+reliquary_key = "slab"
+rubber_chicken = "puffed"
+rubber_duck = "puffed"
+rusty_sword = "slab"
+scale_hauberk = "puffed"
+second_breakfast = "puffed"
+seed_key = "slab"
+shed_snakeskin = "puffed"
+silvered_blade = "slab"
+small_key = "slab"
+smoke_bomb = "puffed"
+snitch = "slab"
+stale_bread = "puffed"
+superior_healing_potion = "puffed"
+suspicious_sweetroll = "puffed"
+swoogy_s_diaper = "puffed"
+sword_still_in_the_stone = "puffed"
+ten_foot_pole = { way = "slab", thick = 1.5 }
+the_butcher_s_cleaver = "slab"
+the_compensator = "slab"
+torch = "turned"
+unusual_butter = "puffed"
+wall_chicken = "puffed"
+war_pick = "slab"
+warren_key = "slab"
+weighted_dice = "dice"
+x_64gb_ddr5_ram_kit = { way = "slab", thick = 1.5 }

@@ -85,3 +85,58 @@ game-size frames, so `gallery.py` and `play.py` work without Blender.
 - A body leaning into a strike rolls the face with it: counter-roll the head.
 - Later bosses reuse the King's helpers (`build_king`: `P`, `animate`, `build_rig`..., setting `kit.TAG`),
   `build_mouse.blend`, and `inflate_mouse`'s `surface`, `decal`, `cells` and `catmull`.
+
+## Items, and drawing a model live (a spike, on branch spike/terminal-3d)
+
+The Jar o' Light (`build_jar.py`) is a test of an item you can turn over in the game. It's built straight in Blender
+(a turned glass jar and lid, eight bugs flying round inside, sparks) and seen from every side, unlike the bosses.
+Its glass is part see-through and part glass that lets light through, so EEVEE, Cycles and Solid view all see the bugs
+through it. For frames, `build_jar.py frames` renders 32 turns of its loop, leaving the see-through glass out, and
+`reduce_jar.py` shrinks them and draws the glass's outline as the sprite does: pale down its lit side, slate elsewhere.
+`play.py jar_o_light/frames_64 --spin` turns it in the terminal.
+
+The game can also draw it live, turning however you turn it: `build_jar.py live` writes a lighter copy of the model,
+with its animation baked a frame at a time, to `src/ptg/data/models/jar_o_light.json`. `ptg/model3d.py` draws that
+into pixels from any angle, in the sprite's own colours and with the glass's outline, in about a millisecond a frame
+with only Pillow, and the game shows the pixels as half blocks like any sprite. In the pack, `t` (or "Turn it over")
+opens it in a window, `ui/model_view.py`: drag it, arrows, space to spin, + and - to zoom, r to reset.
+
+    uv run python -m ptg.ui.model_view jar_o_light     # just the window, without a game
+    uv run python -m ptg.model3d jar_o_light 96        # how long a frame takes, and a few saved to look at
+
+### Every item's model, and a new item's
+
+Every item with a sprite has a model the game draws live, made straight from its sprite by `item_model.py` (no
+Blender), in the sprite's own colours. `item_models.toml` lists how each is made, one line an item:
+
+| Way | For | What it does |
+|---|---|---|
+| `slab` | flat things: blades, keys, cards, sheets | the drawing given depth, every pixel a block (as Minecraft draws what's in your hand); `thick` sets how many pixels (2) |
+| `puffed` | soft, round, lumpy things seen from the side: food, clothes, skulls, creatures | a relief, thicker toward the middle in steps of a pixel |
+| `turned` | round, upright things: bottles, pots, bombs, torches | turned on a lathe from the sprite's rows, each row as wide and shaded as drawn, so the shine stays on the lit side as it turns; what's drawn on its front is painted on |
+| `jar` | a glass jar with something in it | the glass as its outline (pale down its lit side), the lid turned, what's in it floating inside, facing you |
+| `ring`, `dice`, `cheese` | where the sprite can't say the shape | shaped by hand in `item_model.py`, in the sprite's colours |
+| `blender` | the Jar o' Light | made by its own Blender script (`build_jar.py live`) |
+
+Whichever way, small things drawn apart from it (a sparkle, steam, a speech bubble) stay where they were drawn, beside
+it, however it's turned, and twinkle as the sprite's frames do. An item that isn't listed is made as a slab; an item
+with no model has no "Turn it over" in the pack.
+
+**For a new item** (or one drawn again):
+
+1. Its sprite is in `src/ptg/data/sprites/item_<key>.png`, as for any item (the Monster & Item Maker puts it there).
+2. Pick its way and add a line for it to `item_models.toml`, such as `pickle = "puffed"` or
+   `scroll = { way = "slab", thick = 1 }`. Any line can also set `pitch`, how far down it's looked at to begin with.
+3. Make it: `uv run python spikes/goblin3d/item_model.py <key>`. It writes `src/ptg/data/models/<key>.json`.
+4. Look at it turning: `uv run python -m ptg.ui.model_view <key>` (drag it, the arrows, space), or in the game's
+   debug screen (`ptg --debug`, or F12, then the 3D tab: every item's model and the bosses' clips, with how each was
+   made and whether its sprite was drawn again since), or every model beside its sprite:
+   `uv run python spikes/goblin3d/item_model.py --sheet models.png`.
+5. If it looks wrong, try another way. If none fits (the sprite is drawn from above, or the thing is a shape no drawing
+   gives), shape it by hand: a function in `item_model.py` like `dice` or `cheese`, in the sprite's colours, listed in
+   `WAYS` and named in its line.
+6. Run `uv run pytest tests/test_model3d.py`: every model must stay in its sprite's colours, and be made from the sprite
+   as it's drawn now (each model remembers which; a redrawn sprite fails until its model is made again).
+7. Commit its line and its `.json` with the sprite.
+
+To make every model again (after changing how a way works): `uv run python spikes/goblin3d/item_model.py all`.

@@ -943,6 +943,16 @@ Panel {
     width: 64;
 }
 
+.panel-box.model-box {  /* a thing to turn over (ui/model_view.py): its picture, as big as fits, and the keys */
+    padding: 0 1;
+}
+
+#model-hint {
+    width: 100%;
+    height: auto;
+    content-align: center middle;
+}
+
 .panel-box.parchment {  /* a page of parchment, written in ink (the journal: ui/panels.py JournalScreen) */
     background: #ead4aa;
     color: #3e2731;

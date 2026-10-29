@@ -23,7 +23,7 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Label, ListItem, ListView, Static
 
-from .. import config, glossary, interactions, inventory, layout, npcs, rules, sheet, sound
+from .. import config, glossary, interactions, inventory, layout, model3d, npcs, rules, sheet, sound
 from ..content import Content, Theme
 from ..game import Game
 from ..meta import epithet
@@ -335,7 +335,8 @@ class InventoryScreen(Panel):
                 Binding("right", "move(1)", show=False, priority=True),
                 Binding("up", "move_rows(-1)", show=False, priority=True),
                 Binding("down", "move_rows(1)", show=False, priority=True),
-                Binding("enter", "use", "Use", priority=True)]
+                Binding("enter", "use", "Use", priority=True),
+                Binding("t", "turn_over", "Turn it over", show=False, priority=True)]
     size_class = "wide"
     panel_name = "inventory"
 
@@ -446,6 +447,8 @@ class InventoryScreen(Panel):
                     "consumable": "Throw it in a fight to get away." if item.escape else
                     "You're at full health." if player.hp >= player.max_hp else "Not now."}
             box.mount(Static(Text(idle.get(item.kind, ""), style=DIM)))
+        if art.sprites and model3d.available(key):  # a model of it to turn over (ui/model_view.py)
+            box.mount(Clickable(Text("↻ Turn it over  (t)", style="#5fe3ff"), "screen.turn_over", classes="inv-verb"))
 
     def action_move(self, step: int) -> None:
         tiles = list(self.query(ItemTile))
@@ -453,6 +456,15 @@ class InventoryScreen(Panel):
 
     def action_move_rows(self, rows: int) -> None:
         self.action_move(rows * self.columns)
+
+    def action_turn_over(self) -> None:
+        """t: the picked thing's model, in a window to turn it over in, if it has one (ui/model_view.py)."""
+        key = self.items[self.current][0]
+        if self.app.screen is self and self.game.config.art == "sprites" and model3d.available(key):
+            from .model_view import ModelScreen  # (it builds on the panels here)
+
+            sound.play("select")
+            self.app.push_screen(ModelScreen(key, self.game.content.item(key).name))
 
     @staticmethod
     def default(buttons: list[Action]) -> Action | None:

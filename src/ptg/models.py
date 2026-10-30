@@ -17,6 +17,7 @@ DELTA: dict[str, tuple[int, int]] = {"north": (0, -1), "south": (0, 1), "east": 
 # §2); 8 is for anyone who grinds, and for the longer runs to come.
 LEVEL_XP = [0, 30, 80, 150, 280, 460, 720, 1100]
 FLOORS = 4  # a run: three dungeons, then Norfel (themes.toml)
+DEEPEST = 5  # and once you've beaten Serpentis in any run, on down to the Underbloom under her (meta.start_run)
 DUNGEONS = 3  # the run's first floors, a dungeon each: the last of them has its boss, and the way down behind it
 MAX_FATE = 3
 
@@ -53,6 +54,8 @@ class MonsterState(BaseModel):
     rewarded: bool = False  # talked down already, and paid for it: killing it now pays nothing more
     swings: int = 0  # how many times it's gone for you this fight, hit or miss (a flawless win needs one: combat.STYLES)
     dealt: int = 0  # the damage it's done you this fight
+    statuses: dict[str, int] = Field(default_factory=dict)  # what's on it (statuses.py), and its ticks left
+    place: int = 0  # its place in its fight's line on the stage, left to right (the leader 0: world.party)
 
 
 class Feature(BaseModel):
@@ -72,6 +75,12 @@ class Exit(BaseModel):
     locked: bool = False
     key: str = ""  # what opens it when locked: the dungeon's own key, or "small_key" for a shop's door
     cracked: bool = False  # a shop door one bomb has had a go at: the next one breaks it
+    webbed: bool = False  # sealed with web as thick as a sail (a lair's: world._lair): only fire gets through
+
+    @property
+    def shut(self) -> bool:
+        """No walking through it as it is: locked, or sealed with web."""
+        return self.locked or self.webbed
 
 
 class Ware(BaseModel):
@@ -98,7 +107,8 @@ class Room(BaseModel):
     features: list[Feature] = Field(default_factory=list)
     items: list[str] = Field(default_factory=list)
     left: list[str] = Field(default_factory=list)  # those you put down here yourself: no choice offers them back
-    monster: MonsterState | None = None
+    monster: MonsterState | None = None  # the one you face (of several foes: the one your blows go to)
+    others: list[MonsterState] = Field(default_factory=list)  # the rest of its fight, beside it (combat.foes)
     visited: bool = False
     rested: bool = False
     room_searched: bool = False
@@ -172,6 +182,7 @@ class Player(BaseModel):
     coating: str = ""  # what your weapon's coated in, as a tag its hits count as: "holy", "fire" (interactions.RECIPES)
     coated: int = 0  # hits the coating has left
     statuses: dict[str, int] = Field(default_factory=dict)  # what's afflicting you, and how strongly (statuses.py)
+    timers: dict[str, int] = Field(default_factory=dict)  # ticks left of a status that wears off (statuses.lasts)
     guards: dict[str, int] = Field(default_factory=dict)  # charges against a status: the next ones don't take
     burnt: int = 0  # flames of the torch you're burning that you've spent (light.py): 0, a fresh one
     lit: bool = False  # your torch burning on a dark floor, as you were last told (light.settle)
@@ -260,8 +271,9 @@ class GameState(BaseModel):
 
     @property
     def in_combat(self) -> bool:
-        monster = self.room.monster
-        return monster is not None and monster.hostile and monster.hp > 0
+        """Something here still after you: the one you face, or any of the others in its fight."""
+        room = self.room
+        return any(m is not None and m.hostile and m.hp > 0 for m in [room.monster, *room.others])
 
     @property
     def over(self) -> bool:

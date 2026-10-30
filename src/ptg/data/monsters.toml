@@ -607,3 +607,132 @@ tags = ["vermin", "mimic", "trickster"]
 weak = ["rope", "food"]
 tell = "flings its lid wide open, tongue flapping, and rattles every coin in its belly."
 desc = "A treasure chest that is not a treasure chest. Under the lid are rows of white teeth, two greedy yellow eyes and a long slobbery tongue, and it scuttles sideways on little crab legs. It snaps at anyone who reaches for the lock. Tie its lid shut with a rope or toss it a snack and it forgets all about you. Dungeon cooks say it tastes just like lobster."
+
+# drawn by maker (2026-10-29)
+[monster.sporerat]
+name = "Sporerat"
+hp = 22
+defense = 15
+attack = 6
+damage = "1d8+2"
+xp = 55
+tier = 3
+tags = ["vermin", "beast", "fungus", "spores", "glowing", "poison_immune", "swarm", "thief", "underbloom"]
+weak = ["fire", "food"]
+tell = "The Sporerat's caps flare green and the whole swarm goes silent, then springs."
+desc = "A grey rat from the Ratways that came down too far. Little glowing caps grow from its back, and it never comes alone. Sporerats squeal over anything shiny or tasty and drag it off into the dark; what they steal ends up growing mushrooms too."
+dungeons = ["underbloom"]
+tricks = ["steal"]
+party = ["sporerat"]
+
+# drawn by maker (2026-10-29)
+[monster.the_hollowed]
+name = "The Hollowed"
+hp = 45
+defense = 14
+attack = 7
+damage = "2d6+2"
+xp = 16
+tier = 3
+tags = ["undead", "plant", "fungus", "spores", "glowing", "poison_immune", "underbloom"]
+weak = ["fire", "light"]
+tell = "The Hollowed goes still, its caps flare blue, and it lifts what it died holding."
+desc = "One of the dead from the floors above, drifted down and worn by the fungus. Under the hood there is only one eye left; the other has gone to mushroom. It still carries what it died with, and it still knows how to use it. The glow in its gills pulses slow, like breathing it no longer needs."
+dungeons = ["underbloom"]
+
+# drawn by maker (2026-10-29)
+[monster.the_sporefang_matriarch]
+name = "The Sporefang Matriarch"
+hp = 120
+defense = 16
+attack = 8
+damage = "2d8+4"
+xp = 150
+tier = 4
+tags = ["beast", "fungus", "poison", "spider", "guardian"]
+weak = ["fire", "light"]
+tell = "rears up on its hind legs, fangs spread wide and dripping green venom."
+desc = "A huge purple spider on long, jointed legs, its back striped with glowing green poison markings. Toadstools grow from its shoulder and legs, rooted deep in its shell. Eight yellow eyes watch from the dark, and venom drips slowly from its pale curved fangs. It moves without a sound, raising its back legs before it strikes. It looks like it wants something shiny."
+dungeons = ["underbloom"]
+tricks = ["venom"]
+cry = "screech"
+wants = "a_ring_probably_importan"
+gives = "philter_of_light"
+
+# The Underbloom's boss, the game's first fight against several at once (docs/plans/multi-foe-fights.md): its great
+# cap and the three that grow round it, each with its own health and its own job. Stand-in sprites till JT's.
+[monster.humongous_fungus]
+name = "The Humongous Fungus"
+hp = 50
+defense = 13
+attack = 4
+damage = "2d6"
+xp = 150
+tier = 4
+tags = ["plant", "fungus", "spores", "glowing", "poison_immune", "boss"]
+boss = true
+weak = ["fire", "light"]
+tell = "swells its great cap till it glows white, and every thread in the bed pulls tight under you"
+desc = "The biggest living thing under the world: one fungus, grown through every crack from here to the sea, and this is the cap of it. It's as wide as a house and glows a cold, drowsy blue, and it breathes, slowly, in clouds. Its family grows round it and fights for it. It drank Serpentis's poison for a billion years, and now it has a taste for adventurers."
+dungeons = ["underbloom"]
+party = ["spore_mother", "rot_gill", "puff_mound"]
+
+[monster.spore_mother]
+name = "The Spore Mother"
+hp = 14
+defense = 12
+attack = 1
+damage = "1d2"
+xp = 40
+tier = 4
+tags = ["plant", "fungus", "spores", "glowing", "poison_immune", "guardian"]
+weak = ["fire", "sharp"]
+tell = "puffs up her cap and lowers it at you like a ram"
+desc = "A plump violet toadstool with a soft green glow in her middle, like a lamp in a window. She hums to the others under her breath, and wherever she hums, the hurt ones close up and grow back. She never hurries. She doesn't have to."
+dungeons = ["underbloom"]
+tricks = ["mend"]
+
+[monster.rot_gill]
+name = "The Rot Gill"
+hp = 16
+defense = 12
+attack = 3
+damage = "1d2"
+xp = 40
+tier = 4
+tags = ["plant", "fungus", "poison", "poison_immune", "guardian"]
+weak = ["fire", "salt"]
+tell = "opens every gill at once, and the smell arrives first"
+desc = "A round green frill of gills round a mouth that never stops dripping. What drips is Serpentis's poison, a billion years old and every bit as nasty. Its bite can poison you, and when it opens all its gills, it spits."
+dungeons = ["underbloom"]
+tricks = ["venom", "venom_spit"]
+
+[monster.puff_mound]
+name = "The Puff Mound"
+hp = 14
+defense = 11
+attack = 2
+damage = "1d2"
+xp = 40
+tier = 4
+tags = ["plant", "fungus", "spores", "poison_immune", "guardian"]
+weak = ["fire", "sharp"]
+tell = "swells up and up till its skin squeaks"
+desc = "A puffball as big as a pony, pale and pocked, that wheezes when it moves. Angry, it breathes out a cloud of glittering spores, and whoever breathes them in forgets which way is up for a while."
+dungeons = ["underbloom"]
+tricks = ["spores"]
+
+# drawn by maker (2026-10-30)
+[monster.lady_bogmire]
+name = "Lady Bogmire"
+hp = 65
+defense = 15
+attack = 6
+damage = "2d6"
+xp = 80
+tier = 3
+tags = ["old_lady", "handbag", "grumpy", "noblewoman", "beast", "giant"]
+weak = ["food", "smelly", "sticky"]
+tell = "Lady Bogmire angrily raises her handbag, ready to smack anyone who dares to annoy her!"
+desc = "A grumpy old noblewoman in a green dress, carrying a deadly handbag. She attacks anyone who disturbs her, screaming angrily and swinging her bag.\n\nSomething tells me she might be a shapeshifter.."
+dungeons = ["underbloom"]

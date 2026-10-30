@@ -1501,7 +1501,7 @@ LogTab .debug-detail {
 }
 
 #test-floor {
-    width: 19;
+    width: 27;  /* (room for "floor 5: The Underbloom") */
     margin-right: 2;
 }
 

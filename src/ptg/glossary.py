@@ -23,7 +23,8 @@ FIXTURES = {
     "shrine": "A shrine that trades blood for Fate, or gold for healing. One use.",
     "chest": "An iron-bound chest, probably trapped. Open it with a small key, pick the lock (agility: the trap "
              "may get you) or smash it (might: what's inside may break).",
-    "fountain": "A strange fountain. Drink and roll: it might hurt, heal, grant Fate, or bless a stat.",
+    "fountain": "A strange fountain. Drink and roll: it might hurt, heal, grant Fate, or bless a stat. Its water "
+                "puts out a fire on you.",
     "stairs": "Stairs down to the next floor. There's no coming back up.",
     "shop": "A shop, behind a locked door (a small key, or two bombs). Buy what's on the counter with gold, or haggle "
             "(wits): talk her down a third, or put it up a quarter. Once a ware.",

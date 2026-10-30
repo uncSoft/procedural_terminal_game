@@ -1,8 +1,11 @@
-# Statuses: what stays with you between turns and does something on its own (see ptg/statuses.py).
+# Statuses: what stays with you between turns and does something on its own (see ptg/statuses.py). Monsters can have
+# them too (a monster burning, mending).
 # ticks: when it does its thing ("step": a room walked into, each room passed on quick travel; "round": a fight's turn)
 # damage: HP each tick. lethal: false never takes you below 1 HP. penalty: off every roll of yours while it lasts
 # (disadvantage = true: two dice, the worse kept, instead). shrine: a shrine's prayer cures it. cured_by: what the
-# warning says cures it.
+# warning says cures it. lasts: how many ticks it lasts before it wears off (0, or none said: till it's cured).
+# skip = true: whoever has it loses their next go in a fight (it's spent with it). mend: HP back each tick (a buff:
+# good = true, said as one, not as something wrong with you).
 
 [status.poison]
 name = "Poisoned"
@@ -15,3 +18,34 @@ penalty = 2
 shrine = true
 cured_by = "pray at a shrine, or drink Pure"
 blurb = "Venom in your blood: your hands shake (-2 to your rolls), and every step and every turn of a fight costs you health. It never kills you on its own."
+
+[status.burn]
+name = "Burning"
+icon = "♨"
+colour = "#f77622"
+ticks = ["step", "round"]
+damage = 2
+lethal = true
+lasts = 3
+shrine = true
+cured_by = "water (a fountain), a shrine's prayer, or wait for it to burn out"
+blurb = "On fire: every step and every turn of a fight costs you health, for three of them, and it can kill you."
+
+[status.stun]
+name = "Stunned"
+icon = "✶"
+colour = "#fee761"
+skip = true
+cured_by = "it passes with the go it costs you"
+blurb = "Seeing stars: your next go in a fight is lost, and your foes go on without you."
+
+[status.mend]
+name = "Mending"
+icon = "✚"
+colour = "#63c74d"
+ticks = ["step", "round"]
+mend = 3
+lasts = 3
+good = true
+blurb = "Healing: every step and every turn of a fight gives you health back, for three of them."
+

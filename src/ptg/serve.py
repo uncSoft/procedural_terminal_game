@@ -219,12 +219,13 @@ def test_page(name: str = "", error: str = "", ask_password: bool = False, who: 
     """The test-rooms page: who's testing, then who they'd like next door, on which floor, with which kit (and, with
     the server's key, who narrates it)."""
     from .content import load_content
-    from .testrooms import LOADOUTS, choices
+    from .testrooms import LOADOUTS, choices, floors
 
     own = "" if kit in LOADOUTS else kit
+    content = load_content()
     return TEST_PAGE.format(name=html.escape(name), max_name=MAX_NAME, password=password_field(ask_password),
-                            error=error_line(error), who=options(choices(load_content()).items(), who),
-                            floor=options([(0, "its own floor")] + [(n, f"floor {n}") for n in (1, 2, 3)], floor),
+                            error=error_line(error), who=options(choices(content).items(), who),
+                            floor=options([(0, "its own floor"), *floors(content)], floor),
                             kit=options(LOADOUTS.items(), kit if kit in LOADOUTS else "new"), own=html.escape(own),
                             narrator=narrator_field(narrator))
 
@@ -232,10 +233,11 @@ def test_page(name: str = "", error: str = "", ask_password: bool = False, who: 
 def test_problem(who: str, kit: str, floor: int) -> str:
     """What's wrong with a test room (an unknown character, item or kit), or "" if it can be made."""
     from .content import load_content
+    from .models import DEEPEST
     from .testrooms import build
 
-    if not 0 <= floor <= 3:
-        return "Floors go from 1 to 3."
+    if not 0 <= floor <= DEEPEST:
+        return f"Floors go from 1 to {DEEPEST}."
     try:
         build(load_content(), who, kit, floor, seed=0)
     except (ValueError, KeyError) as error:

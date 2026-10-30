@@ -6,7 +6,8 @@ for the Look panel (F4):
 
     walls, floor, ceiling     the dungeon's own look: the Crypt's bricks and candles, the Warren's earth, timber
                               and torches, the Ruins' marble (broken, under the stars, if the room's decor says sky)
-    exits                     doorways in the walls they're in: dark if unexplored, planked and barred if locked
+    exits                     doorways in the walls they're in: dark if unexplored, planked and barred if locked,
+                              strung across with web if a lair's (Exit.webbed)
     decor                     the room map's water, pillars, tables, cages, shelves, plants, fungus, roots...
     features                  small props by their kind (a pew, a barrel, a cauldron, a throne, a coffin...)
     fixture, monster          their own sprites, smaller further back; a shop is its keeper behind her counter,
@@ -60,6 +61,7 @@ def _ramp(*hexcodes: str) -> list:
 DARK = _rgb("#181425")
 FLAME = _ramp("#be4a2f", "#f77622", "#feae34", "#fee761")
 BRASS = _ramp("#feae34", "#fee761")  # a locked door's bands and lock, the colour of a locked way on the maps
+WEB = _ramp("#5a6988", "#c0cbdc", "#e4ecf4")  # a doorway sealed with web (a lair's): pale threads over the dark
 
 
 @dataclass(frozen=True)
@@ -177,7 +179,7 @@ def look_of(theme: str) -> Look:
 
 def carries_light(state: GameState, content: Content) -> bool:
     """Whether you've a light of your own for a dark floor: a torch in your pack (light.torch)."""
-    return light.torch(state, content) is not None
+    return light.lamp(state, content) is not None
 
 
 # --- pixel helpers ------------------------------------------------------------------------------------------
@@ -691,14 +693,14 @@ class Picture:
 
     # what's where ---------------------------------------------------------------------------------------
     def _doors(self) -> dict:
-        """Each exit you can see, by wall: where along it (a on the far wall, z on a side wall), and if it's locked.
-        `ways` says which way each one goes."""
+        """Each exit you can see, by wall: where along it (a on the far wall, z on a side wall), and what fills it:
+        "locked", "web" (a lair's), or "" (the dark beyond). `ways` says which way each one goes."""
         doors, self.ways = {}, {}
         for direction, exit_ in self.room.exits.items():
             wall = self.view.side[direction]
             if wall != "behind":
                 a, z = self.view.cell(*layout.DOORS[direction])
-                doors[wall] = (a if wall == "back" else z, exit_.locked)
+                doors[wall] = (a if wall == "back" else z, "web" if exit_.webbed else "locked" if exit_.locked else "")
                 self.ways[wall] = direction
         return doors
 
@@ -867,12 +869,12 @@ class Picture:
     def _in_door(self, wall: str, along: float, v: float) -> str:
         if wall not in self.doors:
             return ""
-        centre, locked = self.doors[wall]
+        centre, fill = self.doors[wall]
         u = (along - centre) / self._door_half(wall)
         if abs(u) > 1:
             return ""
         arch = 0.10 * math.sqrt(max(0.0, 1 - u * u)) if self.look.walls != "earth" else 0.0
-        return ("locked" if locked else "void") if v <= 0.56 + arch else ""
+        return (fill or "void") if v <= 0.56 + arch else ""
 
     def _mortar(self, x: int, y: int, tiles) -> bool:
         """Where one brick, flagstone or tile meets the next: one pixel of mortar, however far away it is."""
@@ -906,6 +908,10 @@ class Picture:
             else:
                 level = self.light(a, z, v)[0] - 0.06 * (math.floor(along * 2.2) % 2)
                 self.px[x, y] = _pick(look.wood, max(0.4, level), x, y)
+        elif kind == "web":  # threads criss-crossing the dark beyond, never lost in it, and spore dust caught in them
+            strand = (x + y) % 3 == 0 or (x - y) % 4 == 0
+            self.px[x, y] = (WEB[2] if _bayer(x, y) < 0.3 else WEB[1]) if strand else \
+                WEB[0] if _hash01(x, y, self.seed, 151) < 0.08 else DARK
         elif kind == "wall":
             self.px[x, y] = self._wall(x, y, a, z, v, wall, tiles)
         elif kind in ("floor", "water"):
@@ -1036,7 +1042,7 @@ class Picture:
         for y in range(self.h):
             for x in range(self.w):
                 if self.kind[y][x] == "wall" and any(
-                        0 <= x + dx < self.w and 0 <= y + dy < self.h and self.kind[y + dy][x + dx] in ("void", "locked")
+                        0 <= x + dx < self.w and 0 <= y + dy < self.h and self.kind[y + dy][x + dx] in ("void", "locked", "web")
                         for dx, dy in ((1, 0), (-1, 0), (0, -1))):
                     _, a, z, v, _ = self.info[y][x]
                     self.px[x, y] = self.shade(frame, self.look.wall_warm, a, z, v, x, y, 0.15)
@@ -1258,7 +1264,7 @@ class Picture:
         for y in range(self.h):
             for x in range(self.w):
                 cell = self.info[y][x]
-                if cell and cell[0] in ("void", "locked"):
+                if cell and cell[0] in ("void", "locked", "web"):
                     x0, y0, x1, y1 = boxes.get(cell[4], (x, y, x + 1, y + 1))
                     boxes[cell[4]] = (min(x0, x), min(y0, y), max(x1, x + 1), max(y1, y + 1))
         return boxes
@@ -1424,7 +1430,7 @@ class Picture:
         for x in range(self.w):
             line = None
             for y in range(self.h - 1):
-                if self.kind[y][x] in ("wall", "object", "void", "locked", "sky") and \
+                if self.kind[y][x] in ("wall", "object", "void", "locked", "web", "sky") and \
                         self.kind[y + 1][x] in ("floor", "water"):
                     line = y + 1
             if line is None:

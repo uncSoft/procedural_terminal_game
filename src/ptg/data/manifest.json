@@ -1,19 +1,19 @@
 {
  "note": "Fingerprints of the shipped data. Editing the data is allowed, and noticed.",
  "files": {
-  "art.txt": "a863d39f1dc5e9f031fa73ac72d994a25379f7742200552fef94735b3fc58f0a",
+  "art.txt": "9f71db3db4bed16a66eeac4343cb1ff074b2888edaeb4807bdcd77140e33f7e5",
   "dialogue.toml": "5de631db44c53f1731119880b4c37335553661e21da171fcdc0b82d489ec4988",
-  "items.toml": "c0ff4482a97dcddc7e3f78dac809930fe3ef2eae751ff6214cc26a6997dada5d",
-  "monsters.toml": "8f4c79f296bf2ed4c8d69b6922c2c0b1a18571e5fe8fc9a87da5ae0b0cf2639e",
+  "items.toml": "8b1262dc0f87d6dac1e5d80e6dcc7be3112a0ba90f6bae718b22ae2b17b2800a",
+  "monsters.toml": "6729a1906b0fade9bc96140cff5b27b96e881bbe0f87f3f4106fd47cb89c5182",
   "perks.toml": "173635f8b1790f3fcaeeba89376818eb1d2a1249fa4429249602c5ae82cac8aa",
-  "rooms.toml": "d6c1bb7a4e91f84a363197aa7db816a03d56f6026f9da6ae704da973e46ecf9f",
+  "rooms.toml": "2dec67c6cb84b7e995082c33e774ada36fc6e1475d311693e254dcca60447898",
   "splash.txt": "601a034c5bb5954ad20d2e210866b8665bacb8c99cf85df5b0d09ed09b794493",
-  "statuses.toml": "7939f88cc8fad9ff1b6d2a6b8508ddf0c01e796a8a282bbed0f82158222cf73d",
+  "statuses.toml": "babd56c9705551c6464728f4357b19e663b6418de4f857f6de5db2a88aed26aa",
   "story/hackerman.md": "3ded2122fdf60c51065b9e568d0be8b79c8e6ccc71ab26145b8c45e393ea3e84",
   "story/mirror_trial.md": "5a4d029323438f8bf5d8c65461f653116218436259fd14830ead31988890e302",
   "story/old_word.md": "76683479db464e706fc44541ceebb484212414c01f2a353748726179ef09c378",
   "tags.toml": "f1b7c4e7647e53f8767fe117dcb9e6b3088a12554f89f96bc379b3714bff8c5b",
-  "themes.toml": "60c6cadd41b4b441ee9d3aaa512b88e08f8151dec4745840a27b8e0a9096eb11",
+  "themes.toml": "cd5417102ceef5ceea6fa9d11bce7c4842eb3a3869034e3a0165d04d88d6967a",
   "unlocks.toml": "906fbc7738879fc97c3fa533d50fcbf9aa71f72bb1f50d8c09a85293116256ab"
  }
 }

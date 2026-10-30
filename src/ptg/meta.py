@@ -9,7 +9,7 @@ from . import dice, powers
 from .config import save_game
 from .content import Content, load_content
 from .integrity import shipped_report
-from .models import FLOORS, GameState, Player
+from .models import DEEPEST, FLOORS, GameState, Player
 from .profile import Profile
 from .world import generate
 
@@ -46,6 +46,12 @@ def daily_seed(date: dt.date | None = None) -> tuple[int, str]:
     return int(date.strftime("%Y%m%d")), date.isoformat()
 
 
+def floors_for(profile: Profile, daily: bool = False) -> int:
+    """How deep a run goes: four floors (FLOORS), and once you've won one (beaten Serpentis), on down to the
+    Underbloom under her (DEEPEST). A daily run is four for everyone, as everyone's daily is the same."""
+    return DEEPEST if not daily and profile.totals()["wins"] else FLOORS
+
+
 def start_run(profile: Profile, content: Content, name: str, seed: int | None = None,
               daily: bool = False, gift: str | None = None) -> GameState:
     label = ""
@@ -54,11 +60,12 @@ def start_run(profile: Profile, content: Content, name: str, seed: int | None = 
     elif seed is None:
         seed = random.randrange(1_000_000)
     player = make_player(name, profile, content, gift)
+    floors = floors_for(profile, daily)
     # Daily runs are the same for everyone, so no personal ghosts in them.
     ghost = None if daily else profile.pick_ghost(dice.stream(seed, "ghost"))
     if ghost:
-        ghost["floor"] = max(1, min(FLOORS, int(ghost.get("floor", 1))))
-    state = generate(seed, player=player, ghost=ghost, content=content)
+        ghost["floor"] = max(1, min(floors, int(ghost.get("floor", 1))))
+    state = generate(seed, player=player, ghost=ghost, content=content, floors=floors)
     state.known_weak = profile.weaknesses()
     state.daily = label
     state.modded = shipped_report().tampered

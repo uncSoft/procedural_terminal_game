@@ -58,16 +58,20 @@ boss = "serpentis"
 boss_room = "serpents_lair"
 key_item = "watchers_orb"
 
-# The fifth floor, under Norfel, still being made: its rooms and its look are in (rooms.toml, room_picture.py), its
-# monsters and its boss are to come, so it's in no run yet (models.FLOORS). Dark: the only light is what grows there,
-# and the torch you bring (docs/plans/floor-5.md).
+# The fifth floor, under Norfel: a run goes on down to it once you've beaten Serpentis in any run (models.DEEPEST,
+# meta.start_run). Dark: the only light is what grows there, and the torch you bring (docs/plans/floor-5.md). Its boss
+# is the first fight against several at once (docs/plans/multi-foe-fights.md).
 [[theme]]
 key = "underbloom"
 name = "The Underbloom"
 floor = 5
 dark = true
 blurb = "Under Norfel, its poison drips down through the cracks, and down here something learned to drink it. The rock is black and furred with white threads, and the only light is what grows: cold blue, violet and mint, and whatever you thought to bring."
-lore = "Serpentis has been spitting for a billion years, and all that time her poison has been dripping down through the cracks to here. Something at the bottom learned to drink it. It drank and it grew, and it grew over everything that came down after: the drowned of the Crypt, goblins, adventurers, all of them soft now, all of them glowing. It's had all the poison it wants. Now it's thirsty for something else."
+goal = "Burn out the heart of the Humongous Fungus."
+lore = "Serpentis has been spitting for a billion years, and all that time her poison has been dripping down through the cracks to here. Something at the bottom learned to drink it. It drank and it grew, and it grew over everything that came down after: the drowned of the Crypt, goblins, adventurers, all of them soft now, all of them glowing. It's had all the poison it wants. Now it's thirsty for something else. It has never once seen the sun, and it can't stand light, and fire worse. Its family grows close round it and minds it, and the way to it is shut by something that grows too: a key with a little blue cap of its own."
 archetypes = ["glowcap_grove", "puffball_field", "thread_hall", "mouldering_ossuary", "runoff_pool", "sporerat_burrow", "dark_hollow", "swallowed_chapel"]
 monster_tags = ["fungus", "spores"]
+boss = "humongous_fungus"
+boss_room = "spore_bed"
+key_item = "glowcap_key"
 

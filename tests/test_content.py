@@ -70,13 +70,31 @@ def test_the_lines_load_one_or_a_list():
     assert len(lenny["meet"]) == 1 and len(lenny["point_room"]) == 3 and "{place}" in lenny["point_room"][0]
 
 
-def test_a_floor_below_the_run_may_wait_for_its_boss():
-    """The Underbloom (floor 5) has its rooms and its look, but not yet its monsters or its boss: it loads, waiting,
-    and no run goes down to it."""
-    from ptg.models import FLOORS
+def test_a_floor_below_any_run_may_wait_for_its_boss():
+    """A floor still being made, below the deepest a run goes (models.DEEPEST), loads with its rooms and its look but
+    not yet its monsters or its boss: waiting. One a run can reach needs them all."""
+    from ptg.models import DEEPEST
+
+    themes = _read("themes.toml")
+    deeper = themes + ('\n[[theme]]\nkey = "deeper"\nname = "Deeper Still"\nfloor = %d\nblurb = "Darker."\n'
+                       'archetypes = ["dark_hollow"]\nmonster_tags = ["nothing_yet"]\n' % (DEEPEST + 1))
+    content = build_content(lambda name: deeper if name == "themes.toml" else _read(name))
+    assert not content.themes["deeper"].boss
+    reachable = deeper.replace(f"floor = {DEEPEST + 1}", f"floor = {DEEPEST}")
+    with pytest.raises(ContentError, match="deeper: a floor in a run needs a goal"):
+        build_content(lambda name: reachable if name == "themes.toml" else _read(name))
+
+
+def test_the_underbloom_is_a_runs_fifth_floor_once_youve_won():
+    """The Underbloom (floor 5) is below a run's four floors until you've beaten Serpentis once (meta.floors_for);
+    then a run goes on down to it, its boss and its key as any floor's."""
+    from ptg.models import DEEPEST, FLOORS
     from ptg.world import generate
 
     content = build_content()
     underbloom = content.themes["underbloom"]
-    assert underbloom.floor > FLOORS and not underbloom.boss and not underbloom.key_item
+    assert underbloom.floor == DEEPEST > FLOORS
+    assert (underbloom.boss, underbloom.key_item, underbloom.boss_room) == ("humongous_fungus", "glowcap_key",
+                                                                             "spore_bed")
     assert all("underbloom" not in generate(seed, content=content).themes for seed in range(10))
+    assert all(generate(seed, content=content, floors=DEEPEST).themes[-1] == "underbloom" for seed in range(10))

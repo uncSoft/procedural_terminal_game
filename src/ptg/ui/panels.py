@@ -214,7 +214,7 @@ RULES = (
     ("✦", "FATE", "Spend Fate to reroll a failed check. Earn it with flair, perfect dodges and natural 20s."),
     ("♥", "WEAK", "Monsters have weaknesses (fire, holy, shiny, food...). Find them, and the bestiary remembers."),
     ("↓", "FLOORS", "Three dungeons, then Norfel. Find the stairs; on the third, the key and its boss, who "
-                    "guards the way down; at the bottom, Serpentis."),
+                    "guards the way down; at the bottom, Serpentis. Beat her once, and later runs go deeper."),
     ("☽", "SOULS", "Souls carry over when you die. Spend them at the campfire on blessings and gifts."),
     ("●", "BOMBS", "Every floor hides a sealed secret room, in a gap that touches two rooms or more: bomb the wall to "
                    "it (search next to it for a draft). ⚷ Small keys open chests; or pick the lock, or smash it."),
@@ -934,8 +934,8 @@ def exits_text(state: GameState, room: Room) -> Text:
     for direction, exit_ in room.exits.items():
         dest = state.rooms[exit_.to]
         seen = dest.fixture if dest.fixture and not dest.fixture_used else "unexplored"
-        note = ("locked; a shop beyond" if dest.shop else "locked") if exit_.locked else (
-            dest.name if dest.visited else seen)
+        note = "sealed with web" if exit_.webbed else ("locked; a shop beyond" if dest.shop else "locked") \
+            if exit_.locked else (dest.name if dest.visited else seen)
         exits.append(f"{direction} ({note})")
     return Text.assemble(("Exits: ", "bold"), (", ".join(exits) or "none", WORDS))
 

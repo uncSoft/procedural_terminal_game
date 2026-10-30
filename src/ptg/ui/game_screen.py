@@ -1266,10 +1266,12 @@ class GameScreen(Screen):
                 art.update(fight.still(0, "idle", flash=flash))
                 await asyncio.sleep(0.06)
             moved = True
-        if not gone and kinds & {"monster_hit", "monster_miss", "evade", "dodge"}:  # (it went for you: its own swing,
-            # if it has one, the Goblin King's pan coming down; else it lunges)
+        if not gone and kinds & {"monster_hit", "monster_miss", "evade", "dodge"}:  # (they went for you: each its own
+            # swing, if it has one, the Goblin King's pan coming down, or a lunge; all at once, in a crowd)
+            striking = {e.data["foe"] for e in events if "foe" in e.data} or None
+            swung = list(fight.swing(striking, monster_pose(state.room.monster)))
             lunge = [(fight.still(0, "lunge"), 0.07), (fight.still(1, "lunge"), 0.07)]
-            for text, delay in fight.swing() if "attack" in fight.clips else lunge:
+            for text, delay in swung or lunge:
                 art.update(text)
                 await asyncio.sleep(delay)
             moved = True
@@ -1341,7 +1343,7 @@ class GameScreen(Screen):
         plan = self.plan
         fight = self.fight_view(plan.stage_width, 2 * plan.stage_rows) if plan and plan.stage_rows else None
         if fight is None:
-            sound.play("boss_encounter" if boss else "encounter")
+            sound.play(known.cry or ("boss_encounter" if boss else "encounter"))
             return
         side = -1 if state.room.entered_from == "east" else 1
         art = self.query_one("#stage-art", Static)
@@ -1352,7 +1354,7 @@ class GameScreen(Screen):
                 art.update(frame)
                 if cue:
                     sound.play(cue)
-                if cue in encounter.STINGS:
+                if cue and cue == fight.sting:
                     effects.pulse(self.query_one("#stage"), AWFUL if boss else BAD, blinks=2)
                     self.set_timer(MUSIC_AFTER_STING, self.refresh_music)  # (not after the whole entrance)
                 await asyncio.sleep(seconds)

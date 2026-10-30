@@ -383,6 +383,45 @@ def art_box(frames) -> tuple | None:
     return (min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes))
 
 
+@lru_cache(maxsize=128)
+def stance(key: str, size: int) -> tuple | None:
+    """The box round a monster's standing body in its idle clip at `size`, in the two frames the stage takes turns
+    with (its loop's first and middle): leaving out what floats free of it (the Puff Mound's spores drifting up, a
+    drip falling), which may leave the stage's top. What the stage fits it and stands it by. None without that idle."""
+    idle = next((clip for clip in clips(key).get("idle", ()) if clip.size == size), None)
+    if idle is None:
+        return None
+    boxes = [box for frame in (idle.frames[0], idle.frames[len(idle.frames) // 2]) if (box := _body(frame))]
+    if not boxes:
+        return None
+    return (min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes))
+
+
+def _body(frame) -> tuple | None:
+    """The box round the biggest piece of a frame's art: its opaque pixels joined side to side."""
+    alpha = frame.getchannel("A").load()
+    width, height = frame.size
+    seen = bytearray(width * height)
+    best, most = None, 0
+    for y in range(height):
+        for x in range(width):
+            if seen[y * width + x] or alpha[x, y] < 128:
+                continue
+            seen[y * width + x] = 1
+            todo, count, box = [(x, y)], 0, [x, y, x, y]
+            while todo:
+                cx, cy = todo.pop()
+                count += 1
+                box = [min(box[0], cx), min(box[1], cy), max(box[2], cx), max(box[3], cy)]
+                for nx, ny in ((cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)):
+                    if 0 <= nx < width and 0 <= ny < height and not seen[ny * width + nx] and alpha[nx, ny] >= 128:
+                        seen[ny * width + nx] = 1
+                        todo.append((nx, ny))
+            if count > most:
+                best, most = (box[0], box[1], box[2] + 1, box[3] + 1), count
+    return best
+
+
 # --- pixel helpers ------------------------------------------------------------------
 
 def _colour(pixel: tuple, flash: bool, snap: bool = False) -> Color | None:

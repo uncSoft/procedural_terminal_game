@@ -25,6 +25,7 @@ cheese_wheel = "cheese"
 davy_j_skull = "puffed"
 firebird_plume = { way = "slab", thick = 1.5 }
 glow_stick = "slab"
+glowcap_key = "slab"
 greater_healing_potion = "turned"
 hallowed_hand_grenade = "puffed"
 hand_axe = "slab"
@@ -74,3 +75,5 @@ war_pick = "slab"
 warren_key = "slab"
 weighted_dice = "dice"
 x_64gb_ddr5_ram_kit = { way = "slab", thick = 1.5 }
+philter_of_light = "turned"
+gulliver_helper_sword = "slab"  # (guessed as it came in: change it, then ptg models gulliver_helper_sword)

@@ -54,7 +54,7 @@ FIXTURE_NAMES = {"chest": "chest", "shrine": "shrine", "fountain": "fountain", "
                  "shop": "shop counter"}
 FIXTURE_TAGS = {"chest": ["heavy", "wood", "metal"], "shrine": ["holy", "heavy"], "fountain": ["water", "liquid"],
                 "stairs": ["heavy", "stone"], "shop": ["heavy", "wood"]}
-CHARACTERS, THINGS = ("monster", "keeper"), ("ware", "floor", "feature", "fixture", "exit", "wall")
+CHARACTERS, THINGS = ("monster", "foe", "keeper"), ("ware", "floor", "feature", "fixture", "exit", "wall")
 CARRIED = ("gear", "item", "bombs", "keys", "gold")
 
 
@@ -110,6 +110,13 @@ class RoomView:
                                    "max_hp": monster.max_hp, "intent": monster.intent, "npc": base.npc,
                                    "boss": base.boss, "intelligent": base.intelligent, "asked": monster.asked,
                                    "distracted": monster.distracted, "pos": layout.where(room.monster_pos)}))
+        for index, other in enumerate(room.others):  # (the rest of its fight: turned to, then fought: combat.face)
+            if other.hostile and other.hp > 0:
+                base = content.monster(other.key)
+                refs.append(Ref(f"foe:{index}", "foe", other.name, str(index), tags=tuple(base.tags),
+                                sprite=other.key, state={"hostile": True, "hp": other.hp, "max_hp": other.max_hp,
+                                                         "intent": other.intent, "npc": base.npc, "boss": base.boss,
+                                                         "intelligent": base.intelligent}))
         if room.shop:
             keeper = content.monster(room.shop.keeper)
             refs.append(Ref(f"keeper:{keeper.key}", "keeper", keeper.name, keeper.key, sprite=keeper.key,
@@ -158,6 +165,7 @@ class RoomView:
                 dest = state.rooms[exit_.to]
                 refs.append(Ref(f"exit:{direction}", "exit", f"{direction} door", direction, tags=("wood",),
                                 state={"locked": exit_.locked, "key": exit_.key, "cracked": exit_.cracked,
+                                       "webbed": exit_.webbed,
                                        "to": exit_.to, "visited": dest.visited, "shop": dest.shop is not None,
                                        "dest": dest.name if dest.visited else ""}))
         from .rules import bombable_walls  # (rules builds on this module's neighbours: imported when it's needed)
@@ -228,6 +236,8 @@ class RoomView:
                 notes += ["searched"] if s["searched"] else []
             elif ref.kind == "fixture" and s["used"]:
                 notes.append("used")
+            elif ref.kind == "exit" and s["webbed"]:
+                notes.append("sealed with web: only fire gets through")
             elif ref.kind == "exit" and s["locked"]:
                 notes.append("locked, a small key opens it" if s["key"] == "small_key" else "locked")
             if ref.kind in ("item", "floor", "gear") and s.get("cursed"):

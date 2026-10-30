@@ -16,6 +16,7 @@ import random
 from collections import deque
 from dataclasses import dataclass
 
+from ptg import light
 from ptg.content import Content
 from ptg.meta import make_player
 from ptg.models import GameState
@@ -36,8 +37,8 @@ def _route_to_unexplored(state: GameState, content: Content) -> str | None:
         if room_id != start and not room.visited:
             return first
         for direction, exit_ in room.exits.items():
-            if exit_.locked and (exit_.key or not has_key):  # a shop's door, or the boss's without its key
-                continue
+            if exit_.webbed or exit_.locked and (exit_.key or not has_key):  # a shop's, the boss's without its key,
+                continue  # or a lair's web (the plain bot leaves the Matriarch be)
             if exit_.to not in seen:
                 seen.add(exit_.to)
                 queue.append((exit_.to, first or direction))
@@ -62,7 +63,7 @@ def _route_to(state: GameState, target: int) -> str | None:
         if room_id == target:
             return first
         for direction, exit_ in state.rooms[room_id].exits.items():
-            if not exit_.locked and exit_.to not in seen:
+            if not exit_.shut and exit_.to not in seen:
                 seen.add(exit_.to)
                 queue.append((exit_.to, first or direction))
     return None
@@ -132,6 +133,12 @@ class Player:
         return self.minds[key]
 
 
+def _wrapped(state: GameState, content: Content, action: str) -> bool:
+    """A search of something wrapped in threads, that only fire opens (light.wrapped): the plain bot leaves it be."""
+    verb, _, arg = action.partition(":")
+    return verb == "search" and arg.isdigit() and light.wrapped(state, content, state.room.features[int(arg)])
+
+
 def choose(state: GameState, content: Content, who: Player | None = None) -> str:
     actions = {a.id: a for a in available_actions(state, content)}
     player = state.player
@@ -157,7 +164,7 @@ def choose(state: GameState, content: Content, who: Player | None = None) -> str
     hunting = bool(who) and state.boss_floor and key not in player.inventory \
         and _route_to_unexplored(state, content) is None
     for prefix in ("take", "equip:", "disarm", "search:", "chest", "fountain"):  # (take: one thing, take_all: the lot)
-        found = next((a for a in actions if a.startswith(prefix) and
+        found = next((a for a in actions if a.startswith(prefix) and not _wrapped(state, content, a) and
                       (not who or hunting or a == f"take:{key}"
                        or who.once((state.floor, state.room_id, a), habits.thorough))), None)
         if found:

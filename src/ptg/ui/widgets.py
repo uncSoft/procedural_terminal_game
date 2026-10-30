@@ -193,11 +193,14 @@ class Hud(Static):
         self.shown = (state, content)
         player = state.player
         parts: dict[str, Text] = {}
-        ailing = [statuses.DEFS[k] for k in player.statuses if k in statuses.DEFS]
+        ailing = statuses.ailing(state)  # (what's wrong with you tints your hearts; Mending doesn't)
         parts["hp"] = hearts(player.hp, player.max_hp, ailing[0].colour if ailing else "")
         parts["hp"].append(f" {player.hp}/{player.max_hp}", style="bold")
-        if ailing:  # (right by your health: it's what it's eating)
-            parts["status"] = Text.assemble(*[(f"{d.icon} {d.name}", f"bold {d.colour}") for d in ailing])
+        on = [(key, statuses.DEFS[key]) for key in player.statuses if key in statuses.DEFS]
+        if on:  # (right by your health: it's what it's eating, or mending; a timed one, its turns left)
+            parts["status"] = Text(" ").join(
+                Text(f"{d.icon} {d.name}" + (f" {statuses.left(state, k)}" if d.lasts else ""), style=f"bold {d.colour}")
+                for k, d in on)
         cue = light_cue(state, content)
         if cue:  # (down in the dark: your torch's flames, or what you're in without one)
             parts["light"] = cue
@@ -248,6 +251,7 @@ class Hud(Static):
 
 HUD_DROPS = ("turn", "theme", "daily", "souls", "xp", "keys", "bombs", "defense")  # the HUD's least, first to go
 LIT, UNLIT, BLIND = "#feae34", "#8b9bb4", "#ff7b7b"  # your torch lit; no light, by the glow; in the dark
+GLOW = "#fee761"  # a light that never burns down (the Philter of Light)
 
 
 def light_cue(state: GameState, content: Content) -> Text | None:
@@ -258,8 +262,11 @@ def light_cue(state: GameState, content: Content) -> Text | None:
         return None
     if light.lit(state, content):
         left = light.left(state)
-        return Text.assemble(("☼ ", f"bold {LIT}"), ("torch ", f"bold {LIT}"), ("▲" * left, LIT),
-                             ("△" * (light.FLAMES - left), "#5a5030"))
+        flames = Text.assemble(("torch ", f"bold {LIT}"), ("▲" * left, LIT), ("△" * (light.FLAMES - left), "#5a5030"))
+        if "light" in light.lamp(state, content).powers:  # (one that never burns down: a torch's only for fire)
+            lasting = Text.assemble(("☼ ", f"bold {GLOW}"), ("light ∞", f"bold {GLOW}"))
+            return lasting + Text("  ") + flames if light.torch(state, content) else lasting
+        return Text.assemble(("☼ ", f"bold {LIT}")) + flames
     dark = light.darkness(state, content) == light.DARK
     return Text.assemble(("☼ ", "#3a4466"), ("in the dark" if dark else "no light", f"bold {BLIND if dark else UNLIT}"))
 
@@ -409,7 +416,7 @@ ARROWS = {"north": "▲", "south": "▼", "east": "▶", "west": "◀"}
 # A way out on the pad, by its choice's hint: open, a fixture ahead, danger, locked (no key for it: see
 # rules.locked_doors), or a door you have the key to.
 WAY_STYLES = {"": "bold #5fe3ff", "danger": "bold #ff4b4b", "locked": "#7a3b4c", "a locked shop": "#7a3b4c",
-              "boss": "bold #ff4f9a"}
+              "sealed with web": "#8b9bb4", "boss": "bold #ff4f9a"}
 NO_WAY = "#2e3149"
 
 

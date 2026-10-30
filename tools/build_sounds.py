@@ -630,6 +630,14 @@ SOUNDS: dict[str, list[list[Tone]]] = {
                           note("E4", 0.7, 0.3, duty=0.5, volume=0.26, vibrato=0.3, release=0.45),
                           note("E3", 0.8, 0.3, wave="triangle", volume=0.4, release=0.5)]
                        + _crash(0.3, 0.3)],
+    # the Sporefang Matriarch's cry: a shriek tearing upward through a hiss, then her fangs chittering
+    "screech": [[Tone("saw", 820, to=2600, length=0.55, volume=0.2, vibrato=1.6, vibrato_rate=29, attack=0.02,
+                      release=0.22),
+                 Tone("square", 1250, to=3300, length=0.5, duty=0.125, volume=0.14, vibrato=2.2, vibrato_rate=23,
+                      at=0.03, release=0.2),
+                 Tone("noise", WHITE, length=0.7, volume=0.32, attack=0.04, release=0.3, cutoff=9000, cutoff_to=2200)]
+                + [Tone("noise", 3600, length=0.022, at=0.62 + i * 0.045, volume=0.26 - i * 0.03, metallic=True,
+                        release=0.015) for i in range(6)]],
     # a foe breaking apart: glass, then its bits tinkling down
     "shatter": [[Tone("noise", 6500, length=0.12, volume=0.4, metallic=True, release=0.1),
                  Tone("noise", WHITE, length=0.4, volume=0.35, release=0.3, cutoff=7000, cutoff_to=2500)]

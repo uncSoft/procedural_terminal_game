@@ -136,7 +136,7 @@ def draw(state, width: int, height: int, title: str, labels: dict[int, str],
             if exit_.to not in places:
                 continue
             o_left, o_top, o_right, o_bottom = places[exit_.to]
-            door = RED if exit_.locked else FLOOR
+            door = RED if exit_.shut else FLOOR
             if direction == "east":
                 y = (top + room_r // 2) * 2  # (the middle row of the room, and of the one beside it)
                 for x in range(right + 1, o_left):

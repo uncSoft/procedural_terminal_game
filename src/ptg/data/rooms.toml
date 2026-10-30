@@ -227,7 +227,7 @@ names = ["Serpentis's Lair"]
 blurb = "A round cavern ringed with stone fangs that hang from the ceiling like a jaw about to close. The floor is pocked with round red cells that glow and pulse, and coils of shed skin lie everywhere, each bigger than the last."
 features = ["a heap of shed skins", "a glowing red floor cell"]
 
-# --- The Underbloom (floor 5, under Norfel: not in a run yet) ----------------
+# --- The Underbloom (floor 5, under Norfel: runs after a first win) ---------
 # Norfel's poison drips down here, and something learned to drink it. Black
 # rock furred with white threads, lit only by what grows (and your torch).
 
@@ -278,3 +278,18 @@ decor = "pillars fungus"
 names = ["The Swallowed Chapel", "Overgrown Chapel"]
 blurb = "Somebody built a chapel down here once. The fungus has eaten most of it: the pillars are furred white, the pews have gone soft as cake, and a pale light glows where the altar was."
 features = ["a pew soft as cake", "a saint's statue in a coat of mould", "the altar, glowing faintly"]
+
+# Behind the web door (one room on the floor: world._web_door): the Sporefang Matriarch's.
+[archetype.matriarchs_lair]
+decor = "threads fungus"
+names = ["The Matriarch's Lair"]
+blurb = "A cave strung wall to wall with web as thick as rope, sagging with old cocoons. The floor is a carpet of spore dust and little bones, and high up in the dark, eight yellow eyes open, one pair at a time."
+features = ["a cocoon the size of a person", "a heap of shiny things she's hoarded"]
+
+# The boss's room, behind the floor's locked door.
+[archetype.spore_bed]
+decor = "caps puffballs"
+names = ["The Spore Bed"]
+blurb = "The floor gives under you like a mattress: a bed of white threads as wide as a lake, and in the middle of it something enormous glows blue and breathes out spores. Smaller things grow round it, close, like a family round a fire."
+features = ["the bed of threads, pulsing", "a ring of burst puffballs", "what's left of the last ones who came"]
+

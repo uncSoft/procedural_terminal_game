@@ -88,6 +88,7 @@ LATELY_MOST, LATELY_LEAST = 10, 2  # the journal's last lines at the foot of Her
 FIRST_VERB = 7  # Here's verbs are numbered on from the six big buttons
 HOVER_WAIT = 0.06  # seconds the mouse rests on a room of the map before it's lit
 WORDS, DIM, FAINT, PINK, GOLD, ACCENT = "#c8c8e0", "#6c6f99", "#2a2d4a", "#ff4f9a", "#ffd166", "#ffb000"
+WEBBED = "#8b9bb4"  # a lair's way in, sealed with web (only fire gets through)
 FOE = "#ff4b4b"  # (Here's colour for a hostile one: see here.FOE)
 GROUND = "#0b0c1a"  # the screen's own dark, that a button's tints are mixed into
 
@@ -210,10 +211,11 @@ def way_name(state, direction: str) -> tuple[str, str]:
     see through the door."""
     exit_ = state.room.exits[direction]
     there = state.rooms[exit_.to]
-    name = ("locked" + (": a shop" if there.shop else "")) if exit_.locked else there.name if there.visited \
-        else (FIXTURE_WORDS.get(there.fixture, f"a {there.fixture}").removeprefix("the ")
-              if there.fixture and not there.fixture_used else "unexplored")
-    colour = "#c05a6c" if exit_.locked else "#5fe3ff" if there.visited else GOLD if there.fixture else DIM
+    name = "webbed" if exit_.webbed else ("locked" + (": a shop" if there.shop else "")) if exit_.locked else \
+        there.name if there.visited else (FIXTURE_WORDS.get(there.fixture, f"a {there.fixture}").removeprefix("the ")
+                                          if there.fixture and not there.fixture_used else "unexplored")
+    colour = WEBBED if exit_.webbed else "#c05a6c" if exit_.locked else "#5fe3ff" if there.visited else \
+        GOLD if there.fixture else DIM
     return name, colour
 
 
@@ -352,22 +354,22 @@ def chart(state, width: int, height: int, roomy: bool, hover: int | None = None)
     # The passages, and a door's joint on each box they leave: a door is drawn from both its rooms, and only one side
     # of it says it's locked, so the open sides first and the locked ones over them.
     doors = sorted(((room, direction, exit_) for room in rooms if room.visited or mapped
-                    for direction, exit_ in room.exits.items() if exit_.to in places), key=lambda door: door[2].locked)
+                    for direction, exit_ in room.exits.items() if exit_.to in places), key=lambda door: door[2].shut)
     for room, direction, exit_ in doors:
         left, top = places[room.id]
         bottom, right, mid = top + box_h - 1, left + box_w - 1, left + box_w // 2
-        style = locked if exit_.locked else passage
+        style = Style.parse(WEBBED) if exit_.webbed else locked if exit_.locked else passage
         joint = style + tips[room.id]  # (a door in a room's wall is still that room's, to hover and click)
         if direction in ("east", "west"):
             put(top + 1, right if direction == "east" else left, "├" if direction == "east" else "┤", joint)
             span = range(right + 1, right + 1 + gap_x) if direction == "east" else range(left - gap_x, left)
             for x in span:
-                put(top + 1, x, "═" if exit_.locked else "─", style)
+                put(top + 1, x, "┄" if exit_.webbed else "═" if exit_.locked else "─", style)
         else:
             put(bottom if direction == "south" else top, mid, "┬" if direction == "south" else "┴", joint)
             span = range(bottom + 1, bottom + 1 + gap_y) if direction == "south" else range(top - gap_y, top)
             for y in span:
-                put(y, mid, "║" if exit_.locked else "│", style)
+                put(y, mid, "┆" if exit_.webbed else "║" if exit_.locked else "│", style)
     text = Text(no_wrap=True)
     for row in grid:
         for ch, style in row:
@@ -1375,7 +1377,9 @@ class GridScreen(GameScreen):
             there = state.rooms[exit_.to]
             name, colour = way_name(state, direction)
             note, note_colour = "", DIM
-            if exit_.locked:
+            if exit_.webbed:
+                note = "only fire gets through"
+            elif exit_.locked:
                 name, note = "locked", name.partition(": ")[2] or "a key, or bombs"
             elif there.visited:
                 note, note_colour = (room_notes(state, there) or [("", DIM)])[0]

@@ -32,8 +32,9 @@ EVENT_SOUNDS = {
 
 
 def event_sound(event: Event) -> str | None:
-    """The sound of something that happened (not a roll): a bomb booms, whatever it was thrown at."""
-    return "bomb" if event.data.get("bomb") else EVENT_SOUNDS.get(event.kind)
+    """The sound of something that happened (not a roll): its own if it has one (a monster's cry as it rears up), a
+    bomb's boom whatever it was thrown at, or its kind's."""
+    return event.data.get("sound") or ("bomb" if event.data.get("bomb") else EVENT_SOUNDS.get(event.kind))
 
 
 def roll_sound(event: Event) -> str:

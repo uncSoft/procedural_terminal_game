@@ -22,7 +22,10 @@ TRICKS = {"steal": "grabs your food (or gold) and runs off with it next turn, un
           "tangle": "its hits tangle you up: no running away until its next go",
           "venom": "its bite can poison you (a quarter of its hits)",
           "venom_spit": "its heavy blow is a spit of venom: it always poisons you (dodge it)",
-          "deadly_venom": "every bite of its poisons you"}
+          "deadly_venom": "every bite of its poisons you",
+          "burn": "its hits can set you burning (a third of them; a heavy blow always)",
+          "spores": "its hits burst with spores that can stun you: your next go lost (half of them; a heavy one always)",
+          "mend": "it mends the most hurt of its side instead of striking, while any of them is hurt"}
 STATS = ("might", "agility", "wits", "max_hp", "fate")  # what a carried item's `stats` can change (fate: tokens held)
 # When a character says each of its lines (dialogue.toml; npcs.say), and the blanks a line can have filled in.
 MOMENTS = {
@@ -72,7 +75,7 @@ class Theme:
     archetypes: list[str]
     monster_tags: list[str]
     # What you're there to do, and who and what it takes: every floor in a run has them; one still being made, below
-    # the run (floor past models.FLOORS), may wait for them (see _cross_check).
+    # any run (floor past models.DEEPEST), may wait for them (see _cross_check).
     goal: str = ""
     boss: str = ""
     boss_room: str = ""
@@ -132,6 +135,10 @@ class MonsterDef:
     desc: str = ""  # what it looks like and how it behaves, in its creator's words (the narrator gets it too)
     tricks: list[str] = field(default_factory=list)  # what it does in a fight beyond hitting you (TRICKS)
     dungeons: list[str] = field(default_factory=list)  # the only ones it turns up in (theme keys): see lives_in
+    party: list[str] = field(default_factory=list)  # who comes into its fight with it (monster keys): world.party
+    cry: str = ""  # its own sound (a sound.MOMENTS key), played as it comes in and as it rears up for a heavy blow
+    wants: str = ""  # an item it came for (cursed or not): handed it, it stops fighting (interactions._trade)
+    gives: str = ""  # what it leaves you for it, at your feet; killed, it leaves none
     art: str = ""
 
     def lives_in(self, theme: Theme) -> bool:
@@ -242,7 +249,9 @@ SCHEMAS: dict[str, dict[str, tuple[str, bool]]] = {
                 "attack": ("int", True), "damage": ("dice", True), "xp": ("count", True), "tier": ("tier", True),
                 "tags": ("names", False), "intelligent": ("bool", False), "boss": ("bool", False),
                 "ghost": ("bool", False), "weak": ("names", False), "tell": ("text", False),
-                "desc": ("text", False), "tricks": ("tricks", False), "dungeons": ("names", False)},
+                "desc": ("text", False), "tricks": ("tricks", False), "dungeons": ("names", False),
+                "party": ("names", False), "cry": ("name", False), "wants": ("name", False),
+                "gives": ("name", False)},
     "perk": {"name": ("text", True), "desc": ("text", True), "color": ("color", False)},
     "unlock": {"name": ("text", True), "icon": ("text", True), "cost": ("count", True), "desc": ("text", True),
                "item": ("name", False), "requires": ("name", False)},
@@ -440,11 +449,12 @@ def load_content() -> Content:
 
 def _cross_check(content: Content) -> list[str]:
     """Fail loudly on broken data instead of silently playing without it (the v1 monsters.json bug)."""
-    from .models import FLOORS  # (models imports this module)
+    from .models import DEEPEST, FLOORS  # (models imports this module)
+    from .world import tier_for, warden_tier  # (and world)
 
     problems = []
     for theme in content.themes.values():
-        waiting = theme.floor > FLOORS  # a floor below the run, still being made: it may wait for its boss and monsters
+        waiting = theme.floor > DEEPEST  # a floor below any run, still being made: it may wait for its boss and monsters
         for key in [*theme.archetypes, *([theme.boss_room] if theme.boss_room or not waiting else [])]:
             if key not in content.archetypes:
                 problems.append(f"themes.toml theme {theme.key}: unknown archetype {key!r}")
@@ -455,7 +465,11 @@ def _cross_check(content: Content) -> list[str]:
         if theme.key_item not in content.items and not (waiting and not theme.key_item):
             problems.append(f"themes.toml theme {theme.key}: unknown key item {theme.key_item!r}")
         pool = [m for m in content.monsters.values() if m.roams]
-        for tier in (1, 2, 3):
+        # (a dungeon can be any of the first three floors; one always on its own floor meets only the tiers that floor
+        # has in the runs that go down to it)
+        tiers = sorted({tier(theme.floor, floors) for floors in range(max(FLOORS, theme.floor), DEEPEST + 1)
+                        for tier in (tier_for, warden_tier)}) if theme.floor else (1, 2, 3)
+        for tier in tiers:
             if not waiting and not any(m.lives_in(theme) and m.tier == tier for m in pool):
                 problems.append(f"themes.toml theme {theme.key}: no tier {tier} monsters match its tags "
                                 f"(or are kept to it with dungeons)")
@@ -465,6 +479,23 @@ def _cross_check(content: Content) -> list[str]:
                 close = difflib.get_close_matches(key, list(content.themes), n=1)
                 hint = f" (did you mean {close[0]!r}?)" if close else ""
                 problems.append(f"monsters.toml [monster.{monster.key}]: unknown dungeon {key!r}{hint}")
+        if monster.cry:
+            from .sound import MOMENTS  # (only to check the name: sound needs nothing from here)
+
+            if monster.cry not in MOMENTS:
+                problems.append(f"monsters.toml [monster.{monster.key}]: unknown cry {monster.cry!r} (a sound moment, "
+                                f"as `uv run python -m ptg.sound` lists them)")
+        for field_, key in (("wants", monster.wants), ("gives", monster.gives)):
+            if key and key not in content.items:
+                problems.append(f"monsters.toml [monster.{monster.key}]: it {field_} an item there isn't: {key!r}")
+        if bool(monster.wants) != bool(monster.gives):
+            problems.append(f"monsters.toml [monster.{monster.key}]: a monster that wants something gives something "
+                            "for it (wants and gives, both or neither)")
+        for key in monster.party:
+            if key not in content.monsters:
+                close = difflib.get_close_matches(key, list(content.monsters), n=1)
+                hint = f" (did you mean {close[0]!r}?)" if close else ""
+                problems.append(f"monsters.toml [monster.{monster.key}]: unknown monster in its party {key!r}{hint}")
     for item in content.items.values():
         if item.kind == "weapon" and not item.damage:
             problems.append(f"items.toml [item.{item.key}]: a weapon needs damage, like \"1d6\"")

@@ -1109,11 +1109,12 @@ class TestRoomsTab(DebugTab):
     seed = 0
 
     def compose(self) -> ComposeResult:
-        found = testrooms.choices(load_content())
+        content = load_content()
+        found = testrooms.choices(content)
         with Horizontal(classes="debug-toolbar"):
             yield Select([(words, key) for key, words in found.items()], value="lenny", allow_blank=False,
                          compact=True, id="test-who")
-            yield Select([("its own floor", 0)] + [(f"floor {n}", n) for n in (1, 2, 3)], value=0,
+            yield Select([("its own floor", 0)] + [(words, n) for n, words in testrooms.floors(content)], value=0,
                          allow_blank=False, compact=True, id="test-floor")
             yield Select([(words, key) for key, words in testrooms.LOADOUTS.items()] + [("a kit of your own", "own")],
                          value="random", allow_blank=False, compact=True, id="test-kit")

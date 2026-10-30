@@ -205,8 +205,9 @@ def big_map(state, width: int, height: int) -> Text | None:
                     "south": [(y, cx) for y in range(cy + 2, cy + STEP_Y)],
                     "north": [(y, cx) for y in range(cy - STEP_Y + 2, cy)]}[direction]
             across = direction in ("east", "west")
-            line = ("═" if across else "║") if exit_.locked else ("─" if across else "│")
-            style = Style.parse("#7a3b4c" if exit_.locked else "#3d4a8c")
+            line = ("┄" if across else "┆") if exit_.webbed else ("═" if across else "║") if exit_.locked else \
+                ("─" if across else "│")
+            style = Style.parse("#8b9bb4" if exit_.webbed else "#7a3b4c" if exit_.locked else "#3d4a8c")
             for y, x in span:
                 if 0 <= y < rows and 0 <= x < cols and grid[y][x][0] in " ·":
                     grid[y][x] = (line, style)
@@ -341,14 +342,17 @@ def status_lines(state, content) -> Table:
     row("♥", "#ff4b4b", "Health", f"{player.hp}/{player.max_hp}", "at 0 the run ends")
     for key in player.statuses:
         status = statuses.DEFS[key]
-        row(status.icon, status.colour, status.name, "yes", statuses.effects(status))
+        row(status.icon, status.colour, status.name, f"{statuses.left(state, key)} left" if status.lasts else "yes",
+            statuses.effects(status))
     for key, charges in player.guards.items():
         row("✚", "#5fe3ff", f"Guard against {statuses.WORDS.get(key, (key, key))[1].removeprefix('the ')}",
             str(charges), "the next times it would take hold, it doesn't")
-    if light.lit(state, content):  # (down in the dark: your torch, or what you're in without one)
+    if light.lit(state, content) and "light" in light.lamp(state, content).powers:  # (a light that never dies)
+        row("☼", "#fee761", "Light", "∞", f"{light.lamp(state, content).name}: it never burns down")
+    if light.fire(state, content):  # (down in the dark: your torch, or what you're in without one)
         row("☼", "#feae34", "Torch", f"{light.left(state)}/{light.FLAMES}",
             "lit: each thing you burn with it costs a flame, and lamp oil fills it")
-    elif light.dark_floor(state, content):
+    elif light.dark_floor(state, content) and not light.lit(state, content):
         dark = light.darkness(state, content) == light.DARK
         row("☼", "#ff7b7b" if dark else "#8b9bb4", "Light", "none",
             "in the dark: every roll at a disadvantage" if dark else f"your searches at a disadvantage. {light.HINT}")
@@ -597,9 +601,11 @@ class TabsScreen(GameScreen):
             if exit_ is None:
                 continue
             there = state.rooms[exit_.to]
-            name = ("locked" + (": a shop" if there.shop else "")) if exit_.locked else there.name if there.visited \
+            name = "webbed" if exit_.webbed else ("locked" + (": a shop" if there.shop else "")) if exit_.locked \
+                else there.name if there.visited \
                 else (f"a {there.fixture}" if there.fixture and not there.fixture_used else "unexplored")
-            colour = "#7a3b4c" if exit_.locked else "#5fe3ff" if there.visited else GOLD if there.fixture else DIM
+            colour = "#8b9bb4" if exit_.webbed else "#7a3b4c" if exit_.locked else "#5fe3ff" if there.visited else \
+                GOLD if there.fixture else DIM
             parts.append(Text.assemble((f"{ARROWS[direction]} ", f"bold {colour}"),
                                        (short_name(name, 18), WORDS if there.visited else DIM)))
         text = Text()

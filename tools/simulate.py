@@ -6,6 +6,7 @@
     uv run --frozen python tools/simulate.py --compare          # every player, a line each
     uv run --frozen python tools/simulate.py --veteran --fights # a veteran's adventurer, and how each fight went
     uv run --frozen python tools/simulate.py --venom dire_wolf,orc  # as if they bit with venom: what poison does
+    uv run --frozen python tools/simulate.py --deep             # five floors, as a run goes once you've won one
 
 Per floor: how many runs reached it, died on it, and what they took down the stairs (HP, level, gold, potions). Then
 what killed them, and the run as a whole. The plain bot is thorough and never misses a warning, but never improvises,
@@ -29,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
 from bot import PLAYERS, VETERAN, Player, choose, veteran
 
 from ptg.content import load_content
+from ptg.models import DEEPEST, FLOORS
 from ptg.rules import perform
 from ptg.world import generate
 
@@ -48,9 +50,10 @@ def kind_of(monster, content) -> str:
     return "warden" if monster.warden else "elite" if monster.elite else "normal"
 
 
-def run(seed: int, content, player: str = "bot", max_turns: int = 900, veteran_run: bool = False) -> dict:
+def run(seed: int, content, player: str = "bot", max_turns: int = 900, veteran_run: bool = False,
+        floors: int = FLOORS) -> dict:
     """One bot run: where it ended, a row for each floor it left by the stairs, and each fight it had."""
-    state = generate(seed, content=content, player=veteran(content) if veteran_run else None)
+    state = generate(seed, content=content, player=veteran(content) if veteran_run else None, floors=floors)
     habits = PLAYERS[player] if not veteran_run else VETERAN if player == "bot" else \
         dataclasses.replace(PLAYERS[player], perks=VETERAN.perks)
     who = Player(habits, seed) if habits != PLAYERS["bot"] else None
@@ -219,6 +222,7 @@ def main() -> None:
     parser.add_argument("--veteran", action="store_true", help="a veteran's adventurer: every blessing, the Rabbit's "
                                                                "Foot, its perks picked as the owner's run did")
     parser.add_argument("--fights", action="store_true", help="how the fights went, by floor and kind of foe")
+    parser.add_argument("--deep", action="store_true", help="five floors, as a run goes once you've won one")
     parser.add_argument("--venom", default="", help="monsters (keys, comma separated) to give a venomous bite, to "
                                                     "see what poison would do (\"all\": every roaming one)")
     args = parser.parse_args()
@@ -229,12 +233,13 @@ def main() -> None:
         monster = content.monster(key)
         content.monsters[key] = dataclasses.replace(monster, tricks=[*monster.tricks, "venom"])
     seeds = range(args.start, args.start + args.seeds)
-    floors = generate(0, content=content).floors_total
+    floors = DEEPEST if args.deep else FLOORS
     if args.compare:
-        print(compare({name: [run(seed, content, name, veteran_run=args.veteran) for seed in seeds]
+        print(compare({name: [run(seed, content, name, veteran_run=args.veteran, floors=floors) for seed in seeds]
                        for name in PLAYERS}, floors))
         return
-    print(report([run(seed, content, args.player, veteran_run=args.veteran) for seed in seeds], floors, args.fights))
+    print(report([run(seed, content, args.player, veteran_run=args.veteran, floors=floors) for seed in seeds], floors,
+                 args.fights))
 
 
 if __name__ == "__main__":

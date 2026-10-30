@@ -66,7 +66,9 @@ It scores ten typed commands and five narrated moments, shows what the guard wou
 
 **Every run (about 25-40 minutes)**
 - **Four floors.** Three different dungeons, getting harder; the third's boss guards the way down. Then **Norfel, Domain of Serpentis**, always the fourth: a purple poison cavern (after Metroid's Norfair), ten rooms, always a shrine, with Serpentis at the bottom.
-- **Poison** (and statuses to come, one a floor: `src/ptg/data/statuses.toml`). Venomous bites, Serpentis's spit, Norfel's river and its gas vent poison you: -2 to your rolls and 2 HP a room walked and a fight's turn, shown by purple hearts and ☠ Poisoned. It never takes your last HP on its own, and it doesn't wear off: pray at a shrine (free, as often as you like) or drink **Pure** (it also stops the next poisoning). Norfel's monsters are deeper and half of them venomous.
+- **Then deeper.** Beat Serpentis once, and every later run goes on down past her (her lair's floor cracks open as she falls): to **the Underbloom**, floor 5, a dark fungal deep where the only light is what grows and the torch you bring. Burn through the web door to the Sporefang Matriarch's lair (she'll trade the Philter of Light, a light that never burns down, for a certain cursed ring), and face the **Humongous Fungus** in the Spore Bed: the game's first fight against several foes at once, four parts each with its own health and its own job (one mends the others, one poisons you, one stuns you, one hits hard). Who to take down first is the fight. Daily runs stay four floors, the same for everyone.
+- **Fights against several at once.** Each foe has its own health bar and its next move over its head; you face one at a time (turning to another costs nothing), and after your go every foe has its own. A bomb catches the others for half; fleeing gets you away from all of them. Sporerats never come alone.
+- **Poison**, and **Burning** (2 a turn for three turns, and it can kill: water puts it out), **Stunned** (your next go lost, never two in a row) and **Mending** (`src/ptg/data/statuses.toml`; monsters can burn and mend too). Venomous bites, Serpentis's spit, Norfel's river and its gas vent poison you: -2 to your rolls and 2 HP a room walked and a fight's turn, shown by purple hearts and ☠ Poisoned. It never takes your last HP on its own, and it doesn't wear off: pray at a shrine (free, as often as you like) or drink **Pure** (it also stops the next poisoning). Norfel's monsters are deeper and half of them venomous.
 - **Norfel's hazards are choices.** Nothing rolls as you walk in. One poison river on the way to the boss: leap it (agility), wade it (poisoned) or vault it with a ten-foot pole, and once you're over you know its stepping stones. One gas vent, over a cache: disarm it first, or grab the loot and take the gas.
 - **Get ready a floor ahead.** Floor 3 always has Granny's shop, and asked what she knows she brings out an old smelly snakeskin for 80 gold: +2 armor that poison can't get past, against the +3 you likely wear. Items can cure, guard against and ward off statuses (`cures`, `guards`, `wards` in `items.toml`).
 - **Pick one of three perks** at each level-up (Ruthless, Acrobatics, Vampiric, Glass Cannon...).
@@ -179,6 +181,9 @@ Every boss (and guardian: King Mouse) is called out by name as it lands, clip or
 where its banner will be, with what it's boss of (or guarding) under it. King Mouse has clips too, from the same
 pipeline: he drops in, flexes and roars, swipes with his claw and raises it for a heavy blow. Make a clip's sizes so
 the standing figure is about 21, 25, 32 and (for big screens) 42 pixels tall: that's what the stage picks from.
+The Underbloom's have them too: the Sporefang Matriarch drops in on a silk line and screeches as she lands, and in
+the Spore Bed the Humongous Fungus and its three helpers come in together and swing at once, side by side at one size
+(a crowd's clips: `encounter.Fight`).
 
 **Small versions.** Where there isn't room for full size (the inventory's and the shop's tiles on a smaller screen,
 a short sidebar, the things lying in a room's picture) a sprite is drawn small, 12 pixels wide, and pixel art
@@ -565,11 +570,15 @@ in plays out as it would in a run. Lucky Lenny (his bad tooth is in your pack, a
 `lenny_quest`, still hidden on his floor, for him to tell you where), Swoogy (behind a wall to bomb, with
 a bomb), King Mouse (at the floor-2 stairs), either shop (at its door, with a small key, two bombs and 100 gold to
 spend; on floor 3, ask Granny for her snakeskin), each boss (at its locked door, with its key: Serpentis's is on
-floor 4), poisoned already beside a shrine with a Pure in your pack (`poison`), or any monster.
+floor 4, the Humongous Fungus's on floor 5), poisoned already beside a shrine with a Pure in your pack (`poison`), by
+the web over the Sporefang Matriarch's lair with a torch and the Ring she wants (`matriarch`), the Underbloom's dark
+with a torch or without (`underbloom`, `underbloom_dark`), or any monster.
 
 Pick a kit: a new adventurer (`new`), what a run might have by that floor (`random`: gear, level and a perk for each
 level), the best of everything (`strong`), or your own (`weapon=war_pick,armor=chain_shirt,items=holy_water+pickle,
-level=3,gold=50,bombs=2,keys=1`, anything left out as a new adventurer has it). Most can be tried on any floor.
+level=3,gold=50,bombs=2,keys=1`, anything left out as a new adventurer has it). Most can be tried on any floor, 1 to
+5 (4 is Norfel, 5 the Underbloom); the Underbloom's own monsters (the Sporerat, the Hollowed) are tried down there
+unless you say, and down in the dark you're given a torch, as a run would bring one (except in `underbloom_dark`).
 
 Nothing in a test room counts: it never saves over your run, banks no souls, and leaves your Hall of Legends,
 ghosts and bestiary as they were. Esc twice leaves it.
@@ -580,6 +589,8 @@ uv run ptg --test-room king_mouse --loadout strong
 uv run ptg --test-room shiny_shop --loadout new --floor 3
 uv run ptg --test-room serpentis                              # Norfel's boss, at its lair's door
 uv run ptg --test-room orc --floor 4                          # anywhere on Norfel: its river, its vent
+uv run ptg --test-room matriarch                              # the web door, her lair, her trade
+uv run ptg --test-room humongous_fungus --loadout strong      # the Spore Bed: four foes at once
 uv run ptg --test-room goblin --loadout "weapon=war_pick,items=pickle+pickle"
 ```
 

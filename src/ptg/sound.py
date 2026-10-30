@@ -82,6 +82,7 @@ MOMENTS = {
     "kill": "a monster falls",
     "encounter": "a fight begins: the foe sweeps onto the stage",
     "boss_encounter": "a boss fight begins",
+    "screech": "the Sporefang Matriarch's cry, as she comes in and as she rears up (a monster's `cry`)",
     "shatter": "a slain foe breaks apart",
     "rare_drop": "something rare drops",
     "bomb": "a bomb goes off",

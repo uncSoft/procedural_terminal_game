@@ -1,4 +1,10 @@
-"""Fighting: attacks, telegraphed monster moves, dodging, fleeing, and what happens when something dies."""
+"""Fighting: attacks, telegraphed monster moves, dodging, fleeing, and what happens when something dies.
+
+A fight can have several foes (docs/plans/multi-foe-fights.md): the room's `monster` is the one you face, the one
+your blows, throws and words go to, and its `others` stand beside it. `foes` is everyone still after you, the one you
+face first; `face` turns you to another (no turn); `foes_turn` is each one's go after yours, then their statuses (a
+burn can finish one: `fell`, for a foe that isn't the one you face); `rally` makes the next one standing the one you
+face once yours is down."""
 
 from __future__ import annotations
 
@@ -20,7 +26,9 @@ VENOM = 0.25  # how often a venomous bite poisons you (a deadly one always does)
 PURE_DROP = 0.25  # how often a venomous monster, slain, leaves a Pure
 VENOMOUS = {"venom", "venom_spit", "deadly_venom"}
 # What a monster's tricks look like over its head, with its next blow (foresee): the words for each.
-TRICK_WORDS = {"steal": "grabs", "tangle": "vines", "venom": "venom", "venom_spit": "spit", "deadly_venom": "venom!"}
+TRICK_WORDS = {"steal": "grabs", "tangle": "vines", "venom": "venom", "venom_spit": "spit", "deadly_venom": "venom!",
+               "burn": "fire", "spores": "spores"}
+SET_ALIGHT, DAZE = 0.35, 0.5  # how often a fiery hit sets you burning, and a spore-burst stuns you (a heavy one: always)
 # Winning in style pays (docs/plans/combat-and-balance.md §3.6): each a fifth more XP (1 at least) and 3 gold a tier.
 STYLES = {"flawless": ("Flawless", "not a scratch on you"), "exploited": ("Exploited", "finished with its weakness")}
 STYLE_XP, STYLE_GOLD = 0.2, 3
@@ -77,20 +85,22 @@ def holds_its_ground(state: GameState, content: Content, monster: MonsterState) 
 
 def stand_firm_warning(state: GameState, content: Content) -> list[Event]:
     """A fight with one that holds its ground (holds_its_ground) says so as it starts, so nobody finds out by
-    wasting a smoke bomb."""
-    monster = state.room.monster
-    if not (monster and monster.hostile and monster.hp > 0 and holds_its_ground(state, content, monster)):
+    wasting a smoke bomb. (Of several foes, the first that does.)"""
+    monster = next((m for m in foes(state) if holds_its_ground(state, content, m)), None)
+    if monster is None:
         return []
     return [Event("warning", f"{cap(the(monster.name))} won't be scared off, and no smoke will hide you from it: to "
                              "get away, you'll have to outrun it.", data={"monster": monster.key})]
 
 
-def telegraph(state: GameState, content: Content) -> list[Event]:
-    monster = state.room.monster
+def telegraph(state: GameState, content: Content, monster: MonsterState | None = None) -> list[Event]:
+    monster = monster or state.room.monster
     if monster and monster.hostile and monster.intent == "heavy":
-        wind_up = tell(monster.name, content.monster(monster.key).tell).rstrip(" .")  # (the kids shout theirs)
+        known = content.monster(monster.key)
+        wind_up = tell(monster.name, known.tell).rstrip(" .")  # (the kids shout theirs)
         stop = "" if wind_up.endswith(("!", "?", '"')) else "."  # (out of the f-string: Python 3.11 allows no \ in one)
-        return [Event("telegraph", f"{wind_up}{stop} A heavy blow is coming!")]
+        return [Event("telegraph", f"{wind_up}{stop} A heavy blow is coming!",
+                      data={"sound": known.cry} if known.cry else {})]
     return []
 
 
@@ -106,6 +116,9 @@ def foresee(state: GameState, content: Content, monster: MonsterState | None = N
         return Foresight("running", "»", "RUNNING OFF")
     if monster.intent == "guard":
         return Foresight("guard", "⛨", "GUARDS")
+    if "mend" in tricks_of(monster, content) and any(m is not monster and m.hp < m.max_hp and "mend" not in m.statuses
+                                                     for m in foes(state)):
+        return Foresight("mend", "✚", "MENDS")
     heavy = monster.intent == "heavy"
     low, high = dice.span(content.monster(monster.key).damage)
     flat = monster.damage_mod - (2 if powers.holders(state, content, "reeks") else 0)
@@ -219,6 +232,8 @@ def player_attack(state: GameState, content: Content, rng: random.Random) -> lis
     for tag in weak:
         events += discover(state, monster, tag)
     events += events_on_roll
+    if monster.hp > 0 and "fire" in coating:  # (a blade slick with burning oil sets it alight)
+        events += alight(monster)
     if monster.hp <= 0:
         events += defeat(state, content, rng, exploited=bool(weak))
     return events
@@ -284,6 +299,7 @@ def throw(state: GameState, content: Content, rng: random.Random, key: str) -> l
                            data={"damage": damage, "rerollable": True, **thrown}))
     for tag in weak:
         events += discover(state, monster, tag)
+    events += alight(monster) if "fire" in item.tags and monster.hp > 0 else []  # (lamp oil, lava: it burns on)
     return events + (defeat(state, content, rng, exploited=bool(weak)) if monster.hp <= 0 else [])
 
 
@@ -314,7 +330,16 @@ def burn(state: GameState, content: Content, rng: random.Random) -> list[Event]:
                                f"({max(monster.hp, 0)}/{monster.max_hp} HP left).{' [fire!]' if weak else ''}",
                         dice=roll, data={"damage": damage, "burn": True}))
     events += light.burn(state, content) + (discover(state, monster, "fire") if weak else []) + luck
+    events += alight(monster) if monster.hp > 0 else []
     return events + (defeat(state, content, rng, exploited=weak) if monster.hp <= 0 else [])
+
+
+def alight(monster: MonsterState) -> list[Event]:
+    """A monster set burning by your fire (the torch, lamp oil thrown, a fire-coated blade, a bomb): it burns for a
+    few turns of the fight (statuses.monster_tick). Said once, as it catches."""
+    if not statuses.afflict(monster, "burn"):
+        return []
+    return [Event("alight", f"{cap(the(monster.name))} catches fire!", data={"monster": monster.key, "status": "burn"})]
 
 
 def distract(state: GameState, content: Content, key: str) -> list[Event]:
@@ -342,7 +367,17 @@ def bomb_monster(state: GameState, content: Content, rng: random.Random) -> list
                     data={"damage": damage, "bomb": True})]
     for tag in weak[:1]:
         events += discover(state, monster, tag)
-    return events + (defeat(state, content, rng, exploited=bool(weak)) if monster.hp <= 0 else [])
+    caught = [m for m in foes(state) if m is not monster]  # (the blast catches the others, for half)
+    for other in caught:
+        other.hp -= damage // 2
+        events.append(Event("hit", f"The blast catches {the(other.name)} for {damage // 2} "
+                                   f"({max(other.hp, 0)}/{other.max_hp} HP left).", data={"damage": damage // 2,
+                                                                                         "blast": True}))
+    events += defeat(state, content, rng, exploited=bool(weak)) if monster.hp <= 0 else []
+    for other in caught:
+        if other.hp <= 0 and not state.over:
+            events += fell(state, content, rng, other)
+    return events
 
 
 def fortune(state: GameState, roll: dice.Roll) -> list[Event]:
@@ -361,9 +396,12 @@ def fortune(state: GameState, roll: dice.Roll) -> list[Event]:
     return []
 
 
-def monster_turn(state: GameState, content: Content, rng: random.Random) -> list[Event]:
+def monster_turn(state: GameState, content: Content, rng: random.Random,
+                 monster: MonsterState | None = None) -> list[Event]:
+    """A foe's go (the one you face, unless it says another): a blow, a guard, or what its tricks have it do instead
+    (a mender mends its side)."""
     room, player = state.room, state.player
-    monster = room.monster
+    monster = monster or room.monster
     monster_def = content.monster(monster.key)
     monster.guarding = False
     dodging, player.dodging = player.dodging, False
@@ -374,38 +412,45 @@ def monster_turn(state: GameState, content: Content, rng: random.Random) -> list
         return [Event("stunned", f"{cap(the(monster.name))} is still reeling and can't attack.")]
     if monster.stolen_item or monster.stolen_gold:
         return _getaway(state, content, monster)
+    mended = _mend(state, content, monster)
+    if mended:  # (a mender with someone of its side hurt: it mends them instead of striking)
+        monster.intent = choose_intent(rng, monster, content)
+        return mended
 
     intent = monster.intent
     monster.intent = choose_intent(rng, monster, content)
     if intent == "guard":
         monster.guarding = True
         events = [Event("guard", f"{cap(the(monster.name))} hunkers down and guards itself (+4 defense).")]
-        return events + telegraph(state, content)
+        return events + telegraph(state, content, monster)
 
     monster.swings += 1
     if dodging:
         perfect = intent == "heavy"
         events = [Event("dodge", f"You slip aside and {the(monster.name)}'s "
-                                 f"{'heavy blow' if perfect else 'attack'} hits nothing but air.")]
+                                 f"{'heavy blow' if perfect else 'attack'} hits nothing but air.",
+                        data={"foe": monster.place})]
         if perfect:
             player.advantage_next = True
             if player.fate < player.max_fate():
                 player.fate += 1
             events.append(Event("fate", "Perfect dodge! Your next attack has advantage, and you gain a Fate token "
                                         f"({player.fate}/{player.max_fate()})."))
-        return events + telegraph(state, content)
+        return events + telegraph(state, content, monster)
 
     attack = monster_def.attack + monster.attack_mod
     label = f"{monster.name} {'HEAVY attack' if intent == 'heavy' else 'attacks'}"
     roll = dice.check(rng, label, [("attack", attack)], player.defense(content), actor="monster")
     roll.hits_for = f"{monster_def.damage} ×2" if intent == "heavy" else monster_def.damage
     if not roll.success:
-        return [Event("monster_miss", f"{cap(the(monster.name))} attacks you and misses.", dice=roll)] + telegraph(state, content)
+        return [Event("monster_miss", f"{cap(the(monster.name))} attacks you and misses.", dice=roll,
+                      data={"foe": monster.place})] + telegraph(state, content, monster)
 
     room_key = f"{state.floor}:{room.id}"
     if "acrobatics" in player.perks and room_key not in player.evaded_rooms and intent != "heavy":
         player.evaded_rooms.append(room_key)
-        return [Event("evade", f"Acrobatics! You tumble clear of {the(monster.name)}'s blow.", dice=roll)] + telegraph(state, content)
+        return [Event("evade", f"Acrobatics! You tumble clear of {the(monster.name)}'s blow.", dice=roll,
+                      data={"foe": monster.place})] + telegraph(state, content, monster)
 
     rolls = 2 if intent == "heavy" else (2 if roll.crit else 1)  # heavy blows and crits don't stack
     parts = [(monster_def.damage, dice.roll(monster_def.damage, rng))]
@@ -427,12 +472,12 @@ def monster_turn(state: GameState, content: Content, rng: random.Random) -> list
     held_off = f" ({cap(the(reek[0].name))} keeps it at arm's length.)" if reek else ""
     events = [Event("monster_hit", f"{cap(the(monster.name))} {how} for {damage} damage "
                                    f"({player.hp}/{player.max_hp} HP left).{held_off}", dice=roll,
-                    data={"damage": damage})]
+                    data={"damage": damage, "foe": monster.place})]
     if player.hp == 0:
         events += _death_or_reprieve(state, monster)
     if not state.over:
         events += _tricks(state, content, rng, monster, monster_def, heavy=intent == "heavy")
-    return events + ([] if state.over else telegraph(state, content))
+    return events + ([] if state.over else telegraph(state, content, monster))
 
 
 def _tricks(state: GameState, content: Content, rng: random.Random, monster: MonsterState, monster_def,
@@ -465,31 +510,120 @@ def _tricks(state: GameState, content: Content, rng: random.Random, monster: Mon
     if "deadly_venom" in tricks or spat or ("venom" in tricks and rng.random() < VENOM):
         events += statuses.inflict(state, "poison", cap(the(monster.name)) + ("'s spit" if spat else "'s bite"),
                                    content)
+    if "burn" in tricks and (heavy or rng.random() < SET_ALIGHT) and not state.over:
+        events += statuses.inflict(state, "burn", cap(the(monster.name)), content)
+    if "spores" in tricks and (heavy or rng.random() < DAZE) and not state.over:
+        events += statuses.inflict(state, "stun", cap(the(monster.name)) + "'s burst of spores", content)
     return events
 
+
+
+# --- several foes ---------------------------------------------------------------------------------------------------
+
+def foes(state: GameState) -> list[MonsterState]:
+    """Everyone in this room's fight still standing and after you: the one you face first, then the others."""
+    room = state.room
+    return [m for m in [room.monster, *room.others] if m is not None and m.hostile and m.hp > 0]
+
+
+def face(state: GameState, content: Content, index: int) -> list[Event]:
+    """Turn to another of the foes (the `index`th of the others): it's the one your blows go to now. No turn."""
+    room = state.room
+    other = room.others[index]
+    room.others[index], room.monster = room.monster, other
+    return [Event("face", f"You turn to face {the(other.name)}.", data={"monster": other.key, "quiet": True})]
+
+
+def rally(state: GameState) -> list[Event]:
+    """The one you faced is down (or talked down, or ran off): the next of the others still fighting comes at you,
+    the one you face now. The fallen are cleared away; a foe talked down stays, calm, among the others."""
+    room = state.room
+    if room.monster is not None and room.monster.hostile and room.monster.hp > 0:
+        return []
+    fighting = [m for m in room.others if m.hostile and m.hp > 0]
+    if not fighting:
+        room.others = [m for m in room.others if m.hp > 0]
+        return []
+    after = fighting[0]
+    room.others = [m for m in room.others if m is not after and m.hp > 0]
+    if room.monster is not None and room.monster.hp > 0:  # (talked down: it stands aside)
+        room.others.append(room.monster)
+    room.monster = after
+    return [Event("face", f"{cap(the(after.name))} comes at you now.", data={"monster": after.key})]
+
+
+def fell(state: GameState, content: Content, rng: random.Random, foe: MonsterState, how: str = "slain",
+         exploited: bool = False) -> list[Event]:
+    """A foe beaten: the one you face (defeat, as ever), or one of the others (a burn, a blast): its rewards and
+    drops all the same, and the one you face still the one you face."""
+    room = state.room
+    if foe is room.monster:
+        return defeat(state, content, rng, how, exploited)
+    facing, at = room.monster, room.others.index(foe)
+    # (swapped for its defeat: the one you face stands in its place among the others, so the fight isn't won while
+    # it's still standing)
+    room.monster = foe
+    if facing is not None:
+        room.others[at] = facing
+    else:
+        del room.others[at]
+    events = defeat(state, content, rng, how, exploited)
+    calm = room.monster is foe  # (talked down: it stands aside, calm, where it was)
+    if facing is not None:
+        room.others[at] = foe
+    elif calm:
+        room.others.insert(at, foe)
+    if not calm and foe in room.others:
+        room.others.remove(foe)
+    room.monster = facing
+    return events
+
+
+def foes_turn(state: GameState, content: Content, rng: random.Random) -> list[Event]:
+    """After your go, each foe still standing has its own (the one you face first, then the others in turn), then a
+    fight's turn of their statuses: a burn can finish one (fell), a mending heals."""
+    events: list[Event] = []
+    for foe in foes(state):
+        if state.over:
+            return events
+        if foe.hp > 0 and foe.hostile:
+            events += monster_turn(state, content, rng, foe)
+    for foe in [m for m in [state.room.monster, *state.room.others] if m is not None and m.hp > 0]:
+        events += statuses.monster_tick(foe)
+        if foe.hp <= 0 and not state.over:
+            events += fell(state, content, rng, foe)
+    return events
+
+
+def _mend(state: GameState, content: Content, monster: MonsterState) -> list[Event]:
+    """A mender's go (the `mend` trick): the most hurt of the others on its side that isn't mending already is
+    Mending now (it gets health back each turn: statuses.monster_tick). Never itself, so it can be killed first.
+    Nothing, if none of them is hurt: then it strikes."""
+    if "mend" not in tricks_of(monster, content):
+        return []
+    hurt = [m for m in foes(state) if m is not monster and m.hp < m.max_hp and "mend" not in m.statuses]
+    if not hurt:
+        return []
+    worst = min(hurt, key=lambda m: m.hp / m.max_hp)
+    statuses.afflict(worst, "mend")
+    return [Event("mend", f"{cap(the(monster.name))} pulses with a soft light, and {the(worst.name)} begins to "
+                          "mend.", data={"monster": worst.key})]
 
 
 def _getaway(state: GameState, content: Content, monster: MonsterState) -> list[Event]:
     """A thief with something of yours runs off with it, on its next go if you didn't stop it."""
     what = the(content.item(monster.stolen_item).name) if monster.stolen_item else f"your {monster.stolen_gold} gold"
-    state.room.monster = None
+    if state.room.monster is monster:
+        state.room.monster = None
+    elif monster in state.room.others:
+        state.room.others.remove(monster)
     state.room.remember(f"{the(monster.name)} ran off with {what}")
     return [Event("getaway", f"{cap(the(monster.name))} scampers off into the dark with {what}!")]
 
 
 def _death_or_reprieve(state: GameState, monster: MonsterState) -> list[Event]:
-    player = state.player
-    if "second_wind" in player.perks and player.second_wind_floor != state.floor:
-        player.second_wind_floor = state.floor
-        player.hp = 1
-        return [Event("reprieve", "Second Wind! You refuse to fall and stagger up with 1 HP.")]
-    if "last_breath" in player.blessings and not player.last_breath_used:
-        player.last_breath_used = True
-        player.hp = 1
-        return [Event("reprieve", "Last Breath: something in the dark isn't finished with you. You live, with 1 HP.")]
-    state.status = "dead"
-    state.cause = f"slain by {the(monster.name)} on floor {state.floor}"
-    return [Event("death", f"You fall to {the(monster.name)}. Your adventure ends here.", data={"monster": monster.key})]
+    return statuses.fall(state, the(monster.name), f"slain by {the(monster.name)} on floor {state.floor}",
+                         {"monster": monster.key})
 
 
 def dodge(state: GameState, content: Content, rng: random.Random) -> list[Event]:
@@ -510,7 +644,7 @@ def dodge(state: GameState, content: Content, rng: random.Random) -> list[Event]
 
 
 def flee_direction(state: GameState) -> str | None:
-    open_exits = [(d, e) for d, e in state.room.exits.items() if not e.locked and not hazards.blocked(state, d)]
+    open_exits = [(d, e) for d, e in state.room.exits.items() if not e.shut and not hazards.blocked(state, d)]
     for direction, exit_ in open_exits:
         if exit_.to == state.prev_room_id:
             return direction
@@ -525,12 +659,15 @@ def flee(state: GameState, content: Content, rng: random.Random, guaranteed: boo
     if direction is None:
         return [Event("info", "There is nowhere to run.")]
     events: list[Event] = []
-    smoke = guaranteed and holds_its_ground(state, content, monster)  # (smoke helps, but it's still a run for it)
-    said = [Event("info", f"The smoke would hide you from most things, but not from {the(monster.name)}: you make a "
+    after_you = foes(state) or [monster]  # (all of them: as hard as the hardest makes it)
+    firm = next((m for m in after_you if holds_its_ground(state, content, m)), None)
+    smoke = guaranteed and firm is not None  # (smoke helps, but it's still a run for it)
+    said = [Event("info", f"The smoke would hide you from most things, but not from {the(firm.name)}: you make a "
                           "run for it.")] if smoke else []
     guaranteed = guaranteed and not smoke
+    names = inventory.listing([the(m.name) for m in after_you], "and")
     if not guaranteed:
-        dc = 10 + tier_of(monster, content)
+        dc = 10 + max(tier_of(m, content) for m in after_you)
         advantage = 1 if "escape_artist" in state.player.traits or smoke else 0
         bonuses = [("agility", state.player.agility)] + powers.roll_bonuses(state, content, "flee")
         roll = dice.check(rng, "agility (flee)", bonuses, dc, advantage=advantage)
@@ -538,13 +675,14 @@ def flee(state: GameState, content: Content, rng: random.Random, guaranteed: boo
         if not roll.success:
             return said + [Event("flee_fail", f"You try to flee, but {the(monster.name)} cuts you off.", dice=roll,
                                  data={"rerollable": True})] + events
-        events.insert(0, Event("flee", f"You escape from {the(monster.name)}, running {direction}.", dice=roll,
+        events.insert(0, Event("flee", f"You escape from {names}, running {direction}.", dice=roll,
                                data={"rerollable": True}))
         events = said + events
     else:
-        events.append(Event("flee", f"You escape from {the(monster.name)}, running {direction}."))
+        events.append(Event("flee", f"You escape from {names}, running {direction}."))
     state.player.bump("fled")
-    monster.intent = "strike"
+    for foe in after_you:
+        foe.intent = "strike"
     return events + travel(state, content, direction, state.room.exits[direction].to)
 
 
@@ -595,18 +733,25 @@ def defeat(state: GameState, content: Content, rng: random.Random, how: str = "s
         state.souls += 15
         events.append(Event("ghost_rest", f"The ghost of {monster.ghost_of}, your own earlier life, finally rests. "
                                           "Their belongings are yours to take. +15 souls.", data=data))
-    if monster_def.boss and state.final_floor:
+    last = not any(m.hostile and m.hp > 0 for m in room.others)  # (a party fights on till its last falls)
+    beaten = last and (monster_def.boss or room.is_boss)  # (the boss, and the last of its party)
+    if monster_def.boss and not last:
+        events.append(Event("info", f"{cap(the(monster.name))} is down, but the rest of it fights on!", data=data))
+    if beaten and state.final_floor:
         theme = content.themes[state.theme]
         state.status = "won"
         state.cause = f"conquered {theme.name}"
         events.append(Event("victory", f"You have conquered {theme.name}. {theme.goal} Done.", data=data))
         return events
-    if monster_def.boss and state.boss_floor:  # the last dungeon's: behind it, the way down (its room's stairs)
+    if beaten and state.boss_floor:  # a boss floor's: behind it, the way down (its room's stairs)
         theme = content.themes[state.theme]
+        below = content.themes.get(state.themes[state.floor]) if state.floor < len(state.themes) else None
+        down = "where it fell, the floor cracks open, and a stair of broken rock leads down into a cold glow" \
+            if below and below.dark else \
+            "behind where it stood, stairs lead further down, and the air coming up them stings your throat"
         events.append(Event("conquered", f"You have conquered {theme.name}. {theme.goal} Done. But it isn't over: "
-                                         "behind where it stood, stairs lead further down, and the air coming up "
-                                         "them stings your throat.", data=data))
-    elif monster_def.boss:  # one holding its dungeon on an earlier floor (world.EARLY_BOSSES), by its stairs
+                                         f"{down}.", data=data))
+    elif beaten:  # one holding its dungeon on an earlier floor (world.EARLY_BOSSES), by its stairs
         theme = content.themes[state.theme]
         events.append(Event("conquered", f"You have conquered {theme.name}. {theme.goal} Done. The stairs down are "
                                          "yours.", data=data))

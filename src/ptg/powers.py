@@ -15,6 +15,7 @@
         reeks        monsters' hits do 2 less damage (they don't want to get close)
         twin_bombs   every bomb you pick up counts as two (the Bomb Fairy)
         torch        your light on a dark floor, and a fire to burn things with, a flame of its light each (light.py)
+        light        your light on a dark floor that never burns down (and no fire: the Philter of Light)
     when you pick it up
         mapper       the whole floor's map is yours
     a choice it gives you
@@ -57,6 +58,7 @@ POWERS = {
     "reeks": "monsters' hits do 2 less damage: they don't want to get close",
     "twin_bombs": "every bomb you pick up counts as two",
     "torch": "your light down in the dark, and a fire to burn things with: each costs a flame of its light",
+    "light": "your light down in the dark, and it never burns down",
     "mapper": "maps the whole floor when you pick it up",
     "throw": "throw it in a fight (it's gone after)",
     "distract": "distracts a monster once a fight: it loses its next attack",
@@ -69,10 +71,10 @@ SHORT = {  # a power in a few words, for an item's tile
     "valuable": "valuable", "eloquent": "+1 talking", "mapper": "maps the floor", "throw": "throw it",
     "distract": "distracts",
     "reveal": "shows what's hidden", "reeks": "hits do 2 less", "dazzle": "scares monsters off",
-    "twin_bombs": "bombs count double", "torch": "a light in the dark",
+    "twin_bombs": "bombs count double", "torch": "a light in the dark", "light": "a light that never dies",
 }
 CARRYING = {"luck", "seeker", "careful", "unseen", "cook", "goblin_bane", "prophecy", "cursed", "valuable", "eloquent",
-            "reeks", "twin_bombs", "torch"}  # the powers that work while you carry the thing (the sheet lists them)
+            "reeks", "twin_bombs", "torch", "light"}  # the powers that work while you carry the thing (the sheet lists them)
 PICKED_UP = {"bomb": "for walls and monsters", "small_key": "opens a chest"}  # counters, not things you carry
 # Roll bonuses: power -> (bonus, the kinds of roll it helps, or None for every one of yours)
 ROLLS = {"luck": (1, None), "seeker": (1, {"search"}), "careful": (2, {"disarm"}), "unseen": (2, {"dodge", "flee"}),

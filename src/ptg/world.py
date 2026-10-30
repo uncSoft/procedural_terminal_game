@@ -1,6 +1,7 @@
 """Seeded dungeon generation. A run is four floors: three dungeons, each a different theme (the third's boss guards
-the stairs down), then Norfel, always the fourth, with Serpentis at its bottom. The same seed always builds the same
-run. Floors are built one at a time as you descend."""
+the stairs down), then Norfel, always the fourth, with Serpentis at its bottom; once you've beaten her in any run, five,
+the Underbloom under her (models.DEEPEST: meta.start_run). The same seed always builds the same run. Floors are built
+one at a time as you descend."""
 
 from __future__ import annotations
 
@@ -9,6 +10,7 @@ import random
 from collections import deque
 
 from . import dice, hazards, layout, loot, npcs
+from .light import WRAPS
 from .content import Content, load_content
 from .models import (DELTA, DIRECTIONS, FLOORS, OPPOSITE, Exit, Feature, GameState, MonsterState, Player,
                      Room, Shop, Ware)
@@ -20,28 +22,31 @@ ELITES = {
     "Hulking": {"hp_mult": 1.5, "damage_mod": 1},
     "Cursed": {"reward_mult": 2.0},
 }
-ROOMS = {1: 7, 2: 7, 3: 8, 4: 10}  # rooms on each floor (and a secret one, and maybe a shop)
+ROOMS = {1: 7, 2: 7, 3: 8, 4: 10, 5: 10}  # rooms on each floor (and a secret one, and maybe a shop, and a lair)
 # The deeper, the stronger the same monsters are, past where their tiers stop (tier_for): from floor 3, so it isn't
 # where they stop growing (docs/plans/combat-and-balance.md §2). A floor deeper than the table has its deepest row.
 DEPTH = {3: {"hp_mult": 1.1, "attack_mod": 0, "defense_mod": 0, "damage_mod": 1},
-         4: {"hp_mult": 1.25, "attack_mod": 1, "defense_mod": 0, "damage_mod": 1}}
+         4: {"hp_mult": 1.25, "attack_mod": 1, "defense_mod": 0, "damage_mod": 1},
+         5: {"hp_mult": 1.35, "attack_mod": 2, "defense_mod": 1, "damage_mod": 1}}
 VENOMOUS = 0.5  # on a floor with poison of its own, how many of its monsters bite with venom (combat.VENOM)
 # A dungeon's boss who holds it whichever floor it's on, not only as the last dungeon: at its stairs on an earlier one,
 # cut down to that floor's size (HP, attack, defense, damage off its dice, as npcs.sized takes them). Worth a warden's
 # tier there, and half a boss's souls. Above a floor-1 warden (16 HP or so, a d8) and a floor-2 one (an elite).
 EARLY_BOSSES = {"goblin_king": {1: (25, 3, 12, -3), 2: (32, 4, 13, -3)}}
 EARLY_BOSS_SOULS = 0.5
+# A floor's lair behind a web door (Exit.webbed): its room and who's in it. Only fire gets through (rules._burn_web).
+LAIRS = {"underbloom": ("matriarchs_lair", "the_sporefang_matriarch")}
 
 def generate(seed: int, player_name: str = "Adventurer", content: Content | None = None,
-             player: Player | None = None, ghost: dict | None = None) -> GameState:
-    """Start a new run on floor 1."""
+             player: Player | None = None, ghost: dict | None = None, floors: int = FLOORS) -> GameState:
+    """Start a new run on floor 1, `floors` deep (FLOORS; DEEPEST once you've won one: meta.start_run)."""
     content = content or load_content()
     rng = dice.stream(seed, "run")
     themes = sorted(k for k, t in content.themes.items() if not t.floor)  # (the dungeons, shuffled)
     rng.shuffle(themes)
-    fixed = {t.floor: t.key for t in content.themes.values() if t.floor}  # (Norfel, always the fourth)
-    themes = [fixed.get(floor) or themes[(floor - 1) % len(themes)] for floor in range(1, FLOORS + 1)]
-    state = GameState(seed=seed, theme=themes[0], themes=themes, rooms=[],
+    fixed = {t.floor: t.key for t in content.themes.values() if t.floor}  # (Norfel the fourth, the Underbloom the fifth)
+    themes = [fixed.get(floor) or themes[(floor - 1) % len(themes)] for floor in range(1, floors + 1)]
+    state = GameState(seed=seed, theme=themes[0], themes=themes, rooms=[], floors_total=floors,
                       player=player or Player(name=player_name), ghost=ghost)
     build_floor(state, content)
     return state
@@ -95,6 +100,9 @@ def build_floor(state: GameState, content: Content) -> None:
     shop = _shop(state, content, rooms, end_id)
     if shop:
         rooms.append(shop)
+    lair = _lair(state, content, rooms, end_id)
+    if lair:
+        rooms.append(lair)
     npcs.place(state, content, rooms, end_id)  # Lucky Lenny, Swoogy, King Mouse at the stairs...
 
     for room in rooms:
@@ -204,7 +212,7 @@ def monster_for(rng: random.Random, content: Content, theme_key: str, tier: int,
     named = "venom" in chosen.name.lower()  # (a Venom Toad always has it there, and isn't "Venomous Venom Toad")
     if theme.status == "poison" and "venom" not in chosen.tricks and (rng.random() < VENOMOUS or named):
         monster.tricks.append("venom")
-        monster.name = chosen.name if named else f"Venomous {chosen.name}"
+        monster.name = chosen.name if named else titled("Venomous", chosen.name)
     deep = depth(floor)
     if deep:
         monster.max_hp = monster.hp = round(chosen.hp * deep["hp_mult"])
@@ -213,13 +221,46 @@ def monster_for(rng: random.Random, content: Content, theme_key: str, tier: int,
     if elite:
         mods = ELITES[elite]
         monster.elite = elite
-        monster.name = f"{elite} {monster.name}"
+        monster.name = titled(elite, monster.name)
         monster.max_hp = monster.hp = round(monster.max_hp * mods.get("hp_mult", 1.0))
         monster.attack_mod += mods.get("attack_mod", 0)
         monster.defense_mod += mods.get("defense_mod", 0)
         monster.damage_mod += mods.get("damage_mod", 0)
         monster.reward_mult = mods.get("reward_mult", 1.5)
     return monster
+
+
+ORDINALS = ("Second", "Third", "Fourth", "Fifth")  # how a party's others of the same kind are told apart
+
+
+def titled(word: str, name: str) -> str:
+    """A name with a word put before it (an elite's, an ordinal): after its "The", if it has one ("The Hulking
+    Hollowed", not "Hulking The Hollowed")."""
+    rest = name.removeprefix("The ")
+    return f"The {word} {rest}" if rest != name else f"{word} {name}"
+
+
+def party(rng: random.Random, content: Content, leader: MonsterState, floor: int) -> list[MonsterState]:
+    """Who comes into the fight with `leader` (its monster's `party`: a Sporerat's other Sporerat, a boss's parts),
+    each as strong as the floor makes it (DEPTH), and named apart where they're alike ("Second Sporerat")."""
+    out: list[MonsterState] = []
+    seen = [leader.name]
+    bosses = content.monster(leader.key).boss  # (a boss's parts are as made, as the boss is: no depth for them)
+    for key in content.monster(leader.key).party:
+        made = content.monster(key)
+        member = MonsterState(key=key, name=made.name, hp=made.hp, max_hp=made.hp)
+        deep = depth(floor) if not (made.boss or bosses) else {}
+        if deep:
+            member.max_hp = member.hp = round(made.hp * deep["hp_mult"])
+            member.attack_mod, member.defense_mod, member.damage_mod = \
+                deep["attack_mod"], deep["defense_mod"], deep["damage_mod"]
+        alike = sum(name == made.name for name in seen)
+        if alike:
+            member.name = titled(ORDINALS[min(alike, len(ORDINALS)) - 1], made.name)
+        seen.append(made.name)
+        member.place = len(out) + 1
+        out.append(member)
+    return out
 
 
 def depth(floor: int) -> dict:
@@ -245,6 +286,7 @@ def _place_monsters(rng, content, state, theme, rooms: list[Room], end_id: int, 
     if boss:
         boss = content.monster(theme.boss)
         rooms[end_id].monster = MonsterState(key=boss.key, name=boss.name, hp=boss.hp, max_hp=boss.hp)
+        rooms[end_id].others = party(rng, content, rooms[end_id].monster, state.floor)  # (the Humongous Fungus's parts)
     else:
         # Every staircase has a warden; from floor 2 on, it's an elite. A dungeon's boss who always holds it is there
         # instead (EARLY_BOSSES), the warden drawn all the same (not met): the rest of the floor is as it was.
@@ -256,14 +298,16 @@ def _place_monsters(rng, content, state, theme, rooms: list[Room], end_id: int, 
         rooms[end_id].monster.warden = True
         if early:
             rooms[end_id].monster = early_boss(content, theme.boss, state.floor, state.floors_total)
+        rooms[end_id].others = party(rng, content, rooms[end_id].monster, state.floor)
 
     candidates = [r for r in rooms if r.id not in (0, end_id) and r.fixture != "shrine"]
     rng.shuffle(candidates)
-    elite_chance = {1: 0.0, 2: 0.25, 3: 0.4, 4: 0.25}.get(state.floor, 0.4)  # (floor 4: deeper already)
+    elite_chance = {1: 0.0, 2: 0.25, 3: 0.4, 4: 0.25, 5: 0.25}.get(state.floor, 0.4)  # (floor 4 on: deeper already)
     for room in candidates[:max(2, round(len(candidates) * 0.5))]:
         elite = rng.choice(sorted(ELITES)) if rng.random() < elite_chance else ""
         room.monster = monster_for(rng, content, theme.key, tier_for(state.floor, state.floors_total), elite,
                                    met=state.met, floor=state.floor)
+        room.others = party(rng, content, room.monster, state.floor)  # (a Sporerat never comes alone)
 
 
 def early_boss(content: Content, key: str, floor: int, floors: int = FLOORS) -> MonsterState:
@@ -283,9 +327,12 @@ def _place_loot(rng, content: Content, state: GameState, theme, rooms: list[Room
     place left for. Anything else with nowhere left to go isn't there at all."""
     others = [r for r in rooms if r.id not in (0, end_id)]
     if boss:
-        # The key sits in a visible feature somewhere past the halfway point (never in the boss room).
+        # The key sits in a visible feature somewhere past the halfway point (never in the boss room); on a dark floor,
+        # never in a thing wrapped in threads, that only fire opens (light.WRAPS): no torch mustn't mean no way on.
         deep = [r for r in others if r.distance >= max(1, max_distance // 2)] or others
-        rng.choice(rng.choice(deep).features).loot.append(theme.key_item)
+        bare = [[f for f in r.features if not (theme.dark and any(w in f.name.lower() for w in WRAPS))] for r in deep]
+        room = rng.choice([r for r, open_ in zip(deep, bare) if open_] or deep)
+        rng.choice(bare[deep.index(room)] or room.features).loot.append(theme.key_item)
 
     found = [loot.pick(rng, content, slot) for slot in loot.FLOORS.get(state.floor, ["potion 1"])]
     found.append(loot.DUNGEON_TRINKETS.get(theme.key, "oil_flask"))
@@ -367,6 +414,7 @@ def _secret_room(rng: random.Random, content: Content, state: GameState, theme, 
         room.monster = monster_for(rng, content, theme.key, warden_tier(state.floor, state.floors_total),
                                    elite=rng.choice(sorted(ELITES)),
                                    met=state.met, floor=state.floor)
+        room.others = party(rng, content, room.monster, state.floor)
     return room
 
 
@@ -400,6 +448,35 @@ def _shop(state: GameState, content: Content, rooms: list[Room], end_id: int) ->
                                                            cure_for=status,
                                                            lights=theme.dark or bool(below and below.dark))]))
     rooms[by].exits[door] = Exit(to=room.id, locked=True, key="small_key")
+    room.exits[OPPOSITE[door]] = Exit(to=by)
+    return room
+
+
+def _lair(state: GameState, content: Content, rooms: list[Room], end_id: int) -> Room | None:
+    """A floor's lair (LAIRS: the Sporefang Matriarch's, in the Underbloom): a nook off one room, its way in sealed with
+    web as thick as a sail that only fire gets through (rules._burn_web), and its keeper in it, at full strength, as a
+    guardian is. A random stream of its own, as the shop has, so it changes nothing else about the floor."""
+    archetype_key, who = LAIRS.get(state.theme, ("", ""))
+    if archetype_key not in content.archetypes or who not in content.monsters:
+        return None
+    rng = dice.stream(state.seed, "lair", state.floor)
+    taken = {(r.x, r.y) for r in rooms}
+    nooks = sorted((x + dx, y + dy, r.id) for r in rooms if r.id not in (0, end_id) and not r.secret and not r.shop
+                   for x, y in [(r.x, r.y)] for dx, dy in DELTA.values()
+                   if (x + dx, y + dy) not in taken and sum((x + dx + ex, y + dy + ey) in taken
+                                                             for ex, ey in DELTA.values()) == 1)
+    if not nooks:
+        return None
+    x, y, by = rng.choice(nooks)
+    door = next(d for d, (dx, dy) in DELTA.items() if (rooms[by].x + dx, rooms[by].y + dy) == (x, y))
+    archetype, keeper = content.archetypes[archetype_key], content.monster(who)
+    wrapped = [loot.pick(rng, content, "gear 3")]  # (the last one who came: their gear's still on them)
+    room = Room(id=len(rooms), x=x, y=y, name=archetype.names[0], archetype=archetype.key,
+                distance=rooms[by].distance + 1,
+                features=[Feature(name=archetype.features[0], loot=[k for k in wrapped if k]),
+                          *(Feature(name=f, gold=rng.randint(15, 25) * state.floor) for f in archetype.features[1:])])
+    room.monster = MonsterState(key=keeper.key, name=keeper.name, hp=keeper.hp, max_hp=keeper.hp)
+    rooms[by].exits[door] = Exit(to=room.id, webbed=True)
     room.exits[OPPOSITE[door]] = Exit(to=by)
     return room
 
@@ -450,7 +527,10 @@ def render_map(state: GameState) -> list[str]:
         if not (room.visited or mapped):
             continue
         for direction, exit_ in room.exits.items():
-            door = "=" if exit_.locked else ("-" if direction in ("east", "west") else "|")
+            back = state.rooms[exit_.to].exits.get(OPPOSITE[direction])  # (a door's drawn from both its rooms: shut
+            sides = [exit_, *([back] if back else [])]  # from either side, it's shut)
+            door = "=" if any(e.locked for e in sides) else "x" if any(e.webbed for e in sides) else \
+                ("-" if direction in ("east", "west") else "|")
             if direction == "east":
                 grid[cy][cx + 2] = door
             elif direction == "west":

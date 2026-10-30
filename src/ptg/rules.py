@@ -15,8 +15,9 @@ import random
 from collections import deque
 
 from . import dice, hazards, interactions, inventory, layout, light, loot, npcs, powers, statuses
-from .combat import (bomb_monster, burn, discover, distract, dodge, flee, flee_direction, fortune, holds_its_ground,
-                     monster_turn, player_attack, stand_firm_warning, telegraph, throw, what_is_left)
+from .combat import (bomb_monster, burn, discover, distract, dodge, face, flee, flee_direction, foes, foes_turn,
+                     fortune, holds_its_ground, monster_turn, player_attack, rally, stand_firm_warning, telegraph,
+                     throw, what_is_left)
 from .content import Content, ItemDef
 from .creative import perform_creative as _creative
 from .events import Action, Event
@@ -25,7 +26,7 @@ from .inventory import PICKUPS
 from .models import DELTA, DIRECTIONS, OPPOSITE, Exit, Feature, GameState, MonsterState, Room, Ware
 from .scene import RoomView
 from .text import a, cap, the
-from .world import build_floor, monster_for, tier_for
+from .world import build_floor, monster_for, party, tier_for
 
 ASK_DC = 12  # getting a calm creature to tell you what it knows (wits)
 BARTER_DC = 12  # talking a shopkeeper down (wits): a third off; fail, and it's a quarter dearer (once a ware)
@@ -89,6 +90,11 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
     if state.in_combat:
         monster = room.monster
         actions.append(Action("attack", f"Attack {the(monster.name)}", "it's guarding" if monster.guarding else ""))
+        for index, other in enumerate(room.others):  # (the rest of the fight: turn to one, for nothing)
+            if other.hostile and other.hp > 0:
+                job = foe_job(content, other)
+                actions.append(Action(f"face:{index}", f"Face {the(other.name)}",
+                                      " · ".join(filter(None, [f"{other.hp}/{other.max_hp} HP", job]))))
         actions.append(Action("dodge", "Dodge", "counter the heavy blow!" if monster.intent == "heavy" else ""))
         firm = holds_its_ground(state, content, monster)  # (no scaring it off, no smoke hiding you: a warning says)
         for item in consumables:
@@ -106,9 +112,13 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
             if "distract" in item.powers and not monster.distracted:
                 actions.append(Action(f"distract:{item.key}", f"Distract {the(monster.name)} with {the(item.name)}",
                                       "once a fight"))
+        wanted = content.monster(monster.key).wants
+        if wanted and wanted in player.inventory:  # (what it came for: handed over, the fight's over)
+            actions.append(Action(interactions.use_id("give", wanted, f"monster:{monster.key}"),
+                                  f"Give {the(monster.name)} {the(content.item(wanted).name)}", "it wants it!"))
         if player.bombs:
             actions.append(Action("bomb", f"Throw a bomb at {the(monster.name)}", f"{player.bombs} left"))
-        if light.lit(state, content):  # (a fire on hand, down in the dark)
+        if light.fire(state, content):  # (a fire on hand, down in the dark)
             weak = "fire!" if "fire" in state.known_weak.get(monster.key, []) else "fire"
             actions.append(Action("burn", f"Burn {the(monster.name)} with your torch",
                                   f"{weak} · a flame ({light.flames(state)})"))
@@ -126,7 +136,7 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
             wrapped = light.wrapped(state, content, feature)
             hint = gassed or ("wrapped tight: fire opens it" if wrapped else TIP if feature.told else "")
             actions.append(Action(f"search:{index}", f"Search {the(feature.name)}", hint))
-            if wrapped and light.lit(state, content):
+            if wrapped and light.fire(state, content):
                 actions.append(Action(f"burn:{index}", f"Burn {the(feature.name)} open with your torch",
                                       f"a flame ({light.flames(state)})"))
     actions += _fixture_actions(state, content)
@@ -141,6 +151,11 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
         if not exit_:
             continue
         dest = state.rooms[exit_.to]
+        if exit_.webbed:  # a lair's, sealed with web: only fire gets through, and on in (with none: locked_doors)
+            if light.fire(state, content):
+                actions.append(Action(f"burn:{direction}", f"Burn through the web {direction} with your torch",
+                                      f"something's in there · a flame ({light.flames(state)})"))
+            continue
         if exit_.locked and exit_.key == "small_key":  # a shop's door (with no key, it's no choice: see locked_doors)
             if player.keys:
                 keys = f"{player.keys} key{'s' if player.keys > 1 else ''}"
@@ -170,7 +185,7 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
         if (item.heal and player.hp < player.max_hp) or cures:
             actions.append(Action(f"use:{item.key}", f"{heal_verb(item)} {the(item.name)}",
                                   " · ".join(filter(None, [how_many(player, item.key), cures]))))
-    if light.lit(state, content) and player.burnt and light.OIL in player.inventory:
+    if light.fire(state, content) and player.burnt and light.OIL in player.inventory:
         actions.append(Action("refill", f"Fill your torch with {the(content.item(light.OIL).name)}",
                               f"every flame back · {how_many(player, light.OIL)}"))
     if not room.room_searched and not room.shop:  # (her shop is hers: nothing hidden for you to find)
@@ -193,6 +208,14 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
         actions.append(Action("attack", f"Attack {the(monster.name)}", "it's calm · no reward" if monster.rewarded
                               else "it's calm"))
     return actions
+
+
+def foe_job(content: Content, monster: MonsterState) -> str:
+    """What a foe does beyond hitting, in a word or two, for its choice and its tile: "mends", "stuns", "poisons"."""
+    tricks = set(content.monster(monster.key).tricks) | set(monster.tricks)
+    jobs = [word for trick, word in (("mend", "mends the others"), ("spores", "stuns"), ("deadly_venom", "poisons"),
+                                     ("venom", "poisons"), ("burn", "burns"), ("steal", "steals")) if trick in tricks]
+    return jobs[0] if jobs else ""
 
 
 def _character_actions(state: GameState, content: Content) -> list[Action]:
@@ -244,14 +267,16 @@ def _take_actions(state: GameState, content: Content) -> list[Action]:
 
 
 def locked_doors(state: GameState, content: Content) -> list[Action]:
-    """The doors here you can't open yet (a shop's with no small key, the boss's without its key): not numbered
-    choices, since there's nothing to do with them, but there to say so if you try one ("go south": it's locked), and
-    on the arrow pad."""
+    """The doors here you can't open yet (a shop's with no small key, the boss's without its key, a lair's sealed with
+    web): not numbered choices, since there's nothing to do with them (fire burns a web: that one's its own choice),
+    but there to say so if you try one ("go south": it's locked), and on the arrow pad."""
     if state.over or state.pending_perks or state.in_combat:
         return []
     have = {"small_key": state.player.keys > 0, "": content.themes[state.theme].key_item in state.player.inventory}
-    return [Action(f"go:{d}", f"Go {d}", "a locked shop" if state.rooms[e.to].shop else "locked")
-            for d in DIRECTIONS for e in [state.room.exits.get(d)] if e and e.locked and not have.get(e.key, False)]
+    return [Action(f"go:{d}", f"Go {d}", "sealed with web" if e.webbed else
+                   "a locked shop" if state.rooms[e.to].shop else "locked")
+            for d in DIRECTIONS for e in [state.room.exits.get(d)]
+            if e and (e.webbed or e.locked and not have.get(e.key, False))]
 
 
 def how_many(player, key: str) -> str:
@@ -353,6 +378,10 @@ def _perform(state: GameState, content: Content, action_id: str) -> list[Event]:
     took_turn = True
     if verb == "perk":
         return choose_perk(state, content, arg)
+    if verb == "face":  # (turning to another foe costs nothing)
+        return quietly(face(state, content, int(arg)))
+    if state.in_combat and statuses.stunned(state) and verb not in ("talk", "shop", "buy"):
+        return finish_turn(state, content, rng, statuses.spend_stun(state), True, True, state.room_id)
     if verb == "attack":
         events = player_attack(state, content, rng)
     elif verb == "dodge":
@@ -375,8 +404,9 @@ def _perform(state: GameState, content: Content, action_id: str) -> list[Event]:
             return [Event("info", f"You pull at {the(feature.name)}, but the threads are tough as wire and stick to "
                                   "everything: your hands come away with nothing. Fire would open it.")]
         events = _search_feature(state, content, feature)
-    elif verb == "burn":
-        events = _burn_open(state, content, state.room.features[int(arg)]) if arg else burn(state, content, rng)
+    elif verb == "burn":  # (a monster, a thing wrapped in threads, or the web over a door)
+        events = burn(state, content, rng) if not arg else _burn_web(state, content, rng, arg) \
+            if arg in DIRECTIONS else _burn_open(state, content, state.room.features[int(arg)])
     elif verb == "refill":
         events = light.refill(state, content)
     elif verb == "search_room":
@@ -504,12 +534,16 @@ def finish_turn(state, content, rng, events, took_turn, was_in_combat, room_befo
     if took_turn:
         state.turn += 1
         state.reroll = 0
+        events += rally(state)  # (the one you faced is down: the next of its fight comes at you)
         if was_in_combat and state.room_id == room_before and state.in_combat and not state.over:
-            events += monster_turn(state, content, rng)
+            events += foes_turn(state, content, rng)  # (each foe's go, then their burns and mending)
+            events += rally(state)
         if was_in_combat and state.room_id == room_before and not state.over:  # (a fight's turn: poison burns)
             events += statuses.tick(state, "round")
-    if not state.in_combat:  # the fight's over: no vines left to hold you, nothing to dodge
+    if not state.in_combat:  # the fight's over: no vines left to hold you, nothing to dodge, no daze
         state.player.tangled = state.player.dodging = False
+        for key in [k for k in state.player.statuses if statuses.DEFS.get(k) and statuses.DEFS[k].skip]:
+            del state.player.statuses[key]
     events = npcs.react(state, content, events)  # what the characters say to it all, each right after what it's about
     if not state.over:
         events += check_traits(state)
@@ -627,6 +661,11 @@ def _move(state: GameState, content: Content, rng: random.Random, direction: str
     if not exit_:
         return [Event("info", f"There is no way {direction}.")], False
     events = []
+    if exit_.webbed:
+        burn = " Your torch would burn through it." if light.fire(state, content) else f" {light.HINT}"
+        return [Event("locked", f"The way {direction} is sealed with web as thick as a sail. You push at it and it "
+                                "pushes back, sticky as glue. Something hisses on the other side, close. Only fire "
+                                f"would get through that.{burn}", data={"web": direction})], False
     if exit_.locked and exit_.key == "small_key":
         if not state.player.keys:
             return [Event("locked", f"The shop door to the {direction} is locked. A small key would open it, or two "
@@ -642,9 +681,11 @@ def _move(state: GameState, content: Content, rng: random.Random, direction: str
         events.append(Event("unlock", f"You unlock the door to the {direction} with {the(key.name)}."))
     events += travel(state, content, direction, exit_.to)
     if state.in_combat and not state.over and light.darkness(state, content) == light.DARK:
-        monster = state.room.monster  # (in the dark, it finds you before you find it)
-        events += [Event("ambush", f"In the dark, {the(monster.name)} finds you first!",
-                         data={"monster": monster.key})] + monster_turn(state, content, rng)
+        monster = state.room.monster  # (in the dark, they find you before you find them: each its blow)
+        events.append(Event("ambush", f"In the dark, {the(monster.name)} finds you first!",
+                            data={"monster": monster.key}))
+        for foe in foes(state):
+            events += [] if state.over else monster_turn(state, content, rng, foe)
     return events, True
 
 
@@ -664,7 +705,36 @@ def travel(state: GameState, content: Content, direction: str, to: int) -> list[
     if room.monster and room.monster.hostile:
         events += telegraph(state, content) + stand_firm_warning(state, content)
     hazards.came_in(state, direction)
-    return events + light.entering(state, content) + statuses.tick(state, "step")
+    return events + light.entering(state, content) + webs(state, content, first) + statuses.tick(state, "step")
+
+
+def webs(state: GameState, content: Content, first: bool) -> list[Event]:
+    """A door here sealed with web (a lair's way in: world._lair), said as you come in: in full the first time
+    (hissing on the other side, spore dust puffing through), a reminder after."""
+    sealed = [d for d, e in state.room.exits.items() if e.webbed]
+    if not sealed:
+        return []
+    direction = sealed[0]
+    if not first:
+        return [Event("warning", f"The web over the {direction} doorway shivers. Something on the other side hisses.",
+                      data={"web": direction})]
+    burn = "Your torch would burn through it." if light.fire(state, content) else \
+        f"Nothing but fire would get through that. {light.HINT}"
+    return [Event("warning", f"A doorway to the {direction} is sealed over with web as thick as a sail. Something big "
+                             "hisses on the other side, and spore dust puffs through the threads in little clouds. "
+                             f"{burn}", data={"web": direction})]
+
+
+def _burn_web(state: GameState, content: Content, rng: random.Random, direction: str) -> list[Event]:
+    """The web over a lair's way in (Exit.webbed) burnt away with your torch, a flame of its light, and on through you
+    go: whatever was hissing in there has been waiting."""
+    state.room.exits[direction].webbed = False
+    state.room.remember(f"you burnt away the web over the {direction} doorway")
+    burnt = Event("burn", "You hold your torch to the web. It catches with a crackle and shrivels back from the doorway "
+                          "in curls of fire, and a smell of singed hair rolls out. The hissing stops. You step through.",
+                  data={"web": direction})
+    moved, _ = _move(state, content, rng, direction)
+    return [burnt] + light.burn(state, content) + moved
 
 
 # Quick travel: back to a room you've been in, from the map. Now and then something's wandered into a room on the way
@@ -732,7 +802,7 @@ def journey(state: GameState, target: int) -> list[tuple[str, int]] | None:
         far = room.far if came[room_id] is None else OPPOSITE[came[room_id][0]] == room.across  # (its river's bank)
         for direction, exit_ in room.exits.items():
             wet = room.river and not room.stones and (direction == room.across) != far
-            if not exit_.locked and not wet and exit_.to not in came and clear(state.rooms[exit_.to]):
+            if not exit_.shut and not wet and exit_.to not in came and clear(state.rooms[exit_.to]):
                 came[exit_.to] = (direction, room_id)
                 queue.append(exit_.to)
     return None
@@ -754,6 +824,7 @@ def _journey(state: GameState, content: Content, rng: random.Random, target: int
         state.wandered[floor] = state.wandered.get(floor, 0) + 1
         room.monster = monster_for(rng, content, state.theme, tier_for(state.floor, state.floors_total),
                                    met=state.met, floor=state.floor)
+        room.others = party(rng, content, room.monster, state.floor)
         who = room.monster.name if content.monster(room.monster.key).named else a(room.monster.name)
         return [Event("ambush", f"You set off for {the(goal.name)}, but in {the(room.name)} {who} blocks the way!",
                       data={"monster": room.monster.key, "room": room.id,
@@ -772,7 +843,9 @@ def exit_notes(state: GameState) -> str:
     notes = []
     for direction, exit_ in room.exits.items():
         dest = state.rooms[exit_.to]
-        if exit_.locked:
+        if exit_.webbed:
+            beyond = "sealed with web; something hisses beyond"
+        elif exit_.locked:
             beyond = "locked; a shop beyond" if dest.shop else "locked"
         elif dest.visited:
             beyond = the(dest.name) + (", where you came from" if exit_.to == state.prev_room_id else "")
@@ -1344,6 +1417,8 @@ def why_not(state: GameState, content: Content, action_id: str) -> str:
         if room.shop:
             return "Not in her shop, you don't."
         exit_ = room.exits.get(arg)
+        if exit_ and exit_.webbed:
+            return f"A bomb would only bounce off the web over the {arg} door. Only fire gets through it."
         if exit_ and not exit_.locked:
             return f"The {arg} door stands open: there's nothing there to blow."
         if exit_:
@@ -1450,7 +1525,7 @@ def _no_fire(state: GameState, content: Content, verb: str, arg: str) -> str:
     room, player = state.room, state.player
     if not light.torch(state, content):
         return "You have no torch."
-    if not light.lit(state, content):
+    if not light.fire(state, content):
         return "Your torch is packed away up here: it's for the dark below, and its flames are too few to waste."
     if verb == "refill":
         if light.OIL not in player.inventory:
@@ -1634,10 +1709,12 @@ def _rest(state: GameState, content: Content, rng: random.Random) -> list[Event]
     if not safe_to_rest(state) and rng.random() < 0.25:
         room.monster = monster_for(rng, content, state.theme, tier_for(state.floor, state.floors_total),
                                    met=state.met, floor=state.floor)
+        room.others = party(rng, content, room.monster, state.floor)
         who = room.monster.name if content.monster(room.monster.key).named else a(room.monster.name)
         events = [Event("ambush", f"While you rest, {who} creeps up on you!",
                         data={"monster": room.monster.key})] + stand_firm_warning(state, content)
-        events += monster_turn(state, content, rng)
+        for foe in foes(state):
+            events += [] if state.over else monster_turn(state, content, rng, foe)
         return events
     cook = powers.holders(state, content, "cook")
     rested = dice.roll("1d6", rng) + player.wits + state.floor + 4 * bool(cook)
@@ -1716,5 +1793,6 @@ def _fixture(state: GameState, content: Content, rng: random.Random, verb: str) 
             setattr(player, stat, player.stat(stat) + 1)
             text = f"The water blazes gold inside you: +1 {stat}, permanently!"
             roll.effects.append(f"+1 {stat}, permanently")
-        return [Event("fountain", text, dice=roll, data={"rerollable": roll.kept <= 14})] + events
+        doused = statuses.cure(state, "burn", "You splash yourself with it, and it hisses")  # (water, whatever else)
+        return [Event("fountain", text, dice=roll, data={"rerollable": roll.kept <= 14})] + events + doused
     return []

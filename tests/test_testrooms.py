@@ -35,6 +35,24 @@ def test_everyone_is_next_door_with_every_kit(content):
         testrooms.build(content, "nobody")
 
 
+def test_any_floor_down_to_the_underbloom_and_its_own_monsters_are_tried_there(content):
+    """Floors 1 to 5 (4 Norfel, 5 the Underbloom, by name); a monster kept to the Underbloom is tried down there unless
+    you say, with whoever comes with it (a Sporerat's pair); and down in the dark you've a light, as a run would
+    bring, except in the room that's for trying it without one."""
+    from ptg import light
+
+    assert [n for n, _ in testrooms.floors(content)] == [1, 2, 3, 4, 5]
+    assert dict(testrooms.floors(content))[5] == "floor 5: The Underbloom"
+    assert testrooms.choices(content)["sporerat"] == "Sporerat (tier 3, The Underbloom)"
+    state = testrooms.build(content, "sporerat", "new", seed=4)
+    rats = testrooms.target(state, content)
+    assert (state.floor, state.theme) == (5, "underbloom") and [m.key for m in rats.others] == ["sporerat"]
+    assert light.lit(state, content)
+    assert testrooms.build(content, "sporerat", "new", floor=2, seed=4).floor == 2  # (anywhere, if you say)
+    assert testrooms.build(content, "goblin", "new", floor=5, seed=4).theme == "underbloom"
+    assert not light.lit(testrooms.build(content, "underbloom_dark", "new", seed=4), content)
+
+
 async def test_lenny_wants_the_tooth_in_your_pack(content, profile):
     state = testrooms.build(content, "lenny", "new", seed=4)
     game = Game(state, Config(backend="offline"), None, content, profile)

@@ -122,6 +122,11 @@ def things_here(state: GameState, content: Content) -> list[Thing]:
                 mood = npcs.status(state, content, monster.key) or "calm"
                 found.append(Thing(ref.id, monster.key, "monster", monster.name, mood, FRIEND, buttons, True,
                                    badge="★" if npcs.waiting(state, monster) else "", compact=mood))
+        elif ref.kind == "foe":  # (one of the others in the fight)
+            other = state.room.others[int(ref.key)]
+            status, short = foe_status(other)
+            found.append(Thing(ref.id, other.key, "monster", other.name, status, FOE, buttons, True,
+                               monster_pose(other), compact=short))
         elif ref.kind == "keeper":
             greeting = npcs.line(state, content, ref.key, "greet") or npcs.status(state, content, ref.key)
             first = re.match(r".+?[.!?](?=\s|$)|.+", greeting)  # (her first sentence: a tile's room is short)

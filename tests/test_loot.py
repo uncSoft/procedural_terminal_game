@@ -100,8 +100,9 @@ def test_the_best_potion_is_on_floor_three_or_hidden(content):
                     places[f"floor {floor}"] += 1
     assert places["floor 3"] and places["stash"]
     assert not places["floor 1"] and not places["floor 2"]
-    assert loot.where(content, "superior_healing_potion") == ["floor 3", "floor 4", "floor 3 stashes", "floor 4 stashes",
-                                                              "floor 3 chests", "floor 4 chests", "shops"]
+    assert loot.where(content, "superior_healing_potion") == ["floor 3", "floor 4", "floor 5", "floor 3 stashes",
+                                                              "floor 4 stashes", "floor 5 stashes", "floor 3 chests",
+                                                              "floor 4 chests", "floor 5 chests", "shops"]
 
 
 def test_food_is_eaten_and_found_things_name_themselves(content):

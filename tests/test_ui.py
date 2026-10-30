@@ -329,6 +329,11 @@ async def test_a_test_room_from_f12_mid_run_leaves_that_run_as_it_was():
         await pilot.pause(0.3)
         tab = app.screen.query_one(TestRoomsTab)
         assert isinstance(app.screen, DebugScreen) and "Lucky Lenny" in plain(tab.query_one("#test-info").content)
+        floors = [value for _, value in tab.query_one("#test-floor", Select)._options]
+        assert floors == [0, 1, 2, 3, 4, 5]  # (its own floor, then down to the Underbloom)
+        tab.query_one("#test-who", Select).value = "sporerat"
+        await pilot.pause(0.2)
+        assert "(floor 5," in plain(tab.query_one("#test-info").content)  # (kept to the Underbloom: tried there)
         tab.query_one("#test-who", Select).value = "shiny_shop"
         tab.query_one("#test-kit", Select).value = "new"
         await pilot.pause(0.2)
@@ -693,6 +698,19 @@ async def test_norfels_card_shows_its_splash_art_and_fits_the_screen(content):
             assert "Serpentis was already old" in words and "Your goal" in words
             await pilot.press("enter")
             assert not isinstance(app.screen, FloorScreen)
+
+
+async def test_the_underbloom_has_its_card_too(content):
+    """Floor 5, a run's once you've won one: its splash (a stand-in till a painting), its lore, and its goal."""
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
+    async with app.run_test(size=(240, 70)) as pilot:
+        await pilot.pause()
+        await app.push_screen(FloorScreen(5, 5, content.themes["underbloom"], True))
+        await pilot.pause(0.2)
+        card = app.screen
+        assert card.query_one("#floor-art", Static).display
+        words = " ".join(str(w.render()) for w in card.query(".floor-words > Static"))
+        assert "Serpentis has been spitting" in words and "Humongous Fungus" in words and "Your goal" in words
 
 
 async def test_a_run_opens_on_its_first_floors_card(monkeypatch):

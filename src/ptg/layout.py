@@ -196,7 +196,7 @@ def render(state: GameState, content: Content) -> tuple[list[list[tuple[str, str
     legend: list[tuple[str, str, str]] = []
     for direction, exit_ in room.exits.items():
         x, y = DOORS[direction]
-        rows[y][x] = ("=" if exit_.locked else " ", "locked" if exit_.locked else "door")
+        rows[y][x] = ("=" if exit_.shut else " ", "locked" if exit_.shut else "door")  # (a web bars it too)
     if room.fixture:
         cx, cy = CENTRE
         glyph = FIXTURE_GLYPHS[room.fixture]

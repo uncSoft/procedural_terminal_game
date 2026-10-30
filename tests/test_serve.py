@@ -110,6 +110,9 @@ async def test_the_test_rooms_page_sends_you_next_door_to_whoever_you_pick(tmp_p
         assert '<a href="/test">Test rooms</a>' in await (await client.get("/")).text()
         page = await (await client.get("/test")).text()
         assert 'value="swoogy"' in page and 'value="shiny_shop"' in page and 'type="password"' in page
+        assert 'value="matriarch"' in page and 'value="humongous_fungus"' in page and "floor 5: The Underbloom" in page
+        assert "Floors go from 1 to 5" in await (await client.get("/test/play?name=Ava&password=dragon&who=lenny"
+                                                                    "&floor=6")).text()
         assert "not the password" in await (await client.get("/test/play?name=Ava&password=wyrm&who=lenny")).text()
         assert "no test room" in await (await client.get("/test/play?name=Ava&password=dragon&who=nobody")).text()
         assert "a kit is" in await (await client.get("/test/play?name=Ava&password=dragon&who=lenny&own=x")).text()

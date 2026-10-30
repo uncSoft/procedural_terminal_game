@@ -4,13 +4,19 @@ light but what grows there and what you bring down. Your light is a torch you ca
 flame of its light, FLAMES a torch. The last one spent, it's gone, and the next torch in your pack is lit. A Flask of
 Lamp Oil poured over it puts every flame back.
 
-Without one, you're down there by the glow of what grows (DIM): your searches for secrets are at a disadvantage. In a
-room nothing lights (its archetype's decor says `dark`: the Dark Hollow) you're in the DARK: every roll of yours is at
-a disadvantage, and whatever's there gets the first blow as you come in (rules._move). Granny's shop has her lamp.
+A light that never burns down (an item with the `light` power: the Philter of Light, the Sporefang Matriarch's for
+the Ring) lights the dark as well, and needs no oil; but it's no fire: only a torch burns things.
+
+Without a light, you're down there by the glow of what grows (DIM): your searches for secrets are at a disadvantage.
+In a room nothing lights (its archetype's decor says `dark`: the Dark Hollow) you're in the DARK: every roll of yours
+is at a disadvantage, and whatever's there gets the first blow as you come in (rules._move). Granny's shop has her
+lamp.
 
     darkness(state, content)    DIM, DARK, or "" (your torch is lit, or it isn't a dark floor)
     torch(state, content)       the torch you'd burn, if you carry one
-    lit(state, content)         whether it's burning: a torch, on a dark floor
+    lamp(state, content)        your light: a light that never burns down, else that torch
+    lit(state, content)         whether you've a light: a lamp, on a dark floor
+    fire(state, content)        whether you've a torch burning, to burn things with: a torch, on a dark floor
     left(state)                 its flames left, of FLAMES
     burn(state, content)        a flame of it spent burning something (combat.burn, rules._burn_open)
     refill(state, content)      Lamp Oil poured over it: every flame back
@@ -50,7 +56,17 @@ def torch(state: GameState, content: Content) -> ItemDef | None:
     return next(iter(powers.holders(state, content, "torch")), None)
 
 
+def lamp(state: GameState, content: Content) -> ItemDef | None:
+    """Your light: a light that never burns down if you carry one (the Philter of Light), else your torch."""
+    return next(iter(powers.holders(state, content, "light")), None) or torch(state, content)
+
+
 def lit(state: GameState, content: Content) -> bool:
+    return dark_floor(state, content) and lamp(state, content) is not None
+
+
+def fire(state: GameState, content: Content) -> bool:
+    """A torch burning, down in the dark: something to burn things with (a light that never burns down is no fire)."""
     return dark_floor(state, content) and torch(state, content) is not None
 
 
@@ -64,7 +80,7 @@ def darkness(state: GameState, content: Content, room: Room | None = None) -> st
     """What you're in, in this room (or another on the floor), with no light of your own: DIM, DARK, or "" (your
     torch is lit, it isn't a dark floor, or it's Granny's shop)."""
     room = room or state.room
-    if not dark_floor(state, content) or room.shop or torch(state, content):
+    if not dark_floor(state, content) or room.shop or lamp(state, content):
         return ""
     return DARK if pitch_dark(content, room) else DIM
 
@@ -108,7 +124,9 @@ def burn(state: GameState, content: Content) -> list[Event]:
     used = inventory.consume(state, item.key, "use")
     after = torch(state, content)
     player.lit = lit(state, content)
+    shining = lamp(state, content)
     then = f" You light another from your pack ({FLAMES} flames)." if after else \
+        f" {the(shining.name).capitalize()} still lights your way." if shining else \
         f" The dark closes in, lit only by what grows. {HINT}"
     return [Event("light", f"Your torch gutters and goes out, burnt down to a stub.{then}",
                   data={**used, "lit": after is not None})]
@@ -133,6 +151,10 @@ def settle(state: GameState, content: Content) -> list[Event]:
         return []
     player.lit = now
     if now:
+        shining = lamp(state, content)
+        if "light" in shining.powers:  # (one that never burns down)
+            return [Event("light", f"{the(shining.name).capitalize()} glows, and the dark draws back from you.",
+                          data={"lit": True})]
         return [Event("light", f"You light your torch. Warm light pushes the dark back a few steps "
                                f"({left(state)}/{FLAMES} flames).", data={"lit": True})]
     if not dark_floor(state, content):
@@ -143,7 +165,7 @@ def settle(state: GameState, content: Content) -> list[Event]:
 
 def arrival(state: GameState, content: Content) -> list[Event]:
     """Come down to a dark floor with no light of your own: what you're in for (one with a torch lights it: settle)."""
-    if not dark_floor(state, content) or torch(state, content):
+    if not dark_floor(state, content) or lamp(state, content):
         return []
     return [Event("warning", "There's no light down here but what grows, and you've brought none: your searches are "
                              f"at a disadvantage, and in the dark places, everything is. {HINT}", data={"lit": False})]
@@ -160,6 +182,10 @@ def entering(state: GameState, content: Content) -> list[Event]:
 def facts(state: GameState, content: Content) -> str:
     """The light here, for the narrator: so its prose has your torch in it, or the glow, or the dark."""
     if lit(state, content):
+        shining = lamp(state, content)
+        if "light" in shining.powers:
+            return f"{the(shining.name).capitalize()} lights your way: a steady light round you, cold glowing " \
+                   "fungus beyond it."
         return f"Your torch is lit ({flames(state)}): warm light round you, cold glowing fungus beyond it."
     gloom = darkness(state, content)
     if gloom == DARK:

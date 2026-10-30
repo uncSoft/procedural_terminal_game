@@ -340,6 +340,9 @@ def _plan_give(state, content, view, use, target) -> Row | None:
         return Row(refusal="That's the weapon in your hand: you'd have nothing left to fight with."
                    if use.subject == state.player.weapon else f"You'd have to take off {what} first.")
     monster = state.room.monster
+    known = content.monster(monster.key)
+    if use.subject == known.wants and target.state["hostile"]:  # (what it came for: cursed or not, it'll take it)
+        return Row(run=_trade, label=f"Give {the(monster.name)} {what}", hint="it wants it! · stops the fight")
     lenny_s = monster.key == npcs.LENNY and use.subject == npcs.BAD_TOOTH  # (his own tooth isn't kept from him)
     why = "" if lenny_s else _keeps(state, content, use)
     if why:
@@ -471,7 +474,7 @@ def _plan_use(state, content, view, use, target) -> Row | None:
         monster = state.room.monster
         if key == "bomb":
             return _at_creature(state, content, view, use, target)
-        if "torch" in item.powers and light.lit(state, content):
+        if "torch" in item.powers and light.fire(state, content):
             return Row(alias="burn", label=f"Burn {the(monster.name)} with your torch",
                        hint=f"a flame ({light.flames(state)})")
         if item.escape or ("dazzle" in item.powers and state.in_combat):
@@ -539,6 +542,8 @@ def _on_exit(state, content, use: Use, target: Ref) -> Row | None:
         return _breach_row(state, content, direction, key) or \
             Row(refusal=f"Nothing comes of {what} against the {direction} wall.")
     exit_ = state.room.exits[direction]
+    if exit_.webbed:
+        return _web(state, content, direction, key)
     if not exit_.locked:
         undo = "blow" if key == "bomb" else "open"
         return Row(refusal=f"The {direction} door isn't locked: there's nothing to {undo}.")
@@ -556,6 +561,20 @@ def _on_exit(state, content, use: Use, target: Ref) -> Row | None:
     if item.kind == "weapon" or "heavy" in item.tags:
         return Row(refusal=f"You bash at the {direction} door with {what}. It doesn't budge: {needs}.")
     return Row(refusal=f"{cap(what)} won't open the {direction} door: {needs}.")
+
+
+def _web(state, content, direction: str, key: str = "") -> Row:
+    """Anything at a doorway sealed with web (a lair's: Exit.webbed): fire burns through it (your torch: rules._burn_web),
+    and nothing else gets through."""
+    item = content.item(key) if key in content.items else None
+    if light.fire(state, content) and (item is None or "torch" in item.powers):
+        return Row(alias=f"burn:{direction}", label=f"Burn through the web {direction} with your torch")
+    if key == "bomb":
+        return Row(refusal=f"The bomb would only bounce off the web over the {direction} doorway, and stick there. "
+                           "Only fire gets through it.")
+    how = f" with {the(item.name)}" if item else ""
+    return Row(refusal=f"You hack at the web over the {direction} doorway{how}. It gives like rubber and springs back, "
+                       "sticky as glue: only fire would get through it.")
 
 
 def _on_feature(state, content, use: Use, target: Ref) -> Row | None:
@@ -607,6 +626,8 @@ def _plan_open(state, content, view, use, target) -> Row | None:
         if use.subject:
             return _on_exit(state, content, use, target)
         exit_ = state.room.exits[target.key]
+        if exit_.webbed:
+            return _web(state, content, target.key)
         if not exit_.locked:
             return Row(refusal=f"The {target.key} door stands open: go through it, if you like.")
         return Row(alias=f"go:{target.key}")  # (unlocked, if you've what opens it; if not, it says so)
@@ -645,6 +666,8 @@ def _plan_smash(state, content, view, use, target) -> Row | None:
         return Row(alias="chest_smash")
     if target.kind == "exit":
         exit_ = state.room.exits[target.key]
+        if exit_.webbed:
+            return _web(state, content, target.key, use.subject)
         if use.subject == "bomb" or not exit_.locked:
             return _on_exit(state, content, use, target) if use.subject else \
                 Row(refusal=f"The {target.key} door stands open: there's nothing to break.")
@@ -740,6 +763,24 @@ def _bribe(state, content, rng, use):
                   data={"success": True, "rerollable": True, "props": [name], **given})]
     monster.hostile = False
     return done + events + flair(state) + defeat(state, content, rng, how="pacified"), True
+
+
+def _trade(state, content, rng, use):
+    """What a monster came for (MonsterDef.wants: the Sporefang Matriarch, the Ring), handed over. Cursed or not, it
+    takes it, the fight's over (as if talked down), and it leaves what it had for you (gives) at your feet."""
+    monster = state.room.monster
+    known = content.monster(monster.key)
+    thing, gift = content.item(use.subject), content.item(known.gives)
+    given = inventory.give(state, use.subject, monster.key)
+    name = cap(the(monster.name))
+    events = [Event("trade", f"You hold out {the(thing.name)}. {name} goes still, every eye on it. It takes "
+                             f"{the(thing.name)} from your hand so gently you hardly feel it, and the fight goes out of "
+                             "it.", data={"props": [thing.name], **given})]
+    monster.hostile = False
+    events += defeat(state, content, rng, how="pacified")
+    events.append(Event("drop", f"In its place, {the(monster.name)} leaves {a(gift.name)} at your feet.",
+                        data=inventory.lay(state, gift.key, "drop", monster.key)))
+    return events, True
 
 
 def _npc_takes(state, content, rng, use):
@@ -843,6 +884,8 @@ def verbs(state: GameState, content: Content, ref_id: str) -> list[Action]:
             if ref.state["npc"]:
                 picker(use_id("give", target=ref.id), "Give…", (npcs.BAD_TOOTH,) if "lenny" in listed else ())
             offer("attack", "Attack")
+    elif kind == "foe":  # (one of the others in the fight: turned to, it's the one your blows go to)
+        offer(f"face:{key}", "Face it", "no turn")
     elif kind == "keeper":
         offer("shop", "Browse")
         offer(f"talk:{key}", "Talk")
@@ -866,6 +909,7 @@ def verbs(state: GameState, content: Content, ref_id: str) -> list[Action]:
         for action_id, label in names.items():
             offer(action_id, label)
     elif kind == "exit":
+        offer(f"burn:{key}", "Burn the web")
         offer(f"go:{key}", "Unlock" if ref.state["locked"] else "Go")
         offer(f"bomb:{key}", "Bomb it")
     elif kind == "wall":

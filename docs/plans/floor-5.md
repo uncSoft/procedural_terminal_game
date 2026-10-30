@@ -1,8 +1,10 @@
 # Floor 5: the Underbloom
 
-Status: **its look, its rooms and the torch are built; its monsters are being made (JT's), and its boss comes
-last.** Marked **✅** where it's decided, **❓** where it's yours to settle. It's in no run yet:
-`themes.toml` has it as floor 5, below the run's four (`models.FLOORS`), waiting for its boss.
+Status: **built and in the run** (2026-10-29): its look, its rooms, the torch, its monsters (JT's Sporerat and
+Hollowed), the web door and the Sporefang Matriarch, and its boss, the Humongous Fungus. Every run goes down to it
+once you've beaten Serpentis in any run (`models.DEEPEST`, `meta.floors_for`). How the last of it was built, and the
+fights against several foes it needed: docs/plans/multi-foe-fights.md. Marked **✅** where it's decided, **❓** where
+it's yours to settle.
 
 What this covers: the floor under Norfel, its look (dark, lit by what grows there and the torch you bring), its rooms,
 and the torch. The floor's status, its hazard, its people and its boss are sketched at the end, from the pitch.

@@ -47,14 +47,16 @@ FLOORS = {  # each floor spreads these through its rooms (see world._place_loot)
     2: ["gear 2", "potion 1", "escape 1+", "food 1+", "bomb", "small_key"],  # loot spread out is found more: a potion less
     3: ["potion 2+", "potion 1", "potion 1", "gear 2", "small_key"],
     4: ["potion 2+", "potion 2+", "potion 1", "gear 3", "small_key", "pure"],  # (Pure: in an egg, a shed skin...)
+    5: ["potion 3+", "potion 2+", "potion 2+", "gear 3", "small_key"],
 }
 DUNGEON_TRINKETS = {"sunken_crypt": "holy_water", "goblin_warren": "bag_of_marbles", "overgrown_ruins": "oil_flask",
-                    "norfel": "holy_water"}  # (Serpentis hates it)
+                    "norfel": "holy_water", "underbloom": "oil_flask"}  # (Serpentis hates it; a torch drinks it)
 STASH = {  # each floor's hidden stash holds one of its floor's ("rare -1": a rare thing of tier 1 or less)
     1: ["weapon 2", "armor 2", "potion 2", "lucky_charm", "rare -1"],
     2: ["weapon 2", "armor 2", "potion 2", "lucky_charm", "rare -2"],
     3: ["weapon 3+", "armor 3+", "potion 2+", "lucky_charm", "rare"],
     4: ["weapon 3+", "armor 3+", "potion 3+", "lucky_charm", "rare"],
+    5: ["weapon 3+", "armor 3+", "potion 3+", "lucky_charm", "rare"],
 }
 MOST_PER_ROOM = 2  # things in a room's hiding places, at most (a quest's own thing aside): more is a treasure trove
 ESSENTIAL = ("small_key", "bomb")  # placed first, and always: a chest and a cracked wall wait on them
@@ -63,12 +65,13 @@ CHESTS = {  # a chest holds one of its floor's ("rare -1": a rare thing of tier 
     2: ["armor 2", "weapon 2", "potion 2", "lucky_charm", "rare -2"],
     3: ["armor 3+", "weapon 3+", "potion 2+", "lucky_charm", "rare"],
     4: ["armor 3+", "weapon 3+", "potion 3+", "lucky_charm", "rare"],
+    5: ["armor 3+", "weapon 3+", "potion 3+", "lucky_charm", "rare"],
 }
 SECRET = ["rare"]  # what a floor's secret room keeps, any tier: it's hard to find
 # What the warden by the stairs drops a third of the time, and an elite now and then: rare things, tier capped by the
 # floor (so the best of them come from the elites of the last floor, and secret rooms). A rare thing a floor, about,
 # from its secret room: more, and nothing felt rare (docs/plans/combat-and-balance.md §2).
-WARDEN = {1: ["rare -1"], 2: ["rare -2"], 3: ["rare"], 4: ["rare"]}
+WARDEN = {1: ["rare -1"], 2: ["rare -2"], 3: ["rare"], 4: ["rare"], 5: ["rare"]}
 WARDEN_DROP, ELITE_DROP = 0.35, 0.1  # how often
 WARDEN_ELSE = ["small_key", "bomb"]  # what a warden leaves when it isn't something rare: it always leaves something
 # What a place gives once there's no rare thing left for it: a potion, but a warden carries a small key (so floor 1's,

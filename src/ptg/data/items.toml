@@ -201,6 +201,13 @@ kind = "key"
 tags = ["plant"]
 desc = "Opens the Heartwood. It occasionally sprouts."
 
+# stand-in art (2026-10-29), till JT draws it in the maker
+[item.glowcap_key]
+name = "Glowcap Key"
+kind = "key"
+tags = ["plant", "glowing"]
+desc = "A key that was grown, not made: a little glowing blue cap for its bow and a pale stem with teeth. It's still a bit alive. It opens the Spore Bed."
+
 # drawn by JT (2026-10-23)
 [item.superior_healing_potion]
 name = "Superior Healing Potion"
@@ -612,3 +619,23 @@ heal = 16
 tier = 1
 tags = ["food", "meat", "hot", "smelly"]
 desc = "A whole roast chicken, piping hot, found inside a dungeon wall. Nobody knows who keeps putting them there, or how they stay so crispy. Smash the wall, eat the chicken, feel much better. Don't think about it too hard."
+
+# drawn by maker (2026-10-30)
+[item.philter_of_light]
+name = "Philter of Light"
+kind = "trinket"
+tier = 3
+tags = ["light", "holy", "shiny", "glass", "bright"]
+desc = "A crystal phial holding the last ray of the Evening Star, caught by the Lantern Sisters from the world's highest tower and given to light the lost home. It shines like a torch that never dies and warms its bearer, so they can take more blows. Great spiders hiss and flee its glare."
+powers = ["light"]
+stats = {max_hp = 5}
+found = ["quest"]
+
+# drawn by maker (2026-10-30)
+[item.gulliver_helper_sword]
+name = "Gulliver - Helper Sword"
+kind = "weapon"
+damage = "2d8"
+tier = 3
+tags = ["heavy", "shiny", "sharp", "metal", "holy"]
+desc = "A beautiful silver longsword with feathered wings for a crossguard, in honour of Kensuke. A little mollusk lives in the gilded frame of its hilt, and it pokes its eyes out on stalks to watch your back. It blinks when it thinks nobody is looking and shakes when enemies are near"

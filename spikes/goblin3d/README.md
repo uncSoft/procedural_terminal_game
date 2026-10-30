@@ -3,7 +3,10 @@
 The pipeline that turns a boss's 24-pixel sprite into the animated clips the stage plays when its fight starts
 (`src/ptg/data/clips/<boss>/`, played by `encounter.Fight`). The sprite is made solid, rigged and animated in Blender,
 rendered from the front, shrunk back to sprite size in the sprite's own colours, and cut into the game's strips. Every
-boss has been through it: the Goblin King, King Mouse, Serpentis, the Drowned Abbot and the Thornmother.
+boss has been through it: the Goblin King, King Mouse, Serpentis, the Drowned Abbot and the Thornmother; then the
+Underbloom's (2026-10-30): the Sporefang Matriarch (`sporefang_matriarch/`), and the Humongous Fungus and the three that
+fight beside it, the Spore Mother, the Rot Gill and the Puff Mound (`humongous_fungus/`, `spore_mother/`, `rot_gill/`,
+`puff_mound/`), each with its own `inflate_*.py` and `build_*.py`.
 
 It started as a spike (the voxel goblin: `voxelize.py`, `build_goblin.py`, `pixelate.py`, `frames/`), which looked
 lumpy once turned and shrunk. The bosses are built smooth instead.
@@ -61,7 +64,12 @@ game-size frames, so `gallery.py` and `play.py` work without Blender.
   `monsters.toml` says what it should show).
 - The sprite's own palette only, plus the `#181425` outline.
 - Standing about 21, 25, 32 and 42 pixels tall at frames 40, 48, 64 and 84 (the same pixel scale as the King). No
-  wider than one and a half times its height, and only the top may leave the frame.
+  wider than one and a half times its height, and only the top may leave the frame. A boss's smaller helpers (the
+  Spore Mother, the Rot Gill, the Puff Mound) stand about three quarters of that: 16, 19, 25 and 32.
+- In a fight against several (the Spore Bed), every foe with clips plays them side by side at one size, the biggest
+  they all fit (`encounter.Fight`), so make the helpers' frames the same sizes as the boss's. The stage fits and
+  stands each by its body in its idle (`sprites.stance`), so something drifting free of it (spores, a drip) may go
+  above it without shrinking the crowd.
 - Touching up a kid's design is fine as long as it stays theirs.
 
 ## What we learned
@@ -85,6 +93,13 @@ game-size frames, so `gallery.py` and `play.py` work without Blender.
 - A body leaning into a strike rolls the face with it: counter-roll the head.
 - Later bosses reuse the King's helpers (`build_king`: `P`, `animate`, `build_rig`..., setting `kit.TAG`),
   `build_mouse.blend`, and `inflate_mouse`'s `surface`, `decal`, `cells` and `catmull`.
+- `reduce.py` puts each full-size pixel in the small pixel its left edge falls in: a half-pixel lean, so a pair of
+  eyes can come out uneven. Nudge them a little right (the Humongous Fungus's: 0.085 px), or space them so they land
+  evenly at 40.
+- A spider's eight legs (the Matriarch) stand on IK: three bones each reaching for a foot bone, so the body bobs,
+  crouches and rears while the feet stay planted. Spread them so they fall on alternate pixels at 40.
+- Helpers made side by side can run at the same time, each with its own Blender: keep each one's scratch files in a
+  folder of its own.
 
 ## Items, and drawing a model live (a spike, on branch spike/terminal-3d)
 

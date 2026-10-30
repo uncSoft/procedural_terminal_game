@@ -40,7 +40,7 @@ from .widgets import power_lines
 
 SPIN = 30.0  # degrees a second it turns on its own
 SHOWN = 45.0  # how fast a thing turns where it's shown off (a card, the pack): a little brisker than in the window
-CALM = 12  # frames a second a model's drawn at where it's beside other things (the pack, a card): enough to turn
+CALM = 24  # frames a second a model's drawn at where it's beside other things (the pack, a card): as smooth as made
 DRAG = 5.0  # degrees it turns for each column the mouse is dragged across it (and tips, for each row up or down)
 FRICTION = 2.5  # how quickly a flicked spin dies away: by e^-FRICTION a second
 TILT = (-30.0, 75.0)  # how far it tips: from a little below to nearly straight down on it

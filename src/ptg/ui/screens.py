@@ -310,6 +310,10 @@ class SetupScreen(Screen):
                 yield Select([("Press Space to roll (dramatic)", "manual"), ("Roll automatically", "auto")],
                              value="auto" if config.auto_roll else "manual", allow_blank=False, id="dice",
                              compact=True)
+                yield Label("Boss entrances")
+                yield Select([("Big, over the whole screen first", "big"), ("On the stage only", "stage")],
+                             value="big" if config.boss_intros else "stage", allow_blank=False, id="intros",
+                             compact=True)
                 yield Label("Sound (F8 turns it on and off)")
                 with Horizontal(id="setup-sound"):
                     yield Select([("On", "on"), ("Off", "off")], value="on" if config.sound else "off",
@@ -396,6 +400,7 @@ class SetupScreen(Screen):
             "player_name": self.query_one("#name", Input).value.strip() or "Adventurer",
             **narrator,
             "auto_roll": self.query_one("#dice", Select).value == "auto",
+            "boss_intros": self.query_one("#intros", Select).value == "big",
             "art": self.query_one("#art", Select).value,
             "layout": self.query_one("#layout", Select).value,
             "sound": self.query_one("#sound", Select).value == "on",

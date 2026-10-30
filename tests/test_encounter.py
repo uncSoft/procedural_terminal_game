@@ -244,17 +244,17 @@ def test_every_other_boss_drops_in_too(boss):
 
 
 def test_a_boss_with_an_entrance_clip_drops_in_and_stands_in_its_idle(content):
-    """The stage plays the clip (at most 12 frames a second: every other of its 24), the sting on the frame its feet
+    """The stage plays the clip (every frame of it, 24 a second, as made), the sting on the frame its feet
     land, then its banner; and it fights in the clip's idle, at the biggest size whose standing art fits."""
     state = generate(7)
     king = put_monster(state, content, key="goblin_king")
     fight = encounter.Fight(state, content, king, 110, 16)
     assert fight.clips["idle"].size == 48 and fight.scale == 1.0
     frames = list(fight.entrance())
-    assert len(frames) == 37 + 1
-    assert [i for i, (_, _, cue) in enumerate(frames) if cue in encounter.STINGS] == [4]  # (frame 8 of the clip)
-    assert frames[4][2] == "boss_encounter"
-    assert all(seconds == pytest.approx(2 / 24) for _, seconds, _ in frames[:-1])
+    assert len(frames) == len(fight.clips["entrance"].frames) + 1  # (every frame of it, as made)
+    assert [i for i, (_, _, cue) in enumerate(frames) if cue in encounter.STINGS] == [8]  # (the frame his feet land)
+    assert frames[8][2] == "boss_encounter"
+    assert all(seconds == pytest.approx(1 / 24) for _, seconds, _ in frames[:-1])
     assert "Goblin King" not in frames[0][0].plain and "Goblin King" in frames[-1][0].plain
     assert fight.foe(0).tobytes() != fight.foe(1).tobytes()  # (it breathes: its idle's first and middle)
     assert len(list(fight.shatter())) == encounter.SHATTER_FRAMES
@@ -275,9 +275,9 @@ def test_a_boss_is_called_out_by_name_as_it_lands(content, monkeypatch):
     frames = list(fight.entrance())
     cues = [cue for _, _, cue in frames]
     spelled = -(-len("T H E   G O B L I N   K I N G") // encounter.SPELL)
-    assert cues[4:4 + spelled] == ["boss_encounter"] + ["dice_tick"] * (spelled - 1) and not any(cues[4 + spelled:])
-    assert "✦" not in frames[3][0].plain and "✦  T H" in frames[4][0].plain  # (SPELL letters a frame, from landing)
-    card = frames[4 + spelled][0].plain
+    assert cues[8:8 + spelled] == ["boss_encounter"] + ["dice_tick"] * (spelled - 1) and not any(cues[8 + spelled:])
+    assert "✦" not in frames[7][0].plain and "✦  T H" in frames[8][0].plain  # (SPELL letters a frame, from landing)
+    card = frames[8 + spelled][0].plain
     assert "T H E   G O B L I N   K I N G" in card and "BOSS OF THE GOBLIN WARREN" in card
     assert "✦" not in frames[-1][0].plain and "The Goblin King" in frames[-1][0].plain
 
@@ -302,7 +302,7 @@ def test_the_kings_own_swing_and_his_pan_held_high_for_a_heavy_blow(content):
     king = put_monster(state, content, key="goblin_king")
     fight = encounter.Fight(state, content, king, 110, 16)
     swing = list(fight.swing())
-    assert len(swing) == 10 and all(seconds == pytest.approx(2 / 24) for _, seconds in swing)
+    assert len(swing) == 20 and all(seconds == pytest.approx(1 / 24) for _, seconds in swing)
     assert fight.foe(0, "windup").tobytes() != sprites_posed(fight, "windup")
     goblin = encounter.Fight(state, content, put_monster(state, content, key="goblin"), 110, 16)
     assert list(goblin.swing()) == []
@@ -394,7 +394,8 @@ async def test_a_fight_comes_in_on_the_stage_and_ends_with_its_spoils(monkeypatc
 
     entrances, spoiled = [], []
     entrance, shatter = encounter.Fight.entrance, encounter.Fight.shatter
-    monkeypatch.setattr(encounter.Fight, "entrance", lambda self, *a: entrances.append(1) or entrance(self, *a))
+    monkeypatch.setattr(encounter.Fight, "entrance",
+                        lambda self, *a, **kw: entrances.append(1) or entrance(self, *a, **kw))
     monkeypatch.setattr(encounter.Fight, "shatter", lambda self, *a: spoiled.append(1) or shatter(self, *a))
     app = PTGApp(Config(backend="offline", layout="grid", player_name="T", auto_roll=True), seed=1)
     async with app.run_test(size=(160, 50)) as pilot:
@@ -415,3 +416,57 @@ async def test_a_fight_comes_in_on_the_stage_and_ends_with_its_spoils(monkeypatc
             await take_choice(app, pilot, screen, "attack")
         assert state.room.monster is None and spoiled and screen.fight is None
         assert "Goblin" not in str(screen.query_one("#stage-art").render())  # (the room again)
+
+
+def test_a_foe_with_clips_stands_in_its_whole_idle_played_through(content):
+    """The stage plays a clip-made foe's idle through, a frame a tick (still's `tick`), not two pictures taking turns;
+    one without clips has nothing to loop."""
+    state = generate(7)
+    king = put_monster(state, content, key="goblin_king")
+    fight = encounter.Fight(state, content, king, 110, 16)
+    idle = fight.clips["idle"].frames
+    assert fight.loops()
+    assert [fight.foe(0, tick=t).tobytes() for t in range(len(idle))] == [frame.tobytes() for frame in idle]
+    assert fight.foe(0, tick=len(idle)).tobytes() == idle[0].tobytes()  # (round again)
+    goblin = encounter.Fight(state, content, put_monster(state, content, key="goblin"), 110, 16)
+    assert not goblin.loops()
+
+
+async def test_clips_play_at_their_own_speed_however_long_a_frame_takes_to_draw():
+    import time
+
+    from ptg.ui.effects import paced
+
+    def frames():
+        for i in range(10):
+            time.sleep(0.01)  # (as long as drawing a big stage might take)
+            yield i, 0.02
+    start = time.monotonic()
+    shown = [i async for i, _ in paced(frames())]
+    took = time.monotonic() - start
+    assert shown == list(range(10)) and took < 0.27  # (10 × 0.02 s, not 10 × 0.03 s)
+
+
+async def test_the_stage_loops_a_boss_through_its_idle_in_a_fight():
+    from ptg.config import Config
+    from ptg.rules import available_actions
+    from ptg.ui.app import PTGApp
+    from ptg.ui.game_screen import GameScreen
+
+    app = PTGApp(Config(backend="offline", layout="tabs", player_name="T", auto_roll=True),
+                 test_room=("goblin_king", "strong", 0))
+    async with app.run_test(size=(150, 45)) as pilot:
+        for _ in range(80):
+            await pilot.pause(0.1)
+            if isinstance(app.screen, GameScreen) and not app.screen.busy:
+                break
+        screen = app.screen
+        door = next(a for a in available_actions(screen.game.state, screen.game.content) if a.hint == "boss")
+        screen.press(door)
+        for _ in range(80):
+            await pilot.pause(0.1)
+            if screen.game.state.in_combat and not screen.busy and not screen.animating:
+                break
+        ticks = screen.loop_tick
+        await pilot.pause(1.0)
+        assert screen.looping and screen.loop_tick - ticks >= 10  # (many frames a second, not one every 0.6)

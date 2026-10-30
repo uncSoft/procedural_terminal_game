@@ -40,6 +40,8 @@ and the kill drew all seven shatter frames at once (106 ms). Neighbouring cells 
 piece: 372 instead of 1,760, 4.7 times fewer. With that, frames take 4-6 ms, the shatter 27 ms, and a terminal or a
 browser is sent about a quarter of the bytes. That matters most served: an entrance at 12 frames a second is about
 650 KB a second of screen today, and the browser's sounds travel in the same stream as the screen, behind it.
+(2026-10-30, JT: clips now play every frame, 24 a second, served too, and a fight with clips loops its idles through
+at that speed: the browser's share doubled and then some, accepted for the small group playing it now.)
 
 **3. A fight's start and end happen in the wrong order.**
 - *The start:* the whole entrance (about 0.6 s for a sweep, about 4 s for the King's clip and card) plays before the

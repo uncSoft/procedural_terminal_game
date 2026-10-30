@@ -28,6 +28,7 @@ def isolated_home(tmp_path, monkeypatch):
     """Keep config, saves, the profile database and logs out of the real ~/.ptg, and the tests quiet."""
     monkeypatch.setenv("PTG_HOME", str(tmp_path))
     monkeypatch.setenv("PTG_SOUND", "0")
+    monkeypatch.setenv("PTG_BIG_INTRO", "0")  # (a boss's big entrance over everything: a test that wants it says so)
     return tmp_path
 
 

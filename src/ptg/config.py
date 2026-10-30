@@ -34,6 +34,7 @@ class Config(BaseModel):
     # fixed grid with big buttons (ui/grid.py), or the classic
     sound: bool = True
     volume: int = 70  # percent
+    boss_intros: bool = True  # a boss (or a guardian) comes in big over the whole screen first (ui/boss_intro.py)
     tone: str = "darkly funny, vivid and fair, like a game master who loves the players"
 
 

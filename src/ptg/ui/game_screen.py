@@ -24,11 +24,13 @@ from ..models import LogEntry
 from ..outcome import AWFUL, BAD, GOOD, GREAT, overall, tone, verdict
 from ..room_picture import look_of, picture_text
 from ..rules import no_go, no_way
-from ..sprites import DEATH_FRAMES, clips, splash_sizes
+from ..sprites import CLIP_FPS, DEATH_FRAMES, clips, splash_sizes
 from ..world import EARLY_BOSSES
 from ..text import cap, mid_sentence, the
 from . import effects
 from ..llm.interpreter import looks
+from .boss_intro import BossIntro
+from .boss_intro import wanted as big_intro
 from .dice import DiceScreen
 from .here import CARD, MINI, ROW, Thing, Tile, arrange, things_here
 from .panels import (BestiaryScreen, CharacterScreen, FloorScreen, HelpScreen, InfoScreen, InventoryScreen,
@@ -52,6 +54,7 @@ FIXTURE_MOMENTS = {
 SIDE_WORDS = 27  # the columns inside the side column's panels (a panel's frame and padding less its width)
 RESIZE_WAIT = 0.12  # seconds a window must hold still before the screen is laid out for its size again
 PRELOAD_AFTER = 3.0  # seconds into a run that its floors' art and its bosses' clips are read, in the background
+LOOP_BEATS = round(IDLE * CLIP_FPS)  # a fight's ticks to a sprite's breath, among foes playing clips (loop_step)
 FIRST = ("dodge", "flee", "bomb", "use:", "throw:", "distract:", "go:")  # fight tactics and ways out, before the rest
 
 COMMANDS = {
@@ -213,6 +216,9 @@ class GameScreen(Screen):
         self.stage_frames: list[Text | None] = []  # its two idle frames (the second drawn when it's first wanted)
         self.stage_beat = 0
         self._stage_timer = None
+        self.looping = False  # a fight on the stage with clips of its own: played through, a frame a tick (loop_step)
+        self.loop_tick = 0
+        self._loop_timer = None
         self.fight: encounter.Fight | None = None  # the fight on the stage, while there's one (encounter.py)
         self.fight_key: tuple | None = None  # whose, where, how big: a new one of those, a new Fight
         self.here_page = self.choice_page = 0  # the "more" chips turn these
@@ -399,6 +405,21 @@ class GameScreen(Screen):
         self.query_one("#stage-art", Static).update(art or room_text(state, content))
         if self._stage_timer is None and art is not None:
             self._stage_timer = self.set_interval(IDLE, self.stage_step, name="stage")
+        self.looping = fight is not None and fight.loops()
+        if self.looping and self._loop_timer is None:
+            self._loop_timer = self.set_interval(1 / CLIP_FPS, self.loop_step, name="loop")
+
+    def loop_step(self) -> None:
+        """A tick of a fight's own clips on the stage: every foe's idle (or its windup, a heavy blow coming) played
+        through at its own speed, a sprite among them breathing at its usual pace; while this screen's in front and
+        nothing else is moving on it."""
+        fight, monster = self.fight, self.game.state.room.monster
+        if not self.looping or fight is None or monster is None or self.busy or self.animating \
+                or self.app.screen is not self:
+            return
+        self.loop_tick += 1
+        beat = self.loop_tick // LOOP_BEATS % 2
+        self.query_one("#stage-art", Static).update(fight.still(beat, monster_pose(monster), tick=self.loop_tick))
 
     def stage_step(self) -> None:
         """A beat of the stage's idle animation: the other frame, while this screen's in front and nothing else is
@@ -406,8 +427,8 @@ class GameScreen(Screen):
         screen's thread (a room takes a tenth of a second or so: a click then shouldn't wait on it), and a room with
         nothing that moves stops asking."""
         frames = self.stage_frames
-        if len(frames) != 2 or self.busy or self.animating or self.app.screen is not self:
-            return
+        if self.looping or len(frames) != 2 or self.busy or self.animating or self.app.screen is not self:
+            return  # (a fight with clips of its own plays them: loop_step)
         if frames[1] is None:
             snapshot = self.game.state.model_copy(deep=True)  # (what it draws can't change under it mid-turn)
             self.run_worker(lambda: self._second_frame(frames, snapshot), thread=True, group="stage", exclusive=True)
@@ -1271,9 +1292,8 @@ class GameScreen(Screen):
             striking = {e.data["foe"] for e in events if "foe" in e.data} or None
             swung = list(fight.swing(striking, monster_pose(state.room.monster)))
             lunge = [(fight.still(0, "lunge"), 0.07), (fight.still(1, "lunge"), 0.07)]
-            for text, delay in swung or lunge:
+            async for text, _ in effects.paced(swung or lunge):
                 art.update(text)
-                await asyncio.sleep(delay)
             moved = True
         if gone:
             await self._spoils(fight, events, slain="defeat" in kinds)
@@ -1349,15 +1369,23 @@ class GameScreen(Screen):
         art = self.query_one("#stage-art", Static)
         self.query_one("#stage").border_title = f"✦ {state.room.name}  ⚔ a fight!"  # (the room it's coming into)
         self.animating = True
+        called = False  # (a boss's entrance big over everything first, then quietly here: ui/boss_intro.py)
+        intro = BossIntro.made(state, content, state.room.monster, state.known_weak.get(known.key, []),
+                               self.app.size, side) if boss and big_intro(self.game.config) else None
+        if intro is not None:
+            done = asyncio.Event()
+            self.app.push_screen(intro, lambda _: done.set())
+            await done.wait()
+            self.refresh_music()
+            called = True
         try:
-            for frame, seconds, cue in fight.entrance(side):
+            async for frame, _, cue in effects.paced(fight.entrance(side, quiet=called)):
                 art.update(frame)
                 if cue:
                     sound.play(cue)
                 if cue and cue == fight.sting:
                     effects.pulse(self.query_one("#stage"), AWFUL if boss else BAD, blinks=2)
                     self.set_timer(MUSIC_AFTER_STING, self.refresh_music)  # (not after the whole entrance)
-                await asyncio.sleep(seconds)
             await asyncio.sleep(0.15)
         finally:
             self.animating = False

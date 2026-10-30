@@ -165,9 +165,10 @@ uv run python tools/make_clip.py spikes/goblin3d/king/frames_48/Idle/0 goblin_ki
 ```
 
 That writes `src/ptg/data/clips/goblin_king/entrance.48.png` (the frames side by side, their count, speed and the
-frame the feet land on kept in the PNG). When a fight with the monster starts, the stage plays its `entrance` (at
-most 12 frames a second, with the fight's sting as it lands) and keeps it in its `idle` for the rest of the fight, at
-the biggest size whose standing art fits the stage; a monster without clips sweeps in from the side instead. So a
+frame the feet land on kept in the PNG). When a fight with the monster starts, the stage plays its `entrance` (every
+frame, 24 a second, as made, with the fight's sting as it lands) and keeps it in its `idle` for the rest of the fight,
+played through at the same speed, at the biggest size whose standing art fits the stage; a monster without clips
+sweeps in from the side instead. So a
 clip-made monster needs both, and 40, 48 and 64 pixels cover a laptop's screen to a big one. Two more are optional:
 an `attack`, played each time it goes for you, and a `windup`, how it stands while a heavy blow is coming. `--frames`
 cuts one from part of a folder: the King's are the swing at the end of his fall, and the pan held high before it.
@@ -183,7 +184,9 @@ pipeline: he drops in, flexes and roars, swipes with his claw and raises it for 
 the standing figure is about 21, 25, 32 and (for big screens) 42 pixels tall: that's what the stage picks from.
 The Underbloom's have them too: the Sporefang Matriarch drops in on a silk line and screeches as she lands, and in
 the Spore Bed the Humongous Fungus and its three helpers come in together and swing at once, side by side at one size
-(a crowd's clips: `encounter.Fight`).
+(a crowd's clips: `encounter.Fight`). A boss (or a guardian) first comes in big, over the whole screen and its room's
+art drawn as big, its name called out, then rises back up and drops into the stage (`ui/boss_intro.py`); any key
+skips it, and Settings (Boss entrances) can keep it to the stage.
 
 **Small versions.** Where there isn't room for full size (the inventory's and the shop's tiles on a smaller screen,
 a short sidebar, the things lying in a room's picture) a sprite is drawn small, 12 pixels wide, and pixel art

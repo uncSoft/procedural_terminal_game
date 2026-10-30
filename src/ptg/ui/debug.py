@@ -43,6 +43,7 @@ from textual.widget import Widget
 from textual.widgets import Button, DataTable, Input, ProgressBar, Select, Static, TabbedContent, TabPane, Tree
 
 from .. import __version__, integrity, loot, model3d, powers, sound, testrooms
+from .boss_intro import wanted as big_intro
 from ..config import DEFAULT_CLAUDE_MODEL, DEFAULT_URLS, Config, home, load_game, save_config
 from ..content import Content, load_content
 from ..game import Game
@@ -309,6 +310,7 @@ def overview(app) -> Group:
     narrator += [("Model", config.model or "whatever the server has loaded"), ("Temperature", config.temperature),
                  ("Tone", config.tone), ("API key", "set" if config.api_key else "not set")]
     settings = [("Your name", config.player_name), ("Dice", "roll themselves" if config.auto_roll else "you roll"),
+                ("Boss entrances", "big, over the whole screen" if big_intro(config) else "on the stage only"),
                 ("Art", config.art), ("Sound", f"{'on' if config.sound else 'off'} (F8), volume {config.volume}%")]
     upcoming = [("Seed", app.seed if app.seed is not None else "a new one"),
                 ("Story event", app.event or "none (fire one from the Story tab)")]

@@ -332,7 +332,7 @@ def splash_text(key: str, width: int) -> Text | None:
 
 # --- clips: a monster's own animations, made elsewhere --------------------------------
 
-CLIP_FPS = 12  # the most frames a second the stage plays a clip at: each frame is the whole stage, sent to a browser
+CLIP_FPS = 24  # the most frames a second the stage plays a clip at: every frame, as they're made (spikes/goblin3d)
 
 
 @dataclass(frozen=True)

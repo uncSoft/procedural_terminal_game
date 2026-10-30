@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from rich.text import Text
 from textual.color import Color
 from textual.css.scalar import ScalarOffset
@@ -29,6 +31,17 @@ EVENT_SOUNDS = {
     "find": "item", "take": "item", "loot": "item", "equip": "item", "key": "item", "fate": "fate", "trait": "fate",
     "pacify": "good", "exploit": "good", "bomb": "bomb", "secret_room": "bomb", "tip": "secret", "buy": "coin",
 }
+
+
+async def paced(frames):
+    """Frames (each a tuple whose second part is the seconds it shows: a clip's), handed on at their own speed: the
+    time one takes to draw comes off the wait after it, so a clip plays as fast as it was made, whatever the size."""
+    loop = asyncio.get_running_loop()
+    due = loop.time()
+    for frame in frames:
+        yield frame
+        due += frame[1]
+        await asyncio.sleep(max(0.0, due - loop.time()))
 
 
 def event_sound(event: Event) -> str | None:

@@ -915,6 +915,39 @@ async def test_a_run_has_its_floors_music_and_its_fights(monkeypatch):
         assert speakers.looping == "deep_music"
 
 
+async def test_a_fights_music_plays_on_whoever_of_it_you_face_or_falls(monkeypatch):
+    """Run 66: the Humongous Fungus's music started again each time JT turned to one of its parts or one of them fell.
+    A fight's music is the boss's if one's in it, whichever of it you face, and plays on till the fight's over."""
+    import random
+
+    from ptg.world import party
+
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        from conftest import Recorder, put_monster
+
+        monkeypatch.delenv("PTG_SOUND", raising=False)
+        speakers, started = Recorder(), []
+        loop = speakers.loop
+        speakers.loop = lambda clip, *a, **kw: (started.append(clip.moment), loop(clip, *a, **kw))
+        monkeypatch.setattr(sound, "_sound", sound.Sound(True, 1.0, player=speakers))
+        state, content = screen.game.state, screen.game.content
+        fungus = put_monster(state, content, key="humongous_fungus")
+        mother, *rest = state.room.others = party(random.Random(1), content, fungus, 5)
+        screen.refresh_music()
+        state.room.monster, state.room.others = mother, [fungus, *rest]  # (turned to face the Spore Mother)
+        screen.refresh_music()
+        fungus.hp = 0  # (the Fungus down, the rest of it fighting on)
+        screen.refresh_music()
+        assert started == ["boss_music"]
+        mother.hp = 0
+        for part in rest:
+            part.hp = 0
+        screen.refresh_music()
+        assert started == ["boss_music", "explore_music"]
+
+
 async def test_items_drawn_in_the_maker_show_their_art(monkeypatch):
     """The same picture wherever it's shown, and animated: the pack's tile, Here, the shop. Its card and the pack's
     detail turn its model, made from that picture (ui/model_view.py); a thing with no model has its picture there

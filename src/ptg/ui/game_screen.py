@@ -182,11 +182,12 @@ GAME_MUSIC = ("explore_music", "deep_music") + FIGHT_MUSIC
 
 
 def music_for(state, content) -> str:
-    """The music for where you are: a fight's while a monster's after you (a boss's own), else the floor's, darker on
-    the boss floors."""
+    """The music for where you are: a fight's while a monster's after you (a boss's own, if one's in it, whichever of
+    it you face), else the floor's, darker on the boss floors."""
     if state.in_combat:
-        monster = content.monsters.get(state.room.monster.key)
-        return "boss_music" if monster and monster.boss else "battle_music"
+        foes = [m for m in [state.room.monster, *state.room.others] if m.hostile and m.hp > 0]
+        boss = any((known := content.monsters.get(m.key)) and known.boss for m in foes)
+        return "boss_music" if boss else "battle_music"
     return "deep_music" if state.boss_floor else "explore_music"
 
 
@@ -322,9 +323,10 @@ class GameScreen(Screen):
     def refresh_music(self) -> None:
         """The music for where you are now (music_for), if it isn't playing already. A fight's cuts straight in, the
         floor's fading fast under it; once it's over the floor's comes slowly back as the fight's dies away. A run
-        that's ended keeps what it had (it stops with the screen)."""
-        moment = music_for(self.game.state, self.game.content)
-        if self.game.state.over or moment == sound.engine().wanted:
+        that's ended keeps what it had (it stops with the screen). A fight's plays on till the fight's over, whoever
+        of it you turn to or falls (run 66: the Fungus's started again with each of its parts)."""
+        moment, playing = music_for(self.game.state, self.game.content), sound.engine().wanted
+        if self.game.state.over or moment == playing or moment in FIGHT_MUSIC and playing in FIGHT_MUSIC:
             return
         if moment in FIGHT_MUSIC:
             sound.music(moment, fade_in=0.0, fade_out=0.4)
@@ -464,15 +466,17 @@ class GameScreen(Screen):
 
     def loop_step(self) -> None:
         """A tick of a fight's own clips on the stage: every foe's idle (or its windup, a heavy blow coming) played
-        through at its own speed, a sprite among them breathing at its usual pace; while this screen's in front and
-        nothing else is moving on it."""
-        fight, monster = self.fight, self.game.state.room.monster
-        if not self.looping or fight is None or monster is None or self.busy or self.animating \
-                or self.app.screen is not self:
+        through at its own speed, a sprite among them breathing at its usual pace. It plays on through a turn (the
+        dice over it, the beat before the foes' go, the words being written), stopping only while the stage plays a
+        moment of its own (a blow, a fall: animating) or can't be seen, and is drawn as the stage last showed the
+        fight (its copy), not as the turn's left it, till the stage gets to that."""
+        fight, state = self.fight, self.game.state
+        if not self.looping or fight is None or self.animating or not self.is_current \
+                or self.fight_key is None or self.fight_key[:2] != (state.floor, state.room_id):  # (fled: not here)
             return
         self.loop_tick += 1
         beat = self.loop_tick // LOOP_BEATS % 2
-        self.show_frame(fight.still(beat, monster_pose(monster), tick=self.loop_tick))
+        self.show_frame(fight.still(beat, monster_pose(fight.monster), tick=self.loop_tick))
 
     def stage_step(self) -> None:
         """A beat of the stage's idle animation: the other frame, while this screen's in front and nothing else is

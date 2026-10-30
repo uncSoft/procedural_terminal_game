@@ -448,29 +448,63 @@ async def test_clips_play_at_their_own_speed_however_long_a_frame_takes_to_draw(
     assert shown == list(range(10)) and took < 0.27  # (10 × 0.02 s, not 10 × 0.03 s)
 
 
-async def test_the_stage_loops_a_boss_through_its_idle_in_a_fight():
-    from ptg.config import Config
+async def _in_the_kings_fight(app, pilot):
+    """Through the test room's boss door, into the Goblin King's fight, its entrance over: the screen."""
     from ptg.rules import available_actions
-    from ptg.ui.app import PTGApp
     from ptg.ui.game_screen import GameScreen
 
-    app = PTGApp(Config(backend="offline", layout="tabs", player_name="T", auto_roll=True),
-                 test_room=("goblin_king", "strong", 0))
+    for _ in range(80):
+        await pilot.pause(0.1)
+        if isinstance(app.screen, GameScreen) and not app.screen.busy:
+            break
+    screen = app.screen
+    door = next(a for a in available_actions(screen.game.state, screen.game.content) if a.hint == "boss")
+    screen.press(door)
+    for _ in range(80):
+        await pilot.pause(0.1)
+        if screen.game.state.in_combat and not screen.busy and not screen.animating:
+            break
+    return screen
+
+
+def _kings_test_room():
+    from ptg.config import Config
+    from ptg.ui.app import PTGApp
+
+    return PTGApp(Config(backend="offline", layout="tabs", player_name="T", auto_roll=True),
+                  test_room=("goblin_king", "strong", 0))
+
+
+async def test_the_stage_loops_a_boss_through_its_idle_in_a_fight():
+    app = _kings_test_room()
     async with app.run_test(size=(150, 45)) as pilot:
-        for _ in range(80):
-            await pilot.pause(0.1)
-            if isinstance(app.screen, GameScreen) and not app.screen.busy:
-                break
-        screen = app.screen
-        door = next(a for a in available_actions(screen.game.state, screen.game.content) if a.hint == "boss")
-        screen.press(door)
-        for _ in range(80):
-            await pilot.pause(0.1)
-            if screen.game.state.in_combat and not screen.busy and not screen.animating:
-                break
+        screen = await _in_the_kings_fight(app, pilot)
         ticks = screen.loop_tick
         await pilot.pause(1.0)
         assert screen.looping and screen.loop_tick - ticks >= 10  # (many frames a second, not one every 0.6)
+
+
+async def test_the_stage_loop_plays_on_through_a_turn_but_not_over_the_stages_own_moments():
+    """Run 66: the Fungus and its three stood frozen through every turn (the dice, the beat before their go, the
+    words being written), seconds at a time. Only the stage's own moments (a blow, a fall) hold it, and a fight
+    left behind (fled) isn't drawn over the room you're in."""
+    app = _kings_test_room()
+    async with app.run_test(size=(150, 45)) as pilot:
+        screen = await _in_the_kings_fight(app, pilot)
+        state = screen.game.state
+        screen.busy = True  # (a turn underway)
+        ticks = screen.loop_tick
+        await pilot.pause(0.5)
+        assert screen.loop_tick - ticks >= 5
+        screen.animating = True  # (a blow on the stage)
+        ticks = screen.loop_tick
+        await pilot.pause(0.3)
+        assert screen.loop_tick == ticks
+        screen.animating = False
+        here, state.room_id = state.room_id, next(r.id for r in state.rooms if r.id != state.room_id)
+        await pilot.pause(0.3)
+        assert screen.loop_tick == ticks
+        state.room_id, screen.busy = here, False
 
 
 def test_a_wipe_goes_up_or_down_as_well_as_across():

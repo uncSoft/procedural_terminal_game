@@ -5,7 +5,8 @@ sounds to play and a model check to run.
     Monsters   every monster: its art, numbers, who drew it, where it lives, what your bestiary knows
     Items      every item, the same way
     Art        every sprite, animated in each pose a fight puts it in
-    Sounds     every moment's sound (click it, or Enter, to play it) and where it came from
+    Sounds     every sound file, each take of a moment's (click it, or Enter, to play it; music loops till
+               Stop) and where it came from
     Story      every story event: reload the files after editing them, or fire one on the next descent
     State      this run's story flags and its whole save, and your profile's marks, secrets and souls
     Models     the model check (ptg.llm.check) against any model, with earlier results to compare
@@ -28,6 +29,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import ClassVar
 
 import textual
 from rich.console import Group
@@ -364,7 +366,9 @@ def overview(app) -> Group:
         heading("Next descent"), pairs(upcoming),
         heading("The game's content"), pairs(counts),
         heading("Sound"), pairs([("Player", player), ("Volume", f"{engine.volume:.0%}"),
-                                 ("Playing", "yes" if engine.enabled else "no")]),
+                                 ("Playing", "yes" if engine.enabled else "no"),
+                                 ("Music", f"{engine.wanted}, take {engine.variant + 1} of "
+                                  f"{len(engine.bank.get(engine.wanted, ())) or 1}" if engine.wanted else "none")]),
         heading("Your files"), pairs(files),
         heading("Game data"), pairs(data),
         heading("Run"), pairs(run),
@@ -391,11 +395,14 @@ class MonstersTab(TableTab):
         m = self.content.monster(key)
         themes = list(self.content.themes.values())
         rank = "boss" if m.boss else "ghost" if m.ghost else f"tier {m.tier}"
+        rank += ", guardian" if "guardian" in m.tags and not m.boss else ""
+        called = [("Called out", Text(m.epithet, style="italic"))] if m.epithet else []  # (big, as it comes in)
+        party = [("Comes with", listed([self.content.monster(k).name for k in m.party], "-"))] if m.party else []
         parts = [Text.assemble((m.name, "bold #ff4b4b"), (f"  {m.key}  ", DIM), (rank, WARN)),
                  pairs([("HP", m.hp), ("Defense", m.defense), ("Attack", m.attack), ("Damage", m.damage),
                         ("XP", m.xp), ("Tags", listed(m.tags, "-")), ("Weak to", listed(m.weak, "-")),
                         ("Thinks", "yes: it can be talked to" if m.intelligent else "no"),
-                        ("Heavy blow", tell(m.name, m.tell)),
+                        ("Heavy blow", tell(m.name, m.tell)), *called, *party,
                         ("Lives in", listed(lives(m.key, m.tags, m.ghost, themes, m.tier, m.dungeons), "-")),
                         ("Turns up on", floors_long(world.met_on(self.content, key))
                          or "nowhere by the rules: only where it's put (a character, a lair, a party)"),
@@ -581,11 +588,17 @@ def sheet(path: Path) -> tuple[int, int, int]:
 # --- Sounds -------------------------------------------------------------------------------------------------------
 
 class SoundsTab(TableTab):
-    columns = ("Moment", "When it plays", "Length", "Files")
+    """Every sound file, a row each: a moment's takes one under another (the fight's music and its second, hit and
+    hit_2...), each played as it is by a click or Enter; music loops on the music's own channel in place of the
+    game's (which comes back when the screen closes), and Stop, or s, quiets it all."""
+
+    columns = ("Moment", "File", "Length", "When it plays")
+    BINDINGS: ClassVar = [Binding("s", "stop", "Stop", show=False)]
 
     def toolbar(self) -> ComposeResult:
         with Horizontal(classes="debug-toolbar"):
             yield Button("▶ Play", compact=True, id="sound-play")
+            yield Button("■ Stop", compact=True, id="sound-stop")
             yield Button("Reload sounds", compact=True, id="sound-reload")
             yield Button("Open your sounds folder", compact=True, id="sound-folder")
             yield Static("", id="sound-status", classes="debug-status")
@@ -593,27 +606,53 @@ class SoundsTab(TableTab):
     def make_table(self) -> DataTable:
         return ClickTable(cursor_type="row", zebra_stripes=True)
 
-    def rows(self):
-        self.turns: dict[str, int] = {}
-        engine = sound.engine()
-        config = self.app.config
+    def status(self, playing: str = "") -> None:
+        """The line over the table: what's playing (a preview), else where things stand."""
+        config, engine = self.app.config, sound.engine()
         player = getattr(engine.player, "name", None) or "opens on the first sound"
-        self.query_one("#sound-status", Static).update(Text(
-            f"player: {player} · sound {'on' if config.sound else 'off'} (F8) · volume {config.volume}% · "
-            f"yours go in {short(sound.user_folder())} (green ones are yours)", style=DIM))
+        if playing:
+            line = Text.assemble(("▶ ", GOOD), (playing, "bold"), ("  ■ Stop, or s, to quiet it", DIM))
+        else:
+            line = Text(f"player: {player} · sound {'on' if config.sound else 'off'} (F8) · volume {config.volume}% · "
+                        f"yours go in {short(sound.user_folder())} (green ones are yours)", style=DIM)
+        self.query_one("#sound-status", Static).update(line)
+
+    def rows(self):
+        engine = sound.engine()
+        self.status()
         for moment, what in sound.MOMENTS.items():
             clips = engine.bank.get(moment, [])
-            length = sound.clip_length(clips[0]) if clips else None
-            files = (sound.clip_name(clips[0]) + (f" +{len(clips) - 1}" if len(clips) > 1 else "")) if clips else "-"
-            mine = any(not clip.builtin for clip in clips)
-            yield moment, [Text(moment, style=f"bold {GOOD}" if mine else "bold"), what,
-                           f"{length:.2f}s" if length else "-", files]
+            if not clips:
+                yield f"{moment}#0", [Text(moment, style="bold"), "-", "-", what]
+            for n, clip in enumerate(clips):
+                length = sound.clip_length(clip)
+                name = Text(sound.clip_name(clip), style=GOOD if not clip.builtin else "")
+                first = Text(moment, style=f"bold {GOOD}" if not clip.builtin else "bold") if n == 0 \
+                    else Text("  ↳", style=DIM)
+                yield f"{moment}#{n}", [first, name, f"{length:.2f}s" if length else "-",
+                                        what if n == 0 else Text(f"take {n + 1} of {len(clips)}", style=DIM)]
 
-    def detail(self, moment: str):
+    @staticmethod
+    def which(key: str) -> tuple[str, int]:
+        """A row's moment and which of its takes."""
+        moment, _, n = key.rpartition("#")
+        return moment, int(n or 0)
+
+    def detail(self, key: str):
+        moment, n = self.which(key)
         engine = sound.engine()
+        clips = engine.bank.get(moment, [])
+        music = moment.endswith("_music")
         parts = [Text.assemble((moment, "bold"), (f"  {sound.MOMENTS.get(moment, '')}", DIM)),
-                 Text("Click it or press Enter to play. With several files, each play takes the next.", style=DIM)]
-        for clip in engine.bank.get(moment, []):
+                 Text("Click it or press Enter to play it" + (" (it loops in place of the game's music, till ■ Stop "
+                                                              "or s; the game's comes back when you close this)"
+                                                              if music else "") + ".", style=DIM)]
+        if len(clips) > 1:
+            parts.append(Text(f"Take {n + 1} of {len(clips)}: " + ("each fight has the next, each floor its own"
+                                                                   if music else "the game picks one at random"),
+                              style=DIM))
+        if n < len(clips):
+            clip = clips[n]
             try:
                 bars = Text(sound.envelope(clip, max(8, self.room() - 2)), style=GOOD)
             except Exception as error:  # a broken file: say so, here of all places
@@ -624,23 +663,24 @@ class SoundsTab(TableTab):
                              ("From", clip.credit), ("Licence", clip.license or "-"), ("File", short(clip.source))])]
         problems = [p for p in engine.problems if moment in p]
         parts += [Text(f"\n{p}", style=WARN) for p in problems]
-        if not engine.bank.get(moment):
+        if not clips:
             parts.append(Text("\nNo sound for this moment.", style=DIM))
         return "", "", Group(*parts)
 
-    def play(self, moment: str) -> None:
+    def play(self, key: str) -> None:
+        moment, n = self.which(key)
         clips = sound.engine().bank.get(moment, [])
-        if not clips:
+        if not 0 <= n < len(clips):
             return
-        turn = self.turns.get(moment, 0)
-        self.turns[moment] = turn + 1
-        clip = clips[turn % len(clips)]
+        clip = clips[n]
+        self.status(f"{sound.clip_name(clip)}" + (", looping" if moment.endswith("_music") else ""))
         self.run_worker(lambda: self._play(clip), thread=True, group="sound")
 
     def _play(self, clip: sound.Clip) -> None:
         problem = sound.preview(clip)
         if problem:
             self.app.call_from_thread(self.app.notify, problem, title="Can't play it", severity="warning")
+            self.app.call_from_thread(self.status)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         event.stop()
@@ -650,6 +690,14 @@ class SoundsTab(TableTab):
     def play_current(self) -> None:
         if self.current:
             self.play(self.current)
+
+    def action_stop(self) -> None:
+        sound.stop_preview()
+        self.status()
+
+    @on(Button.Pressed, "#sound-stop")
+    def stop_pressed(self) -> None:
+        self.action_stop()
 
     @on(Button.Pressed, "#sound-reload")
     def reload(self) -> None:
@@ -1345,7 +1393,8 @@ class ThreeDTab(TableTab):
             if clips(m.key):
                 self.things[m.key] = "boss"
                 sizes = clip_sizes(m.key)
-                yield m.key, [Text(m.name, style="bold"), "boss" if m.boss else "monster", "Blender clips",
+                yield m.key, [Text(m.name, style="bold"), "boss" if m.boss else "guardian" if "guardian" in m.tags
+                              else "monster", "Blender clips",
                               plural(len(clips(m.key)), "clip"), f"{sizes[0]}-{sizes[-1]} px"]
         for i in self.content.items.values():
             if model3d.available(i.key):
@@ -1536,3 +1585,6 @@ class DebugScreen(Panel):
 
     def action_three_d(self, verb: str, value: str = "") -> None:
         self.query_one(ThreeDTab).act(verb, value)
+
+    def on_unmount(self) -> None:
+        sound.end_preview()  # (the game's own music back, if the Sounds tab had the music's channel)

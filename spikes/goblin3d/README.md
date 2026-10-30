@@ -72,6 +72,28 @@ game-size frames, so `gallery.py` and `play.py` work without Blender.
   above it without shrinking the crowd.
 - Touching up a kid's design is fine as long as it stays theirs.
 
+### Its subtitle: how it's called out
+
+When a boss (or a guardian) comes in big over the whole screen (`src/ptg/ui/boss_intro.py`), it lands to its sting,
+the moment it lands is held still and the view rushes in on it till it's twice as close (`Fight.closeup`); then, back
+out, its name is called out big over its head in gold pixel letters, burning in from the left, while it stands there
+in its idle, with a line over the name saying what it is (`Fight.titled`, drawn by `src/ptg/boss_title.py`). So each
+boss needs:
+
+- **Its line**, `epithet` in its `monsters.toml` entry: a few words of legend, title case, that say what it is or
+  what it's done, in its maker's spirit ("Lord of the Warren, Swinger of the Pan", "Veteran of the War of the Third
+  Billionth Year", King Mouse's "Very Big Mouse. Beware the Claws!"). About 45 characters at most, so it fits on a
+  small screen. Without one it's called what it is ("Boss of The Underbloom").
+- **A name the letters can spell**: A to Z, 0 to 9 and `' - . , ! ?` (anything else is a space). "The" before it is
+  lettered a size smaller. Long names go on two lines; one or two words of 12 letters or fewer read best.
+- **A landing to hold still**: the entrance's landing frame, then the idle's first pose, is what the view rushes in
+  on, frozen, twice as close and centred on the middle of its body. Make that pose read as a held picture, facing us,
+  its face and its signature (the King's pan, the Fungus's glowing cap) clear. Look at it with
+  `uv run ptg --test-room <key> --loadout strong`.
+- **Room over its head**: the name goes over its head, not over it, so keep to the heights above. Standing about 42
+  pixels tall at frames 84 leaves 45 to 75 pixels over it on a 160x50 to 240x64 screen; a boss much taller would
+  push its name down onto itself.
+
 ## What we learned
 
 - Check every frame for anything below the idle's feet, or at the frame's sides and bottom: tails, splayed legs, a

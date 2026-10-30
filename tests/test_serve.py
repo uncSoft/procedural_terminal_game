@@ -243,7 +243,8 @@ async def test_the_page_loads_the_sounds_once_and_keeps_them(tmp_path):
         assert f'data-sounds-url="/sounds/{stamp}/"' in game and "new AudioContext" in game
         ahead = re.search(r'data-sounds="([^"]*)"', game).group(1).split()
         assert "coin.wav" in ahead and "thunder_3.wav" in ahead and not any("_music" in name for name in ahead)
-        assert len(ahead) + 5 == len(files)  # (the five music tracks)
+        music = [name for name in files if "_music" in name]
+        assert len(music) >= 9 and len(ahead) + len(music) == len(files)  # (the title's, and two of each in the game)
         reply = await client.get(f"/sounds/{stamp}/coin.wav")
         assert reply.status == 200 and await reply.read() == files["coin.wav"].read_bytes()
         assert reply.headers["Cache-Control"] == "public, max-age=31536000, immutable"

@@ -2,9 +2,11 @@
 The stage only has a strip of the screen, so a boss's clips (made up to 84 pixels tall: spikes/goblin3d) and the
 room's art mostly play small. Here, as a fight with a boss (or a guardian) starts, the screen dims and the fight is
 drawn as big as the screen allows (encounter.Fight at the screen's size: the room's own picture behind, every foe's
-clips at their biggest): the boss drops in, its sting and its name called out on the card; it holds a moment, then
-its entrance runs backwards (Fight.rise), up and away the way it came; and the screen gives way to the stage, where it
-drops in again, quietly, small (game_screen._encounter). Any key or a click skips it.
+clips at their biggest): the boss drops in to its sting; the moment it lands is held and the view rushes in on it
+(Fight.closeup); then, back out, its name is called out big over its head as it stands there in its idle, a line over
+it saying what it is (Fight.titled: boss_title, its MonsterDef.epithet); then its entrance runs backwards
+(Fight.rise), up and away the way it came; and the screen gives way to the stage, where it drops in again, quietly,
+small (game_screen._encounter). Any key or a click skips it, at any point.
 
 It's on unless Settings says otherwise (Boss entrances: Config.boss_intros); PTG_BIG_INTRO=0 turns it off whatever
 they say (the tests do), and =1 on.
@@ -15,7 +17,6 @@ they say (the tests do), and =1 on.
 
 from __future__ import annotations
 
-import asyncio
 import os
 from typing import ClassVar
 
@@ -27,7 +28,7 @@ from textual.widgets import Static
 from .. import encounter, sound
 from .effects import paced, show_frame
 
-HOLD = 0.8  # seconds it stands, called out, before it goes back up
+TITLED = 2.6  # seconds it stands there called out, its name big over its head, before it goes back up
 MARGIN = (4, 2)  # columns and rows left round it, so the game shows at its edges, dimmed
 
 
@@ -84,14 +85,13 @@ class BossIntro(ModalScreen[None]):
 
     async def play(self) -> None:
         art, fight, shown = self.query_one("#intro-art", Static), self.fight, None
-        async for frame, _, cue in paced(fight.entrance(self.side)):
-            if self.skipped:
-                break
-            shown = show_frame(art, frame, shown)
-            if cue:
-                sound.play(cue)
-        if not self.skipped:
-            await asyncio.sleep(HOLD)
+        for moment in (fight.entrance(self.side, card=False), fight.closeup(), fight.titled(TITLED)):
+            async for frame, _, *cue in paced(moment):
+                if self.skipped:
+                    break
+                shown = show_frame(art, frame, shown)
+                if cue and cue[0]:
+                    sound.play(cue[0])
         async for frame, _ in paced(fight.rise(self.side)):
             if self.skipped:
                 break

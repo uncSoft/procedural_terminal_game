@@ -215,6 +215,7 @@ class GameScreen(Screen):
         self.fresh = fresh
         self.switched = switched  # the run carrying on in another layout (action_switch_layout): no recap
         self.switching = False  # leaving for another layout: the music plays on
+        self.fights_scored = 0  # fights that have had music: each the next of its tunes (refresh_music)
         self.busy = False
         self.narration_stop: asyncio.Event | None = None  # set to cut the narrator short (later)
         self.queued = None  # what to do once the turn's done: a move made while the narrator was still talking
@@ -324,14 +325,17 @@ class GameScreen(Screen):
         """The music for where you are now (music_for), if it isn't playing already. A fight's cuts straight in, the
         floor's fading fast under it; once it's over the floor's comes slowly back as the fight's dies away. A run
         that's ended keeps what it had (it stops with the screen). A fight's plays on till the fight's over, whoever
-        of it you turn to or falls (run 66: the Fungus's started again with each of its parts)."""
-        moment, playing = music_for(self.game.state, self.game.content), sound.engine().wanted
-        if self.game.state.over or moment == playing or moment in FIGHT_MUSIC and playing in FIGHT_MUSIC:
+        of it you turn to or falls (run 66: the Fungus's started again with each of its parts). Each fight has the
+        next of the fight's tunes, and each floor its own of the floor's (sound.Sound.tune), so they don't get old."""
+        state, engine = self.game.state, sound.engine()
+        moment, playing = music_for(state, self.game.content), engine.wanted
+        if state.over or moment in FIGHT_MUSIC and playing in FIGHT_MUSIC:
             return
         if moment in FIGHT_MUSIC:
-            sound.music(moment, fade_in=0.0, fade_out=0.4)
-        else:
-            sound.music(moment, fade_in=2.5, fade_out=1.5)
+            self.fights_scored += 1
+            sound.music(moment, fade_in=0.0, fade_out=0.4, variant=self.fights_scored - 1)
+        elif moment != playing or engine.variant != engine.tune(moment, state.floor - 1):
+            sound.music(moment, fade_in=2.5, fade_out=1.5, variant=state.floor - 1)
 
     def on_resize(self) -> None:
         if self._resize_timer is not None:  # (a drag sends a stream of these: lay out once it settles)

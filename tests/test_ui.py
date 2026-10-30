@@ -948,6 +948,34 @@ async def test_a_fights_music_plays_on_whoever_of_it_you_face_or_falls(monkeypat
         assert started == ["boss_music", "explore_music"]
 
 
+async def test_each_fight_has_the_next_of_its_tunes_and_each_floor_its_own(monkeypatch):
+    """JT: the music's good; another of each, so it doesn't get old. Fights take turns with their tunes; each floor
+    has its own of the floor's."""
+    app = PTGApp(Config(backend="offline", layout="classic", player_name="T"), seed=1)
+    async with app.run_test(size=(130, 44)) as pilot:
+        screen = await into_a_run(app, pilot)
+        from conftest import Recorder, put_monster
+
+        monkeypatch.delenv("PTG_SOUND", raising=False)
+        engine = sound.Sound(True, 1.0, player=Recorder())
+        monkeypatch.setattr(sound, "_sound", engine)
+        assert len(engine.bank["battle_music"]) >= 2 and len(engine.bank["explore_music"]) >= 2
+        state, content = screen.game.state, screen.game.content
+        heard = []
+        for _ in range(3):
+            screen.refresh_music()
+            heard.append((engine.wanted, engine.variant))
+            put_monster(state, content, key="orc", hp=200)
+            screen.refresh_music()
+            heard.append((engine.wanted, engine.variant))
+            state.room.monster.hp = 0
+        assert heard == [("explore_music", 0), ("battle_music", 0), ("explore_music", 0), ("battle_music", 1),
+                         ("explore_music", 0), ("battle_music", 0)]
+        state.floor = 2
+        screen.refresh_music()
+        assert (engine.wanted, engine.variant) == ("explore_music", 1)
+
+
 async def test_items_drawn_in_the_maker_show_their_art(monkeypatch):
     """The same picture wherever it's shown, and animated: the pack's tile, Here, the shop. Its card and the pack's
     detail turn its model, made from that picture (ui/model_view.py); a thing with no model has its picture there

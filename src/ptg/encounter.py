@@ -30,7 +30,7 @@ from dataclasses import InitVar, dataclass, field
 from rich.style import Style
 from rich.text import Text
 
-from . import combat, loot, room_picture, sprites, statuses
+from . import boss_title, combat, loot, room_picture, sprites, statuses
 from .content import Content
 from .models import LEVEL_XP, GameState, MonsterState
 from .sprites import Image
@@ -46,7 +46,11 @@ SHATTER_FRAMES = 7
 CARD = "#3b1424"  # a boss's name card: crimson, gilt rules
 GILT = "#be4a2f"
 SPELL = 4  # the letters (and spaces) of a boss's name the card spells out each frame
+ARRIVAL_GAP = 4  # frames after one of a crowd lands that the next starts coming in (Fight.arrivals)
 STINGS = ("encounter", "boss_encounter")  # an entrance's cue as it lands (sound.MOMENTS); "dice_tick" spells
+TITLE_TOP = 6  # the pixel row a boss's name called out big starts on (its epithet's line over it: boss_title)
+TITLE_REVEAL = 0.45  # seconds its name takes to burn in
+EPITHET = (236, 220, 178)  # the line over it, once it's faded in
 # What a monster's next move looks like over its head (combat.Foresight.kind): its ground, then its words' colour.
 INTENT_LOOK = {"heavy": (RED, WHITE), "strike": ("#5a1f2e", WHITE), "guard": (BLUE, INK), "reeling": (GOLD, INK),
                "running": (ORANGE, INK)}
@@ -429,11 +433,12 @@ class Fight:
         return foe.size
 
     def canvas(self, foe, offset: int = 0, pool: bool = True, frame: int = 0, clip: str = "idle",
-               striking: frozenset = frozenset(), tick: int | None = None, apart: int | None = None):
+               striking: frozenset = frozenset(), tick: int | None = None, apart: int | None = None,
+               entering: int | None = None):
         """The dimmed room with the foe in it at its place (the middle, alone), `offset` pixels off it (coming in), on
         its pool of light; the others in theirs (see _crowd), bar any in place `apart` (it's breaking apart)."""
         canvas = self.back.convert("RGBA")
-        self._crowd(canvas, frame, clip, striking, tick, apart)
+        self._crowd(canvas, frame, clip, striking, tick, apart, entering)
         if foe is None:
             return canvas
         ax, ay = self.anchor(foe)
@@ -444,20 +449,29 @@ class Fight:
         return canvas
 
     def _crowd(self, canvas, frame: int = 0, clip: str = "idle", striking: frozenset = frozenset(),
-               tick: int | None = None, apart: int | None = None) -> None:
+               tick: int | None = None, apart: int | None = None, entering: int | None = None) -> None:
         """The others, each standing in its place: winding up while a heavy blow's coming, stars round its head while
         it's reeling; coming in as the one you face does (`clip` "entrance": its own entrance, if it has one), and
-        going for you in its own attack (or a lunge) if its place is one of those `striking`."""
+        going for you in its own attack (or a lunge) if its place is one of those `striking`. Coming in one at a time
+        (`entering` frames in: arrivals), each in its own entrance's frame: not there yet, or, in, standing in its idle."""
+        arrivals = self.arrivals() if entering is not None else {}
         for monster, seen in zip(self.others, self.others_seen):
             if monster.place == apart:
                 continue
             pose = {"heavy": "windup", "reeling": "dizzy"}.get(seen.kind if seen else "", "idle")
             own = "entrance" if clip == "entrance" else "attack" if monster.place in striking else "idle"
+            at, ticks = frame, tick
+            if monster.place in arrivals:
+                at = entering - arrivals[monster.place]
+                if at < 0:
+                    continue
+                if at >= len(self.look(monster.key).clips["entrance"].frames):
+                    own, ticks = "idle", tick if tick is not None else entering
             if own == "entrance":
                 pose = "idle"  # (coming in, whatever it'll do next)
             elif own == "attack":
                 pose = "lunge" if frame < 4 else "idle"  # (without an attack of its own: a lunge, then back)
-            drawn = self.other(monster, frame, pose, own, tick)
+            drawn = self.other(monster, at, pose, own, ticks)
             if drawn is not None:
                 img, (x, y) = drawn
                 canvas.paste(img, (self.centre(monster) - x, self.feet() - y), img)
@@ -481,16 +495,22 @@ class Fight:
     def still(self, frame: int = 0, pose: str = "idle", flash: bool = False, offset: int = 0,
               banner: bool = True, clip: str = "idle", card: int | None = None, glint: int | None = None,
               striking: frozenset = frozenset(), tick: int | None = None, pops: tuple = (),
-              hurt: float = 0.0) -> Text:
+              hurt: float = 0.0, entering: int | None = None) -> Text:
         """The fight as it stands: the foe in a pose, its next move over its head, its banner under it; the others in
         theirs (those `striking` going for you). Or, as a boss arrives, its name card (`card` letters of it spelled
         out so far, a `glint` along them: see _card). With a `tick`, every foe's own idle (or windup) is that far
         through its loop: the stage playing them at their own speed (`loops`). Blows' numbers drawn big over it
-        (`pops`: Pop), and the whole of it reddened `hurt` of the way (0 to 1) when you're hit."""
+        (`pops`: Pop), and the whole of it reddened `hurt` of the way (0 to 1) when you're hit. A crowd coming in one at a
+        time (arrivals) is drawn `entering` frames in: each in its own entrance's frame, or not there yet."""
         if self.back is None:
             return Text()
-        foe = self.foe(frame, pose, flash, clip, tick)
-        canvas = self.canvas(foe, offset, frame=frame, clip=clip, striking=striking, tick=tick)
+        if entering is not None and self.arrivals():
+            frame = entering - self.arrivals()[self.monster.place]  # (the one you face's own frame of it)
+            foe = self.foe(frame, pose, flash, clip, tick) if frame >= 0 else None
+        else:
+            entering = None
+            foe = self.foe(frame, pose, flash, clip, tick)
+        canvas = self.canvas(foe, offset, frame=frame, clip=clip, striking=striking, tick=tick, entering=entering)
         if hurt:
             canvas = self._reddened(canvas, hurt)
         for pop in pops:
@@ -502,6 +522,28 @@ class Fight:
             self._intent(lines, foe, offset)
             self._banner(lines)
         return Text("\n", no_wrap=True, overflow="crop").join(lines)
+
+    def arrivals(self) -> dict[int, int]:
+        """A crowd coming in one at a time (the Spore Bed's four; JT: "each one fall at a time - not all at once"): the
+        frame each starts its entrance on, by place. Those of the others with an entrance of their own, left to right,
+        each as the one before it lands (and ARRIVAL_GAP frames), and the one you face last; none alone, or if the one
+        you face has no entrance of its own (they come in together, as they are)."""
+        own = self.clips.get("entrance")
+        if own is None or not self.others:
+            return {}
+        order = [(m.place, look.clips["entrance"]) for m in sorted(self.others, key=lambda m: m.place)
+                 if "entrance" in (look := self.look(m.key)).clips]
+        out, at = {}, 0
+        for place, clip in [*order, (self.monster.place, own)]:
+            out[place] = at
+            at += (clip.land or len(clip.frames) // 2) + ARRIVAL_GAP
+        return out if order else {}
+
+    def _landings(self, arrivals: dict[int, int]) -> dict[int, int]:
+        """The frame each of a crowd coming in one at a time lands on (arrivals), by place."""
+        clips = {self.monster.place: self.clips.get("entrance")}
+        clips |= {m.place: self.look(m.key).clips.get("entrance") for m in self.others}
+        return {place: at + (clips[place].land or len(clips[place].frames) // 2) for place, at in arrivals.items()}
 
     def loops(self) -> bool:
         """Whether any foe here has clips of its own to stand in: the stage plays their loops through, a frame a tick
@@ -554,6 +596,16 @@ class Fight:
     def called(self) -> bool:
         """Whether it's called out by name as it arrives, to the boss sting: a boss, or a guardian."""
         return self.boss or self.guardian
+
+    def epithet(self) -> str:
+        """The line over a boss's name as it's called out big (titled): its own (MonsterDef.epithet), else what it
+        is, as its card says."""
+        own = self.content.monster(self.monster.key).epithet
+        if own or not self.called:
+            return own
+        if self.guardian:
+            return "Guardian of the stairs" if self.monster.warden else f"Guardian of {self.realm}"
+        return f"Boss of {self.realm}" if self.realm else ""
 
     def subtitle(self) -> str:
         """What its name card says it is, under its name: boss of the floor, or guardian of the way on."""
@@ -656,34 +708,43 @@ class Fight:
 
     # --- moments ---
 
-    def entrance(self, side: int = 1, steps: int = 7, quiet: bool = False):
+    def entrance(self, side: int = 1, steps: int = 7, quiet: bool = False, card: bool = True):
         """It comes in, frame by frame, each (the picture, seconds to show it, the sound it cues: "" for none), drawn
         as it's asked for so the first shows at once. With an entrance clip of its own (sprites.clips: the Goblin King
         drops in from above), that, at no more than sprites.CLIP_FPS frames a second; else from off the stage (`side`
         1 from the right, -1 the left) to the middle, fast then slowing. The fight's sting as it lands (a boss's, and
         its name called out after: the card spelled out to ticks, a glint along it); then its banner. `quiet`: no
-        sting and no card (it's been called out already, big: ui/boss_intro.py)."""
+        sting and no card (it's been called out already, big: ui/boss_intro.py); no `card`: its sting but no card (it's
+        about to be, big: titled)."""
         if self.back is None:
             return
-        if quiet:
-            yield from ((frame, seconds, "") for frame, seconds, cue in self._entrance(side, steps, called=False))
+        if quiet:  # (and a crowd all at once: it's been seen coming in one at a time, big)
+            yield from ((frame, seconds, "") for frame, seconds, cue in self._entrance(side, steps, False, False))
             return
-        yield from self._entrance(side, steps, self.called)
+        yield from self._entrance(side, steps, self.called and card)
 
-    def _entrance(self, side: int, steps: int, called: bool):
+    def _entrance(self, side: int, steps: int, called: bool, one_by_one: bool = True):
         sting = self.sting
         clip = self.clips.get("entrance")
         if clip is not None:
             every = max(1, round(clip.fps / sprites.CLIP_FPS))
+            arrivals = self.arrivals() if one_by_one else {}  # (a crowd one at a time, the one you face last)
+            start = arrivals.get(self.monster.place, 0)
+            others = [at for place, at in self._landings(arrivals).items() if place != self.monster.place]
             landed = None  # (the frames since it landed)
-            for i in range(0, len(clip.frames), every):
+            for g in range(0, start + len(clip.frames), every):
+                i = g - start  # (its own frame of its entrance)
+                entering = g if arrivals else None
                 lands = bool(clip.land) and i <= clip.land < i + every
                 landed = 0 if lands else landed + 1 if landed is not None else None
+                beside = STINGS[0] if any(g <= at < g + every for at in others) else ""  # (each of the others lands)
                 if called and landed is not None:
                     shown, glint, cue = self._called(landed)
-                    yield self.still(i, clip="entrance", card=shown, glint=glint), every / clip.fps, cue
+                    yield self.still(i, clip="entrance", card=shown, glint=glint, entering=entering), \
+                        every / clip.fps, cue or beside
                 else:
-                    yield self.still(i, clip="entrance", banner=False), every / clip.fps, sting if lands else ""
+                    yield self.still(i, clip="entrance", banner=False, entering=entering), every / clip.fps, \
+                        sting if lands else beside
             yield self.still(), 0.0, "" if clip.land else sting
             return
         foe = self.foe()
@@ -699,10 +760,79 @@ class Fight:
             return
         yield self.still(), 0.0, sting
 
+    def closeup(self, steps: int = 6, hold: float = 0.6):
+        """The moment it lands, held still, and the view rushing in on it till it fills the picture (at most twice as
+        close, and at least a quarter again, all of it still in it), held a beat; a flash as it starts
+        (ui/boss_intro.py, before it's called out: titled). Each (the picture, seconds)."""
+        foe = self.foe()
+        if self.back is None or foe is None:
+            return
+        canvas = self.canvas(foe)
+        wide, high = canvas.size
+        tall = self.stature(foe)[1]
+        cx, cy = self.centre(), self.feet() - tall / 2  # (on the middle of it)
+        close = max(1.25, min(2.0, 0.85 * high / max(1, tall)))  # (on a small screen it fills it already)
+        white = Image.new("RGBA", canvas.size, (255, 255, 255, 255))
+        for i in range(steps):
+            zoom = 1 + (close - 1) * (1 - (1 - (i + 1) / steps) ** 2)  # (fast, then slowing)
+            w, h = wide / zoom, high / zoom
+            left, top = min(max(0.0, cx - w / 2), wide - w), min(max(0.0, cy - h / 2), high - h)
+            img = canvas.resize(canvas.size, Image.NEAREST, box=(left, top, left + w, top + h))
+            if i < 2:
+                img = Image.blend(img, white, 0.5 - 0.25 * i)
+            yield Text("\n", no_wrap=True, overflow="crop").join(self._text(img)), \
+                hold if i == steps - 1 else 1 / sprites.CLIP_FPS
+
+    def headroom(self) -> int:
+        """The pixel rows over the tallest head in the fight: the room a boss's name has, called out over it."""
+        foe = self.foe()
+        tops = [self.feet() - self.stature(foe)[1]] if foe is not None else []
+        tops += [self.feet() - self.stands(m) for m in self.others]
+        return max(0, min(tops, default=self.feet()))
+
+    def titled(self, seconds: float):
+        """Its name called out big over its head for `seconds`, the way games call out a boss (boss_title): burning in
+        from the left, gold, the line saying what it is (epithet) fading in over it, a glint running along it now and
+        then; all while it stands there in its own idle, the others in theirs. Each (the picture, seconds, the sound it
+        cues: as the name starts to burn in)."""
+        if self.back is None:
+            return
+        lettering = boss_title.letter(plain_name(self.monster), self.width - 8, self.headroom() - TITLE_TOP - 3)
+        epithet = self.epithet()
+        for i in range(max(1, round(seconds * sprites.CLIP_FPS))):
+            yield self._titled(i, lettering, epithet), 1 / sprites.CLIP_FPS, boss_title.CUE if i == 0 else ""
+
+    def _titled(self, tick: int, lettering, epithet: str) -> Text:
+        """A frame of `titled`, `tick` frames in."""
+        t = tick / sprites.CLIP_FPS
+        beat = round(t / 0.5) % 2  # (a sprite breathing: its two frames in turn)
+        foe = self.foe(beat, "idle", tick=tick)
+        canvas = self.canvas(foe, frame=beat, tick=tick)
+        centre = self.centre()
+        if lettering is not None:
+            boss_title.shade(canvas, TITLE_TOP + lettering.height + 6)
+            left = max(2, min(self.width - lettering.width - 2, centre - lettering.width // 2))
+            glint = (t - 0.7) % 1.6  # (along it every 1.6 s, taking half a second, once it's all there)
+            along = -lettering.height + (lettering.width + 2 * lettering.height) * glint / 0.5 if glint < 0.5 \
+                and t > 0.7 else None
+            lettering.draw(canvas, left, TITLE_TOP, t / TITLE_REVEAL, along)
+            centre = left + lettering.width // 2
+        else:
+            boss_title.shade(canvas, TITLE_TOP + 4)
+        lines = self._text(canvas)
+        k = max(0.0, min(1.0, (t - 0.6 * TITLE_REVEAL) / 0.35))  # (fading in as the name's nearly there)
+        if epithet and k > 0:
+            ink = "#{:02x}{:02x}{:02x}".format(*(round(14 + (c - 14) * k) for c in EPITHET))
+            rule = "#{:02x}{:02x}{:02x}".format(*(round(14 + (c - 14) * k) for c in (190, 74, 47)))
+            _write(lines, TITLE_TOP // 2 - 2, Text.assemble(("──  ", rule), (epithet, Style(color=ink, italic=True)),
+                                                            ("  ──", rule)), centre)
+        return Text("\n", no_wrap=True, overflow="crop").join(lines)
+
     def rise(self, side: int = 1, steps: int = 7):
         """Its entrance backwards (a spike: ui/boss_intro.py): from standing, up and away the way it came, frame by
         frame without its banner, each (the picture, seconds). With clips, every foe's entrance run back from the last
-        of them to land (the others with it); without, a sweep back off the stage (`side`)."""
+        of them to land (the others with it; a crowd that came in one at a time goes back the same way, the last in
+        first: arrivals); without, a sweep back off the stage (`side`)."""
         if self.back is None:
             return
         clip = self.clips.get("entrance")
@@ -713,9 +843,14 @@ class Fight:
                 eased = ((i + 1) / steps) ** 3
                 yield self.still(offset=round(side * start * eased), banner=False), 0.035
             return
+        every = max(1, round(clip.fps / sprites.CLIP_FPS))
+        arrivals = self.arrivals()
+        if arrivals:  # (a crowd that came in one at a time goes the same way back: the last in, first)
+            for n, g in enumerate(range(max(self._landings(arrivals).values()), -1, -every)):
+                yield self.still(clip="entrance", banner=False, entering=g, tick=n), every / clip.fps
+            return
         lands = [clip.land] + [look.clips["entrance"].land for m in self.others
                                if "entrance" in (look := self.look(m.key)).clips]
-        every = max(1, round(clip.fps / sprites.CLIP_FPS))
         for i in range(max(lands), -1, -every):
             yield self.still(i, clip="entrance", banner=False), every / clip.fps
 

@@ -187,6 +187,7 @@ ghost = true
 
 [monster.drowned_abbot]
 name = "The Drowned Abbot"
+epithet = "Still Keeping the Hours Under the Water"
 hp = 68
 defense = 13
 attack = 5
@@ -201,6 +202,7 @@ tell = "raises a censer that drips black water, chanting backwards"
 
 [monster.goblin_king]
 name = "The Goblin King"
+epithet = "Lord of the Warren, Swinger of the Pan"
 hp = 68
 defense = 13
 attack = 5
@@ -215,6 +217,7 @@ tell = "stands on his throne and hefts a sceptre made from a frying pan"
 
 [monster.thornmother]
 name = "The Thornmother"
+epithet = "She Who Grew Over the Ruins"
 hp = 68
 defense = 13
 attack = 5
@@ -463,6 +466,7 @@ desc = "I don't think Joey is a baby but if you get close enough you might get r
 # drawn by BelleDaBest (2026-10-23)
 [monster.king_mouse]
 name = "King Mouse"
+epithet = "Very Big Mouse. Beware the Claws!"
 hp = 100
 defense = 15
 attack = 11
@@ -509,6 +513,7 @@ desc = "Shorts found in the jungle and swamps.  If you get to close to his swamp
 # drawn by BelleDaBest (2026-10-25)
 [monster.serpentis]
 name = "Serpentis"
+epithet = "Veteran of the War of the Third Billionth Year"
 hp = 75
 defense = 15
 attack = 3
@@ -643,6 +648,7 @@ dungeons = ["underbloom"]
 # drawn by maker (2026-10-29)
 [monster.the_sporefang_matriarch]
 name = "The Sporefang Matriarch"
+epithet = "Keeper of the Web Door"
 hp = 120
 defense = 16
 attack = 8
@@ -663,6 +669,7 @@ gives = "philter_of_light"
 # cap and the three that grow round it, each with its own health and its own job. Stand-in sprites till JT's.
 [monster.humongous_fungus]
 name = "The Humongous Fungus"
+epithet = "The Biggest Living Thing Under the World"
 hp = 100
 defense = 13
 attack = 4

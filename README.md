@@ -188,8 +188,10 @@ the standing figure is about 21, 25, 32 and (for big screens) 42 pixels tall: th
 The Underbloom's have them too: the Sporefang Matriarch drops in on a silk line and screeches as she lands, and in
 the Spore Bed the Humongous Fungus and its three helpers come in together and swing at once, side by side at one size
 (a crowd's clips: `encounter.Fight`). A boss (or a guardian) first comes in big, over the whole screen and its room's
-art drawn as big, its name called out, then rises back up and drops into the stage (`ui/boss_intro.py`); any key
-skips it, and Settings (Boss entrances) can keep it to the stage.
+art drawn as big: it lands, the moment's held and the view rushes in on it, then its name is called out big over its
+head in gold pixel letters with its line over it (`epithet` in `monsters.toml`: "Veteran of the War of the Third
+Billionth Year"; `boss_title.py`) while it stands there in its idle; then it rises back up and drops into the stage
+(`ui/boss_intro.py`). A click or any key skips it, and Settings (Boss entrances) can keep it to the stage.
 
 **Small versions.** Where there isn't room for full size (the inventory's and the shop's tiles on a smaller screen,
 a short sidebar, the things lying in a room's picture) a sprite is drawn small, 12 pixels wide, and pixel art
@@ -371,9 +373,14 @@ random. The music is all original:
 - a floor's, slow and atmospheric (D minor: a soft pad, notes dripping and echoing, a lonely tune), and on the boss
   floors a darker one (a choir, a heartbeat, a music box);
 - a fight's, fast, in the style of the old console RPGs' battle themes (octave bass, racing strings, brass stabs, a
-  bold tune), and a boss's own, heavier (a galloping riff, an organ, toms).
+  bold tune), and a boss's own, heavier (a galloping riff, an organ, toms);
+- and a second of each, so they don't get old: a flooded cistern in a slow G Dorian waltz (ripples, drops, lapping
+  water); something huge further down, in C♯ minor over a sinking lament bass (a heavy step and drag, a slow breath);
+  a fight in a driving, swinging 12/8 in D minor (triplet strings, brass pushing ahead of the beat); and a boss's in
+  C minor at 120, a riff lurching across the beat over half-time drums.
 
-A fight's music cuts in as a monster comes for you, and the floor's fades back once it's over.
+A fight's music cuts in as a monster comes for you, and the floor's fades back once it's over. Each fight has the
+next of the fight's tunes, and each floor its own of the floor's.
 
 To use your own, put WAV files (8- or 16-bit PCM, any rate) in `~/.ptg/sounds`:
 

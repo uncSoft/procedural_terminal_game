@@ -234,6 +234,29 @@ def _boom(volume: float, bright: float = 900, at: float = 0.0, length: float = 1
                  release=length * 1.05, cutoff=bright, cutoff_to=90)]
 
 
+def _boss_title(volume: float = 1.0) -> list[Tone]:
+    """A boss's name called out: a low gong struck over a boom, its metal ringing in partials that don't line up, and
+    out of it a bright shimmer climbing the E minor chord, ringing on over the gong as it dies."""
+    gong, struck = hz("E2"), 0.015  # (struck a moment after the boom lands, so the two don't peak together)
+    return (_boom(0.3 * volume, bright=650, length=1.3)
+            + [Tone("noise", 2600, length=0.06, at=struck, volume=0.3 * volume, metallic=True, release=0.05,
+                    cutoff=3500),
+               Tone("sine", gong, length=1.6, at=struck, volume=0.18 * volume, release=1.4, vibrato=0.06,
+                    vibrato_rate=3),
+               Tone("triangle", 2 * gong, length=1.4, at=struck, volume=0.26 * volume, release=1.2, cutoff=900),
+               Tone("sine", 2.76 * gong, length=1.2, at=struck, volume=0.16 * volume, release=1.0),
+               Tone("sine", 4.07 * gong, length=0.9, at=struck, volume=0.11 * volume, release=0.8),
+               Tone("sine", 5.4 * gong, length=0.6, at=struck, volume=0.07 * volume, release=0.5),
+               Tone("noise", WHITE, length=1.1, at=0.1, volume=0.08 * volume, attack=0.7, release=0.4, cutoff=3000,
+                    cutoff_to=7500)]  # (the shimmer's air, brightening)
+            + [note(n, 1.3, 0.1, duty=0.5, volume=0.13 * volume, attack=0.06, release=0.9, cutoff=1800)
+               for n in ("E4", "B4")]  # a hollow fifth swelling under it
+            + arp(["E5", "G5", "B5", "E6"], 0.06, at=0.12, duty=0.25, volume=0.16 * volume)
+            + _sparkle(["G6", "B6", "E7"], 0.06, volume=0.14 * volume, at=0.36)
+            + [note("E6", 1.05, 0.36, wave="triangle", volume=0.24 * volume, vibrato=0.2, release=0.85),
+               note("B5", 1.05, 0.36, duty=0.5, volume=0.08 * volume, vibrato=0.2, release=0.85, cutoff=3000)])
+
+
 def _thunder(seed: int, distance: float) -> list[Tone]:
     """Thunder: a BOOM where it struck, then a low rumble rolling on for a few seconds, swelling and fading as it
     goes. The further away it struck, the softer and duller the boom, and the lower and later the rolls. (It once
@@ -402,6 +425,55 @@ def _explore_music() -> list[Tone]:
     return tones
 
 
+# A floor's second piece: another kind of underground air, a flooded cistern, still water and things dripping into
+# it. G Dorian (the minor with a bright sixth: its C major chord, its E natural) in a slow 3/4, a chord every two bars
+# (Gm, C, Gm, F; B♭, C, Am, Dm: falling round the circle home, no dominant pulling), the bass stepping from each root
+# to its fifth, a ripple running up the chord and falling back with its echoes landing across the beat, drops of
+# water plinking into the pool, the water lapping at the stones; and from bar 5 a tune on a thinner pulse. 16 bars.
+CISTERN_BEAT = 0.9
+CISTERN_BAR = 3 * CISTERN_BEAT
+CISTERN = [("G1", ["G3", "A#3", "D4"], ["G4", "A#4", "D5", "G5"]),  # (the bass, the pad, the ripple's notes)
+           ("C2", ["G3", "C4", "E4"], ["G4", "C5", "E5", "G5"]),
+           ("G1", ["G3", "A#3", "D4"], ["A#4", "D5", "G5", "A#5"]),
+           ("F1", ["F3", "A3", "C4"], ["A4", "C5", "F5", "A5"]),
+           ("A#1", ["F3", "A#3", "D4"], ["A#4", "D5", "F5", "A#5"]),
+           ("C2", ["G3", "C4", "E4"], ["C5", "E5", "G5", "C6"]),
+           ("A1", ["A3", "C4", "E4"], ["A4", "C5", "E5", "A5"]),
+           ("D2", ["A3", "D4", "F4"], ["A4", "D5", "F5", "A5"])]
+CISTERN_RIPPLE = ((0, 0), (1, 1), (2, 2), (3, 3), (7, 2), (10, 1))  # (which eighth of the two bars, which note)
+CISTERN_DROPS = ((5, "G6"), (17, "D6"), (28, "A#6"), (41, "F6"), (52, "G6"), (63, "C7"), (77, "D6"),
+                 (88, "A6"))  # (which eighth of the whole piece, how high it plinks)
+CISTERN_TUNE = ("D5:2 G4  A#4 C5 D5  C5:2 F4  A4 C5 F5  F5:2 D5  F5:1.5 G5:.5 A5  G5:2 E5  C5 D5 E5  "
+                "E5:2 A4  D5:1.5 C5:.5 A4  D5:2 F5  E5:1.5 C5:.5 D5")  # from bar 5, a bar of three beats at a time
+
+
+def _explore_music_2() -> list[Tone]:
+    tones: list[Tone] = []
+    eighth = CISTERN_BEAT / 2
+    for i, (bass, pad, ripple) in enumerate(CISTERN):
+        start = 2 * i * CISTERN_BAR
+        for bar, pitch in enumerate((hz(bass), hz(bass) * 2 ** (7 / 12))):  # the bass: its root a bar, its fifth a bar
+            at = start + bar * CISTERN_BAR
+            tones += [Tone("triangle", pitch, length=CISTERN_BAR * 0.95, at=at, volume=0.2, attack=0.15, release=1.0,
+                           cutoff=500),
+                      Tone("triangle", 2 * pitch, length=CISTERN_BAR * 0.95, at=at, volume=0.09, attack=0.3,
+                           release=1.0, cutoff=600)]
+        tones += _pad(pad, start, 2 * CISTERN_BAR, 0.045, cutoff=850, attack=1.4, release=1.8)
+        tones += _echoes([note(ripple[n], 2 * eighth, start + e * eighth, wave="triangle", volume=0.11,
+                               release=1.6 * eighth, cutoff=2400) for e, n in CISTERN_RIPPLE], 3 * eighth, decay=0.38)
+        tones.append(Tone("noise", WHITE, length=2 * CISTERN_BAR + 1.0, at=start, volume=0.24, attack=2.0,
+                          release=2.8, cutoff=220, cutoff_to=420 if i % 2 == 0 else 320))  # the water lapping
+    for e, name in CISTERN_DROPS:  # a drop falling into the pool: a plink, its pitch jumping as it lands
+        pitch = hz(name)
+        tones += _echoes([Tone("triangle", pitch, to=1.5 * pitch, length=0.07, at=e * eighth, volume=0.07,
+                               attack=0.002, release=0.05, cutoff=4000)], 0.42, repeats=3, decay=0.45)
+    tones += _echoes(_phrase(CISTERN_TUNE, 4 * CISTERN_BAR, CISTERN_BEAT, gap=0.96, duty=0.25, volume=0.11,
+                             attack=0.08, release=0.5, vibrato=0.14, vibrato_rate=4.5, cutoff=1700), 1.5 * eighth,
+                     decay=0.35)
+    tones += _chime("G3", 0.0, 0.12) + _chime("D4", 8 * CISTERN_BAR, 0.11)
+    return tones
+
+
 # The boss floors' music: slower and lower, something breathing down there. E minor and its dark neighbours (Em, F,
 # Em, Cm, Am, B: two bars each), a choir of filtered pulses, a heartbeat, a music box's few notes echoing away, a low
 # line from bar 5, a bell. 12 bars.
@@ -441,6 +513,51 @@ def _deep_music() -> list[Tone]:
     return tones
 
 
+# The boss floors' second piece: further down, where something huge lies in the dark, breathing, and now and then
+# shifting its weight. C♯ minor, the bass sinking a half step every two bars from home to the dominant, the old lament
+# (C♯m, G♯/B♯, C♯m/B, F♯/A♯, F♯m/A, G♯), the choir over it; something heavy walking far below, a step a bar and a
+# drag after it; its slow breath, in and out; high up, a sigh falling a half step into the chord, echoing away; a low
+# line from bar 5, a bell. 12 bars.
+HOLLOW_BEAT = 0.8
+HOLLOW_BAR = 4 * HOLLOW_BEAT
+HOLLOW = [("C#2", ["G#3", "C#4", "E4"], ("A5", "G#5")),  # (the bass, the choir, the sigh: from, to)
+          ("C2", ["G#3", "C4", "D#4"], ("E6", "D#6")),  # (C here: B♯)
+          ("B1", ["G#3", "C#4", "E4"], ("C#6", "B5")),
+          ("A#1", ["A#3", "C#4", "F#4"], ("B5", "A#5")),
+          ("A1", ["A3", "C#4", "F#4"], ("D6", "C#6")),
+          ("G#1", ["G#3", "C4", "D#4"], ("A5", "G#5"))]
+HOLLOW_TUNE = "G#4:3 A4 G#4:2 E4:2  F#4:3 G#4 A#4:2 C#5:2  C#5:3 B4 A4:2 F#4:2  E4:2 D#4:2 C4:3 -"  # from bar 5
+
+
+def _deep_music_2() -> list[Tone]:
+    tones: list[Tone] = []
+    for i, (bass, choir, (high, low)) in enumerate(HOLLOW):
+        start = 2 * i * HOLLOW_BAR
+        tones += [note(bass, 2 * HOLLOW_BAR * 0.97, start, wave="triangle", volume=0.22, attack=0.4, release=1.4,
+                       cutoff=400),
+                  note(_octave(bass), 2 * HOLLOW_BAR * 0.97, start, wave="triangle", volume=0.08, attack=0.6,
+                       release=1.4, cutoff=500)]
+        tones += _pad(choir, start, 2 * HOLLOW_BAR, 0.05, wave="square", cutoff=650, attack=2.0, release=2.2)
+        tones += _echoes(_phrase(f"- - - - {high}:1.5 {low}:2.5", start, HOLLOW_BEAT, wave="triangle", volume=0.12,
+                                 release=0.9, cutoff=2800), 0.9, repeats=3, decay=0.4)
+        for bar in (0, 1):  # something heavy walking, far below: a step, and a drag
+            at, weight = start + bar * HOLLOW_BAR, (0.36, 0.3)[bar]
+            tones += [Tone("triangle", 52, to=32, length=0.4, at=at, volume=weight, attack=0.004, release=0.3,
+                           cutoff=240),
+                      Tone("noise", WHITE, length=0.3, at=at, volume=0.8 * weight, attack=0.004, release=0.25,
+                           cutoff=280, cutoff_to=100),
+                      Tone("noise", WHITE, length=1.2, at=at + HOLLOW_BEAT, volume=0.08, attack=0.4, release=0.7,
+                           cutoff=650, cutoff_to=280)]
+        tones += [Tone("noise", WHITE, length=1.2 * HOLLOW_BAR, at=start, volume=0.2, attack=2.6, release=1.2,
+                       cutoff=150, cutoff_to=400),  # its breath: in,
+                  Tone("noise", WHITE, length=1.2 * HOLLOW_BAR, at=start + HOLLOW_BAR, volume=0.22, attack=0.5,
+                       release=2.8, cutoff=420, cutoff_to=140)]  # and out
+    tones += _echoes(_phrase(HOLLOW_TUNE, 4 * HOLLOW_BAR, HOLLOW_BEAT, gap=0.97, duty=0.5, volume=0.1, attack=0.3,
+                             release=0.8, vibrato=0.2, vibrato_rate=3.5, cutoff=850), 0.9, repeats=1, decay=0.3)
+    tones += _chime("C#3", 0.0, 0.14) + _chime("G#2", 10 * HOLLOW_BAR, 0.12)
+    return tones
+
+
 # A fight's music: fast, in A minor, the way the old console RPGs fought: a bass pumping octaves, strings racing round
 # the chord, brass stabbing at the off-beats, drums, and a bold tune over all of it. 16 bars at 160.
 FIGHT_BEAT = 0.375
@@ -449,7 +566,10 @@ FIGHT = ["Am", "Am", "F", "G", "Am", "Am", "F", "E", "Dm", "Em", "F", "G", "Am",
 CHORDS = {"Am": ("A2", ["A3", "C4", "E4"]), "F": ("F2", ["F3", "A3", "C4"]), "G": ("G2", ["G3", "B3", "D4"]),
           "E": ("E2", ["E3", "G#3", "B3"]), "Dm": ("D2", ["D3", "F3", "A3"]), "Em": ("E2", ["E3", "G3", "B3"]),
           "Bb": ("A#2", ["A#3", "D4", "F4"]), "C": ("C2", ["C3", "E3", "G3"]), "D": ("D2", ["D3", "F#3", "A3"]),
-          "B": ("B1", ["B2", "D#3", "F#3"])}  # (the bass's root, the chord)
+          "B": ("B1", ["B2", "D#3", "F#3"]), "A": ("A2", ["A3", "C#4", "E4"]), "Gm": ("G2", ["G3", "A#3", "D4"]),
+          "Eb": ("D#2", ["D#3", "G3", "A#3"]), "Cm": ("C2", ["C3", "D#3", "G3"]), "Fm": ("F2", ["F3", "G#3", "C4"]),
+          "Gb": ("F#2", ["F#3", "A#3", "C#4"]), "Ab": ("G#2", ["G#3", "C4", "D#4"]),
+          "Db": ("C#2", ["C#3", "F3", "G#3"])}  # (the bass's root, the chord)
 FIGHT_RUNS = {3: "G2 G3 G2 G3 G2 F2 E2 D2", 7: "E2 E3 E2 E3 G#2 B2 D3 E3", 11: "G2 G3 G2 G3 A2 B2 C3 D3",
               15: "E2 E3 E2 E3 E2 F#2 G#2 B2"}  # the bass's way into each next phrase, in eighths
 FIGHT_TUNE = ("E5:1.5 D5:.5 C5 B4:.5 C5:.5  A4 E5 A5:1.5 G5:.5  F5:1.5 E5:.5 C5 A4  G4:.5 A4:.5 B4:.5 D5:.5 G5:2  "
@@ -460,9 +580,10 @@ STRINGS = [0, 1, 2, 3, 2, 1, 2, 1]  # the strings' way round the chord (its note
 
 
 def _tune(text: str, beat: float, volume: float, duty: float, cutoff: float, body: str, body_volume: float,
-          body_cutoff: float | None) -> list[Tone]:
-    """A fight's tune: a pulse singing it, vibrato on its long notes only, and `body` under it an octave down."""
-    tune = [replace(t, vibrato=0.0) if t.length < beat else t
+          body_cutoff: float | None, held: float = 1.0) -> list[Tone]:
+    """A fight's tune: a pulse singing it, vibrato on its long notes only (held longer than `held` beats), and `body`
+    under it an octave down."""
+    tune = [replace(t, vibrato=0.0) if t.length < beat * held else t
             for t in _phrase(text, 0.0, beat, gap=0.94, duty=duty, volume=volume, release=0.06, vibrato=0.15,
                              vibrato_rate=6, cutoff=cutoff)]
     return tune + [replace(t, freq=t.freq / 2, wave=body, volume=body_volume, vibrato=0.0, cutoff=body_cutoff)
@@ -498,6 +619,71 @@ def _fight_music() -> list[Tone]:
             tones += _hat(start + e * eighth, 0.035 if e % 2 == 0 else 0.05)
     tones += _tune(FIGHT_TUNE, FIGHT_BEAT, 0.17, 0.25, 3200, "triangle", 0.1, None)
     return tones + _crash(0.0, 0.1) + _crash(8 * FIGHT_BAR, 0.1)
+
+
+# A fight's second piece: D minor in a driving 12/8 (four beats to a bar, each of three eighths), 120 beats a minute:
+# the bass swinging long-short between root and octave, the strings rolling up and down the chord in triplets, the
+# brass and the kick shoving in an eighth ahead of beats 3 and 1, a shuffle on the hats, and a bold tune over it all.
+# The chords fall down the old Andalusian steps (Dm, C, B♭, A), climb back (Dm, F, Gm, A), and the last phrase leans on
+# the E♭ a half step above home before the A brings it round. 12 bars.
+CLASH_BEAT = 0.5  # (a dotted quarter; the parts below count in its eighths)
+CLASH_EIGHTH = CLASH_BEAT / 3
+CLASH_BAR = 4 * CLASH_BEAT
+CLASH = ["Dm", "C", "Bb", "A", "Dm", "F", "Gm", "A", "Bb", "Gm", "Eb", "A"]  # a chord a bar
+CLASH_BASS = ((0, 2, 0), (2, 1, 12), (3, 2, 0), (5, 1, 12), (6, 2, 0), (8, 1, 12), (9, 1, 0), (10, 1, 7),
+              (11, 1, 12))  # (which eighth, how many long, semitones over the root)
+CLASH_RUNS = {3: "A2:2 A3 A2:2 A3 A2 C#3 E3 G3 E3 C#3", 7: "A2:2 A3 A2:2 A3 A2 B2 C#3 D3 E3 F3",
+              11: "A2 A3 A2 A3 G3 F3 E3 D3 C#3 A2 C#3 E3"}  # the bass's way into each next phrase, in eighths
+CLASH_STRINGS = [0, 1, 2, 3, 2, 1]  # up the chord and down again, twice a bar
+CLASH_STABS = ((0, 2), (5, 1), (6, 2), (11, 1))  # the brass (which eighth, how many long): the last, the next chord
+CLASH_TUNE = ("D5:2 A4 D5:2 F5 A5:4 G5 F5  E5:2 C5 E5:2 G5 C6:3 G5:2 E5  D5:3 F5:3 A#5:4 A5 G5  A5:6 E5:3 C#5:3  "
+              "D5:2 A4 D5:2 F5 A5:2 D6 C6:2 A5  A5:3 G5:2 F5 C6:6  A#5:2 A5 G5:2 F5 D5:3 G5:3  E5:2 F5 E5:2 C#5 A4:6  "
+              "F5 F5 F5 A#5:3 A5 G5 F5 D5:3  G5 G5 G5 D6:3 C6 A#5 A5 G5:3  G5:3 A#5:3 D#6:4 D6 C6  "
+              "C#6:3 A5:3 E5:2 C#5 E5:2 A4")  # in eighths, twelve to a bar
+
+
+def _fight_music_2() -> list[Tone]:
+    tones: list[Tone] = []
+    eighth = CLASH_EIGHTH
+    for bar, chord in enumerate(CLASH):
+        start = bar * CLASH_BAR
+        root, triad = CHORDS[chord]
+        if bar in CLASH_RUNS:
+            tones += _phrase(CLASH_RUNS[bar], start, eighth, gap=0.8, wave="triangle", volume=0.28, release=0.03)
+            tones += _phrase(CLASH_RUNS[bar], start, eighth, gap=0.6, duty=0.5, volume=0.07, release=0.03,
+                             cutoff=800)  # its growl
+        else:
+            for e, length, semitones in CLASH_BASS:
+                pitch = hz(root) * 2 ** (semitones / 12)
+                tones += [Tone("triangle", pitch, length=length * eighth * 0.8, at=start + e * eighth, volume=0.28,
+                               release=0.03),
+                          Tone("square", pitch, length=length * eighth * 0.6, at=start + e * eighth, volume=0.07,
+                               release=0.03, cutoff=800)]
+        ring = triad + [_octave(triad[0])]
+        tones += [note(ring[CLASH_STRINGS[i % 6]], eighth * 0.85, start + i * eighth, wave="saw", volume=0.09,
+                       release=0.03, cutoff=1800) for i in range(12)]
+        upcoming = CHORDS[CLASH[(bar + 1) % len(CLASH)]][1]
+        for e, length in CLASH_STABS:  # the brass, the last stab pushing in the next bar's chord early
+            tones += _pad([_octave(n) for n in (upcoming if e == 11 else triad)], start + e * eighth,
+                          length * eighth, 0.04, wave="square", duty=0.25, cutoff=1500, attack=0.01, release=0.08)
+        if bar >= 8:  # the last phrase: the strings hold the chord under it all too
+            tones += _pad(triad, start, CLASH_BAR, 0.03, cutoff=1200, attack=0.1, release=0.3)
+        fill = bar in CLASH_RUNS
+        for e, volume in ((0, 0.36), (5, 0.24), (6, 0.36), (11, 0.24)):  # the kick: boom, and ba-boom
+            tones += _kick(start + e * eighth, volume)
+        tones += _snare(start + 3 * eighth, 0.22)
+        if bar == len(CLASH) - 1:  # the way round: a roll through the last two beats
+            for k in range(6):
+                tones += _snare(start + (6 + k) * eighth, 0.1 + 0.03 * k)
+        elif fill:  # a triplet into the next phrase
+            for k in range(3):
+                tones += _snare(start + (9 + k) * eighth, 0.12 + 0.05 * k)
+        else:
+            tones += _snare(start + 9 * eighth, 0.22)
+        for e in (0, 2, 3, 5, 6, 8, 9, 11):  # the hats' shuffle: long, short
+            tones += _hat(start + e * eighth, 0.035 if e % 3 == 0 else 0.05)
+    tones += _tune(CLASH_TUNE, eighth, 0.17, 0.5, 3000, "triangle", 0.1, None, held=2.5)
+    return tones + _crash(0.0, 0.1) + _crash(8 * CLASH_BAR, 0.1)
 
 
 # A boss's music: heavier and darker, in E minor at 150: a galloping bass riff with a dark half-step in it, an organ
@@ -545,10 +731,69 @@ def _boss_music() -> list[Tone]:
     return tones + _crash(0.0, 0.1) + _crash(8 * BOSS_BAR, 0.1)
 
 
-# A sound that loops, and how long a loop is: what rings past it, folded back in
-LOOPS = {"title_music": 16 * BAR, "explore_music": 16 * CRYPT_BAR, "deep_music": 12 * DEEP_BAR,
-         "battle_music": 16 * FIGHT_BAR, "boss_music": 16 * BOSS_BAR}
-LOUDNESS = {"explore_music": 0.12, "deep_music": 0.12, "battle_music": 0.16, "boss_music": 0.17}  # (RMS, of 1)
+# A boss's second piece: slower than the first and heavier, in C minor at 120. A riff chugging sixteenths on the root,
+# every third one struck hard and stepping down the dark notes (the octave, the flat seventh, the fifth, the flat
+# fifth, the minor third), so it lurches across the beat; the organ and the kick hitting with it; the snare in half
+# time until the second half doubles it; chords a tritone apart (Cm, G♭) and a dominant darkened to a diminished
+# chord; and a tune that leaps the tritone and spins out over it all. 12 bars.
+TYRANT_BEAT = 0.5
+TYRANT_BAR = 4 * TYRANT_BEAT
+TYRANT = ["Cm", "Cm", "Gb", "Gb", "Cm", "Cm", "Ab", "G", "Fm", "Db", "G", "G"]
+TYRANT_RIFF = [0, 0, 0, 12, 0, 0, 10, 0, 0, 7, 0, 0, 6, 0, 3, 0]  # semitones over the root, a sixteenth each
+TYRANT_HITS = (0, 3, 6, 9, 12, 14)  # the sixteenths struck hard, where the kick lands with the riff
+TYRANT_ORGAN = ((0, 6), (6, 6), (12, 4))  # (which sixteenth, how many long): 3+3+2 against the four beats
+TYRANT_TUNE = ("C5:2 G4 D#5  D5:1.5 D#5:.5 C5:2  F#5:2 F5 C#5  C5:1.5 A#4:.5 F#4:2  "
+               "C5:2 G4 D#5  G5:1.5 F5:.5 D#5:2  C6:2 G#5 D#5  D5:1.5 D#5:.5 B4:2  "
+               "G#5:.5 G5:.5 F5:.5 C5:.5 G#5:.5 G5:.5 F5:.5 C5:.5  F5:.5 C#5:.5 G#4:.5 C#5:.5 F5:.5 G#5:.5 C#6  "
+               "D6:1.5 C6:.5 B5:.5 G#5:.5 F5:.5 D5:.5  B4:4")
+
+
+def _boss_music_2() -> list[Tone]:
+    tones: list[Tone] = []
+    sixteenth = TYRANT_BEAT / 4
+    for bar, chord in enumerate(TYRANT):
+        start = bar * TYRANT_BAR
+        root, triad = CHORDS[chord]
+        second = bar >= len(TYRANT) // 2
+        for i, semitones in enumerate(TYRANT_RIFF):  # the riff
+            pitch, hit = hz(root) * 2 ** (semitones / 12), i in TYRANT_HITS
+            length = sixteenth * (0.85 if hit else 0.6)
+            tones += [Tone("triangle", pitch, length=length, at=start + i * sixteenth, volume=0.26 if hit else 0.18,
+                           release=0.02),
+                      Tone("square", pitch, length=length, at=start + i * sixteenth, volume=0.1 if hit else 0.06,
+                           release=0.02, cutoff=900 if hit else 600)]
+        for i, length in TYRANT_ORGAN:  # the organ: root, fifth and octave
+            tones += _pad([triad[0], triad[2], _octave(triad[0])], start + i * sixteenth, length * sixteenth, 0.055,
+                          cutoff=1400, attack=0.02, release=0.25)
+        if second:  # and higher, the whole chord
+            tones += _pad([_octave(n) for n in triad], start, TYRANT_BAR, 0.035, wave="square", duty=0.25,
+                          cutoff=1600, attack=0.3, release=0.5)
+        stop = {5: 12, 11: 8}.get(bar, 16)  # (where a fill takes over)
+        for i in TYRANT_HITS:
+            if i < stop:
+                tones += _kick(start + i * sixteenth, 0.36 if i == 0 else 0.3)
+        for beat in (1, 3) if second else (2,):  # the snare: half time, then double
+            if beat * 4 < stop:
+                tones += _snare(start + beat * TYRANT_BEAT, 0.24 if second else 0.26)
+        if bar == 5:  # a roll into the second half
+            for k in range(4):
+                tones += _snare(start + (3 + k / 4) * TYRANT_BEAT, 0.12 + 0.05 * k)
+        elif bar == 11:  # toms climbing back up to the top
+            for k, pitch in enumerate((82, 98, 110, 131, 147, 165, 196, 220)):
+                tones += _tom(start + (2 + k / 4) * TYRANT_BEAT, pitch, 0.3)
+        for i in range(16 if second else 8):  # hats: eighths, then sixteenths
+            tones += _hat(start + i * (sixteenth if second else 2 * sixteenth),
+                          (0.045 if i % 2 == 0 else 0.025) if second else 0.04)
+    tones += _tune(TYRANT_TUNE, TYRANT_BEAT, 0.16, 0.25, 2800, "saw", 0.08, 1300)  # (brass under it)
+    return tones + _crash(0.0, 0.1) + _crash(len(TYRANT) // 2 * TYRANT_BAR, 0.1)
+
+
+# A sound that loops, and how long each of its variants' loop is: what rings past it, folded back in
+LOOPS = {"title_music": [16 * BAR], "explore_music": [16 * CRYPT_BAR, 16 * CISTERN_BAR],
+         "deep_music": [12 * DEEP_BAR, 12 * HOLLOW_BAR], "battle_music": [16 * FIGHT_BAR, 12 * CLASH_BAR],
+         "boss_music": [16 * BOSS_BAR, 12 * TYRANT_BAR]}
+LOUDNESS = {"explore_music": 0.12, "deep_music": 0.12, "battle_music": 0.16, "boss_music": 0.17}  # (RMS, of 1: every
+# variant of a moment as loud as the others)
 
 
 SOUNDS: dict[str, list[list[Tone]]] = {
@@ -630,6 +875,9 @@ SOUNDS: dict[str, list[list[Tone]]] = {
                           note("E4", 0.7, 0.3, duty=0.5, volume=0.26, vibrato=0.3, release=0.45),
                           note("E3", 0.8, 0.3, wave="triangle", volume=0.4, release=0.5)]
                        + _crash(0.3, 0.3)],
+    # a boss's name called out big as it lands: a gong struck over a boom, a shimmer climbing out of it (as loud as
+    # boss_encounter: its loudest moments just touching full scale, as that one's do)
+    "boss_title": [_boss_title(1.3)],
     # the Sporefang Matriarch's cry: a shriek tearing upward through a hiss, then her fangs chittering
     "screech": [[Tone("saw", 820, to=2600, length=0.55, volume=0.2, vibrato=1.6, vibrato_rate=29, attack=0.02,
                       release=0.22),
@@ -717,11 +965,12 @@ SOUNDS: dict[str, list[list[Tone]]] = {
     "thunder": [_thunder(1, distance=0.0), _thunder(2, distance=0.4), _thunder(3, distance=0.9)],  # close, near, far
     "title_music": [_title_music()],
 
-    # down there (ui/game_screen.py: the floor's, then a fight's while a monster's after you)
-    "explore_music": [_explore_music()],
-    "deep_music": [_deep_music()],
-    "battle_music": [_fight_music()],
-    "boss_music": [_boss_music()],
+    # down there (ui/game_screen.py: the floor's, then a fight's while a monster's after you), two pieces of each so
+    # they don't wear thin
+    "explore_music": [_explore_music(), _explore_music_2()],
+    "deep_music": [_deep_music(), _deep_music_2()],
+    "battle_music": [_fight_music(), _fight_music_2()],
+    "boss_music": [_boss_music(), _boss_music_2()],
 
     "victory": [arp(["G4", "C5", "E5", "G5"], 0.1, duty=0.5, volume=0.3)
                 + arp(["E5", "G5"], 0.1, at=0.45, duty=0.5, volume=0.3)
@@ -746,10 +995,10 @@ def build(names: list[str] | None = None) -> list[Path]:
         for stale in OUT.glob(f"{name}_*.wav"):  # (a variant that's gone mustn't linger and still play)
             if re.fullmatch(rf"{name}_\d+", stale.stem) and stale.name not in files_for(name):
                 stale.unlink()
-        for variant, filename in zip(SOUNDS[name], files_for(name)):
+        for i, (variant, filename) in enumerate(zip(SOUNDS[name], files_for(name))):
             path = OUT / filename
-            if name in LOOPS:  # music: 16-bit, folded to loop, and levelled
-                samples = fold(_sum(variant), LOOPS[name])
+            if name in LOOPS:  # music: 16-bit, folded to loop (its own length), and levelled
+                samples = fold(_sum(variant), LOOPS[name][i])
                 write(path, render16(level(samples, LOUDNESS[name]) if name in LOUDNESS else samples), width=2)
             elif soft(variant):
                 write(path, render16(mix(variant)), width=2)

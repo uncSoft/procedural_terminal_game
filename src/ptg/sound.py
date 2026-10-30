@@ -82,6 +82,7 @@ MOMENTS = {
     "kill": "a monster falls",
     "encounter": "a fight begins: the foe sweeps onto the stage",
     "boss_encounter": "a boss fight begins",
+    "boss_title": "a boss's name called out big over the screen as it lands (ui/boss_intro.py)",
     "screech": "the Sporefang Matriarch's cry, as she comes in and as she rears up (a monster's `cry`)",
     "shatter": "a slain foe breaks apart",
     "rare_drop": "something rare drops",
@@ -324,6 +325,11 @@ class Mixer:
             self.voices.append([samples, 0, gain])
         self.wake.set()
 
+    def hush(self) -> None:
+        """Every sound still ringing cut off, the music left as it is (the debug screen's Stop)."""
+        with self.lock:
+            self.voices = []
+
     def loop(self, clip: Clip, gain: float, fade_in: float = 0.0, fade_out: float = 0.8) -> None:
         """Music: the clip over and over until stop_loop (the same clip already looping just changes its gain). It
         comes in over `fade_in` seconds while any other music fades out over `fade_out`. The first time, it's made
@@ -453,6 +459,13 @@ class Command:
         self.running = [p for p in self.running if p.poll() is None]
         if len(self.running) < 4:
             self.running.append(self._start(clip, gain))
+
+    def hush(self) -> None:
+        """Every sound still playing stopped, the music left as it is (the debug screen's Stop)."""
+        for running in self.running:
+            if running.poll() is None:
+                running.terminate()
+        self.running = []
 
     def loop(self, clip: Clip, gain: float, fade_in: float = 0.0, fade_out: float = 0.0) -> None:
         """Music: the player started again each time it finishes, until stop_loop (no fades: it cuts)."""
@@ -584,6 +597,8 @@ class Sound:
         self.last: dict[str, float] = {}
         self._opening = False
         self.wanted: str = ""  # the music that should be playing (started once the player's open)
+        self.variant = 0  # which of its tunes (tune)
+        self.previewed = False  # the debug screen's had the music channel (preview): end_preview gives it back
 
     def start(self) -> None:
         """Open the audio device in the background (it takes a moment), so it's ready for the first sound."""
@@ -594,7 +609,7 @@ class Sound:
     def _open(self) -> None:
         self.player = open_player() or Silent()
         if self.wanted:
-            self.music(self.wanted)
+            self.music(self.wanted, variant=self.variant)
         prepare = getattr(self.player, "prepare", None)
         if prepare is not None:  # (the music first: a track's the longest wait)
             clips = [clip for clips in self.bank.values() for clip in clips]
@@ -620,16 +635,20 @@ class Sound:
         return True
 
 
-    def music(self, moment: str, fade_in: float = 0.0, fade_out: float = 0.8) -> bool:
-        """Loop a moment's sound as music, if sound is on. One plays at a time: this one comes in over `fade_in`
-        seconds while the one before fades out over `fade_out`."""
-        self.wanted = moment
+    def tune(self, moment: str, variant: int) -> int:
+        """Which of a moment's tunes the `variant`th is: they come round in turn (battle_music, battle_music_2...)."""
+        return variant % max(1, len(self.bank.get(moment, ())))
+
+    def music(self, moment: str, fade_in: float = 0.0, fade_out: float = 0.8, variant: int = 0) -> bool:
+        """Loop a moment's sound as music, if sound is on: its `variant`th tune (tune). One plays at a time: this one
+        comes in over `fade_in` seconds while the one before fades out over `fade_out`."""
+        self.wanted, self.variant = moment, self.tune(moment, variant)
         if not self.enabled or self.volume <= 0 or not self.bank.get(moment):
             return False
         if self.player is None:
             self.start()  # (it starts once the player's open)
             return False
-        clip = self.bank[moment][0]
+        clip = self.bank[moment][self.variant]
         try:
             self.player.loop(clip, self.volume * clip.volume * MUSIC_LEVEL, fade_in=fade_in, fade_out=fade_out)
         except Exception:
@@ -677,14 +696,14 @@ def configure(enabled: bool, volume: float) -> Sound:
     """Set the game's sound up (again, after Settings change), keeping the audio device if it's already open, and
     any music that should be playing (stopped while sound's off, on again after)."""
     global _sound
-    wanted = _sound.wanted
+    wanted, variant = _sound.wanted, _sound.variant
     _sound = Sound(enabled, volume, user_folder(), player=_sound.player)
     _sound.start()
     if wanted and enabled:
-        _sound.music(wanted)
+        _sound.music(wanted, variant=variant)
     elif wanted:
         _sound.stop_music(0.0)
-        _sound.wanted = wanted  # (sound back on, it plays again)
+        _sound.wanted, _sound.variant = wanted, variant  # (sound back on, it plays again)
     return _sound
 
 
@@ -693,9 +712,10 @@ def play(moment: str, variant: int | None = None) -> bool:
     return _sound.play(moment, variant)
 
 
-def music(moment: str, fade_in: float = 0.0, fade_out: float = 0.8) -> bool:
-    """Loop a moment's sound as music until stop_music or other music, if sound is on. Never blocks."""
-    return _sound.music(moment, fade_in, fade_out)
+def music(moment: str, fade_in: float = 0.0, fade_out: float = 0.8, variant: int = 0) -> bool:
+    """Loop a moment's sound as music (its `variant`th tune) until stop_music or other music, if sound is on. Never
+    blocks."""
+    return _sound.music(moment, fade_in, fade_out, variant)
 
 
 def stop_music(fade: float = 0.8, only: tuple[str, ...] = ()) -> None:
@@ -707,8 +727,10 @@ def engine() -> Sound:
 
 
 def preview(clip: Clip) -> str | None:
-    """Play one clip at the game's volume, even with sound off in Settings (the debug screen's play button).
-    Returns why it can't, or None. It may have to open the audio device, so call it off the main thread."""
+    """Play one clip at the game's volume, even with sound off in Settings (the debug screen's play button): music (a
+    `_music` moment's) looping on the music's own channel, in place of what was playing, till stop_preview (and
+    end_preview gives the game its own back). Returns why it can't, or None. It may have to open the audio device, so
+    call it off the main thread."""
     if os.environ.get("PTG_SOUND", "1") == "0":
         return "PTG_SOUND=0 is keeping the game quiet"
     if _sound.volume <= 0:
@@ -721,10 +743,45 @@ def preview(clip: Clip) -> str | None:
     if isinstance(_sound.player, Silent):
         return "there's no way to play sound here"
     try:
-        _sound.player.play(clip, _sound.volume * clip.volume)
+        if clip.moment.endswith("_music"):
+            _sound.player.loop(clip, _sound.volume * clip.volume * MUSIC_LEVEL, fade_in=0.0, fade_out=0.3)
+            _sound.previewed = True
+        else:
+            _sound.player.play(clip, _sound.volume * clip.volume)
     except Exception as error:  # the same safety net as play()
         return f"{clip_name(clip)}: {error}"
     return None
+
+
+def stop_preview() -> None:
+    """Quiet: the music stopped and any sound still ringing cut off (the debug screen's Stop; end_preview gives the
+    game its own music back)."""
+    player = _sound.player
+    if player is None:
+        return
+    _sound.previewed = True
+    try:
+        player.stop_loop(0.2)
+        hush = getattr(player, "hush", None)  # (the browser lets short ones ring out; winsound's stopped above)
+        if hush is not None:
+            hush()
+    except Exception:
+        pass
+
+
+def end_preview() -> None:
+    """The debug screen closing: if it had the music channel (preview, stop_preview), the game's own music back, if
+    some should be playing."""
+    if not _sound.previewed:
+        return
+    _sound.previewed = False
+    if _sound.wanted:
+        _sound.music(_sound.wanted, fade_in=1.0, variant=_sound.variant)
+    elif _sound.player is not None:
+        try:
+            _sound.player.stop_loop(0.3)
+        except Exception:
+            pass
 
 
 def audition(moments: list[str]) -> None:

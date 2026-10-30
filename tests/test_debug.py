@@ -63,7 +63,7 @@ async def test_f12_opens_every_tab_and_closes_again():
                 for key in ("monsters", "items", "art", "sounds", "story", "3d")}
         assert rows["monsters"] == len(content.monsters)
         assert rows["items"] == len(content.items)
-        assert rows["sounds"] == len(sound.MOMENTS)
+        assert rows["sounds"] == sum(max(1, len(sound.engine().bank.get(m, []))) for m in sound.MOMENTS)  # (a file each)
         assert rows["story"] == len(load_library(content).events)
         assert rows["art"] >= len(content.monsters)
         assert rows["3d"] == (sum(bool(sprites.clips(key)) for key in content.monsters)
@@ -182,8 +182,8 @@ async def test_sounds_play_on_a_click_or_enter(speakers):
         await pilot.press("enter")  # the table has the keyboard, on the first moment
         await pilot.pause(0.3)
         assert speakers.moments[-1] == "select"
-        hit = list(sound.MOMENTS).index("hit")
         table = app.screen.query_one("#debug-sounds DataTable")
+        hit = table.get_row_index("hit#0")
         for _ in range(2):  # one click plays it; so does clicking it again
             await pilot.click(table, offset=(3, 1 + hit))
             await pilot.pause(0.3)
@@ -192,6 +192,53 @@ async def test_sounds_play_on_a_click_or_enter(speakers):
         await pilot.click("#sound-play")
         await pilot.pause(0.3)
         assert speakers.moments.count("hit") == 3
+
+
+async def test_every_take_of_a_sound_plays_and_music_loops_till_stop(speakers):
+    """JT: a stop button, and the alternate tracks (the second fight's music) had no way to be played. Each file is
+    a row; music loops on the music's channel in place of the game's, till Stop or s; closing gives the game its own
+    back."""
+    looped = []
+    loop = speakers.loop
+    speakers.loop = lambda clip, *a, **kw: (looped.append(sound.clip_name(clip)), loop(clip, *a, **kw))
+    app = PTGApp(Config(backend="offline", layout="classic"))
+    async with app.run_test(size=(140, 44)) as pilot:
+        await pilot.pause()
+        app.push_screen(DebugScreen("sounds"))
+        await pilot.pause(0.3)
+        tab = app.screen.query_one(debug.SoundsTab)
+        table = tab.query_one(DataTable)
+        assert table.get_row_index("battle_music#1") == table.get_row_index("battle_music#0") + 1
+        table.move_cursor(row=table.get_row_index("battle_music#1"))
+        await pilot.pause(0.2)
+        assert "Take 2 of 2" in plain(tab.query_one(".debug-info").content)
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+        assert looped[-1] == "battle_music_2.wav" and speakers.looping == "battle_music"
+        assert "battle_music_2.wav" in str(tab.query_one("#sound-status").content)
+        await pilot.press("s")
+        await pilot.pause(0.2)
+        assert speakers.looping == ""
+        table.move_cursor(row=table.get_row_index("hit#1"))
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+        assert speakers.moments[-1] == "hit" and speakers.looping == ""  # (a sound, not music)
+        await pilot.press("escape")
+        await pilot.pause(0.3)
+        assert speakers.looping == "title_music"  # (closed: the screen under it has its own music back)
+
+
+def test_a_previews_music_gives_the_game_its_own_back_after(speakers):
+    looped = []
+    speakers.loop = lambda clip, *a, **kw: looped.append(sound.clip_name(clip))
+    engine = sound.engine()
+    engine.wanted, engine.variant = "explore_music", 1  # (the second floor's)
+    assert sound.preview(engine.bank["battle_music"][1]) is None and looped == ["battle_music_2.wav"]
+    assert engine.wanted == "explore_music"  # (a preview isn't what the game wants)
+    sound.end_preview()
+    assert looped[-1] == "explore_music_2.wav"
+    sound.end_preview()  # (once only)
+    assert len(looped) == 2
 
 
 def test_sound_preview_plays_one_clip_even_with_sound_off(speakers):

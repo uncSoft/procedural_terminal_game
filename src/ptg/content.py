@@ -140,6 +140,7 @@ class MonsterDef:
     cry: str = ""  # its own sound (a sound.MOMENTS key), played as it comes in and as it rears up for a heavy blow
     wants: str = ""  # an item it came for (cursed or not): handed it, it stops fighting (interactions._trade)
     gives: str = ""  # what it leaves you for it, at your feet; killed, it leaves none
+    epithet: str = ""  # a boss's line over its name as it's called out big (boss_title): "Lord of the Warren"
     art: str = ""
 
     def lives_in(self, theme: Theme) -> bool:
@@ -252,7 +253,7 @@ SCHEMAS: dict[str, dict[str, tuple[str, bool]]] = {
                 "ghost": ("bool", False), "weak": ("names", False), "tell": ("text", False),
                 "desc": ("text", False), "tricks": ("tricks", False), "dungeons": ("names", False),
                 "party": ("names", False), "cry": ("name", False), "wants": ("name", False),
-                "gives": ("name", False)},
+                "gives": ("name", False), "epithet": ("text", False)},
     "perk": {"name": ("text", True), "desc": ("text", True), "color": ("color", False)},
     "unlock": {"name": ("text", True), "icon": ("text", True), "cost": ("count", True), "desc": ("text", True),
                "item": ("name", False), "requires": ("name", False)},

@@ -16,6 +16,7 @@ from ..game import Game
 from ..llm import LLM, LLMError, make_llm
 from ..meta import abandon, start_run
 from ..profile import Profile
+from . import collector
 from .debug import DebugScreen
 from .game_screen import GameScreen
 from .tabs import game_screen
@@ -64,6 +65,7 @@ class PTGApp(App):
         await super().on_event(event)
 
     def on_mount(self) -> None:
+        collector.tune()  # (the garbage collector out of the frames' way: ui/collector.py)
         self.register_theme(CRT)
         self.theme = "crt"
         if sound.in_browser() and self.is_web:  # (ptg serve: the player's browser plays it)

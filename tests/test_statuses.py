@@ -268,3 +268,37 @@ async def test_poison_shows_by_your_health_on_the_sheet_and_in_the_story():
         await take_choice(app, pilot, screen, "use:pure")
         assert not state.player.statuses and "☠" not in str(screen.query_one("#hud").render())
         assert "Guard against poison" in plain(status_lines(state, screen.game.content), 160)
+
+
+def test_every_status_has_a_card_saying_what_it_does_and_cures_it(content):
+    from ptg import light, statuses
+
+    for key, status in statuses.DEFS.items():
+        lines = dict(statuses.card(key, content))
+        assert lines[""] == status.blurb and "How long" in lines
+        assert ("Cured by" in lines) == bool(status.cured_by)
+    assert "On a foe" in dict(statuses.card("burn", content))
+    assert any("Pure" in words or "Kept off" in heading for heading, words in statuses.card("poison", content))
+    assert any(heading == "A torch" for heading, _ in light.card(content))
+
+
+def test_statuses_are_words_the_story_explains(content):
+    from ptg import glossary
+    from ptg.world import generate
+
+    terms = glossary.build(generate(7), content)
+    assert terms["poisoned"].id == "status:poison" and terms["burning"].id == "status:burn"
+    assert terms["pitch dark"].id == "status:light"
+
+
+def test_a_status_has_its_card_the_first_time_only(content, profile, found_cards):
+    from ptg.config import Config
+    from ptg.events import Event
+    from ptg.game import Game
+    from ptg.world import generate
+
+    game = Game(generate(7), Config(backend="offline"), None, content, profile)
+    took = [Event("status", "", data={"status": "poison", "on": True}),
+            Event("warning", "", data={"lit": False})]
+    assert game.first_statuses(took) == ["poison", "light"]
+    assert game.first_statuses(took) == []

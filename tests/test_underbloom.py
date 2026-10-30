@@ -233,3 +233,24 @@ def test_drifting_spores_dont_make_the_puff_mound_any_taller():
     idle = next(c for c in sprites.clips("puff_mound")["idle"] if c.size == 64)
     body, everything = sprites.stance("puff_mound", 64), sprites.art_box(idle.frames)
     assert body[3] == everything[3] and body[3] - body[1] < everything[3] - everything[1] - 8
+
+
+def test_a_tell_that_names_its_monster_isnt_named_twice():
+    """Run 66: "The Sporerat the Sporerat's caps flare green", "The Cursed Hollowed the Hollowed goes still"."""
+    from ptg.text import tell
+
+    assert tell("Armored Sporerat", "The Sporerat's caps flare green.") == "The Sporerat's caps flare green."
+    assert tell("The Cursed Hollowed", "The Hollowed goes still").startswith("The Hollowed goes")
+    assert tell("Troll", "rips a slab out of the wall") == "The Troll rips a slab out of the wall"
+
+
+def test_a_hidden_room_is_never_the_hidden_the(content):
+    """Run 66 walked into "the Hidden The Clutch"."""
+    from ptg.world import build_floor, generate
+
+    for seed in range(30):
+        state = generate(seed, content=content, floors=5)
+        for floor in (4, 5):
+            state.floor = floor
+            build_floor(state, content)
+            assert not [r.name for r in state.rooms if r.name.startswith("Hidden The ")]

@@ -18,7 +18,7 @@ from textual.widgets import Button, Footer, Static, TabbedContent, TabPane
 from .. import sound
 from ..content import Content, Unlock, load_content
 from ..meta import SUNGLASSES, daily_seed, share_card, souls_earned
-from ..models import GameState
+from ..models import DEEPEST, GameState
 from ..profile import Profile
 from ..sprites import DEFAULT_WIDTH, SMALL, engrave, frames, sprite_text
 from ..story import load_library
@@ -184,7 +184,10 @@ class HubScreen(Screen):
         totals = self.profile.totals()
         secrets = f" · secrets {len(self.profile.secrets())}/{len(load_library(self.content).secrets)}"
         text = Text(f"{totals['runs']} descents · {totals['wins']} victories · deepest floor {totals['deepest']}"
-                    f"{secrets}\n\n", style="#9a9cc0")
+                    f"{secrets}\n", style="#9a9cc0")
+        if totals["wins"]:  # (a first win opens the floor under the last: meta.start_run)
+            text.append(f"▼ Since your first victory, a descent goes {DEEPEST} floors deep.\n", style="#5fe3ff")
+        text.append("\n")
         if not runs:
             text.append("No legends yet. Be the first.", style="#6c6f99")
         for run in runs:
@@ -304,6 +307,9 @@ class EndScreen(Screen):
             if player.traits:
                 stats.append("\nTraits: " + ", ".join(t.replace("_", " ").title() for t in player.traits),
                              style="#4cff8a")
+            if state.status == "won" and state.floors_total < DEEPEST:  # (a first win opens a floor under it)
+                stats.append("\n▼ Far below where it fell, something glows. Your next descent goes deeper.",
+                             style="bold #5fe3ff")
             yield Static(stats, classes="end-stats")
             yield Static("", id="end-souls")
             yield Static(Text(share_card(state), style="#6c8cff"), id="end-card")

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 
+from rich.cells import cell_len
 from rich.text import Text
 from textual.color import Color
 from textual.css.scalar import ScalarOffset
@@ -19,7 +20,7 @@ from textual.widget import Widget
 from textual.widgets import Static
 
 from ..events import Event
-from ..outcome import AWFUL, BAD, GOOD, GREAT, NEUTRAL, TONES, tone
+from ..outcome import AWFUL, BAD, GOOD, GREAT, NEUTRAL, tone
 
 COLORS = {GREAT: "#ffd166", GOOD: "#4cff8a", NEUTRAL: "#c8c8e0", BAD: "#ff4b4b", AWFUL: "#ff2a6d"}
 ICONS = {GREAT: "★", GOOD: "✔", NEUTRAL: "•", BAD: "✘", AWFUL: "✖"}
@@ -42,6 +43,21 @@ async def paced(frames):
         yield frame
         due += frame[1]
         await asyncio.sleep(max(0.0, due - loop.time()))
+
+
+def frame_size(frame) -> tuple[int, int]:
+    """A frame's rows and its widest row's cells: what a picture-sized Static is laid out to."""
+    lines = (frame.plain if isinstance(frame, Text) else str(frame)).split("\n")
+    return len(lines), max(map(cell_len, lines), default=0)
+
+
+def show_frame(art: Static, frame, shown: tuple | None) -> tuple[int, int]:
+    """A frame of an animation drawn into its Static (`shown`: the size of the one there now): the same size, it's
+    drawn without laying the whole screen out again. That took 8-12 ms a frame at 24 a second, more as a floor's story
+    grew, and stuttered run 66's floor 5. Returns its size, to pass back next time."""
+    size = frame_size(frame)
+    art.update(frame, layout=size != shown)
+    return size
 
 
 def event_sound(event: Event) -> str | None:
@@ -79,20 +95,43 @@ def flash(widget: Widget, tone: str, strength: float = 0.3, duration: float = 0.
     widget.styles.animate("background", start.with_alpha(0), duration=duration, easing="out_cubic")
 
 
+PULSED = ("border_top", "border_right", "border_bottom", "border_left", "border_title_color")
+
+
+def lit(widget: Widget) -> str:
+    """The tone a pulse has the widget's border lit in now, or "" (for the tests)."""
+    if getattr(widget, "_ptg_pulse_was", None) is None or not widget.styles.inline.has_rule("border_top"):
+        return ""
+    colour = widget.styles.border_top[1].hex.lower()
+    return next((tone for tone, hex_ in COLORS.items() if hex_ == colour), "")
+
+
 def pulse(widget: Widget, tone: str, blinks: int = 1, on: float = 0.5, off: float = 0.12) -> None:
     """Light the widget's border in the tone's colour for a moment, blinking `blinks` times. A newer pulse on
-    the same widget takes over from an older one."""
+    the same widget takes over from an older one. Its own style, set and put back as it was: a class on the story's
+    frame had every line of the story's style worked out again, every blink (run 66's floor 5, its story long)."""
     token = object()
-    widget._ptg_pulse = token  # type: ignore[attr-defined]
-    widget.remove_class(*(f"tone-{t}" for t in TONES))
+    inline = widget.styles.inline
+    was = getattr(widget, "_ptg_pulse_was", None) or {rule: inline.get_rule(rule) for rule in PULSED}
+    widget._ptg_pulse, widget._ptg_pulse_was = token, was  # type: ignore[attr-defined]
+    colour = Color.parse(COLORS[tone])
 
     def step(i: int) -> None:
         if getattr(widget, "_ptg_pulse", None) is not token:
             return
         lit = i % 2 == 0 and i < blinks * 2
-        widget.set_class(lit, f"tone-{tone}")
+        if lit:
+            widget.styles.border = ("double", colour)
+            widget.styles.border_title_color = colour
+        else:
+            gutter = widget.styles.gutter
+            for rule, value in was.items():
+                inline.clear_rule(rule) if value is None else inline.set_rule(rule, value)
+            widget.refresh(layout=widget.styles.gutter != gutter)
         if i < blinks * 2:
             widget.set_timer(on if lit else off, lambda: step(i + 1))
+        else:
+            widget._ptg_pulse_was = None  # type: ignore[attr-defined]
 
     step(0)
 

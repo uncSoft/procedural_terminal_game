@@ -169,16 +169,22 @@ def test_shopkeepers_keep_out_of_fights(content):
 
 
 def test_bought_gear_goes_in_your_pack_not_on_her_floor(content):
-    """Buying a better weapon threw your old one on the shop's floor; a same-tier one was dead weight (F27)."""
+    """Buying a better weapon threw your old one on the shop's floor; a same-tier one was dead weight (F27). A better
+    one goes on at once, the old one in your pack (run 66 carried Gulliver's sword unused past the Goblin King); one
+    no better stays in the pack."""
     state, shop = in_the_shop(content)
-    shop.wares = [Ware(item="war_pick", price=25), Ware(item="leather_jerkin", price=25)]
+    shop.wares = [Ware(item="war_pick", price=25), Ware(item="leather_jerkin", price=25),
+                  Ware(item="hand_axe", price=25)]
     state.player.gold, state.player.armor = 100, None
     events = perform(state, content, "buy:0")
-    assert state.player.weapon == "rusty_sword" and "war_pick" in state.player.inventory and not state.room.items
-    assert events[0].text == "You buy the War Pick for 25 gold (75 left) and put it in your pack."
-    assert "equip:war_pick" in {a.id for a in available_actions(state, content)}  # yours to put on
+    assert state.player.weapon == "war_pick" and "rusty_sword" in state.player.inventory and not state.room.items
+    assert [e.text for e in events if e.kind in ("buy", "equip")] == [
+        "You buy the War Pick for 25 gold (75 left) and put it in your pack.",
+        "You take the War Pick in hand (1d10) and put your Rusty Sword in your pack."]
     perform(state, content, "buy:0")
     assert state.player.armor == "leather_jerkin"  # nothing on, so on it goes
+    perform(state, content, "buy:0")
+    assert state.player.weapon == "war_pick" and "hand_axe" in state.player.inventory
 
 
 def test_sell_what_you_carry_for_half_her_price(content):

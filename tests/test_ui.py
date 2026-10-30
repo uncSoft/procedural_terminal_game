@@ -18,7 +18,8 @@ from ptg.ui.hub import CROWN_GLINT, EndScreen, HubScreen
 from ptg.ui.model_view import FoundScreen, ModelView
 from ptg.ui.effects import Popup
 from ptg.ui.panels import (BestiaryScreen, CharacterScreen, FloorScreen, HelpScreen, InfoScreen, InventoryScreen,
-                           JournalScreen, LevelUpScreen, LookScreen, MapScreen, ShopScreen, floor_card_fit)
+                           JournalScreen, LevelUpScreen, LookScreen, ShopScreen, floor_card_fit)
+from ptg.ui.grid import ChartScreen
 from ptg.meta import start_run
 from ptg.ui.screens import AbandonScreen, IntroScreen, SetupScreen, TitleScreen
 from ptg.ui.widgets import ChoiceItem, Picture, PictureClock, StoryLine, roll_text
@@ -451,7 +452,7 @@ async def test_panels_close_with_the_mouse():
         screen = await into_a_run(app, pilot)
         screen.game.state.player.inventory += ["oil_flask", "stale_bread", "holy_water"]
         for key, panel in [("f1", HelpScreen), ("f2", InventoryScreen), ("f3", CharacterScreen), ("f4", LookScreen),
-                           ("f5", MapScreen), ("f6", BestiaryScreen), ("f7", JournalScreen)]:
+                           ("f5", ChartScreen), ("f6", BestiaryScreen), ("f7", JournalScreen)]:
             await pilot.press(key)
             await pilot.pause(0.3)
             assert isinstance(app.screen, panel) and close_on_border(app.screen), key
@@ -662,10 +663,12 @@ async def test_rolls_light_up_the_story():
         game.state.player.hp -= 4
         await screen._roll_feedback([hit, hurt], game.state.player.hp + 4)
         story = screen.query_one("#story")
-        assert story.has_class("tone-neutral")  # you hit it and it hit you: mixed
+        from ptg.ui import effects
+
+        assert effects.lit(story) == "neutral"  # you hit it and it hit you: mixed
         assert len(screen.query(Popup)) == 2 and screen.query_one("#hud").has_class("hurt")
         await pilot.pause(1.4)
-        assert not screen.query(Popup) and not story.has_class("tone-neutral")
+        assert not screen.query(Popup) and not effects.lit(story)
 
 
 def test_a_floor_card_draws_its_picture_as_big_as_the_screen_has_room_for(content):
@@ -827,6 +830,7 @@ LONG_EPITAPH = ("Here lies Sir Reginald Pumpernickel the Brief, who tried to pet
 async def test_the_end_of_a_run_fits_the_screen():
     """On an 80x24 terminal the whole box shows, down to its hint: the blank lines between the parts go first, then
     the pixel picture shrinks to half size (ASCII art, which has one size, goes); on a big screen it all comes back."""
+    from ptg.models import DEEPEST, FLOORS
     from ptg.world import generate
 
     # (art, outcome, a long epitaph and traits) -> the picture's rows at 80x24 (0: none), then on a big screen
@@ -840,6 +844,7 @@ async def test_the_end_of_a_run_fits_the_screen():
             await pilot.pause()
             state = generate(1, "Sir Reginald Pumpernickel", load_content())
             state.status, state.floor, state.test_room = status, 2, "x"
+            state.floors_total = DEEPEST if long else FLOORS  # (a first win's line about going deeper: a row more)
             state.epitaph = LONG_EPITAPH if long else "Short and sweet."
             state.player.traits = ["iron_gut", "lucky"] if long else []
             app.push_screen(EndScreen(state))
@@ -853,6 +858,8 @@ async def test_the_end_of_a_run_fits_the_screen():
                 assert hint.region.bottom < box.region.bottom, case
                 assert box.has_class("-tight") == tight, case
                 assert (picture.content.plain.count("\n") + 1 if picture.display else 0) == rows, case
+                stats = str(screen.query_one(".end-stats").render())
+                assert ("next descent goes deeper" in stats) == (status == "won" and not long), case
                 if art == "sprites" and status == "dead":  # the name's carved on the stone while it's full size
                     assert ("Sir Reginald P" in picture.content.plain) == (rows == 10), case
 
@@ -1555,7 +1562,7 @@ async def test_f1_to_f7_work_inside_every_panel():
     async with app.run_test(size=(100, 30), notifications=True) as pilot:
         screen = await into_a_run(app, pilot)
         depth = len(app.screen_stack)
-        for key, panel in [("f2", InventoryScreen), ("f3", CharacterScreen), ("f5", MapScreen), ("f1", HelpScreen),
+        for key, panel in [("f2", InventoryScreen), ("f3", CharacterScreen), ("f5", ChartScreen), ("f1", HelpScreen),
                            ("f7", JournalScreen), ("f4", LookScreen), ("f6", BestiaryScreen)]:
             await pilot.press(key)
             await pilot.pause(0.2)
@@ -1704,9 +1711,9 @@ def test_help_wraps_under_its_words():
     the hand-made indents landed mid-paragraph. Now it's tables: each rule's words wrap under its words."""
     from rich.console import Console
 
-    from ptg.ui.panels import RULES, help_text
+    from ptg.ui.panels import SECTIONS, help_text
 
-    assert not any("\n" in words for _, _, words in RULES)
+    assert not any("\n" in words for _, rows in SECTIONS for _, _, words in rows)
     console = Console(width=60, record=True, color_system=None)
     console.print(help_text())
     lines = console.export_text().splitlines()
@@ -1716,6 +1723,8 @@ def test_help_wraps_under_its_words():
     assert all(line[:column].strip() == "" and line[column] != " " for line in rest), rest
     keys = next(line for line in lines if "Ctrl+Q" in line)
     assert "quit" in keys  # the key and what it does, on one line
+    for page in ("FIGHTS", "STATUSES", "THE DARK", "Burning", "Mending", "F9", "Text size"):  # (it fell behind once)
+        assert any(page in line for line in lines), page
 
 
 def test_legends_keep_each_entry_whole_and_the_map_names_visited_and_the_boss(content):

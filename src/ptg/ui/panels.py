@@ -23,7 +23,7 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Label, ListItem, ListView, Static
 
-from .. import config, glossary, interactions, inventory, layout, model3d, npcs, rules, sheet, sound
+from .. import config, encounter, glossary, interactions, inventory, layout, model3d, npcs, rules, sheet, sound, statuses
 from ..content import Content, Theme
 from ..game import Game
 from ..meta import epithet
@@ -208,48 +208,103 @@ class Panel(ModalScreen[str | None]):
 
 EXAMPLES = ("throw my bread at the rat", "tell the goblin I'm the king's tax collector",
             "topple the statue onto the troll")
-RULES = (
-    ("✦", "PROPS", "Using real things in the room or your pack earns a flair bonus and a Fate token."),
-    ("⚠", "HEAVY", "When a monster winds up a heavy blow, Dodge (or stun it) to turn the tables."),
-    ("✦", "FATE", "Spend Fate to reroll a failed check. Earn it with flair, perfect dodges and natural 20s."),
-    ("♥", "WEAK", "Monsters have weaknesses (fire, holy, shiny, food...). Find them, and the bestiary remembers."),
-    ("↓", "FLOORS", "Three dungeons, then Norfel. Find the stairs; on the third, the key and its boss, who "
-                    "guards the way down; at the bottom, Serpentis. Beat her once, and later runs go deeper."),
-    ("☽", "SOULS", "Souls carry over when you die. Spend them at the campfire on blessings and gifts."),
-    ("●", "BOMBS", "Every floor hides a sealed secret room, in a gap that touches two rooms or more: bomb the wall to "
-                   "it (search next to it for a draft). ⚷ Small keys open chests; or pick the lock, or smash it."),
-    ("»", "ASK", "A creature that's stopped fighting may know what's hidden on its floor: ask it, or watch it."),
-    ("¤", "SHOPS", "Now and then a shop, behind a locked door (a small key, or two bombs). Buy with gold, or haggle: "
-                   "wits takes a third off, or puts it up a quarter."),
-    ("✧", "SECRETS", "Some moments are written by hand and hidden in the dungeon: a place, a word, a deed. The Book of "
-                     "Secrets at the campfire counts the ones you've found."),
-    ("◆", "WORDS", "Coloured names in the story (monsters, items, things in the room): hover for a hint, click for "
-                   "the full card and the matching action."),
+# The help's pages, each (its heading, its rows of (icon, name, words)). A new system gets a row (or a page) here
+# when it lands: the help fell behind once, with statuses, the dark, fights against several and more missing from it.
+SECTIONS = (
+    ("THE BASICS", (
+        ("✦", "PROPS", "Using real things in the room or your pack earns a flair bonus and a Fate token."),
+        ("✦", "FATE", "Spend Fate to reroll a failed check. Earn it with flair, perfect dodges and natural 20s."),
+        ("◆", "WORDS", "Coloured words in the story (monsters, items, things in the room, statuses): hover for a hint, "
+                       "click for the full card and the matching action."),
+        ("●", "BOMBS", "Every floor hides a sealed secret room, in a gap that touches two rooms or more: bomb the wall "
+                       "to it (search next to it for a draft). ⚷ Small keys open chests; or pick the lock, or smash "
+                       "it."),
+        ("¤", "SHOPS", "Now and then a shop, behind a locked door (a small key, or two bombs). Buy with gold, sell what "
+                       "you carry, or haggle: wits takes a third off, or puts it up a quarter."),
+        ("✧", "SECRETS", "Some moments are written by hand and hidden in the dungeon: a place, a word, a deed. The "
+                         "Book of Secrets at the campfire counts the ones you've found."),
+    )),
+    ("FIGHTS", (
+        ("⚔", "TURNS", "Your go first, then a beat, then each foe's: their blows land after yours, so a potion drunk "
+                       "is in you before they hit."),
+        ("⚠", "HEAVY", "When a foe winds up a heavy blow (its next move over its head), Dodge it (or stun it) to turn "
+                       "the tables: a perfect dodge gives advantage and a Fate token."),
+        ("▶", "SEVERAL", "Some come in twos and threes, a boss with its own around it. Your blows go to the one you "
+                         "face (▶◀ under it): Face another for free. Each has its go after yours; the fight's won "
+                         "when the last falls."),
+        ("♥", "WEAK", "Monsters have weaknesses (fire, holy, shiny, food...). Find them, and the bestiary remembers. "
+                      "A kill with one, or without a scratch, is won in style: more XP and gold."),
+        ("▲", "LEVELS", "XP brings levels: more HP, and a perk to pick from three (once the fight's over). Play a "
+                        "certain way and you earn traits too: Silver Tongue for talking them down, Brute for kills..."),
+        ("☠", "BOSSES", "A boss comes in big, over the whole screen (Settings: Boss entrances), then into the fight. "
+                        "Its spoils wait for Enter or a click."),
+    )),
+    ("THE RUN", (
+        ("↓", "FLOORS", "Three dungeons, then Norfel. Find the stairs; on the third, the key and its boss, who guards "
+                        "the way down; at the bottom, Serpentis. Beat her once, and later runs go deeper: the "
+                        "Underbloom, dark and full of spores."),
+        ("»", "ASK", "A creature that's stopped fighting may know what's hidden on its floor: ask it, or watch it."),
+        ("☺", "PEOPLE", "Lucky Lenny wants his tooth back; Swoogy the Gooey hides in secret rooms and loves a guessing "
+                        "game; Granny Gristle (and her rare cousin) keep the shops. Talk to them: they remember."),
+        ("☽", "SOULS", "Souls carry over when you die. Spend them at the campfire on blessings and gifts."),
+    )),
 )
 KEYS = (("F2 i", "inventory"), ("F3 c", "character"), ("F4 l", "look at the room"), ("F5 m", "map"),
         ("F6 b", "bestiary"), ("F7 j", "journal"), ("F1", "this help"), ("F8", "sound on/off"),
+        ("F9", "the next layout: tabs, grid, classic"), ("↑ ↓ ← →", "go that way"),
         ("Esc Esc", "the title (saved)"), ("Ctrl+Q", "quit"))
 MORE_KEYS = (("F1-F7", "in any panel too: that panel instead"),
-             ("F12", "debug: the library, art, sounds, story, the game's state, and a model check"),
+             ("F12", "debug: the library, art, sounds, story, test rooms, the game's state, and a model check"),
              ("PgUp PgDn", "read back through the story"),
              ("Ctrl+L", "redraw the screen (if letters or art ever come out garbled)"),
-             ("n s e w", "go north, south, east or west"))
+             ("n s e w", "go north, south, east or west"),
+             ("Text size", "Cmd + or − (Ctrl on Windows) in a browser, or A− A+ at its bottom right; in a terminal, "
+                           "its own font size"))
 MOUSE = ("Click a choice, a coloured word, a picture (for its card), or the dice (once to roll, again to carry on).",
+         "Click a status on the bar at the top (☠ Poisoned, ♨ Burning, ☼ your torch) for what it does.",
+         "Click a room on the map you've been in to go back there.",
          "Click loot in the story (▶ click to take) to pick it up: that's free, it takes no turn.",
          "The arrows beside the choices take you through a door: lit where there is one.",
          "Close any panel with its ✕ or a click outside it.")
 
 
+def _rows(rows) -> Table:
+    table = Table.grid(padding=(0, 1))
+    table.add_column(no_wrap=True, style="bold #ffb000")
+    table.add_column(no_wrap=True, style="bold #ffb000", min_width=8)
+    table.add_column(ratio=1, style=WORDS)
+    for row in rows:
+        table.add_row(*row)
+    return table
+
+
 def help_text() -> Group:
-    """How to play, as tables that wrap to whatever width the panel has: each line of a rule wraps under its words,
-    never back under its name (the help was once wrapped by hand, for a wider panel than it had)."""
+    """How to play, in pages, as tables that wrap to whatever width the panel has: each line of a rule wraps under
+    its words, never back under its name (the help was once wrapped by hand, for a wider panel than it had). The
+    statuses and the dark are their own cards' words (statuses.card, light.card), so they never fall behind."""
+    from .. import light
+    from ..content import load_content
+
     heading = "bold #ff4f9a"
-    rules = Table.grid(padding=(0, 1))
-    rules.add_column(no_wrap=True, style="bold #ffb000")
-    rules.add_column(no_wrap=True, style="bold #ffb000", min_width=8)
-    rules.add_column(ratio=1, style=WORDS)
-    for icon, name, words in RULES:
-        rules.add_row(icon, name, words)
+    pages = []
+    for title, rows in SECTIONS:
+        pages += [Text(title, style=heading), _rows(rows), Text()]
+    ailments = Table.grid(padding=(0, 1))
+    ailments.add_column(no_wrap=True)
+    ailments.add_column(ratio=1, style=WORDS)
+    for key, status in statuses.DEFS.items():
+        lines = dict(statuses.card(key))
+        words = Text(status.blurb, style=WORDS)
+        if lines.get("Cured by"):
+            words.append(f" Cured by: {lines['Cured by']}.", style=DIM)
+        ailments.add_row(Text(f"{status.icon} {status.name}", style=f"bold {status.colour}"), words)
+    pages += [Text("STATUSES", style=heading), ailments, Text()]
+    dark = Table.grid(padding=(0, 1))
+    dark.add_column(no_wrap=True, style="bold #feae34", min_width=8)
+    dark.add_column(ratio=1, style=WORDS)
+    for name, words in light.card(load_content()):
+        dark.add_row(name or "☼", words)
+    pages += [Text("THE DARK", style=heading), dark, Text()]
     keys = Table.grid(padding=(0, 2))
     for _ in range(2):
         keys.add_column(no_wrap=True, style="bold #ffb000")
@@ -272,7 +327,7 @@ def help_text() -> Group:
         *[Text("  " + line, style="italic #5fe3ff") for line in EXAMPLES], Text(),
         Text("The game decides what's possible and rolls the dice; the narrator only describes what happened.",
              style=WORDS), Text(),
-        rules, Text(),
+        *pages,
         Text.assemble(("KEYS", heading), ("  (or type the word)", DIM)), keys, more, Text(),
         Text("MOUSE", style=heading), mouse)
 
@@ -427,7 +482,9 @@ class InventoryScreen(Panel):
             if turns:
                 model.show(key)
         text = Text()
-        text.append(item.name + "\n", style="bold #4cff8a")
+        text.append(item.name + "  ", style="bold #4cff8a")
+        text.append_text(encounter.rarity_chip(content, key))
+        text.append("\n")
         might = f" + {player.might} for your might" if key == player.weapon else ""
         text.append(item_note(content, key) + might + "\n", style=WORDS)
         if equipped:
@@ -509,9 +566,11 @@ class InventoryScreen(Panel):
 
 class ShopScreen(Panel):
     """A shop: the shopkeeper, her wares on the counter as tiles with their prices, and the one you pick in full, to
-    buy (Enter) or haggle over (B). Either comes back to the game as a turn (a haggle rolls the dice), and the shop
-    opens again after it. Like the inventory, the counter and the words about a ware scroll; Buy, Haggle and the keys
-    stay put."""
+    buy (Enter), haggle over (B), sell her something (S), talk to her (T) or ask her what she knows (A). All of it
+    happens here, the window staying up (docs/plans/playtest-2026-10-30.md §6): each goes through the game as a turn
+    (its opener's: GameScreen.counter_turn), a haggle's die rolls here, and what came of it, her words and all, is
+    told at the foot of the window (told). Like the inventory, the counter and the words about a ware scroll; the
+    buttons and the keys stay put."""
 
     BINDINGS = [Binding("left", "move(-1)", show=False, priority=True),
                 Binding("right", "move(1)", show=False, priority=True),
@@ -519,14 +578,17 @@ class ShopScreen(Panel):
                 Binding("down", "move_rows(1)", show=False, priority=True),
                 Binding("enter", "buy", "Buy", priority=True),
                 Binding("b", "barter", "Barter"),
-                Binding("s", "sell", "Sell")]
+                Binding("s", "sell", "Sell"),
+                Binding("t", "talk", "Talk"),
+                Binding("a", "ask", "Ask")]
     size_class = "wide"
 
-    def __init__(self, game: Game, selected: int = 0) -> None:
+    def __init__(self, game: Game, selected: int = 0, opener=None) -> None:
         super().__init__()
         self.game = game
         self.current = selected
         self.columns = 2
+        self.opener = opener  # the game screen under it, that runs what's done here as turns (counter_turn)
 
     def plan(self) -> tuple[int, int, int, int]:
         """How the shop sits on this screen, (the box's width, the wares' picture size, the shopkeeper's or 0 when
@@ -583,12 +645,87 @@ class ShopScreen(Panel):
                 yield Clickable("", "screen.buy", id="shop-buy")
                 yield Clickable("", "screen.barter", id="shop-barter")
                 yield Clickable(Text("▶ Sell something  (s)", style="bold #ffb000"), "screen.sell", id="shop-sell")
-                yield Static(Text("arrows pick · enter buys · b haggles · s sells · esc leaves", style=DIM), id="shop-hint")
+                with Horizontal(id="shop-chat"):
+                    yield Clickable(Text("▶ Talk  (t)", style="bold #ff4f9a"), "screen.talk", id="shop-talk")
+                    yield Clickable(Text("▶ Ask what she knows  (a) · wits", style="bold #ff4f9a"), "screen.ask",
+                                    id="shop-ask")
+                yield Vertical(id="shop-log")  # (what came of the last thing done here: its roll, her words)
+                yield Static(Text("arrows pick · enter buys · b haggles · s sells · t talks · a asks · esc leaves",
+                                  style=DIM), id="shop-hint")
 
     def on_mount(self) -> None:
         tiles = list(self.query(ItemTile))
         if tiles:
             tiles[max(0, min(len(tiles) - 1, self.current))].focus()
+        if self.opener is not None:
+            self.opener.counter = self
+
+    def on_unmount(self) -> None:
+        if self.opener is not None and self.opener.counter is self:
+            self.opener.counter = None
+
+    def act(self, action: Action) -> None:
+        """Something done at the counter: a turn of the game's, the window staying up (or, with nothing under it to
+        run it, back to the game with it, as before)."""
+        if self.opener is None:
+            self.dismiss(action)
+        else:
+            self.opener.counter_turn(action)
+
+    async def told(self, events, narration: str) -> None:
+        """What came of a turn at the counter, at the foot of the window: each roll rolling out (a die, as in the
+        story), then what happened and what she said; and the counter, the gold and the ware brought up to date."""
+        from .widgets import DiceLine, roll_text  # (the story's own lines for a roll)
+
+        log = self.query_one("#shop-log", Vertical)
+        await log.remove_children()
+        log.display = True
+        for event in events:
+            if event.dice:
+                line = DiceLine("")
+                await log.mount(line)
+                await line.play(event)
+                line.update(roll_text(event))
+                if event.text:  # (what came of it: "She lets it go for 12 gold instead of 18")
+                    await log.mount(Static(Text(event.text, style=WORDS), classes="shop-said"))
+        said = [e for e in events if e.text and not e.dice and e.kind not in ("shop", "light")
+                and not e.kind.startswith("story_")]
+        words = Text()
+        for event in said[-4:]:
+            speaker = event.data.get("speaker")
+            if words:
+                words.append("\n")
+            if speaker:
+                words.append(f"“{event.text}”", style="italic #ff4f9a")
+            else:
+                words.append(event.text, style=WORDS)
+        if not said and narration:
+            words.append(narration, style=WORDS)
+        if words:
+            await log.mount(Static(words, classes="shop-said"))
+        await self.restock()
+
+    async def restock(self) -> None:
+        """The counter as it is now: what's left on it, its prices, your gold."""
+        state = self.game.state
+        shop = state.room.shop
+        if shop is None:
+            self.dismiss(None)
+            return
+        keeper = self.game.content.monster(shop.keeper)
+        self.query_one(".shop-box").border_title = f"{keeper.name}'s Shop · ¤ {state.player.gold} gold"
+        _, size, _, _ = self.plan()
+        shelf = self.query_one("#shop-shelf", VerticalScroll)
+        await shelf.remove_children()
+        if shop.wares:
+            grid = Grid(*[item_tile(i, self.game, w.item, price_note(w), size) for i, w in enumerate(shop.wares)],
+                        id="shop-grid")
+            grid.styles.grid_size_columns = self.columns
+            await shelf.mount(grid)
+            self.current = max(0, min(len(shop.wares) - 1, self.current))
+            self.call_after_refresh(lambda: self.action_move(0))
+        else:
+            await shelf.mount(Static(Text("Sold out. She's counting your gold.", style=DIM)))
 
     def show_detail(self, index: int) -> None:
         self.current = index
@@ -640,7 +777,7 @@ class ShopScreen(Panel):
         if self.game.state.player.gold < ware.price:
             self.notify(f"{item.name} is {ware.price} gold, and you have {self.game.state.player.gold}.", timeout=3)
             return
-        self.dismiss(Action(f"buy:{self.current}", f"Buy {the(item.name)} for {ware.price} gold"))
+        self.act(Action(f"buy:{self.current}", f"Buy {the(item.name)} for {ware.price} gold"))
 
     def action_sell(self) -> None:
         """What you'd sell her: the picker of what you carry that she'd buy (at half the price here), or why not."""
@@ -650,8 +787,33 @@ class ShopScreen(Panel):
                        if interactions.is_picker(a.id) and a.id.startswith("sell:")), None)
         if picker is None:
             self.notify("There's nothing you carry that she'd buy.", timeout=3)
-        else:
+        elif self.opener is None:
             self.dismiss(picker)
+        else:  # (what to sell her, picked over the counter, and sold at it)
+            def chosen(picked: Action | None) -> None:
+                if picked is not None:
+                    self.act(Action(picked.id, interactions.said(state, content, picked), picked.hint))
+
+            self.app.push_screen(PickScreen("Sell her", interactions.choices(state, content, picker.id)), chosen)
+
+    def _keeper_does(self, verb: str) -> None:
+        """Talk to her, or ask her what she knows: her own buttons' actions (interactions.verbs)."""
+        state, content = self.game.state, self.game.content
+        keeper = state.room.shop.keeper
+        action = next((a for a in interactions.verbs(state, content, f"keeper:{keeper}")
+                       if a.id == verb or a.id.startswith(f"{verb}:")), None)
+        if action is None:
+            self.notify("She's nothing more to say just now.", timeout=3)
+        else:
+            name = content.monster(keeper).name
+            label = f"Talk to {name}" if verb == "talk" else f"Ask {name} what she knows"
+            self.act(Action(action.id, label, action.hint))
+
+    def action_talk(self) -> None:
+        self._keeper_does("talk")
+
+    def action_ask(self) -> None:
+        self._keeper_does("ask")
 
     def action_barter(self) -> None:
         item, ware = self._ware()
@@ -660,7 +822,7 @@ class ShopScreen(Panel):
         if ware.haggled:
             self.notify("She won't haggle over that again.", timeout=3)
             return
-        self.dismiss(Action(f"barter:{self.current}", f"Haggle over {the(item.name)}"))
+        self.act(Action(f"barter:{self.current}", f"Haggle over {the(item.name)}"))
 
 
 def price_note(ware) -> str:
@@ -1574,7 +1736,9 @@ class InfoScreen(Panel):
         if game.config.art == "sprites":  # (its model turning if it has one; else its picture, or its grey stand-in)
             self.picture = self._model(key) if model3d.available(key) else self._picture(key, "item")
         text = Text()
-        text.append(item.name + "\n", style="bold #4cff8a")
+        text.append(item.name + "  ", style="bold #4cff8a")
+        text.append_text(encounter.rarity_chip(content, key))
+        text.append("\n")
         tags = f" · {', '.join(item.tags)}" if item.tags else ""
         text.append(glossary.item_stats(item) + tags + "\n", style=SOFT)
         where = whereabouts(game, key)
@@ -1638,6 +1802,33 @@ class InfoScreen(Panel):
         text.append(room.name + "\n\n", style="bold #8fa8ff")
         text.append_text(room_now(state, content, room))
         return text, room.name
+
+    def _status(self, ref: str) -> tuple[Text, str]:
+        """A status's card (or light and the dark's): what it is, what it does to you and how long, what cures it or
+        keeps it off, and what it does to a foe; whether you've it now, and how long it has left."""
+        content, state = self.game.content, self.game.state
+        if ref == "light":
+            from .. import light
+
+            text = Text("☼ Light and the dark\n", style="bold #feae34")
+            lines, name = light.card(content), "Light"
+        else:
+            status = statuses.DEFS[ref]
+            text = Text(f"{status.icon} {status.name}\n", style=f"bold {status.colour}")
+            if ref in state.player.statuses:
+                left = f": {statuses.left(state, ref)} more" if status.lasts else ""
+                text.append(f"You have it now{left}.\n", style="bold #ffb000")
+            foes = [m for m in [state.room.monster, *state.room.others] if m is not None and ref in m.statuses]
+            if foes:
+                text.append(f"On {', '.join(the(m.name) for m in foes)} now.\n", style="bold #ffb000")
+            lines, name = statuses.card(ref, content), status.name
+        for heading, words in lines:
+            text.append("\n")
+            if heading:
+                text.append(f"{heading}: ", style="bold #5fe3ff")
+            text.append(words + "\n", style=WORDS)
+        text.rstrip()
+        return text, name
 
     def _rule(self, ref: str) -> tuple[Text, str]:
         name, summary = glossary.RULES[ref]
@@ -1705,7 +1896,8 @@ class MenuScreen(Panel):
     def compose(self) -> ComposeResult:
         with Vertical(classes="panel-box menu-box") as box:
             box.border_title = "Menu"
-            for label, name in (*self.PANELS, (f"Sound: {'on' if self.app.config.sound else 'off'}", "sound")):
+            for label, name in (*self.PANELS, (f"Sound: {'on' if self.app.config.sound else 'off'}", "sound"),
+                                (f"Layout: {self.app.config.layout} (F9)", "layout")):
                 yield Clickable(Text(f" {label} ", style="bold #0b0b14 on #6c8cff" if config.touch() else "#c8c8e0"),
                                 f"screen.choose('{name}')", classes="menu-row")
 

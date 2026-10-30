@@ -243,7 +243,7 @@ def test_beating_floor_3s_boss_opens_the_stairs_and_serpentis_ends_the_run(conte
     state.player.might = 50
     while state.room.monster and not state.over:
         events = perform(state, content, "attack")
-    state.pending_perks = []  # (a level up, as like as not)
+    state.pending_perks, state.perk_debt = [], 0  # (a level up or two, as like as not)
     assert not state.over and any(e.kind == "conquered" and "stairs lead further down" in e.text for e in events)
     assert "descend" in [a.id for a in available_actions(state, content)]
     perform(state, content, "descend")
@@ -256,39 +256,78 @@ def test_beating_floor_3s_boss_opens_the_stairs_and_serpentis_ends_the_run(conte
     assert state.status == "won" and any(e.kind == "victory" for e in events)
 
 
-def test_the_goblin_king_holds_his_warren_whichever_floor_it_is(content, monkeypatch):
-    """The Warren's boss used to wait only when it was the last dungeon: on floors 1 and 2 its stairs had a warden
-    like any other's. Now he's there whichever floor it is, cut down to that floor's size (a warden's tier, half a
-    boss's souls), King Mouse never takes his place, and the rest of the floor is as it would have been."""
-    from ptg import world
+@pytest.mark.parametrize("dungeon", ["goblin_warren", "sunken_crypt", "overgrown_ruins"])
+def test_every_dungeons_boss_holds_it_whichever_floor_it_is(content, monkeypatch, dungeon):
+    """A dungeon's boss used to wait only when it was the last dungeon (the Goblin King alone held his Warren on
+    floors 1 and 2). Now every staircase has a boss with clips of its own: the dungeon's, cut down to that floor's
+    size (a warden's tier, half a boss's souls), and the rest of the floor is as it would have been. (King Mouse may
+    take floor 1's: npcs.FLOATING. Not here.)"""
+    from ptg import npcs, world
 
-    def warren(seed: int):
+    monkeypatch.setitem(npcs.ODDS, npcs.KING_MOUSE, 0.0)
+    boss = content.themes[dungeon].boss
+
+    def built(seed: int):
         state = generate(seed, content=content)
-        number = state.themes.index("goblin_warren") + 1
+        number = state.themes.index(dungeon) + 1
+        met = list(state.met)  # (the ones of a kind met before this floor)
         if number > 1:
             state.floor = number
             build_floor(state, content)
-        return state, number
+        else:
+            met = []
+        return state, number, met
 
     floors = set()
     for seed in range(40):
-        state, number = warren(seed)
+        state, number, met = built(seed)
         stairs = next(r for r in state.rooms if r.fixture == "stairs")
         if number == 3:
-            assert stairs.is_boss and stairs.monster.hp == content.monster("goblin_king").hp
+            assert stairs.is_boss and stairs.monster.hp == content.monster(boss).hp
             continue
         floors.add(number)
-        king = stairs.monster
-        size = world.EARLY_BOSSES["goblin_king"][number]
-        assert (king.key, king.max_hp, king.tier, king.reward_mult, king.warden) == \
-            ("goblin_king", size[0], world.warden_tier(number), world.EARLY_BOSS_SOULS, True)
-        assert not stairs.is_boss and king.key not in state.met
+        held = stairs.monster
+        size = world.EARLY_BOSSES[boss][number]
+        assert (held.key, held.max_hp, held.tier, held.reward_mult, held.warden) == \
+            (boss, size[0], world.warden_tier(number), world.EARLY_BOSS_SOULS, True)
+        assert not stairs.is_boss and held.key not in state.met
         with monkeypatch.context() as patched:
             patched.setattr(world, "EARLY_BOSSES", {})
-            before, _ = warren(seed)
-        assert [(r.id, r.monster and r.monster.key) for r in before.rooms if r.id != stairs.id] == \
-            [(r.id, r.monster and r.monster.key) for r in state.rooms if r.id != stairs.id]
+            before, _, met_before = built(seed)
+        warden = before.rooms[stairs.id].monster.key
+        if met == met_before and not content.monster(warden).once:  # (a warden one of a kind, here or on a floor
+            # before, is met: then it's not met elsewhere, and the draws after it go otherwise)
+            assert [(r.id, r.monster and r.monster.key) for r in before.rooms if r.id != stairs.id] == \
+                [(r.id, r.monster and r.monster.key) for r in state.rooms if r.id != stairs.id]
     assert floors == {1, 2}
+
+
+def test_weak_monsters_on_the_first_floors_come_in_groups_now_and_then(content):
+    from ptg import world
+
+    groups = [(r.monster, r.others) for s in map(generate, range(60)) for r in s.rooms
+              if r.monster and r.others and not content.monster(r.monster.key).party]
+    assert groups  # (floor 1's: some of them)
+    for leader, others in groups:
+        assert content.monster(leader.key).hp <= world.WEAK and all(o.key == leader.key for o in others)
+        assert [o.place for o in others] == list(range(1, len(others) + 1)) and len(others) <= max(world.GROUP_SIZES)
+        assert others[0].name.startswith("Second ")
+
+
+def test_a_monster_kept_to_floors_roams_only_those(content):
+    import dataclasses
+
+    from ptg import world
+
+    rat = content.monster("giant_rat")
+    kept = dataclasses.replace(rat, floors=[2])
+    content.monsters["giant_rat"] = kept
+    try:
+        assert "roams" not in world.met_on(content, "giant_rat").get(1, set())
+    finally:
+        content.monsters["giant_rat"] = rat
+    assert "roams" in world.met_on(content, "giant_rat").get(1, set())
+    assert world.met_on(content, "serpentis") == {4: {"boss"}}
 
 
 def test_beating_the_goblin_king_early_clears_the_stairs_without_norfels_air(content):

@@ -29,11 +29,20 @@ DEPTH = {3: {"hp_mult": 1.1, "attack_mod": 0, "defense_mod": 0, "damage_mod": 1}
          4: {"hp_mult": 1.25, "attack_mod": 1, "defense_mod": 0, "damage_mod": 1},
          5: {"hp_mult": 1.35, "attack_mod": 2, "defense_mod": 1, "damage_mod": 1}}
 VENOMOUS = 0.5  # on a floor with poison of its own, how many of its monsters bite with venom (combat.VENOM)
-# A dungeon's boss who holds it whichever floor it's on, not only as the last dungeon: at its stairs on an earlier one,
-# cut down to that floor's size (HP, attack, defense, damage off its dice, as npcs.sized takes them). Worth a warden's
-# tier there, and half a boss's souls. Above a floor-1 warden (16 HP or so, a d8) and a floor-2 one (an elite).
-EARLY_BOSSES = {"goblin_king": {1: (25, 3, 12, -3), 2: (32, 4, 13, -3)}}
+# Every dungeon's boss holds it whichever floor it's on, not only as the last dungeon: at its stairs on an earlier one,
+# cut down to that floor's size (HP, attack, defense, damage off its dice, as npcs.sized takes them), so every
+# staircase has a boss with its own clips at it (docs/plans/playtest-2026-10-30.md §2.2). Worth a warden's tier there,
+# and half a boss's souls. About a floor-1 warden (16 HP or so, a d8) and a floor-2 one (an elite); the Goblin King
+# alone was at (25, 3, 12, -3) on floor 1, and the bot's average player died to him there a run in four. On floor 1
+# King Mouse may take the boss's place (npcs.FLOATING): the floor 2 one is always its dungeon's own.
+EARLY_SIZES = {1: (20, 3, 12, -4), 2: (34, 4, 13, -3)}
+EARLY_BOSSES = {key: EARLY_SIZES for key in ("goblin_king", "drowned_abbot", "thornmother")}
 EARLY_BOSS_SOULS = 0.5
+# Weak roaming monsters on the first floors come in groups now and then (combat.foes): a floor's chance, the most HP
+# one may have to, and how many more of its kind come with it (each count's weight).
+GROUPS = {1: 0.25, 2: 0.3}
+WEAK = 8
+GROUP_SIZES = {1: 3, 2: 1}
 # A floor's lair behind a web door (Exit.webbed): its room and who's in it. Only fire gets through (rules._burn_web).
 LAIRS = {"underbloom": ("matriarchs_lair", "the_sporefang_matriarch")}
 
@@ -48,6 +57,8 @@ def generate(seed: int, player_name: str = "Adventurer", content: Content | None
     themes = [fixed.get(floor) or themes[(floor - 1) % len(themes)] for floor in range(1, floors + 1)]
     state = GameState(seed=seed, theme=themes[0], themes=themes, rooms=[], floors_total=floors,
                       player=player or Player(name=player_name), ghost=ghost)
+    for key in (k for k in [state.player.weapon, state.player.armor, *state.player.inventory] if k in content.items):
+        loot.noted(content, state.rares, key)  # (what you start with is this run's one of it: a blessing's Rabbit's Foot)
     build_floor(state, content)
     return state
 
@@ -204,6 +215,7 @@ def monster_for(rng: random.Random, content: Content, theme_key: str, tier: int,
     theme = content.themes[theme_key]
     pool = [m for m in content.monsters.values()
             if m.roams and m.lives_in(theme) and not (m.once and m.key in (met or ()))]
+    pool = [m for m in pool if not m.floors or floor in m.floors] or pool  # (kept to some floors: MonsterDef.floors)
     exact = [m for m in pool if m.tier == tier] or [m for m in pool if m.tier <= tier] or pool
     chosen = rng.choice(sorted(exact, key=lambda m: m.key))
     if chosen.once and met is not None:
@@ -308,6 +320,51 @@ def _place_monsters(rng, content, state, theme, rooms: list[Room], end_id: int, 
         room.monster = monster_for(rng, content, theme.key, tier_for(state.floor, state.floors_total), elite,
                                    met=state.met, floor=state.floor)
         room.others = party(rng, content, room.monster, state.floor)  # (a Sporerat never comes alone)
+        if not room.others:
+            room.others = group(dice.stream(state.seed, "group", state.floor, room.id), content, room.monster,
+                                state.floor)
+
+
+def group(rng: random.Random, content: Content, leader: MonsterState, floor: int) -> list[MonsterState]:
+    """Now and then on the first floors, a weak monster comes with others of its kind (GROUPS): a rat in a pack of
+    two or three. Not one of a kind, an elite, or one with a name. Its own random stream (the caller's), so the rest
+    of the floor is as it would have been."""
+    made = content.monster(leader.key)
+    if floor not in GROUPS or made.hp > WEAK or made.once or made.named or leader.elite or rng.random() >= GROUPS[floor]:
+        return []
+    more = rng.choices(list(GROUP_SIZES), weights=list(GROUP_SIZES.values()))[0]
+    out = []
+    for i in range(more):
+        member = MonsterState(key=leader.key, name=titled(ORDINALS[i], leader.name), hp=made.hp, max_hp=made.hp,
+                              tricks=list(leader.tricks), place=i + 1)
+        out.append(member)
+    return out
+
+
+def met_on(content: Content, key: str) -> dict[int, set[str]]:
+    """Which floors a monster can turn up on, and as what ("roams": a room's; "stairs": the warden by the stairs;
+    "boss"; "group"), in a run of four floors or of DEEPEST (monster_for's rules, worked out: the debug screen's)."""
+    from .models import DEEPEST, DUNGEONS
+
+    made = content.monster(key)
+    found: dict[int, set[str]] = {}
+    for floors in sorted({FLOORS, DEEPEST}):
+        for floor in range(1, floors + 1):
+            themes = [t for t in content.themes.values() if (t.floor == floor if t.floor else floor <= DUNGEONS)]
+            for theme in themes:
+                if theme.boss == key and (floor >= min(DUNGEONS, floors) or floor in EARLY_BOSSES.get(key, {})):
+                    found.setdefault(floor, set()).add("boss")
+                pool = [m for m in content.monsters.values() if m.roams and m.lives_in(theme)]
+                pool = [m for m in pool if not m.floors or floor in m.floors] or pool
+                for how, tier in (("roams", tier_for(floor, floors)), ("stairs", warden_tier(floor, floors))):
+                    if how == "stairs" and (floor >= min(DUNGEONS, floors) or theme.boss in EARLY_BOSSES):
+                        continue  # (a boss holds those stairs)
+                    exact = [m for m in pool if m.tier == tier] or [m for m in pool if m.tier <= tier] or pool
+                    if made in exact:
+                        found.setdefault(floor, set()).add(how)
+                        if how == "roams" and floor in GROUPS and made.hp <= WEAK and not made.once and not made.named:
+                            found[floor].add("group")
+    return found
 
 
 def early_boss(content: Content, key: str, floor: int, floors: int = FLOORS) -> MonsterState:
@@ -334,7 +391,7 @@ def _place_loot(rng, content: Content, state: GameState, theme, rooms: list[Room
         room = rng.choice([r for r, open_ in zip(deep, bare) if open_] or deep)
         rng.choice(bare[deep.index(room)] or room.features).loot.append(theme.key_item)
 
-    found = [loot.pick(rng, content, slot) for slot in loot.FLOORS.get(state.floor, ["potion 1"])]
+    found = [loot.give(rng, content, state.rares, slot) for slot in loot.FLOORS.get(state.floor, ["potion 1"])]
     found.append(loot.DUNGEON_TRINKETS.get(theme.key, "oil_flask"))
     found = sorted(filter(None, found), key=lambda key: key not in loot.ESSENTIAL)  # (stable: the rest keep order)
     spots = _spots(rng, others)
@@ -404,7 +461,8 @@ def _secret_room(rng: random.Random, content: Content, state: GameState, theme, 
     archetype = content.archetypes[rng.choice(unused or [k for k in theme.archetypes
                                                          if k not in {r.archetype for r in near}])]
     names = [n for n in archetype.names if n not in {r.name for r in rooms}] or archetype.names
-    room = Room(id=len(rooms), x=x, y=y, name=f"Hidden {rng.choice(names)}", archetype=archetype.key,
+    name = rng.choice(names).removeprefix("The ")  # ("the Hidden Clutch", not "the Hidden The Clutch": run 66)
+    room = Room(id=len(rooms), x=x, y=y, name=f"Hidden {name}", archetype=archetype.key,
                 distance=min(r.distance for r in near) + 1, secret=True,
                 features=[Feature(name=rng.choice(archetype.features), gold=rng.randint(10, 20) * state.floor)])
     prize = loot.produce(rng, content, state.rares, loot.SECRET, "secret", loot.owned(state, content))
@@ -470,7 +528,7 @@ def _lair(state: GameState, content: Content, rooms: list[Room], end_id: int) ->
     x, y, by = rng.choice(nooks)
     door = next(d for d, (dx, dy) in DELTA.items() if (rooms[by].x + dx, rooms[by].y + dy) == (x, y))
     archetype, keeper = content.archetypes[archetype_key], content.monster(who)
-    wrapped = [loot.pick(rng, content, "gear 3")]  # (the last one who came: their gear's still on them)
+    wrapped = [loot.give(rng, content, state.rares, "gear 3")]  # (the last one who came: their gear's still on them)
     room = Room(id=len(rooms), x=x, y=y, name=archetype.names[0], archetype=archetype.key,
                 distance=rooms[by].distance + 1,
                 features=[Feature(name=archetype.features[0], loot=[k for k in wrapped if k]),
@@ -484,8 +542,8 @@ def _lair(state: GameState, content: Content, rooms: list[Room], end_id: int) ->
 def _place_ghost(rng, content: Content, state: GameState, rooms: list[Room], end_id: int, ghost: dict) -> None:
     """A previous adventurer died on this floor. Their ghost guards what they carried (somewhere with nothing else to
     find, if there's such a room, so it isn't one big heap): not a key, nor what a character gave them or a quest
-    was about (Lenny's teeth, Swoogy's diaper: those are this run's to earn), nor a rare thing this run has had
-    already. A rare thing in the remains is this run's one of it."""
+    was about (Lenny's teeth, Swoogy's diaper: those are this run's to earn), nor a one-of-a-kind thing this run has
+    had already (loot.single). One in the remains is this run's one of it."""
     spots = [r for r in rooms if r.id not in (0, end_id) and not r.fixture] or [r for r in rooms if r.id != 0]
     room = rng.choice([r for r in spots if not r.items and not any(f.loot for f in r.features)] or spots)
     base = content.monster("ghost")
@@ -500,8 +558,7 @@ def _place_ghost(rng, content: Content, state: GameState, rooms: list[Room], end
         quest = "quest" in item.found or any(p in content.monsters and content.monster(p).npc for p in item.found)
         if len(items) < 3 and not (item.kind == "key" or quest or key in state.rares):
             items.append(key)
-            if loot.rare(item):
-                state.rares.append(key)
+            loot.noted(content, state.rares, key)
     room.features.append(Feature(name=f"{ghost['name']}'s remains", loot=items, gold=int(ghost.get("gold", 0)) // 2))
 
 

@@ -46,7 +46,6 @@ from dataclasses import dataclass
 from rich.style import Style
 from rich.text import Text
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.events import Click, Enter, Leave
 from textual.widget import Widget
@@ -77,8 +76,10 @@ STAGE_SHAPE = 4.8  # columns per row the picture would like (see ui/plan.py); it
 TALL = 44  # rows from which the big buttons have their icons, the decision under the story (beside it: see share)
 BELOW = {True: 4, False: 3}  # rows under the buttons (and the blank one between), the decision under the story
 PICKS = 2  # rows at the decision's foot, beside the story, for the choices left (the narrator's idea, a scene's)
-DECIDE_LEAST = 2 + 7 + 1 + 4 + 1 + 3 + PICKS  # beside the story: its frame, short buttons, a gap, the compass a line
-# a way, a gap, three lines of things, the choices
+PICKS_MOST = 6  # rows they may take from your things over them, when they're more than PICKS take
+COMMAND = 1  # the command line's row, at the top of the decision: what you type is a choice too
+DECIDE_LEAST = 2 + COMMAND + 7 + 1 + 4 + 1 + 3 + PICKS  # beside the story: its frame, the command line, short buttons,
+# a gap, the compass a line a way, a gap, three lines of things, the choices
 STORY_LEAST = 8
 NAMED_COMPASS = 106  # columns inside the decision from which the compass says where each way goes (under the story)
 COMPASS_CELL = (13, 22)  # a named compass cell's columns, least and most: it widens with the screen
@@ -535,16 +536,17 @@ def share(width: int, height: int) -> Grid:
         act = max(ACT_MIN, min(ACT_MAX, round(left * ACT_SHARE)))
         stage = max(4, min(stage, rows - 2 - DECIDE_LEAST))
         band = rows - (stage + 2)
-        tall = band >= 2 + 15 + 1 + 4 + 1 + 3 + PICKS  # (two rows of buttons with icons, and the least under them)
+        tall = band >= 2 + COMMAND + 15 + 1 + 4 + 1 + 3 + PICKS  # (two rows of buttons with icons, the least under)
         bar = 7 if tall else 3
-        under = band - 2 - (2 * bar + 1) - 1 - PICKS  # (less its frame, the buttons, a gap and the choices)
+        under = band - 2 - COMMAND - (2 * bar + 1) - 1 - PICKS  # (less its frame, the command line, the buttons, a
+        # gap and the choices)
         cards = 1 + 1 + CARD[1]  # (a row of your things: its heading, a gap, the cards)
         ways = 9 if under >= 9 + 1 + cards else 7 if under >= 7 + 1 + cards else 4
         return Grid(side, left, True, left - act, stage, band, band, bar, ways, (act - 4 - 2) // 3, strip, tall)
     tall = rows >= TALL
     bar = 7 if tall else 3
-    decide = 2 + bar + 1 + BELOW[tall]
-    story = rows - (stage + 2) - decide
+    decide = 2 + COMMAND + bar + 1 + BELOW[tall]
+    story = rows - (stage + 2) - decide  # (the command line's row the decision's now, not the story's box's)
     if story < STORY_LEAST:
         stage = max(4, stage - (STORY_LEAST - story))
         story = rows - (stage + 2) - decide
@@ -708,17 +710,13 @@ class GridScreen(GameScreen):
     are GameScreen's."""
 
     STORY_WIDTH = 100  # (as app.tcss's GridScreen #story > *)
-    BINDINGS = [*GameScreen.BINDINGS,
-                *[Binding(key, f"arrow('{way}')", show=False, priority=True)
-                  for key, way in (("up", "north"), ("down", "south"), ("left", "west"), ("right", "east"))]]
-
     def story_frame(self) -> Widget:
         """The box round the story and the command line: its border is the story's frame here (the story itself has
         none), so it's the one a roll's colour lights up."""
         return self.query_one("#story-box")
 
-    def __init__(self, game, fresh: bool) -> None:
-        super().__init__(game, fresh)
+    def __init__(self, game, fresh: bool, switched: bool = False) -> None:
+        super().__init__(game, fresh, switched)
         self.grid: Grid | None = None
         self.tray: tuple[str, list[Action], str] | None = None  # the options showing under the buttons, if a button
         # or a thing's picker (Give…) opened them: (their title, the options, the big button whose they are, or "")
@@ -756,13 +754,13 @@ class GridScreen(GameScreen):
                 with Horizontal(id="band"):
                     with Vertical(id="story-box"):
                         yield VerticalScroll(id="story")
-                        yield Input(id="command", placeholder="Type a number, or anything you want to try…")
-                    with Vertical(id="decide"):
+                    with Vertical(id="decide"):  # (what you type first: it's a choice too, any you like)
+                        yield Input(id="command", placeholder="✎ Type anything you want to try, or a number…")
                         with Horizontal(id="top-row"):  # (the buttons, and the compass under them or beside them)
                             yield Vertical(id="bar")
                             yield Vertical(id="compass")
                         yield VerticalScroll(id="below")  # your things, or the options a button's opened
-                        yield Vertical(id="picks")  # the choices left: the narrator's idea, a scene's
+                        yield VerticalScroll(id="picks")  # the choices left: the narrator's idea, a scene's
             with Vertical(id="side"):
                 with Vertical(id="map"):
                     with Vertical(id="map-holder"):
@@ -810,7 +808,7 @@ class GridScreen(GameScreen):
         """Every box sized to the screen as it's shared out."""
         width, height = self.size
         self.plan = Plan(width, height, True, False, False, grid.side, grid.stage, grid.left - 2, BELOW[grid.tall], 0,
-                         grid.band - grid.strip - 2, grid.story - 3)
+                         grid.band - grid.strip - 2, grid.story - 2)
         band, story, decide = self.query_one("#band"), self.query_one("#story-box"), self.query_one("#decide")
         band.styles.layout = "horizontal" if grid.beside else "vertical"
         band.styles.height = grid.band
@@ -843,10 +841,6 @@ class GridScreen(GameScreen):
     def refresh_ways(self) -> None:
         """(The ways out are the compass's.)"""
 
-    def panel(self, name: str) -> Panel:
-        """The panels F1-F7 open: the map's the parchment (or the chart)."""
-        return ChartScreen(self.game) if name == "map" else super().panel(name)
-
     # --- the right column ---
 
     def refresh_here(self) -> None:
@@ -858,10 +852,13 @@ class GridScreen(GameScreen):
         """The floor as a chart in the map's box (as much of each name as fits), the goal and the quests under it."""
         state, content, grid = self.game.state, self.game.content, self.grid
         quests = [line for _, line, still in npcs.quest_log(state, content) if still][:2]
-        shown = (grid, state.floor, state.room_id, tuple((r.id, r.visited, r.fixture_used, map_glyph(state, r),
-                                                          journey(state, r.id) is not None) for r in state.rooms),
+        doors = tuple(tuple((way, e.to, e.locked, e.webbed) for way, e in r.exits.items()) for r in state.rooms)
+        shown = (grid, state.floor, state.room_id, doors, tuple((r.id, r.visited, r.fixture_used, map_glyph(state, r),
+                                                                 r.told, journey(state, r.id) is not None)
+                                                                for r in state.rooms),
                  state.mapped_floor, tuple(quests), self.map_hover)  # (where you can travel to: a fight's end, a
-        # perk picked, a scene over make the rooms clickable again)
+        # perk picked, a scene over make the rooms clickable again; a wall blown open, a door broken in, a secret
+        # room told of: what's on it now)
         if shown == self.map_drawn:
             return
         self.map_drawn = shown
@@ -1134,14 +1131,18 @@ class GridScreen(GameScreen):
             for number, action in enumerate(rest, first):
                 colour = PINK if action.id == "suggest" or action.label.startswith("✦") else ACCENT
                 text = chip(str(number), action.label, colour, action.hint)
-                out.append((Clickable(text, f"screen.slot({number})", classes="choice-chip"), text.cell_len + 2))
+                if text.cell_len + 2 > width:  # (one longer than the box: cut short, never cut off)
+                    text.truncate(max(8, width - 2), overflow="ellipsis")
+                button = Clickable(text, f"screen.slot({number})", classes="choice-chip")
+                button.tooltip = action.label
+                out.append((button, text.cell_len + 2))
             if suggesting:
                 text = Text(f" {first + len(rest)}  ✦ …", style=f"italic {DIM}")
                 out.append((Static(text, classes="choice-chip"), text.cell_len + 2))
             return wrapped(out, width)
 
         below = self.query_one("#below", VerticalScroll)
-        picks = self.query_one("#picks", Vertical)
+        picks = self.query_one("#picks", VerticalScroll)
         picks.display = grid.beside and not quiet
         if grid.beside:
             below.styles.height = "1fr"
@@ -1154,9 +1155,14 @@ class GridScreen(GameScreen):
             self.offered = []
             shown = ("scene", chips_shown)
 
+            # (a framed button each where they all fit, else a line each: the second was cut in half at 120x40)
+            room = below.styles.height.value if not grid.beside and below.styles.height else grid.decide - 2
+            framed = 4 * len(rest) <= room
+
             def build() -> list[Widget]:
                 return [Clickable(Text.assemble((f" {n} ", f"bold #10122a on {ACCENT}"), ("  " + a.label, "bold")),
-                                  f"screen.slot({n})", classes="scene-choice") for n, a in enumerate(rest, first)]
+                                  f"screen.slot({n})", classes="scene-choice" if framed else "scene-choice tight")
+                        for n, a in enumerate(rest, first)]
         elif grid.beside:
             shown, build = self.things_under(width, fight, groups)
         else:
@@ -1170,7 +1176,9 @@ class GridScreen(GameScreen):
             self.swap(below, build())
         if grid.beside and not quiet and chips_shown != self.picks_drawn:
             self.picks_drawn = chips_shown
-            self.swap(picks, chips())
+            lines = chips()  # (more than PICKS lines of them: they take rows from your things, and scroll past that)
+            picks.styles.height = max(PICKS, min(PICKS_MOST, len(lines)))
+            self.swap(picks, lines)
 
     def things_under(self, width: int, fight: bool, groups: dict[str, list[Action]]) -> tuple[tuple, Callable]:
         """Under the buttons (beside the story): the options a button (or a thing's picker) has opened, or else your
@@ -1192,7 +1200,7 @@ class GridScreen(GameScreen):
         used = {item_key(a, content) for a in options}
         idle = [] if self.tray else [key for key in dict.fromkeys(player.inventory) if key not in used]
         compass = 0 if fight or self.tray else grid.ways + 1
-        rows = grid.decide - 2 - (2 * grid.bar + 1) - compass - 1 - PICKS - 1  # (less the heading)
+        rows = grid.decide - 2 - COMMAND - (2 * grid.bar + 1) - compass - 1 - PICKS - 1  # (less the heading)
         per_row = 2 if width >= 2 * CARD[0] + 1 else 1
         entries: list[Action | str] = [*options, *idle]  # (an option, or a thing with nothing to do with it now)
         cards = rows // (CARD[1] + 1) * per_row if rows >= CARD[1] else 0
@@ -1547,14 +1555,3 @@ class GridScreen(GameScreen):
             return
         super().take_input(text)
 
-    def action_arrow(self, direction: str) -> None:
-        """An arrow key: go that way, or, while there's something typed, ← and → move the cursor in it (↑ and ↓ still
-        go: there's nowhere up or down for a cursor in one line, and words left typed had them do nothing)."""
-        command = self.query_one("#command", Input)
-        if command.value and direction in ("west", "east"):
-            if direction == "west":
-                command.action_cursor_left()
-            else:
-                command.action_cursor_right()
-            return
-        self.action_go(direction)

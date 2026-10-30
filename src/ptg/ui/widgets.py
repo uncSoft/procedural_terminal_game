@@ -174,6 +174,7 @@ class Hud(Static):
     shown: tuple[GameState, Content] | None = None
     lit: frozenset[str] = frozenset()  # counters lit up for a moment: gold, bombs or keys just gained (light)
     at: dict[str, int] = {}  # where each part starts, in cells from the bar's left edge, as last shown
+    marks: list[tuple[int, int, str]] = []  # each status's cells in the status part (start, end, its key): a click
 
     def light(self, names: set[str], seconds: float = 1.4) -> None:
         """Light up the counters that just went up, for a moment."""
@@ -189,18 +190,27 @@ class Hud(Static):
 
         self.set_timer(seconds, out)
 
-    def show(self, state: GameState, content: Content) -> None:
+    def show(self, state: GameState, content: Content, hp: int | None = None) -> None:
+        """The bar as things are, your health as `hp` if it's said: your go in a fight shown before the foes' (their
+        blows land a beat later: GameScreen._turn)."""
         self.shown = (state, content)
         player = state.player
+        hp = player.hp if hp is None else hp
         parts: dict[str, Text] = {}
         ailing = statuses.ailing(state)  # (what's wrong with you tints your hearts; Mending doesn't)
-        parts["hp"] = hearts(player.hp, player.max_hp, ailing[0].colour if ailing else "")
-        parts["hp"].append(f" {player.hp}/{player.max_hp}", style="bold")
+        parts["hp"] = hearts(hp, player.max_hp, ailing[0].colour if ailing else "")
+        parts["hp"].append(f" {hp}/{player.max_hp}", style="bold")
         on = [(key, statuses.DEFS[key]) for key in player.statuses if key in statuses.DEFS]
+        self.marks = []  # (each status's place in its part, for a click: its card)
         if on:  # (right by your health: it's what it's eating, or mending; a timed one, its turns left)
-            parts["status"] = Text(" ").join(
-                Text(f"{d.icon} {d.name}" + (f" {statuses.left(state, k)}" if d.lasts else ""), style=f"bold {d.colour}")
-                for k, d in on)
+            parts["status"] = Text()
+            for key, d in on:
+                if parts["status"]:
+                    parts["status"].append(" ")
+                start = parts["status"].cell_len
+                parts["status"].append(f"{d.icon} {d.name}" + (f" {statuses.left(state, key)}" if d.lasts else ""),
+                                       style=f"bold {d.colour}")
+                self.marks.append((start, parts["status"].cell_len, key))
         cue = light_cue(state, content)
         if cue:  # (down in the dark: your torch's flames, or what you're in without one)
             parts["light"] = cue
@@ -238,6 +248,25 @@ class Hud(Static):
             text.append_text(part)
         self.at = at
         self.update(text)
+
+    def on_click(self, event: Click) -> None:
+        """A status on the bar clicked (or your hearts, while something ails you): its card. Your light: light and
+        the dark's."""
+        offset = event.get_content_offset(self)
+        at, shown = self.at, self.shown
+        if offset is None or shown is None or not hasattr(self.screen, "action_lookup"):
+            return
+        x = offset.x
+        state = shown[0]
+        if "status" in at:
+            for start, end, key in self.marks:
+                if at["status"] + start <= x < at["status"] + end:
+                    self.screen.action_lookup(f"status:{key}")
+                    return
+        if "light" in at and at["light"] <= x < at["light"] + 14:
+            self.screen.action_lookup("status:light")
+        elif x < at.get("status", at.get("light", at.get("defense", 0))) and state.player.statuses:
+            self.screen.action_lookup(f"status:{next(iter(state.player.statuses))}")
 
     @staticmethod
     def _width(parts: dict[str, Text]) -> int:
@@ -479,10 +508,17 @@ def item_note(content: Content, key: str) -> str:
 
 
 def power_lines(content: Content, key: str) -> Text:
-    """What an item's powers do, a line each, for its card."""
+    """What an item's powers do, a line each, for its card; and each status it cures or keeps off, what that is."""
     text = Text()
-    for line in powers.describe(content.item(key)):
+    item = content.item(key)
+    for line in powers.describe(item):
         text.append(f"◆ {line}\n", style="bold #ffd166")
+    for status_key in dict.fromkeys([*item.cures, *item.wards]):
+        status = statuses.DEFS.get(status_key)
+        if status is not None:
+            how = "cures" if status_key in item.cures else "keeps off"
+            text.append(f"  {status.icon} {how} {status.name}: ", style=f"bold {status.colour}")
+            text.append(f"{status.blurb}\n", style="#9a9cc0")
     return text
 
 
@@ -936,7 +972,9 @@ class Clickable(Static):
 class DiceLine(Static):
     """A d20 that tumbles for a moment in the story log, then shows the result."""
 
-    async def play(self, event: Event, fast: bool = False) -> None:
+    async def play(self, event: Event, fast: bool = False, quiet: bool = False) -> None:
+        """Its tumble, then its result (`quiet`: without the sound of what came of it, played elsewhere: a foe's blow
+        lands with its swing on the stage)."""
         roll = event.dice
         sound.play("dice_small")
         frames = 4 if fast else 7
@@ -949,4 +987,5 @@ class DiceLine(Static):
             await asyncio.sleep(0.03 + i * 0.012)
         self.update(roll_text(event))
         effects.flash(self, tone(event))
-        sound.play(effects.roll_sound(event))
+        if not quiet:
+            sound.play(effects.roll_sound(event))

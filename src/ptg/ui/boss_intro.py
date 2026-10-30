@@ -25,10 +25,15 @@ from textual.screen import ModalScreen
 from textual.widgets import Static
 
 from .. import encounter, sound
-from .effects import paced
+from .effects import paced, show_frame
 
 HOLD = 0.8  # seconds it stands, called out, before it goes back up
 MARGIN = (4, 2)  # columns and rows left round it, so the game shows at its edges, dimmed
+
+
+def fits(size) -> tuple[int, int]:
+    """The intro's size on a screen this big: all of it, less the margin round it."""
+    return size.width - 2 * MARGIN[0], size.height - 2 * MARGIN[1]
 
 
 def wanted(config) -> bool:
@@ -58,11 +63,17 @@ class BossIntro(ModalScreen[None]):
         self.skipped = False
 
     @classmethod
-    def made(cls, state, content, monster, known: list[str], size, side: int = 1) -> BossIntro | None:
-        """The intro at the screen's size, or None if the screen's no bigger than the stage would be anyway."""
-        width, height = size.width - 2 * MARGIN[0], size.height - 2 * MARGIN[1]
+    def made(cls, state, content, monster, known: list[str], size, side: int = 1,
+             ahead: dict | None = None) -> BossIntro | None:
+        """The intro at the screen's size, or None if the screen's no bigger than the stage would be anyway. Its
+        fight made ahead, if it's in `ahead` (GameScreen.ready_fights: its room's picture is most of the work)."""
+        width, height = fits(size)
         if width < 60 or height < 20:
             return None
+        made = (ahead or {}).pop((state.floor, state.room_id, monster.key, monster.name, width, height), None)
+        if made is not None:
+            made.update(state, monster, known)
+            return cls(made, side)
         return cls(encounter.Fight(state, content, monster, width, height, known), side)
 
     def compose(self) -> ComposeResult:
@@ -72,11 +83,11 @@ class BossIntro(ModalScreen[None]):
         self.run_worker(self.play(), exclusive=True)
 
     async def play(self) -> None:
-        art, fight = self.query_one("#intro-art", Static), self.fight
+        art, fight, shown = self.query_one("#intro-art", Static), self.fight, None
         async for frame, _, cue in paced(fight.entrance(self.side)):
             if self.skipped:
                 break
-            art.update(frame)
+            shown = show_frame(art, frame, shown)
             if cue:
                 sound.play(cue)
         if not self.skipped:
@@ -84,7 +95,7 @@ class BossIntro(ModalScreen[None]):
         async for frame, _ in paced(fight.rise(self.side)):
             if self.skipped:
                 break
-            art.update(frame)
+            shown = show_frame(art, frame, shown)
         self.dismiss()
 
     def action_skip(self) -> None:

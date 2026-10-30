@@ -27,6 +27,10 @@ drop from an everyday monster or turn up from a stunt. They're kept for the plac
 stashes, each floor's secret room, and the warden by the stairs (and other elites); an item can also name the monster
 that drops it. Each comes at most once a run.
 
+So does every piece of gear and every trinket that lasts (single): once it's turned up anywhere, lying about, on a
+counter, in a chest, it never turns up again that run, and a slot with none left for it gives a potion instead. Run 66
+found Gulliver's sword three times, and two Rabbit's Feet (two of a thing count once).
+
 Shops (world._shop) sell what chests keep, and things kept for shops alone (`found = ["shop"]`). Granny Gristle's
 counter has a potion no better than the floor, gear of the floor's tier, a bomb or a small key, and a trinket, or now
 and then something rare; the rare Granny Kamultruk's has the strong potions, the best gear and two rare things, dearer.
@@ -40,7 +44,8 @@ import random
 from .content import FOUND_IN, Content, ItemDef
 
 GEAR = ("weapon", "armor")
-BY_NAME_ONLY = {"lucky_charm", "bomb", "small_key"}
+PICKUP_KEYS = ("bomb", "small_key")
+BY_NAME_ONLY = {"lucky_charm", *PICKUP_KEYS}
 
 FLOORS = {  # each floor spreads these through its rooms (see world._place_loot), with its dungeon's own trinket
     1: ["gear 1", "potion 1", "potion 1", "food 0", "bomb", "small_key"],
@@ -127,6 +132,25 @@ def rare(item: ItemDef) -> bool:
     return bool(item.found) or "rare" in item.tags
 
 
+SPENT = {"throw", "reveal", "torch"}  # a trinket with one of these powers gets used up: another one's no waste
+
+
+def single(item: ItemDef) -> bool:
+    """One of a kind: a rare thing, a piece of gear, or a trinket that lasts (not one that's thrown, burnt for light or
+    used up, nor a bomb or a small key). Each turns up once a run (state.rares)."""
+    if rare(item) or item.kind in GEAR:
+        return True
+    return item.kind == "trinket" and item.key not in PICKUP_KEYS and not SPENT & set(item.powers)
+
+
+RARITIES = ("Common", "Common", "Uncommon", "Fine", "Epic")  # a thing's rarity by its tier; a rare one's Rare
+
+
+def rarity(item: ItemDef) -> str:
+    """How rare a thing is, in a word: Rare (rare), or its tier's (RARITIES)."""
+    return "Rare" if rare(item) else RARITIES[max(0, min(len(RARITIES) - 1, item.tier))]
+
+
 def allowed(item: ItemDef, place: str) -> bool:
     """Whether an item can turn up in a place: everyday loot anywhere, a rare thing only where it's kept (and a shop
     sells what chests keep, too)."""
@@ -136,9 +160,10 @@ def allowed(item: ItemDef, place: str) -> bool:
 
 
 def candidates(content: Content, slot: str, place: str = EVERYDAY, taken=()) -> dict[int, list[str]]:
-    """The items a slot can give in a place, by tier, lowest first, leaving out rare things this run has had."""
+    """The items a slot can give in a place, by tier, lowest first, leaving out the one-of-a-kind things this run has
+    had (`taken`)."""
     if slot in content.items:
-        return {content.item(slot).tier: [slot]}
+        return {} if slot in taken else {content.item(slot).tier: [slot]}
     name, _, tiers = slot.partition(" ")
     roles = GEAR if name == "gear" else (name,)
     low, high = _tiers(tiers)
@@ -176,18 +201,33 @@ def owned(state, content: Content) -> list[str]:
 
 def produce(rng: random.Random, content: Content, rares: list[str], slots: list[str], place: str,
             have: list[str] = ()) -> str | None:
-    """One of a special place's slots, filled; a rare thing it gives is noted in `rares` so it never comes twice, and
-    gear you `have` already isn't given again if anything else fits: if the slot drawn has only what you have, the
-    others are tried first (a chest's "weapon 3+" with your Silvered Blade the only one gave a second)."""
+    """One of a special place's slots, filled; a one-of-a-kind thing it gives is noted in `rares` so it never comes
+    twice, and gear you `have` already isn't given again if anything else fits: if the slot drawn has only what you
+    have, the others are tried first (a chest's "weapon 3+" with your Silvered Blade the only one gave a second)."""
     key = None
     if have:
         taken = [*rares, *have]
         key = one_of(rng, content, slots, place, taken) or \
             next((k for slot in slots for k in [pick(rng, content, slot, place, taken)] if k), None)
     key = key or one_of(rng, content, slots, place, rares)
-    if key is None and any(s.startswith("rare") for s in slots):  # no rare thing left for here
+    if key is None:  # nothing left for here: every one of it has turned up already
         key = pick(rng, content, INSTEAD.get(place, INSTEAD_OF_RARE), place, rares)
-    if key and rare(content.item(key)):
+    return noted(content, rares, key)
+
+
+def give(rng: random.Random, content: Content, rares: list[str], slot: str, place: str = EVERYDAY) -> str | None:
+    """A slot filled for this run, as `produce` fills a special place's (a floor's scattered loot, a lucky find, the
+    gear on the Matriarch's last visitor): a one-of-a-kind thing this run has had already is never given again, and
+    one it gives is noted; with none left, a potion."""
+    key = pick(rng, content, slot, place, rares)
+    if key is None and slot.partition(" ")[0] in (*GEAR, "gear", "trinket"):
+        key = pick(rng, content, INSTEAD_OF_RARE, place, rares)
+    return noted(content, rares, key)
+
+
+def noted(content: Content, rares: list[str], key: str | None) -> str | None:
+    """A key just given, noted in `rares` if it's one of a kind (single), so it's never given again."""
+    if key and single(content.item(key)) and key not in rares:
         rares.append(key)
     return key
 

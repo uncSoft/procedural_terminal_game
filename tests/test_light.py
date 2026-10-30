@@ -135,7 +135,7 @@ def test_picked_up_its_lit_and_put_down_the_dark_closes_in(content):
     events = perform(state, content, "take:torch")
     assert events[-1].kind == "light" and events[-1].text.startswith("You light your torch")
     events = perform(state, content, "drop:torch")
-    assert events[-1].kind == "light" and light.HINT in events[-1].text
+    assert events[-2].kind == "light" and light.HINT in events[-2].text and events[-1].kind == "thought"
 
 
 def test_up_on_a_lit_floor_the_torch_stays_packed(content):

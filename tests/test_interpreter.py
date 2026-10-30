@@ -152,8 +152,8 @@ TABLE = [
     ("ghoul_hurt", "throw the cheese at the ghoul", "throw:cheese_wheel@monster:ghoul", True),
     ("ghoul_hurt", "throw the potion at the ghoul", "throw:healing_potion@monster:ghoul", True),
     ("ghoul_hurt", "drink the potion", "use:healing_potion", True),
-    ("rat_king", "throw the rubber chicken at the rat king", "throw:rubber_chicken@monster:rat_king", True),
-    ("rat_king", "Throw the Rubber Chicken at the Rat King", "throw:rubber_chicken@monster:rat_king", True),
+    ("rat_king", "throw the rubber chicken at the rat king", "throw:rubber_chicken", True),  # (a spare: a choice)
+    ("rat_king", "Throw the Rubber Chicken at the Rat King", "throw:rubber_chicken", True),
     ("rat_king", "throw marbles at the rat king's feet", "throw:bag_of_marbles", True),
     ("rat_king", "throw my healing potion at the rat king", "throw:healing_potion@monster:rat_king", True),
     ("rat_king", "throw the oil at the rat king", "throw:oil_flask", True),

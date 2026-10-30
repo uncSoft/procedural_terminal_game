@@ -190,18 +190,49 @@ def _render(key: str, frame: int, width: int, flash: bool, pose: str) -> Text | 
 
 def posed(img, pose: str, frame: int = 0):
     """A copy of `img` in the given pose (see the module docstring), or `img` itself when the pose changes nothing
-    (idle, calm)."""
+    (idle, calm). Kept (_made): don't draw on it."""
     if pose == "windup":
-        return _glow(_shift(img, 0, -1), GLOW[frame % 2])
-    if pose == "dizzy":
-        return _stars(img, frame)
+        return _made(img, (pose, frame % 2), lambda: _glow(_shift(img, 0, -1), GLOW[frame % 2]))
+    if pose == "dizzy":  # (the stars go round in four steps)
+        return _made(img, (pose, frame % 4), lambda: _stars(img, frame))
     if pose == "lunge":
-        return _recolour(_shift(img, 0, 1 + frame % 2), lambda r, g, b: _shade(REDS, r, g, b))
+        return _made(img, (pose, frame % 2),
+                     lambda: _recolour(_shift(img, 0, 1 + frame % 2), lambda r, g, b: _shade(REDS, r, g, b)))
     if pose == "shake":
-        return _shift(img, (-1, 1)[frame % 2], 0)
+        return _made(img, (pose, frame % 2), lambda: _shift(img, (-1, 1)[frame % 2], 0))
     if pose == "death":
-        return _dissolve(img, min(frame, DEATH_FRAMES - 1))
+        step = min(frame, DEATH_FRAMES - 1)
+        return _made(img, (pose, step), lambda: _dissolve(img, step))
     return img
+
+
+def dimmed(img):
+    """`img` a little darker: one of the others beside the foe you face. Kept (_made)."""
+    return _made(img, ("dim",), lambda: _recolour(img, lambda r, g, b: (int(r * 0.72), int(g * 0.72), int(b * 0.8))))
+
+
+def whitened(img):
+    """`img` white all over: a flash, struck. Kept (_made)."""
+    return _made(img, ("white",), lambda: _recolour(img, lambda r, g, b: (255, 255, 255)))
+
+
+MADE: dict[tuple, tuple] = {}  # (an image's id, what was done to it): (the image, what came of it)
+MADE_MOST = 1024  # then it starts again: a fight's clips, posed and dimmed, are a few hundred
+
+
+def _made(img, how: tuple, make):
+    """What `make` does to `img` (a pose, a tint), kept: a clip's frames come round again every second or two of a
+    fight's loop at 24 a second, and _glow alone, plain Python over every pixel, cost floor 5's stage most of a frame
+    with a foe or three winding up (run 66). Keyed by the image itself, held, so its id can't be another's."""
+    key = (id(img), *how)
+    kept = MADE.get(key)
+    if kept is not None and kept[0] is img:
+        return kept[1]
+    out = make()
+    if len(MADE) >= MADE_MOST:
+        MADE.clear()
+    MADE[key] = (img, out)
+    return out
 
 
 def image_text(img, flash: bool = False, snap: bool = False) -> Text:

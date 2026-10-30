@@ -127,3 +127,48 @@ async def test_a_weapon_lying_here_can_be_equipped_from_its_card():
         await pilot.click(equip[0])
         await settle(app, pilot)
         assert state.player.weapon == "sword_still_in_the_stone" and "rusty_sword" in state.player.inventory
+
+
+async def test_everything_at_the_shop_happens_in_its_window():
+    """Buy, haggle, talk and ask without the window closing and opening again: each is a turn, its die rolls at the
+    counter, and what came of it is told at the foot of the window (docs/plans/playtest-2026-10-30.md §6)."""
+    from test_ui import settle
+
+    app = PTGApp(Config(backend="offline", layout="tabs", player_name="T", auto_roll=False), test_room=("shop", "new", 0))
+    async with app.run_test(size=(170, 50)) as pilot:
+        await pilot.pause(0.5)
+        await settle(app, pilot)
+        screen = app.screen
+        state = screen.game.state
+        shop_room = next(r for r in state.rooms if r.shop)
+        state.room_id, state.player.gold = shop_room.id, 500
+        screen.refresh_panels()
+        screen.action_shop_counter()
+        await pilot.pause(0.4)
+        shop = app.screen
+        assert isinstance(shop, ShopScreen) and screen.counter is shop
+        first = shop_room.shop.wares[0]
+        price = first.price
+        await pilot.press("enter")  # buy it
+        for _ in range(30):
+            await pilot.pause(0.1)
+            if not screen.busy:
+                break
+        assert app.screen is shop and state.player.gold == 500 - price
+        assert "You buy" in " ".join(str(w.render()) for w in shop.query("#shop-log > *"))
+        await pilot.press("b")  # haggle over the next: its roll at the counter, not in a dice window over it
+        for _ in range(40):
+            await pilot.pause(0.1)
+            if not screen.busy:
+                break
+        assert app.screen is shop
+        assert "barter" in " ".join(str(w.render()) for w in shop.query("#shop-log > *"))
+        await pilot.press("t")  # talk to her
+        for _ in range(30):
+            await pilot.pause(0.1)
+            if not screen.busy:
+                break
+        assert app.screen is shop and str(shop.query_one("#shop-log").children[-1].render()).strip()
+        await pilot.press("escape")
+        await pilot.pause(0.3)
+        assert app.screen is screen and screen.counter is None

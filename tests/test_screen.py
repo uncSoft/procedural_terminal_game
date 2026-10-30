@@ -174,7 +174,8 @@ async def test_the_menu_turns_the_sound_off_and_on_without_an_f8(speakers):
             screen.action_menu()
             await pilot.pause(0.3)
             rows = [str(row.render()) for row in app.screen.query(".menu-row")]
-            assert rows[-1].strip() == f"Sound: {now}" and len(rows) == len(MenuScreen.PANELS) + 1
+            assert rows[-2].strip() == f"Sound: {now}" and len(rows) == len(MenuScreen.PANELS) + 2
+            assert rows[-1].strip().startswith("Layout: ")  # (F9's, by the menu)
             app.screen.action_choose("sound")
             await pilot.pause(0.3)
             assert app.screen is screen and app.config.sound is then and sound.engine().enabled is then

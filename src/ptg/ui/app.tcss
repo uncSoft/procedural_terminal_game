@@ -625,7 +625,7 @@ GridScreen #story-box { border: double $primary-darken-2; border-title-color: $p
                         padding: 0 2 0 1; }
 GridScreen #story { height: 1fr; width: 100%; align-horizontal: center; padding: 0; border: none; }
 GridScreen #story > * { max-width: 100; }  /* (a line easy to read: on a wide screen, a column down the middle) */
-GridScreen #command { border: none; height: 1; background: #1c2040; padding: 0 1; margin: 0; }
+GridScreen #command { border: none; height: 1; width: 100%; background: #1c2040; padding: 0 1; margin: 0; }
 GridScreen #command:focus { background: #23284e; }
 GridScreen #decide { border: round $secondary; border-title-color: $secondary; border-title-style: bold; padding: 0 1; }
 GridScreen #decide.fight { border: heavy #ff4b4b; border-title-color: #ff4b4b; }
@@ -656,7 +656,7 @@ GridScreen .compass-cell.middle { background: #1b1f45; }
 GridScreen .compass-cell.way:hover, GridScreen .compass-cell.middle:hover { background: #23284e;
                                                                            text-style: none; }
 GridScreen #below { width: 100%; padding: 0; margin: 1 0 0 0; scrollbar-size-vertical: 1; }
-GridScreen #picks { width: 100%; height: 2; }
+GridScreen #picks { width: 100%; height: 2; scrollbar-size-vertical: 1; }
 GridScreen .items-head { width: 100%; height: 1; }
 GridScreen .items-title { width: 1fr; }
 GridScreen .items-more, GridScreen .items-close { width: auto; margin: 0 0 0 1; }
@@ -670,6 +670,8 @@ GridScreen .card-art { width: 13; height: 6; padding: 0 1 0 0; }
 GridScreen .card-words { width: 1fr; height: 6; padding: 0 1 0 0; }
 GridScreen .scene-choice { width: 100%; height: auto; border: round $accent; padding: 0 1; margin: 0 0 1 0; }
 GridScreen .scene-choice:hover { background: #1c2040; border: heavy $accent; text-style: none; }
+GridScreen .scene-choice.tight { border: none; padding: 0; margin: 0 0 1 0; }  /* (a line each: they all show) */
+GridScreen .scene-choice.tight:hover { border: none; }
 GridScreen .chip-line { height: 1; width: 100%; }
 GridScreen .tray-head { width: auto; padding: 0 1 0 0; }
 GridScreen .choice-chip { width: auto; margin: 0 2 0 0; }
@@ -1162,6 +1164,32 @@ Panel {
 #shop-about {
     margin-top: 1;
 }
+
+#shop-chat {
+    width: 100%;
+    height: auto;
+    margin-top: 1;
+}
+
+#shop-talk {
+    width: auto;
+    margin-right: 3;
+}
+
+#shop-ask {
+    width: auto;
+}
+
+#shop-log {
+    display: none;  /* (till something's been done at the counter: ShopScreen.told) */
+    width: 100%;
+    height: auto;
+    max-height: 8;
+    margin-top: 1;
+    border-left: tall #ff4f9a;
+    padding-left: 1;
+}
+
 
 #inv-use, #inv-hint, #shop-buy, #shop-barter, #shop-sell, #shop-hint {
     width: 100%;

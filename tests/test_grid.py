@@ -1,15 +1,17 @@
 from types import SimpleNamespace
 
 import pytest
+
 from conftest import put_monster
 from test_ui import into_a_run, settle
 
 from ptg import interactions
 from ptg.config import Config
 from ptg.events import Action
+from ptg.ui import effects
 from ptg.ui.app import PTGApp
 from ptg.ui.game_screen import GameScreen
-from ptg.ui.grid import (ACT_MAX, ACT_MIN, BELOW, BESIDE, EXPLORE, FIGHT, SIDE_MAX, SIDE_MIN, STORY_LEAST,
+from ptg.ui.grid import (ACT_MAX, ACT_MIN, BELOW, BESIDE, COMMAND, EXPLORE, FIGHT, SIDE_MAX, SIDE_MIN, STORY_LEAST,
                          BigButton, ChartScreen, GridScreen, ItemCard, chart, kind_of, share, way_name)
 from ptg.ui.here import things_here
 from ptg.ui.tabs import TabsScreen, game_screen
@@ -56,7 +58,7 @@ def test_the_screen_is_shared_out_from_its_size_alone(size):
         assert grid.bar == (7 if grid.tall else 3) and grid.ways in (4, 7, 9)
     else:
         assert not grid.beside and (grid.stage + 2) + grid.story + grid.decide == rows
-        assert grid.decide == 2 + grid.bar + 1 + BELOW[grid.tall] and grid.story >= STORY_LEAST
+        assert grid.decide == 2 + COMMAND + grid.bar + 1 + BELOW[grid.tall] and grid.story >= STORY_LEAST
 
 
 def test_actions_find_their_buttons(content):
@@ -270,13 +272,15 @@ async def test_with_ascii_art_the_buttons_are_words():
 
 
 @pytest.mark.parametrize("size", [(110, 32), (160, 45), (240, 70)])
-async def test_the_command_line_is_at_the_foot_of_the_story(size):
-    """What's typed is seen, under the story's newest lines, inside its frame."""
+async def test_the_command_line_heads_the_decision(size):
+    """What's typed is a choice too, any you like: the command line is at the top of the decision's box, over the
+    big buttons (it was at the foot of the story, the bottom left of the screen, and went unseen)."""
     app = grid_app()
     async with app.run_test(size=size) as pilot:
         screen = await into_a_run(app, pilot)
-        box, command, story = screen.query_one("#story-box"), screen.query_one("#command"), screen.query_one("#story")
-        assert box.content_region.contains_region(command.region) and story.region.bottom == command.region.y
+        decide, command, bar = screen.query_one("#decide"), screen.query_one("#command"), screen.query_one("#top-row")
+        assert decide.content_region.contains_region(command.region) and command.region.y == decide.content_region.y
+        assert command.region.bottom <= bar.region.y and command.region.width == decide.content_region.width
 
 
 async def test_a_hovered_button_shades_its_face_and_is_never_reversed():
@@ -756,6 +760,6 @@ async def test_a_rolls_colour_lights_the_storys_frame_and_adds_none_inside_it():
         game.state.player.hp -= 4
         await screen._roll_feedback([hurt], game.state.player.hp + 4)
         await pilot.pause()
-        assert screen.story_frame() is frame and frame.has_class("tone-bad") and not story.has_class("tone-bad")
+        assert screen.story_frame() is frame and effects.lit(frame) == "bad" and not effects.lit(story)
         assert story.content_region == before  # (no frame inside it: nothing shifts)
         assert str(frame.styles.border_top[1]) != str(screen.query_one("#map").styles.border_top[1])  # (lit)

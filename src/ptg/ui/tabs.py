@@ -81,19 +81,20 @@ JOURNAL_SHOWN = 150
 WORDS, DIM, FAINT, ACCENT, PINK, GOLD = "#c8c8e0", "#6c6f99", "#2a2d4a", "#ffb000", "#ff4f9a", "#ffd166"
 
 
-def game_screen(game, fresh: bool, width: int, height: int) -> GameScreen:
+def game_screen(game, fresh: bool, width: int, height: int, switched: bool = False) -> GameScreen:
     """The game screen to play `game` on: the one the player chose (the tabs, or the grid: ui/grid.py), unless they
-    play by touch or the terminal is too small for it, and then the classic one."""
+    play by touch or the terminal is too small for it, and then the classic one. `switched`: the run's own screen,
+    in another layout (GameScreen.action_switch_layout)."""
     if config.touch():
-        return GameScreen(game, fresh)
+        return GameScreen(game, fresh, switched)
     if game.config.layout == "grid":
         from .grid import MIN_COLUMNS as GRID_COLUMNS, MIN_ROWS as GRID_ROWS, GridScreen  # (grid builds on this module)
 
         if width >= GRID_COLUMNS and height >= GRID_ROWS:
-            return GridScreen(game, fresh)
+            return GridScreen(game, fresh, switched)
     elif game.config.layout == "tabs" and width >= MIN_COLUMNS and height >= MIN_ROWS:
-        return TabsScreen(game, fresh)
-    return GameScreen(game, fresh)
+        return TabsScreen(game, fresh, switched)
+    return GameScreen(game, fresh, switched)
 
 
 # --- what the pane shows ---------------------------------------------------------------------------------------------
@@ -412,10 +413,11 @@ class TabsScreen(GameScreen):
         Binding("escape", "leave", "Title"),
         Binding("pageup", "story_page(-1)", "Scroll up", show=False),
         Binding("pagedown", "story_page(1)", "Scroll down", show=False),
+        Binding("f9", "switch_layout", "Layout"),
     ]
 
-    def __init__(self, game, fresh: bool) -> None:
-        super().__init__(game, fresh)
+    def __init__(self, game, fresh: bool, switched: bool = False) -> None:
+        super().__init__(game, fresh, switched)
         self.tab = "here"
         self.where_was: tuple | None = None  # the room (and whether a fight was on) the tab was last chosen for
         self.focus = {"here": "", "pack": "", "bestiary": ""}  # the thing in each tab's frame, by its id
@@ -878,7 +880,9 @@ class TabsScreen(GameScreen):
         lines = sum(1 + len(cell.plain) // max(1, width - 12) for cell in notes.columns[1]._cells
                     if isinstance(cell, Text))
         room = rows - lines - 2
-        drawn = big_map(state, width, room) or small_map(state)
+        from .grid import drawn_map  # (the grid's chart, its rooms clicked to go there: the grid builds on this)
+
+        drawn = drawn_map(state, width, room, roomy=True, hover=self.map_hover)
         pane = self.query_one("#pane")
         theme = content.themes[state.theme]
         pane.border_title = f"✦ Map · {theme.name} · floor {state.floor} of {state.floors_total}"

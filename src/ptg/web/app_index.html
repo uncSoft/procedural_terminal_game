@@ -165,6 +165,42 @@
         background: #7b8cff;
         color: #0b0b14;
       }
+
+      /* Text smaller or bigger (A− A+): bottom right, faint till the mouse is on it; left of the keyboard by touch */
+      body #text-size {
+        display: none;
+        position: absolute;
+        right: 4px;
+        bottom: 26px;
+        z-index: 30;
+        gap: 2px;
+        opacity: 0.45;
+        transition: opacity 0.2s;
+      }
+      body #text-size:hover {
+        opacity: 1;
+      }
+      body.-first-byte #text-size {
+        display: flex;
+      }
+      body.touch #text-size {
+        right: 52px;
+        bottom: 4px;
+        opacity: 0.8;
+      }
+      body.-closed #text-size {
+        display: none;
+      }
+      body #text-size button {
+        margin: 0;
+        padding: 2px 8px;
+        border: 1px solid #7b8cff;
+        border-radius: 5px;
+        background: rgba(18, 18, 31, 0.85);
+        color: #7b8cff;
+        font: bold 13px "Roboto Mono", Menlo, monospace;
+        touch-action: manipulation;
+      }
     </style>
     <script>
       function getStartUrl() {
@@ -211,6 +247,10 @@
       data-sounds-url="{{ sounds_url }}"
       data-sounds="{{ sounds }}"
     >
+      <div id="text-size">
+        <button type="button" tabindex="-1" data-step="-1" title="Smaller text (the game starts again from the title: your run is saved)">A−</button>
+        <button type="button" tabindex="-1" data-step="1" title="Bigger text (the game starts again from the title: your run is saved)">A+</button>
+      </div>
       <button type="button" id="keyboard" tabindex="-1" aria-label="Keyboard" aria-pressed="false">
         <svg width="26" height="18" viewBox="0 0 26 18" fill="none" aria-hidden="true">
           <rect x="1" y="1" width="24" height="16" rx="2" stroke="currentColor" stroke-width="2" />
@@ -231,12 +271,29 @@
 
         // A phone gets at least 40 columns (Roboto Mono is 0.6 of its size wide), whichever way it's turned: by touch
         // it's picked for the screen's short side too, as it's never picked again (a phone loaded sideways would
-        // otherwise keep a size too big for it upright). A ?fontsize= in the address wins.
+        // otherwise keep a size too big for it upright). A ?fontsize= in the address wins, then the size last
+        // picked with A− A+ (kept in this browser).
+        const KEPT = "ptg-font-size";
+        let kept = null;
+        try { kept = Number(localStorage.getItem(KEPT)) || null; } catch (e) { /* (no storage: the size picked) */ }
+        if (!terminal.dataset.fontSize && kept) terminal.dataset.fontSize = kept;
         if (!terminal.dataset.fontSize) {
           const across = touch ? Math.min(innerWidth, screen.width, screen.height) : innerWidth;
           terminal.dataset.fontSize = Math.max(11, Math.min(16, Math.floor(across / 40 / 0.6)));
         }
         const size = Number(terminal.dataset.fontSize);
+        // A− A+: the text a size smaller or bigger, kept for next time. The terminal's size is set as it's made, so
+        // the page loads again with it (the game with it: from the title, its run saved).
+        document.querySelectorAll("#text-size button").forEach((step) => {
+          step.addEventListener("click", () => {
+            const next = Math.max(8, Math.min(32, size + Number(step.dataset.step)));
+            try { localStorage.setItem(KEPT, String(next)); } catch (e) { /* (kept for this load only) */ }
+            const url = new URL(window.location.href);
+            url.searchParams.set("fontsize", String(next));
+            url.searchParams.delete("delay");
+            window.location.href = url.pathname + "?" + url.searchParams.toString();
+          });
+        });
         if (touch) {
           terminal.dataset.sessionWebsocketUrl = terminal.dataset.touchWebsocketUrl;
           document.body.classList.add("touch");

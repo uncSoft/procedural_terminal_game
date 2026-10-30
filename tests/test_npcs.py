@@ -152,20 +152,22 @@ def test_beat_him_and_the_diaper_is_yours_anyway(content, everyone):
 
 # --- King Mouse ---------------------------------------------------------------------
 
-def test_king_mouse_guards_the_stairs_now_and_then_cut_down_to_size(content, everyone):
-    warren = next(s for s in map(generate, range(40)) if s.themes[1] == "goblin_warren")
-    warren.floor = 2
-    build_floor(warren, content)
-    assert next(r for r in warren.rooms if r.fixture == "stairs").monster.key == "goblin_king"  # (the King's own)
-    state = next(s for s in map(generate, range(5, 40)) if s.themes[1] != "goblin_warren")
-    assert next(r for r in state.rooms if r.fixture == "stairs").monster.key != npcs.KING_MOUSE  # not on floor 1
-    state.floor = 2
-    build_floor(state, content)
+def test_king_mouse_guards_floor_1s_stairs_now_and_then_cut_down_to_size(content, everyone):
+    """Floor 1's stairs are a pool of two (npcs.FLOATING): its dungeon's boss, or King Mouse in its place; floor 2's
+    are always its dungeon's boss."""
+    for seed in range(20):
+        state = generate(seed)
+        state.floor = 2
+        build_floor(state, content)
+        stairs = next(r for r in state.rooms if r.fixture == "stairs")
+        assert stairs.monster.key == content.themes[state.theme].boss  # (never King Mouse)
+    state = next(s for s in map(generate, range(5, 60))
+                 if next(r for r in s.rooms if r.fixture == "stairs").monster.key == npcs.KING_MOUSE)
     stairs = next(r for r in state.rooms if r.fixture == "stairs")
     mouse = stairs.monster
     base = content.monster(npcs.KING_MOUSE)
-    assert mouse.key == npcs.KING_MOUSE and mouse.hostile
-    assert (mouse.hp, base.attack + mouse.attack_mod, base.defense + mouse.defense_mod) == (30, 4, 12)
+    assert mouse.key == npcs.KING_MOUSE and mouse.hostile and not stairs.others
+    assert (mouse.hp, base.attack + mouse.attack_mod, base.defense + mouse.defense_mod) == npcs.KING_MOUSE_SIZE[1][:3]
     go_to(state, stairs)
     mouse.hp, state.player.might = 1, 50
     perform(state, content, "attack")

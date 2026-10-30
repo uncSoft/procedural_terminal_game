@@ -107,6 +107,7 @@ class Room(BaseModel):
     features: list[Feature] = Field(default_factory=list)
     items: list[str] = Field(default_factory=list)
     left: list[str] = Field(default_factory=list)  # those you put down here yourself: no choice offers them back
+    thrown: list[str] = Field(default_factory=list)  # spare weapons you threw here: yours again after (rules.collect)
     monster: MonsterState | None = None  # the one you face (of several foes: the one your blows go to)
     others: list[MonsterState] = Field(default_factory=list)  # the rest of its fight, beside it (combat.foes)
     visited: bool = False
@@ -116,6 +117,7 @@ class Room(BaseModel):
     history: list[str] = Field(default_factory=list)  # what happened here, for the narrator on later visits
     description: str | None = None
     is_boss: bool = False
+    conquered: bool = False  # its boss is beaten: what creeps up on you here after is only a monster (combat.defeat)
     fixture: Fixture = ""
     fixture_used: bool = False
     grid: list[str] = Field(default_factory=list)
@@ -258,7 +260,7 @@ class GameState(BaseModel):
     marks_pending: list[str] = Field(default_factory=list)  # profile marks set this turn, not yet saved
     scene: SceneState | None = None
     mapped_floor: int = 0  # a floor whose whole map you've been handed
-    rares: list[str] = Field(default_factory=list)  # rare items this run has turned up: each comes once
+    rares: list[str] = Field(default_factory=list)  # one-of-a-kind things this run has turned up (loot.single): once
     met: list[str] = Field(default_factory=list)  # one-of-a-kind creatures this run has turned up (MonsterDef.once)
     wandered: dict[str, int] = Field(default_factory=dict)  # quick travel's run-ins, by floor (rules.TRAVEL_MEETINGS)
     warned: list[str] = Field(default_factory=list)  # cursed things you've been warned of: taking one now takes it

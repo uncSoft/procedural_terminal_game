@@ -43,8 +43,10 @@ QUIET_KINDS = {"perk"}  # resolved without asking the narrator
 EXCHANGE = {"hit", "miss", "monster_hit", "monster_miss", "dodge_ready", "dodge_fail", "dodge", "evade", "guard",
             "telegraph", "stunned", "heal"}
 FOUND = "found:"  # a profile mark for each thing that's ever been yours (Game.first_finds)
-MECHANICS = {"fate_spent", "level", "trait", "warning", "status_tick", "light"}  # the screen says these (a line, the
-# level-up screen, a banner, a warning's line, poison's burn, your torch lit or out): not told
+FIRST_STATUS = "status:"  # and for each status that's ever taken hold of you, and the dark (Game.first_statuses)
+MECHANICS = {"fate_spent", "level", "trait", "warning", "status_tick", "light", "thought"}  # the screen says these (a
+# line, the level-up screen, a banner, a warning's line, poison's burn, your torch lit or out, a thought of yours in
+# your own voice): not told
 
 
 def roll_said(event: Event) -> str:
@@ -172,6 +174,21 @@ class Game:
     def can_reroll(self) -> bool:
         primary = self.pending.primary if self.pending else None
         return bool(primary and not primary.dice.success and self._snapshot and self.fate_left() > 0)
+
+    def first_statuses(self, events: list[Event]) -> list[str]:
+        """What's taken hold of you in these events for the first time ever (poisoned, burning, stunned, mending),
+        and the dark, the first time you're down in it with no light: each has a card the first time (ui's
+        InfoScreen, "status:" its key). Noted in the profile; a test room notes nothing, and shows them all."""
+        seen, new = self.profile.marks(), []
+        for event in events:
+            key = event.data.get("status", "") if event.kind == "status" and event.data.get("on") else \
+                "light" if event.kind == "warning" and event.data.get("lit") is False else ""
+            if key and FIRST_STATUS + key not in seen and key not in new:
+                new.append(key)
+        if not self.state.test_room:
+            for key in new:
+                self.profile.set_mark(FIRST_STATUS + key)
+        return new
 
     def first_finds(self, events: list[Event]) -> list[str]:
         """What came your way in these events that's never been yours before, in any run: taken, bought, won or

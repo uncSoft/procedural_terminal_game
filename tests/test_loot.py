@@ -164,3 +164,41 @@ def test_a_chest_doesnt_hand_you_gear_you_already_have(content):
     given = {loot.produce(random.Random(seed), content, [], [f"gear {state.floor}"], "chest", have)
              for seed in range(200)}
     assert given and None not in given and not given & set(have)
+
+
+def everything_placed(state, content) -> list[str]:
+    """Every thing this floor has to find: hidden, lying about, on a counter, kept by a monster's keeper."""
+    keys = []
+    for room in state.rooms:
+        keys += room.items + [k for f in room.features for k in f.loot]
+        keys += [w.item for w in room.shop.wares] if room.shop else []
+    return keys
+
+
+def test_gear_and_lasting_trinkets_turn_up_once_a_run(content):
+    """Run 66 found Gulliver's sword three times (bought on floor 3, then lying on floor 5, then in the Matriarch's
+    cocoon) and two Rabbit's Feet: every piece of gear, and every trinket that lasts, is one of a kind now. Things
+    used up (a torch, lamp oil, a bomb) still come again."""
+    assert loot.single(content.item("gulliver_helper_sword")) and loot.single(content.item("chain_shirt"))
+    assert loot.single(content.item("lucky_charm")) and loot.single(content.item("ten_foot_pole"))
+    assert not [k for k in ("torch", "oil_flask", "bomb", "small_key", "healing_potion", "glow_stick")
+                if loot.single(content.item(k))]
+    for seed in range(40):
+        state = generate(seed, content=content, floors=5)
+        seen = [state.player.weapon]
+        for floor in range(1, 6):
+            if floor > 1:
+                state.floor = floor
+                build_floor(state, content)
+            seen += [k for k in everything_placed(state, content) if loot.single(content.item(k))]
+        twice = [k for k, n in Counter(seen).items() if n > 1]
+        assert not twice, (seed, twice)
+        assert not [k for k in set(seen) - set(state.rares) if not content.item(k).found]  # (a quest's: its own)
+
+
+def test_a_slot_with_nothing_left_gives_a_potion(content):
+    """Once every tier-3 weapon and armor has turned up, a floor's "gear 3" is a potion, not nothing."""
+    rares = [k for k in content.items if loot.single(content.item(k))]
+    key = loot.give(random.Random(1), content, rares, "gear 3")
+    assert key and loot.role(content.item(key)) == "potion"
+    assert loot.give(random.Random(1), content, [], "gear 3") in rares

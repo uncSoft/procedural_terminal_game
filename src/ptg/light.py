@@ -44,6 +44,38 @@ OIL = "oil_flask"  # what fills a torch up again
 DIM, DARK = "by the glow", "in the dark"  # what you're in down there with no light of your own (darkness)
 WRAPS = ("cocoon", "wrapped", "curtain", "bundle")  # a dark floor's things wrapped tight in threads: fire opens them
 HINT = "A light source would be super helpful down here!"  # (JT's words: what you're told with none)
+# What you think to yourself in the dark, in your own words (a "thought": the screen says it in your voice).
+THOUGHTS = {"arrival": "It's so dark down here. I need a torch, or anything that'll burn.",
+            "out": "My torch is out. I need light, and fast.",
+            "pitch": "I can't see my own hands in here. If only I had a torch."}
+
+
+def card(content: Content) -> list[tuple[str, str]]:
+    """Light and the dark, as a card's (heading, words) lines: what the dark does, your torch and its flames, oil,
+    what fire's for, and lights that never burn down (ui's InfoScreen draws them, like a status's)."""
+    oil = content.items[OIL].name if OIL in content.items else "lamp oil"
+    lasting = [item.name for item in content.items.values() if "light" in item.powers]
+    lines = [("", "Down on the dark floors nothing lights your way but what grows there. With no light of your own, "
+                  "your searches are at a disadvantage; in a pitch-dark room every roll of yours is, and anything "
+                  "there strikes first."),
+             ("A torch", f"Carry one on a dark floor and it's lit for you, with {FLAMES} flames. Each thing you burn "
+                         "with it (a foe, the web over a door, the threads round a cache) costs a flame; out of "
+                         "flames, it's out."),
+             ("Oil", f"Pour {the(oil)} over your torch and it roars back, every flame of it."),
+             ("Fire", "Webs, wrapped threads and some foes only give way to fire: burn them with your torch.")]
+    if lasting:
+        lines.append(("Lights that last", ", ".join(lasting) + ": a light that never burns down."))
+    return lines
+
+
+def thought(state: GameState, why: str, once: bool = False) -> list[Event]:
+    """A thought of yours about the dark (THOUGHTS), as an event the screen says in your voice; `once` a floor."""
+    if once:
+        key = f"thought:{why}:{state.floor}"
+        if state.said.get(key):
+            return []
+        state.said[key] = 1
+    return [Event("thought", THOUGHTS[why])]
 
 
 def dark_floor(state: GameState, content: Content) -> bool:
@@ -160,23 +192,25 @@ def settle(state: GameState, content: Content) -> list[Event]:
     if not dark_floor(state, content):
         return []
     return [Event("light", f"Without a torch, the dark closes in, lit only by what grows. {HINT}",
-                  data={"lit": False})]
+                  data={"lit": False})] + thought(state, "out")
 
 
 def arrival(state: GameState, content: Content) -> list[Event]:
     """Come down to a dark floor with no light of your own: what you're in for (one with a torch lights it: settle)."""
     if not dark_floor(state, content) or lamp(state, content):
         return []
-    return [Event("warning", "There's no light down here but what grows, and you've brought none: your searches are "
-                             f"at a disadvantage, and in the dark places, everything is. {HINT}", data={"lit": False})]
+    return thought(state, "arrival") + [
+        Event("warning", "There's no light down here but what grows, and you've brought none: your searches are at a "
+                         f"disadvantage, and in the dark places, everything is. {HINT}", data={"lit": False})]
 
 
 def entering(state: GameState, content: Content) -> list[Event]:
     """Walked into a room nothing lights, with no light of your own: said every time, it matters so much."""
     if darkness(state, content) != DARK:
         return []
-    return [Event("warning", "It's pitch dark in here, and you've no light: every roll of yours is at a disadvantage, "
-                             "and anything here gets the first blow.", data={"dark": True})]
+    return thought(state, "pitch", once=True) + [
+        Event("warning", "It's pitch dark in here, and you've no light: every roll of yours is at a disadvantage, and "
+                         "anything here gets the first blow.", data={"dark": True})]
 
 
 def facts(state: GameState, content: Content) -> str:

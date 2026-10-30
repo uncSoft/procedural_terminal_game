@@ -16,6 +16,7 @@ def no_found_cards(request, monkeypatch):
         from ptg.game import Game
 
         monkeypatch.setattr(Game, "first_finds", lambda self, events: [])
+        monkeypatch.setattr(Game, "first_statuses", lambda self, events: [])  # (a status's first card, likewise)
 
 
 @pytest.fixture
@@ -29,6 +30,8 @@ def isolated_home(tmp_path, monkeypatch):
     monkeypatch.setenv("PTG_HOME", str(tmp_path))
     monkeypatch.setenv("PTG_SOUND", "0")
     monkeypatch.setenv("PTG_BIG_INTRO", "0")  # (a boss's big entrance over everything: a test that wants it says so)
+    monkeypatch.setenv("PTG_GC", "0")  # (the collector as Python has it: hundreds of games start in one process)
+    monkeypatch.setenv("PTG_FIGHT_PAUSES", "0")  # (the beat before the foes' goes, the spoils held up: likewise)
     return tmp_path
 
 

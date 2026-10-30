@@ -3,7 +3,7 @@ with the classic screen, and the pane's sums (the big map, the notes under it, e
 
 from rich.console import Console
 from test_screen import walk_in
-from test_ui import settle
+from test_ui import into_a_run, settle
 
 from ptg import npcs, testrooms
 from ptg.config import Config
@@ -12,7 +12,8 @@ from ptg.game import Game
 from ptg.ui import tabs
 from ptg.ui.app import PTGApp
 from ptg.ui.game_screen import GameScreen
-from ptg.ui.panels import InventoryScreen, MapScreen
+from ptg.ui.grid import ChartScreen
+from ptg.ui.panels import InventoryScreen
 from ptg.ui.tabs import (
     TabsScreen,
     big_map,
@@ -88,7 +89,7 @@ async def test_tabs_change_only_the_pane_and_pressed_again_open_the_panel_in_ful
         assert screen.query_one("#stage") is stage and screen.query_one("#story") is story  # (nothing else rebuilt)
         await pilot.press("f5")  # (again: the map in full)
         await pilot.pause(0.3)
-        assert isinstance(app.screen, MapScreen)
+        assert isinstance(app.screen, ChartScreen)
         await pilot.press("escape")
         await pilot.pause(0.3)
         for key, tab in (("f2", "pack"), ("f3", "sheet"), ("f7", "journal"), ("f6", "bestiary"), ("f4", "here")):
@@ -164,7 +165,7 @@ async def test_the_footer_has_every_key_and_who_is_narrating():
 
     shown = {b.key: b.description for b in TabsScreen.BINDINGS if b.show}
     assert shown == {"f1": "Help", "f2": "Pack", "f3": "Sheet", "f4": "Here", "f5": "Map", "f6": "Bestiary",
-                     "f7": "Journal", "escape": "Title"}
+                     "f7": "Journal", "escape": "Title", "f9": "Layout"}
     app = PTGApp(Config(backend="offline", player_name="T"), test_room=("lenny", "new", 0))
     async with app.run_test(size=(152, 43)) as pilot:
         screen = await walk_in(app, pilot)
@@ -395,3 +396,25 @@ async def test_walking_into_one_that_holds_its_ground_puts_a_warning_in_the_stor
         screen = await walk_in(app, pilot)
         said = " ".join(str(w.render()) for w in screen.query("#story .system-line"))
         assert "⚠ The Rat King won't be scared off" in said
+
+
+async def test_f9_switches_the_layout_mid_run_and_the_run_carries_on():
+    """Tabs, the grid, classic and round again, without going back to the title: the same run, its story kept, and
+    Settings remember the last."""
+    from ptg.config import load_config
+    from ptg.ui.grid import GridScreen
+
+    app = PTGApp(Config(backend="offline", layout="tabs", player_name="T"), seed=3)
+    async with app.run_test(size=(170, 50)) as pilot:
+        screen = await into_a_run(app, pilot)
+        assert isinstance(screen, TabsScreen)
+        game = screen.game
+        told = len(game.state.log)
+        for want in (GridScreen, GameScreen, TabsScreen):
+            await pilot.press("f9")
+            await pilot.pause(0.5)
+            now = app.screen
+            assert type(now) is want and now.game is game and not now.busy
+            assert len(game.state.log) == told  # (no turn taken, nothing told again)
+            assert "CONTINUED" not in " ".join(str(w.render()) for w in now.query("#story > *"))
+        assert load_config().layout == "tabs"

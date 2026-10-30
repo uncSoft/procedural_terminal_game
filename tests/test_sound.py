@@ -232,3 +232,41 @@ async def test_a_sound_from_another_thread_waits_for_the_games_own():
     assert sent == []
     await asyncio.sleep(0)
     assert sent == [("coin.wav", threading.get_ident())]
+
+
+def test_the_collector_is_kept_out_of_the_frames_way(monkeypatch):
+    """Full sweeps of the game's heap, 40-80 ms each, twice a second, stuttered run 66's floor 5 and starved the
+    speakers: young sweeps rarer, and what lasts frozen out of sight."""
+    import gc
+
+    from ptg.ui import collector
+
+    before = gc.get_threshold()
+    monkeypatch.setenv("PTG_GC", "1")
+    try:
+        collector.tune()
+        assert gc.get_threshold() == collector.THRESHOLDS
+        collector.settle()
+        assert gc.get_freeze_count() > 0
+    finally:
+        gc.unfreeze()
+        gc.set_threshold(*before)
+    monkeypatch.setenv("PTG_GC", "0")
+    collector.tune()
+    assert gc.get_threshold() == before
+
+
+async def test_a_foes_dice_line_can_land_quietly(speakers, monkeypatch):
+    """A foe's blow sounds as it swings on the stage, not as its dice land in the story (run 66: a second early)."""
+    from ptg.dice import Roll
+    from ptg.events import Event
+    from ptg.ui import widgets
+    from ptg.ui.widgets import DiceLine
+
+    monkeypatch.setattr(widgets.effects, "flash", lambda *a, **kw: None)
+    monkeypatch.setattr(DiceLine, "update", lambda *a, **kw: None)
+    roll = Roll(label="the goblin attacks", actor="monster", dice=[15], kept=15, dc=12, success=True)
+    await DiceLine("").play(Event("monster_hit", "", dice=roll), fast=True, quiet=True)
+    assert speakers.moments == ["dice_small"]
+    await DiceLine("").play(Event("monster_hit", "", dice=roll), fast=True)
+    assert len(speakers.moments) == 3

@@ -4,6 +4,7 @@ and how dangerous it looks, winning in style, the stage's fight view, and how a 
 import random
 
 import pytest
+from rich.text import Text
 
 from conftest import put_monster
 from ptg import combat, encounter, interactions, loot, npcs
@@ -396,7 +397,7 @@ async def test_a_fight_comes_in_on_the_stage_and_ends_with_its_spoils(monkeypatc
     entrance, shatter = encounter.Fight.entrance, encounter.Fight.shatter
     monkeypatch.setattr(encounter.Fight, "entrance",
                         lambda self, *a, **kw: entrances.append(1) or entrance(self, *a, **kw))
-    monkeypatch.setattr(encounter.Fight, "shatter", lambda self, *a: spoiled.append(1) or shatter(self, *a))
+    monkeypatch.setattr(encounter.Fight, "shatter", lambda self, *a, **kw: spoiled.append(1) or shatter(self, *a, **kw))
     app = PTGApp(Config(backend="offline", layout="grid", player_name="T", auto_roll=True), seed=1)
     async with app.run_test(size=(160, 50)) as pilot:
         screen = await into_a_run(app, pilot)
@@ -470,3 +471,107 @@ async def test_the_stage_loops_a_boss_through_its_idle_in_a_fight():
         ticks = screen.loop_tick
         await pilot.pause(1.0)
         assert screen.looping and screen.loop_tick - ticks >= 10  # (many frames a second, not one every 0.6)
+
+
+def test_a_wipe_goes_up_or_down_as_well_as_across():
+    old, new = Text("aaaa\naaaa\naaaa\naaaa"), Text("bbbb\nbbbb\nbbbb\nbbbb")
+    down = encounter.wipe(old, new, steps=4, up=1)  # (going north: the next room from the top)
+    assert down[0].plain.split("\n")[0] == "bbbb" and down[0].plain.split("\n")[-1] == "aaaa"
+    assert down[-1].plain == new.plain
+    rising = encounter.wipe(old, new, steps=4, up=-1)  # (south: from the bottom)
+    assert rising[0].plain.split("\n")[-1] == "bbbb" and rising[0].plain.split("\n")[0] == "aaaa"
+
+
+async def test_walking_through_a_door_wipes_the_next_room_in_from_that_way(monkeypatch):
+    from test_ui import into_a_run, take_choice
+
+    from ptg.ui.app import PTGApp
+
+    wiped = []
+    real = encounter.wipe
+    monkeypatch.setattr(encounter, "wipe", lambda *a, **kw: wiped.append((kw.get("side"), kw.get("up"))) or
+                        real(*a, **kw))
+    app = PTGApp(Config(backend="offline", layout="tabs", player_name="T", auto_roll=True), seed=1)
+    async with app.run_test(size=(160, 50)) as pilot:
+        screen = await into_a_run(app, pilot)
+        state = screen.game.state
+        for room in state.rooms:
+            room.monster, room.others = None, []
+        way = next(d for d, e in state.room.exits.items() if not e.shut)
+        for _ in range(50):  # (the room's on the stage first: a busy machine may take a moment to draw it)
+            if screen.stage_still is not None:
+                break
+            await pilot.pause(0.1)
+        await pilot.pause(2.5)  # (past a beat of the stage: a room where nothing moves stops keeping a second frame)
+        here = state.room_id
+        await take_choice(app, pilot, screen, f"go:{way}")
+        for _ in range(50):  # (and the move made: on a busy machine the turn may not have begun yet)
+            if state.room_id != here and not screen.busy:
+                break
+            await pilot.pause(0.1)
+        expected = {"east": (1, 0), "west": (-1, 0), "north": (1, 1), "south": (1, -1)}[way]
+        assert wiped and wiped[-1] == expected
+
+
+async def test_the_map_moves_on_before_the_room_wipes_in(monkeypatch):
+    """Run 66: the wipe, the step, then the map read as a hitch. The map (and Here) say where you are first."""
+    from test_ui import into_a_run, take_choice
+
+    from ptg.ui.app import PTGApp
+
+    seen = []
+    real = encounter.wipe
+    app = PTGApp(Config(backend="offline", layout="grid", player_name="T", auto_roll=True), seed=1)
+    async with app.run_test(size=(160, 50)) as pilot:
+        screen = await into_a_run(app, pilot)
+        monkeypatch.setattr(encounter, "wipe", lambda *a, **kw: seen.append(screen.map_drawn[2]) or real(*a, **kw))
+        state = screen.game.state
+        for room in state.rooms:
+            room.monster, room.others = None, []
+        way = next(d for d, e in state.room.exits.items() if not e.shut)
+        for _ in range(50):
+            if screen.stage_still is not None:
+                break
+            await pilot.pause(0.1)
+        await pilot.pause(2.5)
+        here = state.room_id
+        await take_choice(app, pilot, screen, f"go:{way}")
+        for _ in range(50):
+            if state.room_id != here and not screen.busy:
+                break
+            await pilot.pause(0.1)
+        assert seen and seen[0] == state.room_id != here
+
+
+def test_a_frame_the_size_of_the_last_isnt_laid_out_again():
+    """24 frames a second, each laying the whole screen out again, stuttered run 66's floor 5."""
+    from rich.text import Text
+
+    from ptg.ui import effects
+
+    class Art:
+        def __init__(self):
+            self.layouts = []
+
+        def update(self, frame, layout=True):
+            self.layouts.append(layout)
+
+    art = Art()
+    shown = effects.show_frame(art, Text("ab\ncd"), None)
+    shown = effects.show_frame(art, Text("xy\nzw"), shown)
+    shown = effects.show_frame(art, Text("xyz\nzw"), shown)
+    effects.show_frame(art, "abc\nde", shown)
+    assert art.layouts == [True, False, True, False]
+
+
+def test_a_posed_frame_is_kept():
+    """A clip's frames come round again and again in a fight's loop: a windup's glow (plain Python over every pixel)
+    is drawn once a frame, not once a tick."""
+    from ptg import sprites
+
+    img = encounter.Image.new("RGBA", (12, 12), (0, 0, 0, 0))
+    img.putpixel((6, 6), (200, 10, 10, 255))
+    assert sprites.posed(img, "windup", 0) is sprites.posed(img, "windup", 2)
+    assert sprites.posed(img, "windup", 1) is not sprites.posed(img, "windup", 0)
+    assert sprites.dimmed(img) is sprites.dimmed(img) and sprites.posed(img, "idle") is img
+    assert sprites.posed(img, "windup", 1).getpixel((6, 4))[3] == 255  # (the glow, a pixel out, the sprite up one)

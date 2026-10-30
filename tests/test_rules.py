@@ -1,4 +1,5 @@
 import dataclasses
+import random
 from collections import Counter
 
 import pytest
@@ -481,7 +482,7 @@ def test_rooms_remember_what_happened_in_them(content):
         perform(state, content, "attack")
     direction = next(iter(start.exits))
     perform(state, content, f"go:{direction}")
-    state.room.monster = None  # nothing in the way back
+    state.room.monster, state.room.others = None, []  # nothing in the way back
     back = next(d for d, e in state.room.exits.items() if e.to == start.id)
     events = perform(state, content, f"go:{back}")
     assert start.history == ["you killed the Goblin"] and "Earlier here: you killed the Goblin." in events[0].text
@@ -715,3 +716,77 @@ def test_a_ghosts_remains_hold_no_second_rare_and_nothing_this_run_must_earn(con
         assert rares and all(state.rares.count(k) == 1 for k in rares)  # this run's one of each
         placed = [k for r in state.rooms for k in r.items + [i for f in r.features for i in f.loot]]
         assert all(placed.count(k) == 1 for k in rares)
+
+
+def test_a_spare_weapon_is_thrown_once_a_fight_and_comes_back_after(content):
+    """A weapon in your pack is a throw in a fight, for its own dice: it lands at the foe's feet, and once the fight's
+    over it's back in your pack, unless it spun off into the dark (combat.THROWN_LOST)."""
+    from ptg import combat
+
+    kept = lost = 0
+    for seed in range(40):
+        state = generate(seed)
+        state.player.inventory.append("war_pick")
+        put_monster(state, content, key="orc", hp=200)
+        throw = next(a for a in available_actions(state, content) if a.id == "throw:war_pick")
+        assert "1d10" in throw.hint and "lose" in throw.hint
+        perform(state, content, "throw:war_pick")
+        assert "war_pick" not in state.player.inventory
+        assert "throw:war_pick" not in {a.id for a in available_actions(state, content)}  # (once a fight)
+        if "war_pick" in state.room.thrown:
+            state.room.monster.hp = 1
+            state.player.might = 50
+            perform(state, content, "attack")
+            if not state.in_combat:
+                assert "war_pick" in state.player.inventory and not state.room.thrown
+                kept += 1
+        else:
+            assert "war_pick" not in state.room.items
+            lost += 1
+    assert kept and lost and combat.THROWN_LOST > 0
+
+
+def test_a_cursed_spare_wont_be_thrown(content):
+    from dataclasses import replace
+
+    cursed = replace(content.item("war_pick"), powers=["cursed"])
+    content = replace(content, items={**content.items, "war_pick": cursed})
+    state = generate(3)
+    state.player.inventory.append("war_pick")
+    put_monster(state, content, key="orc", hp=200)
+    assert "throw:war_pick" not in {a.id for a in available_actions(state, content)}
+    assert "cursed" in perform(state, content, "throw:war_pick")[0].text
+
+
+def test_a_boss_room_is_conquered_once(content):
+    """Run 66 killed a Grinning Gasbag that crept up on it resting in Serpentis's lair, and was told it had conquered
+    Norfel again."""
+    from ptg.combat import defeat
+
+    state = generate(5)
+    state.room.is_boss = True
+    put_monster(state, content, key="goblin_king", hp=1)
+    first = [e.kind for e in defeat(state, content, random.Random(1))]
+    put_monster(state, content, key="goblin", hp=1)
+    again = [e.kind for e in defeat(state, content, random.Random(1))]
+    assert "conquered" in first and "conquered" not in again
+
+
+def test_a_blow_on_a_thief_knocks_its_loot_loose(content):
+    """"Stop it now, or it's gone": a hit does it, not a kill (a floor-5 Sporerat has 30 HP: run 66 lost 115 gold)."""
+    state = generate(3)
+    thief = put_monster(state, content, key="sporerat", hp=200)
+    thief.stolen_gold, state.player.gold = 40, 0
+    state.player.might, state.player.level = 50, 50  # (a sure hit)
+    events = perform(state, content, "attack")
+    mine = [e.text for e in events if not e.data.get("theirs")]
+    assert "You get your 40 gold back." in mine and any("lets go" in t for t in mine)  # (it may grab more after)
+
+
+def test_a_key_that_opens_something_is_taken_at_once(content):
+    """Run 66 found Watcher's Orb, left it lying, and walked back for it from the locked door."""
+    state = generate(3)
+    key = content.themes[state.theme].key_item or "reliquary_key"
+    state.room.features.append(Feature(name="a crusted pool", loot=[key]))
+    perform(state, content, "search:" + str(len(state.room.features) - 1))
+    assert key in state.player.inventory and key not in state.room.items

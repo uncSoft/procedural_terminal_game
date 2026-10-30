@@ -17,7 +17,7 @@ from collections import deque
 from . import dice, hazards, interactions, inventory, layout, light, loot, npcs, powers, statuses
 from .combat import (bomb_monster, burn, discover, distract, dodge, face, flee, flee_direction, foes, foes_turn,
                      fortune, holds_its_ground, monster_turn, player_attack, rally, stand_firm_warning, telegraph,
-                     throw, what_is_left)
+                     throw, thrown_damage, what_is_left)
 from .content import Content, ItemDef
 from .creative import perform_creative as _creative
 from .events import Action, Event
@@ -109,6 +109,9 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
             if "throw" in item.powers:
                 actions.append(Action(f"throw:{item.key}", f"Throw {the(item.name)} at {the(monster.name)}",
                                       how_many(player, item.key)))
+            elif item.kind == "weapon" and not inventory.sticky(state, content, item.key):  # (a spare: once a fight)
+                actions.append(Action(f"throw:{item.key}", f"Throw {the(item.name)} at {the(monster.name)}",
+                                      f"{thrown_damage(item)} · you may lose it"))
             if "distract" in item.powers and not monster.distracted:
                 actions.append(Action(f"distract:{item.key}", f"Distract {the(monster.name)} with {the(item.name)}",
                                       "once a fight"))
@@ -536,14 +539,17 @@ def finish_turn(state, content, rng, events, took_turn, was_in_combat, room_befo
         state.reroll = 0
         events += rally(state)  # (the one you faced is down: the next of its fight comes at you)
         if was_in_combat and state.room_id == room_before and state.in_combat and not state.over:
+            mine, hp = len(events), state.player.hp
             events += foes_turn(state, content, rng)  # (each foe's go, then their burns and mending)
             events += rally(state)
+            theirs(events[mine:], hp)
         if was_in_combat and state.room_id == room_before and not state.over:  # (a fight's turn: poison burns)
             events += statuses.tick(state, "round")
     if not state.in_combat:  # the fight's over: no vines left to hold you, nothing to dodge, no daze
         state.player.tangled = state.player.dodging = False
         for key in [k for k in state.player.statuses if statuses.DEFS.get(k) and statuses.DEFS[k].skip]:
             del state.player.statuses[key]
+        perks_owed(state, content)  # (a level reached mid-fight: its perk now)
     events = npcs.react(state, content, events)  # what the characters say to it all, each right after what it's about
     if not state.over:
         events += check_traits(state)
@@ -552,6 +558,15 @@ def finish_turn(state, content, rng, events, took_turn, was_in_combat, room_befo
         events[after_drops:after_drops] = collect(state, content)
     powers.settle_stats(state, content)  # what you carry now, in your stats
     return events + light.settle(state, content)  # (a torch taken, bought or come down with: it's lit)
+
+
+def theirs(events: list[Event], hp: int) -> None:
+    """A fight's turn after your go: the foes' goes, their burns and mending, marked as theirs, so the screen can
+    show your go and then theirs, a beat apart, with your HP between them (`hp`, on the first)."""
+    for event in events:
+        event.data["theirs"] = True
+    if events:
+        events[0].data["hp_before"] = hp
 
 
 def quietly(events: list[Event]) -> list[Event]:
@@ -563,14 +578,20 @@ def quietly(events: list[Event]) -> list[Event]:
 
 def collect(state: GameState, content: Content) -> list[Event]:
     """Bombs and small keys lying where you are go straight on their counters, Isaac-style, once there's no fight:
-    there's nothing to choose about them."""
+    there's nothing to choose about them. So does a key that opens something (no one leaves the boss's key: run 66
+    did, by the Watcher's Orb, and walked back for it), and a spare weapon you threw here, picked up again."""
     room = state.room
-    if state.in_combat or not any(key in PICKUPS for key in room.items):
+    wanted = [k for k in room.items if k in PICKUPS or content.item(k).kind == "key"]
+    if state.in_combat or not (wanted or room.thrown):
         return []
     events = []
-    for key in [k for k in room.items if k in PICKUPS]:
+    for key in wanted:
         inventory.off_the_floor(room, key)
         events += inventory.gain(state, content, key, "take", "room")
+    for key in [k for k in room.thrown if k in room.items]:
+        inventory.off_the_floor(room, key)
+        events += inventory.gain(state, content, key, "take", "room", says=f"You pick up {the(content.item(key).name)}")
+    room.thrown = []
     return quietly(events)
 
 
@@ -590,19 +611,31 @@ LEVEL_HP = 2  # what a level adds to your most HP, and heals
 
 
 def check_level(state: GameState, content: Content) -> list[Event]:
+    """A level for every one your XP has reached: its HP now, its perk to pick. Mid-fight (one of several foes down,
+    the rest still at you) the perk waits until the fight's over (perks_owed): picking one then took the fight's
+    turn's choices away, and its window came up over the fight."""
     player = state.player
     events = []
     while player.next_level_xp() is not None and player.xp >= player.next_level_xp():
         player.level += 1
         player.max_hp += LEVEL_HP
         player.hp += LEVEL_HP
-        if state.pending_perks:
+        later = state.in_combat
+        if state.pending_perks or later:
             state.perk_debt += 1
         else:
             _offer_perks(state, content)
-        events.append(Event("level", f"You reach level {player.level}! Choose a perk.",
+        events.append(Event("level", f"You reach level {player.level}! "
+                                     f"{'A perk to choose once the fight is over.' if later else 'Choose a perk.'}",
                             data={"level": player.level, "journal": f"You reached level {player.level}."}))
     return events
+
+
+def perks_owed(state: GameState, content: Content) -> None:
+    """A level reached mid-fight: its perk to pick, now the fight's over (check_level)."""
+    if state.perk_debt and not state.pending_perks and not state.in_combat and not state.over:
+        state.perk_debt -= 1
+        _offer_perks(state, content)
 
 
 def _offer_perks(state: GameState, content: Content) -> None:
@@ -864,7 +897,7 @@ def arrival_facts(state: GameState, content: Content, history: bool = True) -> s
 gone: run 59's Swoogy), and on a return what happened here since. (room_facts is the whole room,
     for a question about it.)"""
     room = state.room
-    lines = ["A secret room, walled off until a bomb opened it."] if room.secret else []
+    lines = ["A secret room, walled off until you broke through."] if room.secret else []
     lines += hazards.facts(state)  # (a river to cross, a vent: seen as you come in)
     lines += [fact for fact in [light.facts(state, content)] if fact]  # (your torch, the glow, or the dark)
     if room.shop:
@@ -885,7 +918,7 @@ gone: run 59's Swoogy), and on a return what happened here since. (room_facts is
 
 def room_facts(state: GameState, content: Content) -> str:
     room = state.room
-    lines = ["A secret room, walled off until a bomb opened it."] if room.secret else []
+    lines = ["A secret room, walled off until you broke through."] if room.secret else []
     features = [_feature_note(f) for _, f in room.visible_features()]
     if features:
         lines.append("In the room: " + ", ".join(features) + ".")
@@ -1387,6 +1420,8 @@ def why_not(state: GameState, content: Content, action_id: str) -> str:
     item = content.item(arg) if arg in content.items else None
     if verb in ("use", "throw", "distract", "reveal") and item and arg not in player.inventory:
         return f"You have no {item.name}."
+    if verb == "throw" and item and inventory.sticky(state, content, arg):
+        return f"{cap(the(item.name))} won't leave your hand: it's cursed. Praying at a shrine would lift the curse."
     if verb == "use" and item:
         if item.escape and not state.in_combat:
             return f"You decide to save {the(item.name)} for an emergency."
@@ -1556,7 +1591,11 @@ def _buy(state: GameState, content: Content, index: int) -> list[Event]:
     if ware.count <= 0:
         shop.wares.pop(index)
     says = f"You buy {the(item.name)} for {ware.price} gold ({player.gold} left)"
-    return quietly(inventory.gain(state, content, ware.item, "buy", "shop", says=says, kind="buy"))
+    events = inventory.gain(state, content, ware.item, "buy", "shop", says=says, kind="buy")
+    if ware.item in player.inventory and item.kind in inventory.GEAR and inventory.upgrade(state, content, ware.item):
+        events += inventory.equip(state, content, ware.item)  # (better than what you have on: on it goes. Run 66
+        # bought Gulliver's sword on floor 3 and fought the Goblin King with the War Pick)
+    return quietly(events)
 
 
 def _barter(state: GameState, content: Content, rng: random.Random, index: int) -> list[Event]:

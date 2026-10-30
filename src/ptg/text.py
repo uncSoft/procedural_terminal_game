@@ -30,7 +30,10 @@ def tell(name: str, words: str) -> str:
     sentence of its own when it names itself ("Swoogy charges up his flaps..."), or yelled when it's a shout ("Baby
     Joey yells, "Gimme dat!!"")."""
     words = words.strip()
-    first = words.split()[0].strip(".,!?'\"").lower() if words else ""
+    lead = [w.strip(".,!?'\"").lower() for w in words.split()[:2]]
+    if lead[:1] in (["the"], ["a"], ["an"]):  # ("The Sporerat's caps flare green": it names itself as well)
+        lead = lead[1:]
+    first = lead[0].removesuffix("'s").removesuffix("’s") if lead else ""
     if first and first in {w.lower() for w in name.split() if w.lower() not in ("the", "a", "an")}:
         return words
     letters = [c for c in words if c.isalpha()]

@@ -252,3 +252,85 @@ def test_in_a_crowd_each_foe_with_clips_of_its_own_plays_them(content):
     every = max(1, round(fight.clips["attack"].fps / encounter.sprites.CLIP_FPS))
     assert len(list(fight.swing(everyone))) == -(-longest // every)
     assert list(fight.swing(frozenset({99}))) == []  # (nobody who struck has an attack of its own)
+
+
+# --- a fight's turn on the screen: your go, then theirs (docs/plans/playtest-2026-10-30.md §1) ------------------------
+
+def test_a_level_reached_mid_fight_waits_for_its_end_for_its_perk(content):
+    """One of several down and your XP past a level: the level's HP now, its perk once the last of them falls (the
+    window came up over the fight, the fight's choices gone till a perk was picked)."""
+    from ptg.rules import check_level
+
+    state = generate(7)
+    crowd(state, content, hp=1)
+    state.room.monster = None  # (the one you faced is down)
+    state.player.xp = 10 ** 3
+    events = check_level(state, content)
+    assert events and state.player.level > 1 and not state.pending_perks and state.perk_debt == len(events)
+    assert "once the fight is over" in events[0].text
+    rally(state)  # (the next comes at you: the fight's choices, not the perks)
+    assert "attack" in ids(state, content)
+    state.room.monster, state.room.others = None, []  # (the rest down)
+    state.room.room_searched = False
+    perform(state, content, "search_room")
+    assert state.pending_perks and state.perk_debt == len(events) - 1
+
+
+def test_the_foes_goes_are_marked_theirs_with_your_hp_before_them(content):
+    state = generate(7)
+    crowd(state, content, hp=40)
+    state.player.hp = 30
+    events = perform(state, content, "dodge")
+    theirs = [e for e in events if e.data.get("theirs")]
+    assert theirs and events.index(theirs[0]) > 0 and not events[0].data.get("theirs")
+    assert theirs[0].data["hp_before"] == 30
+    assert all(e.data.get("theirs") for e in events[events.index(theirs[0]):] if e.kind.startswith("monster_"))
+
+
+def test_a_whole_fights_spoils_add_up(content):
+    from ptg.events import Event
+
+    events = [Event("defeat", "", data={"monster": "goblin", "xp": 5, "souls": 3, "fallen": 0}),
+              Event("loot", "", data={"gold": 4}),
+              Event("defeat", "", data={"monster": "orc", "xp": 9, "souls": 6, "fallen": 1}),
+              Event("loot", "", data={"gold": 2}), Event("drop", "", data={"item": "bomb"})]
+    spoils = encounter.Spoils.of(events, "Orc")
+    assert (spoils.xp, spoils.souls, spoils.gold, spoils.drops, spoils.beaten) == (14, 9, 6, ["bomb"], 2)
+    state = generate(7)
+    fight = encounter.Fight(state, content, put_monster(state, content, "goblin"), 110, 16)
+    assert "All 2 are beaten" in encounter.spoils_text(fight.empty(), spoils, content, 2, 40).plain
+
+
+def test_a_foe_beside_the_one_you_face_breaks_apart_in_its_own_place(content):
+    state = generate(7)
+    goblin, (_, orc) = crowd(state, content)
+    fight = encounter.Fight(state, content, goblin, 120, 18)
+    frames = list(fight.shatter(who=orc))
+    assert len(frames) == encounter.SHATTER_FRAMES
+    whole = fight.still(0).plain
+    assert frames[-1].plain != whole  # (the orc's gone from its place; the goblin and the skeleton still there)
+
+
+async def test_a_foe_falling_mid_fight_never_stands_in_for_the_next(monkeypatch):
+    """The one you face slain, the next of the fight comes at you: the stage made again for it (its own clips, its
+    name), never the fallen one's picture under the next one's name."""
+    from test_ui import into_a_run, take_choice
+
+    from ptg.config import Config
+    from ptg.ui.app import PTGApp
+
+    app = PTGApp(Config(backend="offline", layout="tabs", player_name="T", auto_roll=True), seed=1)
+    async with app.run_test(size=(160, 50)) as pilot:
+        screen = await into_a_run(app, pilot)
+        state = screen.game.state
+        direction = next(d for d, e in state.room.exits.items() if not e.locked)
+        there = state.rooms[state.room.exits[direction].to]
+        there.monster = MonsterState(key="giant_rat", name="Giant Rat", hp=1, max_hp=5)
+        there.others = [MonsterState(key="goblin", name="Goblin", hp=60, max_hp=60, place=1)]
+        await take_choice(app, pilot, screen, f"go:{direction}")
+        assert screen.fight is not None and screen.fight.monster.key == "giant_rat"
+        state.player.might = 50
+        await take_choice(app, pilot, screen, "attack")
+        assert state.room.monster.key == "goblin" and state.in_combat
+        assert screen.fight is not None and screen.fight.monster.key == "goblin" and not screen.fight.others
+        assert "Goblin" in str(screen.query_one("#stage-art").render())

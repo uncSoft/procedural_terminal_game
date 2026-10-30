@@ -663,7 +663,7 @@ gives = "philter_of_light"
 # cap and the three that grow round it, each with its own health and its own job. Stand-in sprites till JT's.
 [monster.humongous_fungus]
 name = "The Humongous Fungus"
-hp = 50
+hp = 100
 defense = 13
 attack = 4
 damage = "2d6"
@@ -679,7 +679,7 @@ party = ["spore_mother", "rot_gill", "puff_mound"]
 
 [monster.spore_mother]
 name = "The Spore Mother"
-hp = 14
+hp = 28
 defense = 12
 attack = 1
 damage = "1d2"
@@ -694,7 +694,7 @@ tricks = ["mend"]
 
 [monster.rot_gill]
 name = "The Rot Gill"
-hp = 16
+hp = 32
 defense = 12
 attack = 3
 damage = "1d2"
@@ -709,7 +709,7 @@ tricks = ["venom", "venom_spit"]
 
 [monster.puff_mound]
 name = "The Puff Mound"
-hp = 14
+hp = 28
 defense = 11
 attack = 2
 damage = "1d2"

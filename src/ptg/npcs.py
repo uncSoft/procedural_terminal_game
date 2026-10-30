@@ -52,11 +52,13 @@ from .text import cap, the
 LENNY, BAD_TOOTH, GOOD_TOOTH = "lucky_lenny", "lenny_s_bad_tooth", "lenny_s_good_tooth"
 SWOOGY, DIAPER = "swoogy_the_gooey", "swoogy_s_diaper"
 KING_MOUSE = "king_mouse"
-ODDS = {LENNY: 0.5, SWOOGY: 0.5, KING_MOUSE: 0.15, "npc": 0.3}  # a run, a secret room, a staircase, a floor
+ODDS = {LENNY: 0.5, SWOOGY: 0.5, KING_MOUSE: 0.3, "npc": 0.3}  # a run, a secret room, a staircase, a floor
 PLACED = {LENNY, SWOOGY}  # (and the shopkeepers have their shops)
 # Cut down to size for the floor they're on: (HP, attack, defense, damage taken off their dice).
 SWOOGY_SIZE = {1: (40, 5, 13, -4), 2: (55, 6, 14, -3), 3: (70, 7, 15, -2)}  # more than the boss, far less than 100
-KING_MOUSE_SIZE = {2: (30, 4, 12, -5)}  # about the usual floor-2 guard: bigger, and the bot won 3 points fewer runs
+KING_MOUSE_SIZE = {1: (20, 3, 11, -9), 2: (30, 4, 12, -5)}  # (floor 2's: about the usual floor-2 guard; floor 1's,
+# about its dungeon's boss there: world.EARLY_SIZES)
+FLOATING = 1  # the floor whose stairs King Mouse may take, in place of its dungeon's boss: the floors under it keep theirs
 SWOOGY_PRICE = 10  # gold a floor, to calm him down
 HINT_DC = 12  # Lenny remembering which room his tooth flew into (wits)
 TOOTH_SPOTS = ["a crack between the flagstones", "a heap of old rubbish", "a dark corner"]
@@ -95,10 +97,10 @@ def place(state: GameState, content: Content, rooms: list[Room], end_id: int) ->
     if secret and floor in SWOOGY_SIZE and dice.stream(seed, SWOOGY, floor).random() < ODDS[SWOOGY] \
             and DIAPER not in state.rares:  # (once his diaper's gone, won or beaten out of him, so is he)
         secret.monster = sized(content, SWOOGY, floor, SWOOGY_SIZE, hostile=False, mood="challenge")
-    if rooms[end_id].fixture == "stairs" and floor in KING_MOUSE_SIZE \
-            and dice.stream(seed, KING_MOUSE, floor).random() < ODDS[KING_MOUSE] \
-            and not (rooms[end_id].monster and content.monster(rooms[end_id].monster.key).boss):  # (the King's own)
+    if rooms[end_id].fixture == "stairs" and floor == FLOATING \
+            and dice.stream(seed, KING_MOUSE, floor).random() < ODDS[KING_MOUSE]:  # (floor 1's is from a pool of two)
         rooms[end_id].monster = sized(content, KING_MOUSE, floor, KING_MOUSE_SIZE, warden=True)
+        rooms[end_id].others = []
     others = sorted(m.key for m in content.monsters.values()
                     if m.npc and m.key not in PLACED and "shopkeeper" not in m.tags)
     rng = dice.stream(seed, "npc", floor)

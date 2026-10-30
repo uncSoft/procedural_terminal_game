@@ -71,7 +71,9 @@ class TitleScreen(Screen):
               (title_scene.DIM, False, False, 0.45))
     FLASH_AT = 0.13  # when the flash comes, from the strike's start: what the thunder's timed to
     THUNDER_AFTER = (0.0, 0.35, 0.9)  # how long after the flash the thunder comes, struck close, near or far
-    CHROME = 12  # rows besides the picture: the name, the tagline, the menu, what's under it, the footer
+    CHROME = 13  # rows besides the picture: the name, the tagline, the menu, what's under it, the footer
+    TEXT_SIZE = "Text too small or too big? Cmd + or − (Ctrl on Windows) in a browser; your terminal's own font " \
+        "size in a terminal."  # (a served game's page has its own A− A+ too: web/app_index.html)
     LEAST_ROWS = 10  # a picture any smaller isn't worth the room
 
     def __init__(self) -> None:
@@ -224,7 +226,9 @@ class TitleScreen(Screen):
         first.variant, second.variant = "primary", "default"
         play.label = "New run" if state else "Play"
         first.focus()
-        self.query_one("#narrator-info", Static).update(Text(f"Narrator: {describe_backend(self.app.config)}"))
+        info = Text(f"Narrator: {describe_backend(self.app.config)}")
+        info.append(f"\n{self.TEXT_SIZE}", style="#6c6f99")
+        self.query_one("#narrator-info", Static).update(info)
 
     @on(Button.Pressed)
     def pressed(self, event: Button.Pressed) -> None:

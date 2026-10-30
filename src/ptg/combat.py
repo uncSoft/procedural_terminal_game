@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from . import dice, hazards, inventory, light, loot, powers, statuses
 from .content import Content, ItemDef
 from .events import Event
-from .models import GameState, MonsterState
+from .models import DEEPEST, GameState, MonsterState
 from .text import a, cap, mid_sentence, tell, the
 
 INTENT_WEIGHTS = {
@@ -30,7 +30,9 @@ TRICK_WORDS = {"steal": "grabs", "tangle": "vines", "venom": "venom", "venom_spi
                "burn": "fire", "spores": "spores"}
 SET_ALIGHT, DAZE = 0.35, 0.5  # how often a fiery hit sets you burning, and a spore-burst stuns you (a heavy one: always)
 # Winning in style pays (docs/plans/combat-and-balance.md §3.6): each a fifth more XP (1 at least) and 3 gold a tier.
-STYLES = {"flawless": ("Flawless", "not a scratch on you"), "exploited": ("Exploited", "finished with its weakness")}
+STYLES = {"flawless": ("Flawless", "it never laid a finger on you"),
+          "exploited": ("Exploited", "finished with its weakness")}
+THROWN_LOST = 0.25  # how often a spare weapon thrown (throw) spins off into the dark, gone for good
 STYLE_XP, STYLE_GOLD = 0.2, 3
 BURN = "1d6"  # a torch's flame, held to a monster (burn)
 
@@ -231,7 +233,7 @@ def player_attack(state: GameState, content: Content, rng: random.Random) -> lis
                         data={"damage": damage}))
     for tag in weak:
         events += discover(state, monster, tag)
-    events += events_on_roll
+    events += events_on_roll + shaken(state, content, monster)
     if monster.hp > 0 and "fire" in coating:  # (a blade slick with burning oil sets it alight)
         events += alight(monster)
     if monster.hp <= 0:
@@ -264,15 +266,15 @@ def thrown_damage(item: ItemDef) -> str:
 
 def throw(state: GameState, content: Content, rng: random.Random, key: str) -> list[Event]:
     """Throw something you carry at the monster: an agility roll against its defense, with advantage and 2 more damage
-    if it's weak to the thing. It hits for its own dice if it's made to be thrown (a throw power), otherwise for what
-    it's made of (thrown_damage). Hit or miss it's gone, unless it's a spare weapon: that lands at the monster's feet,
-    to pick up once the fight's over."""
+    if it's weak to the thing. It hits for its own dice if it's made to be thrown (a throw power), a spare weapon for
+    its own too, otherwise for what it's made of (thrown_damage). Hit or miss it's gone, unless it's a spare weapon:
+    that lands at the monster's feet, yours again once the fight's over (rules.collect), or, one time in
+    THROWN_LOST, it spins off into the dark for good. So each spare weapon is a throw a fight."""
     player, monster, item = state.player, state.room.monster, content.item(key)
     weak = [t for t in item.tags if t in content.monster(monster.key).weak]
     if item.kind == "weapon":
         player.inventory.remove(key)
-        state.room.items.append(key)
-        thrown, gone = inventory.moved(key, "throw", "pack", "room"), "It lands at its feet."
+        thrown = inventory.moved(key, "throw", "pack", "room")
     else:
         thrown, gone = inventory.consume(state, key, "throw"), "It's gone."
     monster.hostile = True
@@ -280,6 +282,13 @@ def throw(state: GameState, content: Content, rng: random.Random, key: str) -> l
     roll = dice.check(rng, f"throw {the(item.name)}", bonuses, monster_defense(monster, content),
                       advantage=1 if weak else 0)
     roll.hits_for = thrown_damage(item)
+    if item.kind == "weapon":
+        if rng.random() < THROWN_LOST:
+            thrown["to"], gone = "gone", "It spins off into the dark, and it's gone for good."
+        else:
+            state.room.items.append(key)
+            state.room.thrown.append(key)
+            gone = "It clatters down at its feet: you'll have it back once the fight's over."
     events = fortune(state, roll)
     more = what_is_left(player, key)
     if not roll.success:
@@ -299,6 +308,7 @@ def throw(state: GameState, content: Content, rng: random.Random, key: str) -> l
                            data={"damage": damage, "rerollable": True, **thrown}))
     for tag in weak:
         events += discover(state, monster, tag)
+    events += shaken(state, content, monster)
     events += alight(monster) if "fire" in item.tags and monster.hp > 0 else []  # (lamp oil, lava: it burns on)
     return events + (defeat(state, content, rng, exploited=bool(weak)) if monster.hp <= 0 else [])
 
@@ -330,7 +340,7 @@ def burn(state: GameState, content: Content, rng: random.Random) -> list[Event]:
                                f"({max(monster.hp, 0)}/{monster.max_hp} HP left).{' [fire!]' if weak else ''}",
                         dice=roll, data={"damage": damage, "burn": True}))
     events += light.burn(state, content) + (discover(state, monster, "fire") if weak else []) + luck
-    events += alight(monster) if monster.hp > 0 else []
+    events += shaken(state, content, monster) + (alight(monster) if monster.hp > 0 else [])
     return events + (defeat(state, content, rng, exploited=weak) if monster.hp <= 0 else [])
 
 
@@ -367,12 +377,14 @@ def bomb_monster(state: GameState, content: Content, rng: random.Random) -> list
                     data={"damage": damage, "bomb": True})]
     for tag in weak[:1]:
         events += discover(state, monster, tag)
+    events += shaken(state, content, monster)
     caught = [m for m in foes(state) if m is not monster]  # (the blast catches the others, for half)
     for other in caught:
         other.hp -= damage // 2
         events.append(Event("hit", f"The blast catches {the(other.name)} for {damage // 2} "
                                    f"({max(other.hp, 0)}/{other.max_hp} HP left).", data={"damage": damage // 2,
                                                                                          "blast": True}))
+        events += shaken(state, content, other)
     events += defeat(state, content, rng, exploited=bool(weak)) if monster.hp <= 0 else []
     for other in caught:
         if other.hp <= 0 and not state.over:
@@ -703,7 +715,8 @@ def defeat(state: GameState, content: Content, rng: random.Random, how: str = "s
         return npcs.calm(state, content, monster)
     room.monster = None if how == "slain" else monster
     room.remember(f"you killed {the(monster.name)}" if how == "slain" else f"you talked {the(monster.name)} down")
-    data = {"monster": monster.key, "how": how, "ghost_id": monster.ghost_id}
+    data = {"monster": monster.key, "how": how, "ghost_id": monster.ghost_id, "fallen": monster.place}  # (where it
+    # stood in its fight: the stage breaks it apart there)
     if monster.rewarded and not monster_def.boss:
         if how == "slain":
             player.kills += 1
@@ -734,14 +747,18 @@ def defeat(state: GameState, content: Content, rng: random.Random, how: str = "s
         events.append(Event("ghost_rest", f"The ghost of {monster.ghost_of}, your own earlier life, finally rests. "
                                           "Their belongings are yours to take. +15 souls.", data=data))
     last = not any(m.hostile and m.hp > 0 for m in room.others)  # (a party fights on till its last falls)
-    beaten = last and (monster_def.boss or room.is_boss)  # (the boss, and the last of its party)
+    # (the boss, and the last of its party: once. What crept up on you in its room after is only a monster, run 66)
+    beaten = last and (monster_def.boss or room.is_boss) and not room.conquered
+    room.conquered = room.conquered or beaten
     if monster_def.boss and not last:
         events.append(Event("info", f"{cap(the(monster.name))} is down, but the rest of it fights on!", data=data))
     if beaten and state.final_floor:
         theme = content.themes[state.theme]
         state.status = "won"
         state.cause = f"conquered {theme.name}"
-        events.append(Event("victory", f"You have conquered {theme.name}. {theme.goal} Done.", data=data))
+        deeper = " Yet under where it fell the rock is warm, and far below something glows: your next descent goes " \
+            "deeper." if state.floors_total < DEEPEST else ""  # (a first win opens the Underbloom: meta.start_run)
+        events.append(Event("victory", f"You have conquered {theme.name}. {theme.goal} Done.{deeper}", data=data))
         return events
     if beaten and state.boss_floor:  # a boss floor's: behind it, the way down (its room's stairs)
         theme = content.themes[state.theme]
@@ -791,6 +808,15 @@ def styled(state: GameState, content: Content, monster: MonsterState, xp: int, e
         events.append(Event("style", f"{name}: {why}. +{more} XP, +{gold} gold.",
                             data={"style": key, "name": name, "xp": more, "gold": gold}))
     return events
+
+
+def shaken(state: GameState, content: Content, monster: MonsterState) -> list[Event]:
+    """A thief hit before it can run off (it grabbed something of yours: _tricks) lets go of it. "Stop it now" asks
+    for a blow, not a kill: a floor-5 Sporerat has 30 HP, and run 66 lost 115 gold and its butter to them."""
+    if monster.hp <= 0 or not (monster.stolen_item or monster.stolen_gold):
+        return []
+    return [Event("info", f"The blow knocks it loose: {the(monster.name)} lets go!", data={"quiet": True})] + \
+        _give_back(state, content, monster)
 
 
 def _give_back(state: GameState, content: Content, monster: MonsterState) -> list[Event]:

@@ -5,7 +5,8 @@ Each verb has a planner that says what that comes to, here and now:
 
     throw   at a monster       thrown at it, a calm one provoked first: made to be thrown (oil, holy water), it hits
                                for its own dice, anything else throwable for what it's made of; gone, hit or miss (a
-                               spare weapon lands at its feet). A bomb is your bomb, a smoke bomb your getaway.
+                               spare weapon lands at its feet, yours after, or now and then is lost: combat.throw). A
+                               bomb is your bomb, a smoke bomb your getaway.
             anywhere else      out of a fight, with nothing at stake, it lands here (to take back)
     give    to a character     what it wants, it takes (npcs.wants: Lenny his tooth, an angry Swoogy anything, a
                                shopkeeper buys it), and the rest it hands back
@@ -305,7 +306,7 @@ def _at_creature(state, content, view, use, target: Ref) -> Row | None:
         return None
     calm = "" if target.state["hostile"] else "it's calm: it'll fight"
     damage = thrown_damage(item)
-    gone = "it lands at its feet" if item.kind == "weapon" else "gone after"
+    gone = "you may lose it" if item.kind == "weapon" else "gone after"
     return Row(run=_throw_at, label=label, hint=" · ".join(filter(None, [damage, gone, calm])))
 
 
@@ -486,6 +487,8 @@ def _plan_use(state, content, view, use, target) -> Row | None:
             return _at_creature(state, content, view, use, target)
         if target.state["hostile"] and distracts(content, key, monster):
             return _plan_show(state, content, view, use, target)
+        if target.state["hostile"] and item.kind == "weapon" and key in player.inventory:  # (a spare weapon's a
+            return _at_creature(state, content, view, use, target)  # throw, a shiny one too: combat.throw)
         if set(item.tags) & (LIKES | LURES) or target.state["npc"]:
             return _plan_give(state, content, view, use, target)
         if "throwable" in item.tags:

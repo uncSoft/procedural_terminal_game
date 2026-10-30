@@ -30,7 +30,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widget import Widget
 from textual.widgets import Static
 
-from .. import glossary, inventory, model3d, sound
+from .. import encounter, glossary, inventory, model3d, sound
 from ..content import load_content
 from ..game import Game
 from ..sprites import image_text
@@ -216,6 +216,8 @@ class FoundScreen(Panel):
             banner.append(" NEW ", style="bold #10122a on #ffd166")
             banner.append(" ✦ ✧   ", style="bold #ffd166")
             banner.append(item.name, style="bold #4cff8a")
+            banner.append("  ")
+            banner.append_text(encounter.rarity_chip(content, self.key))  # (how rare: its colour as it drops)
             yield Static(banner, id="found-banner")
             if self.turning:
                 yield ModelView(self.key, spin=SHOWN, id="found-model")

@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from . import npcs, powers
+from . import npcs, powers, statuses
 from .content import Content
 from .models import GameState
 from .text import bare
@@ -39,6 +39,8 @@ EVERYDAY = {"water", "oil", "light", "stone", "important", "foot", "rat", "pick"
             "wheel", "scores", "pointer", "bag"}
 FIXTURE_WORDS = {"shrine": "shrine", "chest": "chest", "fountain": "fountain", "stairs": "stairs",
                  "staircase": "stairs", "shop": "shop", "counter": "shop"}
+STATUS_WORDS = {"poison": ("poison", "venom"), "burn": ("set alight", "on fire"), "stun": ("dazed", "seeing stars"),
+                "mend": ("mends",)}  # what else the story calls a status, besides its name
 RULES = {
     "fate": ("Fate", "Spend a Fate token to reroll a failed check. Earn it with flair, perfect dodges, natural 20s "
                      "and shrines."),
@@ -132,6 +134,13 @@ def build(state: GameState, content: Content, bestiary: dict | None = None) -> d
 
     for key, (name, summary) in RULES.items():
         add(name, Term(f"rule:{key}", "rule", name, summary))
+    for key, status in statuses.DEFS.items():  # (what ails you, or a foe, or mends: a card of its own)
+        term = Term(f"status:{key}", "status", status.name, status.blurb)
+        for alias in (status.name, *STATUS_WORDS.get(key, ())):
+            add(alias, term)
+    light_term = Term("status:light", "status", "Light", "Down on the dark floors, a light of your own matters.")
+    for alias in ("pitch dark", "darkness", "the dark"):
+        add(alias, light_term)
     return terms
 
 

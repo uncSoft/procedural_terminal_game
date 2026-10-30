@@ -9,7 +9,10 @@ health and what you know of it.
                   its own swing if it has one (`swing`), and its end (`shatter`)
     spoils_text   what it left: the XP bar, the gold, the souls, the style it was won in, and each thing it dropped in
                   its rarity's colour (`step`s of it, to show them coming one by one)
-    wipe          one picture sweeping across another, from a side: the stage going back to the room after
+    wipe          one picture sweeping across another, from a side: the stage going back to the room after a
+                  fight, and one room to the next (`up`: from above or below)
+    Pop           a number (or word) drawn big into the picture, in pixels: a blow's damage rising off the foe it
+                  hit, yours over the bottom of the stage
 
 Each is plain half-block Text (Rich): the screen shows them in turn. Nothing here changes the game.
 
@@ -48,12 +51,65 @@ STINGS = ("encounter", "boss_encounter")  # an entrance's cue as it lands (sound
 INTENT_LOOK = {"heavy": (RED, WHITE), "strike": ("#5a1f2e", WHITE), "guard": (BLUE, INK), "reeling": (GOLD, INK),
                "running": (ORANGE, INK)}
 RARITY = {0: GREY, 1: "#c0cbdc", 2: GREEN, 3: "#0099db", 4: PURPLE}  # a thing's colour by its tier; rare: GOLD
+HURT = (150, 20, 34)  # the red the stage flashes when you're hit
+# A blow's number, drawn big into the picture (Pop): each glyph 3 pixels by 5, "#" lit.
+GLYPHS = {
+    "0": ("###", "#.#", "#.#", "#.#", "###"), "1": (".#.", "##.", ".#.", ".#.", "###"),
+    "2": ("###", "..#", "###", "#..", "###"), "3": ("###", "..#", "###", "..#", "###"),
+    "4": ("#.#", "#.#", "###", "..#", "..#"), "5": ("###", "#..", "###", "..#", "###"),
+    "6": ("###", "#..", "###", "#.#", "###"), "7": ("###", "..#", "..#", ".#.", ".#."),
+    "8": ("###", "#.#", "###", "#.#", "###"), "9": ("###", "#.#", "###", "..#", "###"),
+    "+": ("...", ".#.", "###", ".#.", "..."), "-": ("...", "...", "###", "...", "..."),
+    "!": (".#.", ".#.", ".#.", "...", ".#."), " ": ("...", "...", "...", "...", "..."),
+    "M": ("#.#", "###", "###", "#.#", "#.#"), "I": ("###", ".#.", ".#.", ".#.", "###"),
+    "S": ("###", "#..", "###", "..#", "###"), "X": ("#.#", "#.#", ".#.", "#.#", "#.#"),
+    "P": ("###", "#.#", "###", "#..", "#.."),
+}
+
+
+@dataclass(frozen=True)
+class Pop:
+    """Words (a blow's damage: "-12", "+8", "MISS") drawn big into the fight's picture, in pixels (GLYPHS) with a
+    dark edge round them, centred on pixel column `x` with their top at row `y`; `scale` pixels to a glyph's pixel."""
+
+    words: str
+    colour: str
+    x: int
+    y: int
+    scale: int = 2
+
+    def draw(self, canvas) -> None:
+        px, (width, height) = canvas.load(), canvas.size
+        colour = tuple(int(self.colour[i:i + 2], 16) for i in (1, 3, 5))
+        edge = tuple(int(INK[i:i + 2], 16) for i in (1, 3, 5))
+        s = self.scale
+        wide = len(self.words) * 4 * s - s
+        lit = set()
+        for n, ch in enumerate(self.words.upper()):
+            for row, line in enumerate(GLYPHS.get(ch, GLYPHS[" "])):
+                for col, bit in enumerate(line):
+                    if bit == "#":
+                        for dy in range(s):
+                            for dx in range(s):
+                                lit.add((self.x - wide // 2 + (4 * n + col) * s + dx, self.y + row * s + dy))
+        for x, y in {(x + dx, y + dy) for x, y in lit for dx in (-1, 0, 1) for dy in (-1, 0, 1)} - lit:
+            if 0 <= x < width and 0 <= y < height:
+                px[x, y] = (*edge, 255)
+        for x, y in lit:
+            if 0 <= x < width and 0 <= y < height:
+                px[x, y] = (*colour, 255)
 
 
 def rarity(content: Content, key: str) -> str:
     """The colour a thing shines in when it drops: gold if it's rare, else its tier's."""
     item = content.item(key)
     return GOLD if loot.rare(item) else RARITY.get(min(4, item.tier), WHITE)
+
+
+def rarity_chip(content: Content, key: str) -> Text:
+    """A thing's rarity as a chip in its colour (rarity): " ★ RARE " in gold, " UNCOMMON " in green..."""
+    word = loot.rarity(content.item(key)).upper()
+    return Text(f" {'★ ' if word == 'RARE' else ''}{word} ", style=f"bold {INK} on {rarity(content, key)}")
 
 
 def danger_marks(level: int) -> Text:
@@ -176,7 +232,8 @@ class Fight:
         self.boss, self.guardian = known.boss, "guardian" in known.tags and not known.boss
         self.cry = known.cry
         self.realm = self.content.themes[state.theme].name if state.theme in self.content.themes else ""
-        self.back = self._backdrop(state)
+        if self.back is None:  # (or the room behind the last foe's fight, as it was: the next of its fight's)
+            self.back = self._backdrop(state)
         room = 2 * (self.rows - self.banner_rows) - 1  # (as tall as it is, its next move over its head)
         crowd = len([m for m in state.room.others if m.hostile and m.hp > 0])
         self.looks: dict[str, Look] = {}  # each kind of foe's art among the others (look), worked out once
@@ -272,17 +329,16 @@ class Fight:
             name = "windup" if pose == "windup" and "windup" in look.clips else clip
             img = sprites.posed(_frame_of(look.clips.get(name, look.clips["idle"]), name, frame, tick),
                                 "idle" if pose == "lunge" else pose, frame)
-            feet = ((look.box[0] + look.box[2]) // 2, look.box[3] - 1)
-        else:
-            if not look.frames:
-                return None
-            img = sprites.posed(look.frames[frame % len(look.frames)], pose, frame).crop(look.box)
-            if look.size == 0.5:
-                img = sprites.halve(img)
-            elif look.size != 1.0:
-                img = img.resize((round(img.width * look.size), round(img.height * look.size)), Image.NEAREST)
-            feet = (img.width // 2, img.height - 1)
-        return sprites._recolour(img, lambda r, g, b: (int(r * 0.72), int(g * 0.72), int(b * 0.8))), feet
+            return sprites.dimmed(img), ((look.box[0] + look.box[2]) // 2, look.box[3] - 1)  # (a clip's frame: kept)
+        if not look.frames:
+            return None
+        img = sprites.posed(look.frames[frame % len(look.frames)], pose, frame).crop(look.box)
+        if look.size == 0.5:
+            img = sprites.halve(img)
+        elif look.size != 1.0:
+            img = img.resize((round(img.width * look.size), round(img.height * look.size)), Image.NEAREST)
+        return sprites._recolour(img, lambda r, g, b: (int(r * 0.72), int(g * 0.72), int(b * 0.8))), \
+            (img.width // 2, img.height - 1)
 
     def stands(self, monster: MonsterState) -> int:
         """How tall one of the others stands, in pixels: for its next move over its head."""
@@ -340,7 +396,7 @@ class Fight:
         if self.clips:
             name = "windup" if pose == "windup" and "windup" in self.clips else clip
             img = sprites.posed(_frame_of(self.clips.get(name, self.clips["idle"]), name, frame, tick), pose, frame)
-            return sprites._recolour(img, lambda r, g, b: (255, 255, 255)) if flash else img
+            return sprites.whitened(img) if flash else img
         found = sprites._strip(self.monster.key)
         if not found or self.box is None:
             return None
@@ -373,11 +429,11 @@ class Fight:
         return foe.size
 
     def canvas(self, foe, offset: int = 0, pool: bool = True, frame: int = 0, clip: str = "idle",
-               striking: frozenset = frozenset(), tick: int | None = None):
+               striking: frozenset = frozenset(), tick: int | None = None, apart: int | None = None):
         """The dimmed room with the foe in it at its place (the middle, alone), `offset` pixels off it (coming in), on
-        its pool of light; the others in theirs (see _crowd)."""
+        its pool of light; the others in theirs (see _crowd), bar any in place `apart` (it's breaking apart)."""
         canvas = self.back.convert("RGBA")
-        self._crowd(canvas, frame, clip, striking, tick)
+        self._crowd(canvas, frame, clip, striking, tick, apart)
         if foe is None:
             return canvas
         ax, ay = self.anchor(foe)
@@ -388,11 +444,13 @@ class Fight:
         return canvas
 
     def _crowd(self, canvas, frame: int = 0, clip: str = "idle", striking: frozenset = frozenset(),
-               tick: int | None = None) -> None:
+               tick: int | None = None, apart: int | None = None) -> None:
         """The others, each standing in its place: winding up while a heavy blow's coming, stars round its head while
         it's reeling; coming in as the one you face does (`clip` "entrance": its own entrance, if it has one), and
         going for you in its own attack (or a lunge) if its place is one of those `striking`."""
         for monster, seen in zip(self.others, self.others_seen):
+            if monster.place == apart:
+                continue
             pose = {"heavy": "windup", "reeling": "dizzy"}.get(seen.kind if seen else "", "idle")
             own = "entrance" if clip == "entrance" else "attack" if monster.place in striking else "idle"
             if own == "entrance":
@@ -422,15 +480,22 @@ class Fight:
 
     def still(self, frame: int = 0, pose: str = "idle", flash: bool = False, offset: int = 0,
               banner: bool = True, clip: str = "idle", card: int | None = None, glint: int | None = None,
-              striking: frozenset = frozenset(), tick: int | None = None) -> Text:
+              striking: frozenset = frozenset(), tick: int | None = None, pops: tuple = (),
+              hurt: float = 0.0) -> Text:
         """The fight as it stands: the foe in a pose, its next move over its head, its banner under it; the others in
         theirs (those `striking` going for you). Or, as a boss arrives, its name card (`card` letters of it spelled
         out so far, a `glint` along them: see _card). With a `tick`, every foe's own idle (or windup) is that far
-        through its loop: the stage playing them at their own speed (`loops`)."""
+        through its loop: the stage playing them at their own speed (`loops`). Blows' numbers drawn big over it
+        (`pops`: Pop), and the whole of it reddened `hurt` of the way (0 to 1) when you're hit."""
         if self.back is None:
             return Text()
         foe = self.foe(frame, pose, flash, clip, tick)
-        lines = self._text(self.canvas(foe, offset, frame=frame, clip=clip, striking=striking, tick=tick))
+        canvas = self.canvas(foe, offset, frame=frame, clip=clip, striking=striking, tick=tick)
+        if hurt:
+            canvas = self._reddened(canvas, hurt)
+        for pop in pops:
+            pop.draw(canvas)
+        lines = self._text(canvas)
         if card is not None:
             self._card(lines, card, glint)
         elif banner:
@@ -442,6 +507,43 @@ class Fight:
         """Whether any foe here has clips of its own to stand in: the stage plays their loops through, a frame a tick
         (still's `tick`), rather than taking turns with two pictures."""
         return bool(self.clips) or any(self.look(m.key).clips for m in self.others)
+
+    @staticmethod
+    def _reddened(canvas, k: float):
+        """The picture washed with red (HURT), `k` of the way: you've been hit."""
+        r, g, b = HURT
+        rgb = canvas.convert("RGB").point([min(255, int(v + (r - v) * k)) for v in range(256)]
+                                          + [int(v + (g - v) * k) for v in range(256)]
+                                          + [int(v + (b - v) * k) for v in range(256)])
+        out = rgb.convert("RGBA")
+        out.putalpha(canvas.getchannel("A"))
+        return out
+
+    def scale_of_pops(self) -> int:
+        """How big a blow's number is drawn: twice its glyphs, on a stage with the room for it."""
+        return 2 if self.rows >= 12 and self.width >= 60 else 1
+
+    def over(self, monster: MonsterState | None = None) -> tuple[int, int]:
+        """Where a blow's number rises from on a foe (the one you face, unless it says): over its chest, in pixels
+        (the top of the number)."""
+        monster = monster or self.monster
+        facing = monster.place == self.monster.place and monster.name == self.monster.name
+        foe = self.foe() if facing else None
+        tall = self.stature(foe)[1] if foe is not None else self.stands(monster)
+        return self.centre(monster), max(2, self.feet() - tall * 2 // 3)
+
+    def popping(self, pops: list[tuple[str, str, int, int]], steps: int = 8, hurt: bool = False,
+                striking: frozenset = frozenset(), pose: str = "idle"):
+        """Blows' numbers (words, colour, x, y: see over) rising off where they landed, frame by frame, each
+        (picture, seconds); the stage reddening and fading back first if `hurt`."""
+        if self.back is None:
+            return
+        scale = self.scale_of_pops()
+        for step in range(steps):
+            rise = step * scale
+            shown = tuple(Pop(words, colour, x, max(0, y - rise), scale) for words, colour, x, y in pops)
+            red = (0.55, 0.3, 0.12)[step] if hurt and step < 3 else 0.0
+            yield self.still(0, pose, striking=striking, pops=shown, hurt=red), 0.06
 
     @property
     def sting(self) -> str:
@@ -641,20 +743,30 @@ class Fight:
             else:
                 yield self.still(0, pose, striking=striking), every / fps
 
-    def shatter(self, side: int = -1):
+    def shatter(self, side: int = -1, who: MonsterState | None = None):
         """Its end, frame by frame (each drawn as it's asked for): the sprite breaks into its pixels, flung away from
         the blow (`side` -1 to the left, 1 the right) and falling, fading as they go; the room behind it all along,
-        and its banner gone dark."""
-        foe = self.foe()
-        if self.back is None or foe is None:
-            return
-        ax, ay = self.anchor(foe)
-        x0, y0 = self.centre() - ax, self.feet() - ay
+        and its banner gone dark. `who`: one of the others in the fight instead, in its place (a burn's finished it),
+        the one you face still standing."""
+        apart = who is not None and not (who.place == self.monster.place and who.name == self.monster.name)
+        if apart:
+            drawn = self.other(who)
+            if self.back is None or drawn is None:
+                return
+            foe, (ax, ay) = drawn
+            x0, y0 = self.centre(who) - ax, self.feet() - ay
+        else:
+            foe = self.foe()
+            if self.back is None or foe is None:
+                return
+            ax, ay = self.anchor(foe)
+            x0, y0 = self.centre() - ax, self.feet() - ay
         src = foe.load()
         bits = [(x, y, src[x, y]) for y in range(foe.height) for x in range(foe.width) if src[x, y][3] >= 128]
         for step in range(1, SHATTER_FRAMES + 1):
-            canvas = self.back.convert("RGBA")
-            self._crowd(canvas)
+            canvas = self.canvas(self.foe(), apart=who.place) if apart else self.back.convert("RGBA")
+            if not apart:
+                self._crowd(canvas)
             px = canvas.load()
             fade = 1 - step / (SHATTER_FRAMES + 1)
             for x, y, (r, g, b, _) in bits:
@@ -693,14 +805,17 @@ class Spoils:
     styles: list[tuple[str, int, int]] = field(default_factory=list)  # (name, its XP, its gold)
     drops: list[str] = field(default_factory=list)
     levels: list[int] = field(default_factory=list)
+    beaten: int = 1  # how many foes the fight was won against
 
     @classmethod
     def of(cls, events, name: str) -> Spoils | None:
-        """The spoils in a turn's events, or None if nothing was beaten in it."""
-        beaten = next((e for e in events if e.kind == "defeat" and "xp" in e.data), None)
-        if beaten is None:
+        """The spoils in a turn's events (or a whole fight's: every foe beaten in it, all they paid), or None if
+        nothing was beaten in them."""
+        beaten = [e for e in events if e.kind == "defeat" and "xp" in e.data]
+        if not beaten:
             return None
-        spoils = cls(name, xp=beaten.data["xp"], souls=beaten.data.get("souls", 0))
+        spoils = cls(name, xp=sum(e.data["xp"] for e in beaten), souls=sum(e.data.get("souls", 0) for e in beaten),
+                     beaten=len(beaten))
         for event in events:
             if event.kind == "style":
                 spoils.styles.append((event.data["name"], event.data["xp"], event.data["gold"]))
@@ -733,14 +848,15 @@ def xp_line(level: int, xp: int, cells: int) -> Text:
 
 
 def spoils_text(back: Text, spoils: Spoils, content: Content, player_level: int, player_xp: int, step: int = 99,
-                fill: float = 1.0) -> Text:
+                fill: float = 1.0, hint: str = "") -> Text:
     """The spoils over the stage (`back`: the dimmed room): a heading, the XP bar filling (`fill` of the way from
     where it was to where it is) with the level-up when there was one, the gold and souls, each style, and the drops,
-    one more for each `step` (the bar first, then the purse, then each thing: the caller sounds each as it comes)."""
+    one more for each `step` (the bar first, then the purse, then each thing: the caller sounds each as it comes);
+    then the `hint`, once it's all there (how to go on)."""
     lines = back.split("\n")
     width, rows = len(lines[0].plain) if lines else 0, len(lines)
-    body: list[Text] = [Text("✦ SPOILS ✦", style=f"bold {GOLD}"),
-                        Text(f"{spoils.name} is beaten", style=f"bold {WHITE}")]
+    beaten = f"{spoils.name} is beaten" if spoils.beaten == 1 else f"All {spoils.beaten} are beaten"
+    body: list[Text] = [Text("✦ SPOILS ✦", style=f"bold {GOLD}"), Text(beaten, style=f"bold {WHITE}")]
     before = player_xp - spoils.all_xp
     shown_xp = round(before + (player_xp - before) * fill)
     level = player_level
@@ -768,6 +884,8 @@ def spoils_text(back: Text, spoils: Spoils, content: Content, player_level: int,
             row.append(("   " if row.plain else "") + f"◆ {content.item(key).name}",
                        style=f"bold {rarity(content, key)}")
         body.append(row)
+    if hint:
+        body.append(Text(hint, style=f"italic {GREY}"))
     top = max(0, (rows - len(body)) // 2)
     for i, words in enumerate(body):
         if top + i < rows:
@@ -776,12 +894,24 @@ def spoils_text(back: Text, spoils: Spoils, content: Content, player_level: int,
     return Text("\n", no_wrap=True, overflow="crop").join(lines)
 
 
-def wipe(old: Text, new: Text, steps: int = 6, side: int = 1) -> list[Text]:
+def wipe(old: Text, new: Text, steps: int = 6, side: int = 1, up: int = 0) -> list[Text]:
     """`new` sweeping across `old`, from the right (`side` 1) or the left (-1), a few columns more each step, with a
-    bright seam where they meet: the stage going back to the room (and, later, one room to the next)."""
+    bright seam where they meet: the stage going back to the room after a fight, and one room to the next. `up`:
+    from the top (1, going north) or the bottom (-1, south), a few rows more each step, instead."""
     olds, news = old.split("\n"), new.split("\n")
     width = max((len(line.plain) for line in [*olds, *news]), default=0)
     frames = []
+    if up:
+        rows = min(len(olds), len(news))
+        for step in range(1, steps + 1):
+            cut = round(rows * step / steps)
+            mixed = news[:cut] + olds[cut:rows] if up > 0 else olds[:rows - cut] + news[rows - cut:rows]
+            seam = cut if up > 0 else rows - cut - 1
+            if 0 <= seam < rows and step < steps:
+                mixed[seam] = mixed[seam].copy()
+                mixed[seam].stylize(Style(bgcolor=FAINT))
+            frames.append(Text("\n", no_wrap=True, overflow="crop").join(mixed))
+        return frames
     for step in range(1, steps + 1):
         cut = round(width * step / steps)
         rows = []

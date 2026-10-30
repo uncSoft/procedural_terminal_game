@@ -95,3 +95,66 @@ async def test_settings_can_keep_boss_entrances_on_the_stage():
         app.screen.action_save()
         await pilot.pause(0.3)
         assert load_config().boss_intros is False
+
+
+async def test_a_boss_behind_a_door_has_its_fights_made_ahead(monkeypatch):
+    """Next to a boss's door, its big intro's fight and the stage's are made in the background (most of their time is
+    their room's picture), and walking in uses them rather than making them then."""
+    monkeypatch.setenv("PTG_BIG_INTRO", "1")
+    app = PTGApp(Config(backend="offline", layout="tabs", player_name="T", auto_roll=True),
+                 test_room=("goblin_king", "strong", 0))
+    async with app.run_test(size=(170, 48)) as pilot:
+        for _ in range(80):
+            await pilot.pause(0.1)
+            if isinstance(app.screen, GameScreen) and not app.screen.busy:
+                break
+        screen = app.screen
+        def kings() -> list:  # (any other fight next door is made ahead too)
+            return [f for f in screen.ahead.values() if f.monster.key == "goblin_king"]
+
+        for _ in range(50):
+            await pilot.pause(0.1)
+            if len(kings()) == 2:
+                break
+        made = kings()
+        assert len(made) == 2
+        door = next(a for a in available_actions(screen.game.state, screen.game.content) if a.hint == "boss")
+        screen.press(door)
+        for _ in range(40):
+            await pilot.pause(0.1)
+            if isinstance(app.screen, BossIntro):
+                break
+        assert isinstance(app.screen, BossIntro) and app.screen.fight in made
+        await pilot.press("escape")
+        for _ in range(80):
+            await pilot.pause(0.1)
+            if app.screen is screen and not screen.animating:
+                break
+        assert screen.fight in made and not kings()
+
+
+async def test_any_fight_behind_a_door_is_made_ahead():
+    """Not only a boss's: walking into floor 5's Sporerats took a seventh of a second to make their fight (run 66)."""
+    app = PTGApp(Config(backend="offline", layout="tabs", player_name="T", auto_roll=True),
+                 test_room=("sporerat", "strong", 5))
+    async with app.run_test(size=(170, 48)) as pilot:
+        for _ in range(80):
+            await pilot.pause(0.1)
+            if isinstance(app.screen, GameScreen) and not app.screen.busy:
+                break
+        screen = app.screen
+        for _ in range(50):
+            await pilot.pause(0.1)
+            if screen.ahead:
+                break
+        made = list(screen.ahead.values())
+        assert made and any(f.monster.key == "sporerat" for f in made)
+        state = screen.game.state
+        way = next(w for w, e in state.room.exits.items() if state.rooms[e.to].monster
+                   and state.rooms[e.to].monster.key == "sporerat")
+        screen.press(next(a for a in available_actions(state, screen.game.content) if a.id == f"go:{way}"))
+        for _ in range(80):
+            await pilot.pause(0.1)
+            if state.in_combat and not screen.animating and not screen.busy:
+                break
+        assert screen.fight in made

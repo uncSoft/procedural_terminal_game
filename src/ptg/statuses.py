@@ -21,7 +21,7 @@ take. Statuses are kept on the player as {status: strength} (Player.statuses).
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from importlib import resources
 from typing import TYPE_CHECKING
 
@@ -81,6 +81,34 @@ def effects(status: StatusDef) -> str:
     parts += ["your next go in a fight is lost"] if status.skip else []
     parts += [f"for {status.lasts}"] if status.lasts else []
     return " · ".join(parts + ([f"cure: {status.cured_by}"] if status.cured_by else []))
+
+
+# What each does to a foe in a fight (monster_tick, combat), for its card.
+ON_FOES = {"burn": f"A foe set alight burns for {MONSTER_BURN} HP each turn of the fight, and can fall to it.",
+           "mend": f"A foe mending gets {MONSTER_MEND} HP back each turn of the fight: kill its mender first.",
+           "stun": "A stunned foe loses its next go.",
+           "poison": "Venom does nothing to a foe that bites with it."}
+
+
+def card(key: str, content: Content | None = None) -> list[tuple[str, str]]:
+    """A status's card, as (heading, words) lines: what it is, what it does to you, how long, what cures it, what of
+    yours keeps it off for good, and what it does to a foe (ui's InfoScreen draws them)."""
+    status = DEFS[key]
+    lines = [("", status.blurb)]
+    what = effects(replace(status, cured_by=""))
+    if what:
+        lines.append(("What it does", what))
+    lines.append(("How long", f"{status.lasts} of them, then it wears off" if status.lasts else
+                  "with the go it costs you" if status.skip else "till it's cured"))
+    if status.cured_by:
+        lines.append(("Cured by", status.cured_by))
+    if content is not None:
+        wards = [item.name for item in content.items.values() if key in item.wards]
+        if wards:
+            lines.append(("Kept off by", ", ".join(wards) + " (worn or carried)"))
+    if key in ON_FOES:
+        lines.append(("On a foe", ON_FOES[key]))
+    return lines
 
 
 def has(state: GameState, key: str) -> bool:

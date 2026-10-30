@@ -135,6 +135,7 @@ class MonsterDef:
     desc: str = ""  # what it looks like and how it behaves, in its creator's words (the narrator gets it too)
     tricks: list[str] = field(default_factory=list)  # what it does in a fight beyond hitting you (TRICKS)
     dungeons: list[str] = field(default_factory=list)  # the only ones it turns up in (theme keys): see lives_in
+    floors: list[int] = field(default_factory=list)  # the only floors it roams (none said: wherever its tier puts it)
     party: list[str] = field(default_factory=list)  # who comes into its fight with it (monster keys): world.party
     cry: str = ""  # its own sound (a sound.MOMENTS key), played as it comes in and as it rears up for a heavy blow
     wants: str = ""  # an item it came for (cursed or not): handed it, it stops fighting (interactions._trade)

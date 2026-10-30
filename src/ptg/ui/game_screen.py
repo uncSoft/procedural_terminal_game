@@ -5,6 +5,7 @@ story, and the command line. How it's shared out for the size is ui/plan.py's; G
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 
 from rich.text import Text
@@ -18,26 +19,25 @@ from textual.widgets import Footer, Input, Static
 
 from .. import config, encounter, glossary, interactions, inventory, loot, sound, statuses
 from ..events import Action, Event
-from ..glossary import Lexicon
 from ..game import Game
-from ..models import LogEntry
+from ..glossary import Lexicon
+from ..llm.interpreter import looks
+from ..models import OPPOSITE, LogEntry, MonsterState
 from ..outcome import AWFUL, BAD, GOOD, GREAT, overall, tone, verdict
 from ..room_picture import look_of, picture_text
 from ..rules import no_go, no_way
 from ..sprites import CLIP_FPS, DEATH_FRAMES, clips, splash_sizes
-from ..world import EARLY_BOSSES
 from ..text import cap, mid_sentence, the
-from . import effects
-from ..llm.interpreter import looks
-from .boss_intro import BossIntro
+from . import collector, effects
+from .boss_intro import BossIntro, fits
 from .boss_intro import wanted as big_intro
 from .dice import DiceScreen
 from .here import CARD, MINI, ROW, Thing, Tile, arrange, things_here
 from .panels import (BestiaryScreen, CharacterScreen, FloorScreen, HelpScreen, InfoScreen, InventoryScreen,
-                     JournalScreen, LevelUpScreen, LookScreen, MapScreen, MenuScreen, Panel, PickScreen, ShopScreen)
+                     JournalScreen, LevelUpScreen, LookScreen, MenuScreen, Panel, PickScreen, ShopScreen)
 from .plan import Plan, make_plan
 from .widgets import (ARROWS, IDLE, LIT, UNLIT, ChoiceItem, Clickable, ClickableBox, DiceLine, DPad, Hud, Picture,
-                      StoryLine, hearts, highlight, map_text, monster_pose, roll_text, room_text)
+                      StoryLine, hearts, highlight, monster_pose, roll_text, room_text)
 
 # (sprite, steps of (frame, pose, flash)) for the moment you use a fixture. A chest and a shrine end on their used-up
 # last frame (emptied; candles out), as the room's picture shows them from then on.
@@ -53,6 +53,7 @@ FIXTURE_MOMENTS = {
 
 SIDE_WORDS = 27  # the columns inside the side column's panels (a panel's frame and padding less its width)
 RESIZE_WAIT = 0.12  # seconds a window must hold still before the screen is laid out for its size again
+SETTLE_AFTER = 0.6  # seconds after a new floor's card comes up that the garbage collector sweeps (ui/collector.py)
 PRELOAD_AFTER = 3.0  # seconds into a run that its floors' art and its bosses' clips are read, in the background
 LOOP_BEATS = round(IDLE * CLIP_FPS)  # a fight's ticks to a sprite's breath, among foes playing clips (loop_step)
 FIRST = ("dodge", "flee", "bomb", "use:", "throw:", "distract:", "go:")  # fight tactics and ways out, before the rest
@@ -80,6 +81,15 @@ SPARKS = "✧✦★✦"
 LEAVE_WINDOW = 2.0  # seconds for the second Esc that leaves for the title
 NARRATION_STEP = 0.12  # seconds between repaints of narration still arriving: re-colouring it every word costs
 MUSIC_AFTER_STING = 0.8  # seconds after a fight's sting (its foe landing) that its music comes in
+THEIR_BEAT = 0.45  # seconds between your go in a fight and the foes' goes after it (rules.theirs)
+SPOILS_HOLD = 6.0  # the most seconds a fight's spoils stay up, unless a key or a click goes on sooner
+# What a fight's turn shows on the stage: your blows and the foes', and those that end one.
+STAGE_KINDS = {"hit", "miss", "defeat", "pacify", "monster_hit", "monster_miss", "evade", "dodge"}
+
+
+def paused(seconds: float) -> float:
+    """A fight's pause (THEIR_BEAT, SPOILS_HOLD), or none at all with PTG_FIGHT_PAUSES=0 (the tests)."""
+    return 0.0 if os.environ.get("PTG_FIGHT_PAUSES") == "0" else seconds
 
 
 def secret_banner(frame: int, words: str = "SECRET ROOM", colour: str = "#ffd166") -> Text:
@@ -158,12 +168,15 @@ def shown(widget: Widget) -> str:
 
 
 def boss_here(state, content) -> bool:
-    """Whether this floor's dungeon has its boss on it (the last dungeon's, or one that always holds its own:
-    world.EARLY_BOSSES): its card says what you're there to do."""
+    """Whether this floor's dungeon has its boss on it (the last dungeon's, or one holding its own on an earlier floor:
+    world.EARLY_BOSSES, unless King Mouse has its stairs): its card says what you're there to do."""
     theme = content.themes[state.theme]
-    return state.boss_floor or state.floor in EARLY_BOSSES.get(theme.boss, {})
+    return state.boss_floor or any(r.monster is not None and r.monster.key == theme.boss for r in state.rooms)
 
 
+LAYOUTS = ("tabs", "grid", "classic")  # what F9 goes through, in turn (action_switch_layout)
+LAYOUT_NAMES = {"tabs": "Tabs: the story beside the room's tabs", "grid": "The grid: big buttons, the map always up",
+                "classic": "Classic: the story with Here and the map beside it"}
 FIGHT_MUSIC = ("battle_music", "boss_music")
 GAME_MUSIC = ("explore_music", "deep_music") + FIGHT_MUSIC
 
@@ -190,19 +203,26 @@ class GameScreen(Screen):
         Binding("escape", "leave", "Title"),
         Binding("pageup", "story_page(-1)", "Scroll up", show=False),
         Binding("pagedown", "story_page(1)", "Scroll down", show=False),
+        Binding("f9", "switch_layout", "Layout"),
+        *[Binding(key, f"arrow('{way}')", show=False, priority=True)
+          for key, way in (("up", "north"), ("down", "south"), ("left", "west"), ("right", "east"))],
     ]
 
-    def __init__(self, game: Game, fresh: bool) -> None:
+    def __init__(self, game: Game, fresh: bool, switched: bool = False) -> None:
         super().__init__()
         self.game = game
         self.fresh = fresh
+        self.switched = switched  # the run carrying on in another layout (action_switch_layout): no recap
+        self.switching = False  # leaving for another layout: the music plays on
         self.busy = False
         self.narration_stop: asyncio.Event | None = None  # set to cut the narrator short (later)
         self.queued = None  # what to do once the turn's done: a move made while the narrator was still talking
         self.turn_marker: Widget | None = None  # where the turn now being shown began (see _mark_turn)
+        self.follow_from: Widget | None = None  # the turn's first story card, if it has one: kept in view (_follow)
         self.last_rolls: list[Event] = []  # the last turn's rolls, for a layout that calls them out (see grid.py)
         self.animating = False  # a fight's flashes, lunges or death are playing on its tile
         self.counter_open = False  # the shop's own screen sent the turn now coming: it opens again after it
+        self.counter = None  # the shop's window while it's up over this screen: what's done there is told there
         self.leave_asked = 0.0  # when Esc last asked "again for the title?" (time.monotonic)
         self.since_redraw = 0  # turns since the whole screen was last drawn afresh (see PTGApp.action_redraw)
         self.plan: Plan | None = None  # how the screen is shared out now (ui/plan.py)
@@ -221,7 +241,17 @@ class GameScreen(Screen):
         self._loop_timer = None
         self.fight: encounter.Fight | None = None  # the fight on the stage, while there's one (encounter.py)
         self.fight_key: tuple | None = None  # whose, where, how big: a new one of those, a new Fight
+        self.fight_events: list[Event] = []  # what the fight on now has paid so far: its spoils, once it's won
+        self.holding: asyncio.Event | None = None  # set to go on from a fight's spoils (see _hold)
+        self.ahead: dict[tuple, encounter.Fight] = {}  # the fights behind this room's doors, made ahead
+        # (ready_fights): (floor, room, its key, its name, width, height) for each
         self.here_page = self.choice_page = 0  # the "more" chips turn these
+        self.map_hover: int | None = None  # the room on the map the mouse is on, that you can get back to: lit
+        self.prepared: tuple | None = None  # a room's picture drawn for the stage already (a wipe's): (whose, it)
+        self.stage_floor = 0  # the floor the stage's picture is of
+        self.stage_still: Text | None = None  # the stage's picture as drawn (its first frame)
+        self.frame_shown: tuple | None = None  # the size of what's on the stage (show_frame)
+        self.their_sounds: list[str] = []  # the foes' go's sounds, kept for their swing on the stage (_sound_theirs)
         self._resize_timer = None
 
     def compose(self) -> ComposeResult:
@@ -238,7 +268,7 @@ class GameScreen(Screen):
                 yield VerticalScroll(id="story")
             with Vertical(id="side"):
                 yield Vertical(id="here", classes="panel")
-                yield Static(id="map", classes="panel")
+                yield StoryLine(id="map", classes="panel")  # (its rooms clicked: you go there, as on the grid's)
                 yield DPad(id="dpad")
         yield Horizontal(id="ways")  # a narrow screen's way out of the room
         yield Vertical(id="choices")
@@ -264,7 +294,11 @@ class GameScreen(Screen):
             floors = [i for i, entry in enumerate(recent) if entry.kind == "floor"]
             for entry in recent[floors[-1] if floors else 0:]:  # this floor's story, as a new floor starts a page
                 self.add_entry(entry, lexicon)
-            self.pick_up_again()
+            if self.switched:  # (the same run, laid out another way: carried on from where it was)
+                self.relayout()
+                self.call_after_refresh(lambda: self.query_one("#story", VerticalScroll).scroll_end(animate=False))
+            else:
+                self.pick_up_again()
         self.query_one("#command", Input).focus()
         self.refresh_music()
         self.set_timer(PRELOAD_AFTER, lambda: self.run_worker(self._preload, thread=True, group="preload"))
@@ -279,9 +313,11 @@ class GameScreen(Screen):
         for key, monster in content.monsters.items():
             if monster.boss or "guardian" in monster.tags:
                 clips(key)
+        collector.freeze()  # (all of it here to stay: out of the collector's sight)
 
     def on_unmount(self) -> None:
-        sound.stop_music(only=GAME_MUSIC)  # (to the title: its own may have started already)
+        if not self.switching:
+            sound.stop_music(only=GAME_MUSIC)  # (to the title: its own may have started already)
 
     def refresh_music(self) -> None:
         """The music for where you are now (music_for), if it isn't playing already. A fight's cuts straight in, the
@@ -384,8 +420,16 @@ class GameScreen(Screen):
         monster = state.room.monster
         known = state.known_weak.get(monster.key, [])
         key = (state.floor, state.room_id, monster.key, monster.name, width, height)
-        if self.fight is None or self.fight_key != key:
-            self.fight, self.fight_key = encounter.Fight(state, content, monster, width, height // 2, known), key
+        made = self.ahead.pop(key, None)
+        if made is not None and (self.fight is None or self.fight_key != key):  # (made ahead: ready_fights)
+            made.update(state, monster, known)
+            self.fight, self.fight_key = made, key
+        elif self.fight is None or self.fight_key != key:
+            same = self.fight is not None and self.fight_key is not None and self.fight_key[:2] + self.fight_key[4:] \
+                == key[:2] + key[4:]  # (another foe of the same fight: the room behind it is as it was, not drawn again)
+            self.fight = encounter.Fight(state, content, monster, width, height // 2, known,
+                                         back=self.fight.back if same else None)
+            self.fight_key = key
         else:
             self.fight.update(state, monster, known)
         return self.fight
@@ -396,18 +440,27 @@ class GameScreen(Screen):
         a fight, the fight (fight_view): the foe big in the dimmed room, breathing likewise."""
         state, content = self.game.state, self.game.content
         fight = self.fight_view(width, height)
+        prepared, self.prepared = self.prepared, None
         if fight is not None:
             art = fight.still(0, monster_pose(state.room.monster))
+        elif prepared and prepared[0] == (state.floor, state.room_id, width, height):
+            art = prepared[1]  # (drawn for the wipe into it just now)
         else:
             art = picture_text(state, content, width, height) if self._sprites_on() else None
+        self.stage_floor = state.floor
         self.stage_frames = [art, None] if art is not None else []
+        self.stage_still = art  # (what's on the stage, kept when the room's found to have nothing that moves)
         self.stage_size, self.stage_beat = (width, height), 0
-        self.query_one("#stage-art", Static).update(art or room_text(state, content))
+        self.show_frame(art or room_text(state, content))
         if self._stage_timer is None and art is not None:
             self._stage_timer = self.set_interval(IDLE, self.stage_step, name="stage")
         self.looping = fight is not None and fight.loops()
         if self.looping and self._loop_timer is None:
             self._loop_timer = self.set_interval(1 / CLIP_FPS, self.loop_step, name="loop")
+
+    def show_frame(self, frame, art: Static | None = None) -> None:
+        """A frame on the stage: laid out again only if it isn't the size of what's there (effects.show_frame)."""
+        self.frame_shown = effects.show_frame(art or self.query_one("#stage-art", Static), frame, self.frame_shown)
 
     def loop_step(self) -> None:
         """A tick of a fight's own clips on the stage: every foe's idle (or its windup, a heavy blow coming) played
@@ -419,7 +472,7 @@ class GameScreen(Screen):
             return
         self.loop_tick += 1
         beat = self.loop_tick // LOOP_BEATS % 2
-        self.query_one("#stage-art", Static).update(fight.still(beat, monster_pose(monster), tick=self.loop_tick))
+        self.show_frame(fight.still(beat, monster_pose(monster), tick=self.loop_tick))
 
     def stage_step(self) -> None:
         """A beat of the stage's idle animation: the other frame, while this screen's in front and nothing else is
@@ -434,7 +487,7 @@ class GameScreen(Screen):
             self.run_worker(lambda: self._second_frame(frames, snapshot), thread=True, group="stage", exclusive=True)
             return
         self.stage_beat += 1
-        self.query_one("#stage-art", Static).update(frames[self.stage_beat % 2])
+        self.show_frame(frames[self.stage_beat % 2])
 
     def _second_frame(self, frames: list, state) -> None:
         """The stage's second frame, drawn in a worker thread, then kept, if the stage still shows the same room (or
@@ -507,12 +560,28 @@ class GameScreen(Screen):
                 box.mount(Static(Text("Nothing here.", style="#6c6f99")))
         box.border_title = f"Here · {len(things)}" if things else "Here"
         if plan.two_columns:
-            side = self.query_one("#map").content_region.width or SIDE_WORDS
-            plain = map_text(state, side)
-            map_rows = len(plain.plain.splitlines()) + plan.edge
-            self.query_one("#map").display = plan.here_rows - used > map_rows
-            self.query_one("#map", Static).update(plain)
-            self.query_one("#map").border_title = f"Floor {state.floor}/{state.floors_total}"
+            self.draw_side_map(plan.here_rows - used - plan.edge)
+
+    def draw_side_map(self, rows: int) -> None:
+        """The floor in the side column, as big as the rows Here leaves it: the grid's chart (its rooms clicked, you go
+        there; the one the mouse is on lit), else the marks with their names, else the marks; and F5 for it in full."""
+        from .grid import drawn_map  # (the grid builds on this module)
+
+        state = self.game.state
+        box = self.query_one("#map", StoryLine)
+        side = box.content_region.width or SIDE_WORDS
+        drawn = drawn_map(state, side, max(3, rows - 2), hover=self.map_hover)
+        box.display = len(drawn.plain.splitlines()) + 2 <= rows
+        box.update(drawn)
+        box.border_title = f"Floor {state.floor}/{state.floors_total}"
+        box.border_subtitle = "F5 in full"
+
+    def hover_room(self, line: StoryLine, room: int | None) -> None:
+        """The mouse has come to a room on the side map you can get back to (or left it): it's lit, or not."""
+        if line.id == "map" and room != self.map_hover:
+            self.map_hover = room
+            self.here_shown = None
+            self.refresh_here()
 
     @staticmethod
     def _ordered(things: list[Thing], numbers: dict[str, int]) -> list[Action]:
@@ -629,8 +698,9 @@ class GameScreen(Screen):
         self.refresh_choices()
 
     def action_stage_card(self) -> None:
-        """Clicked the room's picture: look around."""
-        self.action_panel("look")
+        """Clicked the room's picture: look around (or, on a fight's spoils, go on from them)."""
+        if not self.release():
+            self.action_panel("look")
 
     def action_menu(self) -> None:
         """A short screen's ☰: the panels the footer's F-keys open, and sound on or off."""
@@ -640,6 +710,8 @@ class GameScreen(Screen):
         def done(name: str | None) -> None:
             if name == "sound":
                 self.app.action_toggle_sound(again="The ☰ menu")
+            elif name == "layout":
+                self.action_switch_layout()
             elif name:
                 self.action_panel(name)
 
@@ -697,6 +769,7 @@ class GameScreen(Screen):
         marker = Static("", classes="turn-marker")
         self.query_one("#story", VerticalScroll).mount(marker)
         self.turn_marker = marker
+        self.follow_from = None
         return marker
 
     def _follow(self) -> None:
@@ -704,7 +777,7 @@ class GameScreen(Screen):
         (a picture, loot and narration under a command), at its start, so the command and the picture's top stay in
         view, however much more is added. Run 44's room pictures were scrolled off before they were seen."""
         story = self.query_one("#story", VerticalScroll)
-        marker = self.turn_marker
+        marker = self.follow_from or self.turn_marker  # (a story card the turn brought: it's what's to be read)
 
         def settle() -> None:
             if marker is None or not marker.is_attached:
@@ -749,6 +822,8 @@ class GameScreen(Screen):
         parts.append(StoryLine(highlight(text, lexicon)))
         card = Vertical(*parts, classes="story-card", name=f"story card: {title}")  # (the turn log's name for it)
         story.mount(card)
+        if self.follow_from is None:  # (the first of a turn's cards kept in view, its title at the top if need be)
+            self.follow_from = card
         self._follow()
         return card
 
@@ -844,6 +919,8 @@ class GameScreen(Screen):
     @on(Input.Submitted, "#command")
     def submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
+        if self.busy and self.release() and not text:  # (Enter on a fight's spoils: on we go)
+            return
         if self.busy:
             if text and self.later(lambda: self.take_input(text)):
                 event.input.value = ""
@@ -920,8 +997,61 @@ class GameScreen(Screen):
         if picked and not self.game.state.pending_perks:
             self.call_later(then)
 
+    def ready_fights(self) -> None:
+        """A monster after you behind a door of this room: its fight made ahead, off the screen's thread, at the
+        stage's size, and a boss's (or a guardian's) big intro's at the screen's too, so walking in starts them at
+        once. Each takes a tenth of a second or so, most of it its room's picture (BossIntro.made, fight_view); floor
+        5's crowds in the dark half as much again, and run 66 felt every one of them."""
+        state, content, plan = self.game.state, self.game.content, self.plan
+        if state.in_combat or state.over or plan is None or not self._sprites_on() or encounter.Image is None:
+            return
+        doors = {way: state.rooms[e.to] for way, e in state.room.exits.items() if 0 <= e.to < len(state.rooms)}
+        foes = {way: room for way, room in doors.items() if room.monster and room.monster.hostile
+                and room.monster.hp > 0}
+        stage = [(plan.stage_width, plan.stage_rows, 2 * plan.stage_rows)] if plan.stage_rows else []
+        big = []
+        if big_intro(self.game.config):
+            width, height = fits(self.app.size)
+            if width >= 60 and height >= 20:
+                big = [(width, height, height)]
+
+        def sizes(room) -> list[tuple[int, int, int]]:
+            known = content.monster(room.monster.key)
+            return stage + (big if known.boss or "guardian" in known.tags else [])
+
+        wanted = {(state.floor, room.id, room.monster.key, room.monster.name, width, keyed)
+                  for room in foes.values() for width, _, keyed in sizes(room)}
+        self.ahead = {key: fight for key, fight in self.ahead.items() if key in wanted}
+        todo = [(way, room, size) for way, room in foes.items() for size in sizes(room)
+                if (state.floor, room.id, room.monster.key, room.monster.name, size[0], size[2]) not in self.ahead]
+        if not todo:
+            return
+        snapshot = state.model_copy(deep=True)  # (as it stands: nothing it draws can change under it)
+
+        app = self.app
+
+        def make() -> None:
+            made = {}
+            for way, room, (width, rows, keyed) in todo:
+                there = snapshot.model_copy(update={"room_id": room.id})
+                there.room.entered_from = OPPOSITE[way]
+                monster = there.room.monster
+                fight = encounter.Fight(there, content, monster, width, rows, there.known_weak.get(monster.key, []))
+                made[(there.floor, room.id, monster.key, monster.name, width, keyed)] = fight
+
+            def keep() -> None:
+                if self.game.state.floor == snapshot.floor:
+                    self.ahead.update(made)
+            try:
+                app.call_from_thread(keep)
+            except RuntimeError:  # (the game's closed while they were made: nobody's walking in)
+                pass
+
+        self.run_worker(make, thread=True, group="ahead", exclusive=True)
+
     def _settle(self) -> None:
         """A turn done (or a recap, or a perk picked): moves can be made again, and the one made meanwhile is."""
+        self.ready_fights()
         self.busy = False
         for command in self.query("#command"):  # (none if the game's closing with the turn still waiting)
             command.focus()
@@ -974,7 +1104,8 @@ class GameScreen(Screen):
 
         pending = await game.begin(text, action)
         primary = pending.primary
-        while primary is not None:
+        counter = self.counter  # (at the shop's counter: its rolls and what came of them are told there: told)
+        while primary is not None and counter is None:
             summary = pending.intent.summary or shown
             choice = await self.app.push_screen_wait(
                 DiceScreen(primary.dice, summary, game.fate_left(), game.can_reroll(), auto=game.config.auto_roll,
@@ -989,23 +1120,45 @@ class GameScreen(Screen):
                 continue
             break
 
+        stepped = game.state.room_id != room_before and not game.state.in_combat and \
+            not any(e.kind == "descend" for e in pending.events)
+        if stepped:  # a step to the next room: the map, Here and the buttons say so at once, the step sounds (it takes
+            self.refresh_around_stage()  # sound.LEAD to be heard: as the wipe gets going), and the stage wipes in
+            self.refresh_ways()  # after. Run 66: the wipe, the step, then the map read as a hitch
+            sound.play("step")
         narration, on_text = self._narration_sink()
         self.last_rolls = [event for event in pending.events if event.dice]
-        for event in pending.events:
-            if not event.dice:
-                continue
-            if event is primary:
-                effects.flash(self.add_line(roll_text(event), "mechanic", before=narration), tone(event))
-            else:
-                line = DiceLine("", classes="mechanic")
-                await self.query_one("#story").mount(line, before=narration)
-                await line.play(event, fast=event.dice.actor == "monster")
-        self.query_one("#hud", Hud).show(game.state, game.content)
-        for moment in dict.fromkeys(filter(None, map(effects.event_sound, pending.events))):
-            sound.play(moment)
-        await self._roll_feedback(pending.events, hp_before)
+        if not fighting or game.state.room_id != room_before:
+            self.fight_events = []  # (a fight starting now, if one is)
+        if fighting or game.state.in_combat:  # (what the fight's paid so far, for its spoils once it's won)
+            self.fight_events += [e for e in pending.events if e.kind in ("defeat", "style", "loot", "drop", "level")]
+        # A fight's turn: your go, then a beat, then the foes' (rules.theirs), your HP shown between them.
+        mine = [e for e in pending.events if not e.data.get("theirs")]
+        theirs = [e for e in pending.events if e.data.get("theirs")]
+        between = next((e.data["hp_before"] for e in theirs if "hp_before" in e.data), None)
+        await self._rolls(mine, primary, narration)
+        self.query_one("#hud", Hud).show(game.state, game.content, hp=between)
+        for moment in dict.fromkeys(filter(None, map(effects.event_sound, mine))):
+            if not (stepped and moment == "step"):  # (played already)
+                sound.play(moment)
+        await self._roll_feedback(mine, hp_before, hp_after=between)
         await self._purse_feedback(purse_before)
-        await self._fight_animations(pending.events, before, room_before)
+        await self._fight_animations(mine, before, room_before, last=not theirs)
+        if theirs and game.state.room_id == room_before:
+            await asyncio.sleep(paused(THEIR_BEAT))
+            staged = self.fight is not None  # (their blows sound as they swing on the stage, not as their dice land)
+            await self._rolls(theirs, primary, narration, quiet=staged)
+            self.query_one("#hud", Hud).show(game.state, game.content)
+            moments = [effects.roll_sound(e) for e in theirs if e.dice] if staged else []
+            self.their_sounds = list(dict.fromkeys([*moments, *filter(None, map(effects.event_sound, theirs))]))
+            if not staged:
+                self._sound_theirs()
+            await self._roll_feedback(theirs, between if between is not None else hp_before)
+            facing = game.state.room.monster
+            now = (facing.key, facing.name) if facing is not None and any(e.kind == "face" for e in mine) else before
+            await self._fight_animations(theirs, now, room_before)
+            self._sound_theirs()  # (any the stage didn't get to)
+        await self._room_wipe(room_before)
         await self._encounter(fighting, room_before)
         await self._fixture_moment(pending.events)
         # Then, from the top, all above what's said of it: a new floor's header and a moment's banner. (The room, who
@@ -1039,6 +1192,8 @@ class GameScreen(Screen):
             self.add_line(f"  ({error})", "system-line")
         for exchange in exchange_lines(result.events, game.content):  # (what changed hands, in a line each)
             self.add_line(Text(exchange), "pickup-line")
+        for mind in (e for e in result.events if e.kind == "thought"):  # (yours, in your own words: light.thought)
+            self.add_line(Text(f"  “{mind.text}” you think.", style="italic #5fe3ff"), "system-line")
         for warning in (e for e in result.events if e.kind == "warning"):  # (said as it is, never by the narrator)
             self.add_line(Text("  ⚠ " + warning.text, style="bold #ff7b39"), "system-line")
         for lamp in (e for e in result.events if e.kind == "light"):  # (your torch lit, filled or out: light.py)
@@ -1064,6 +1219,8 @@ class GameScreen(Screen):
 
             for key in game.first_finds(result.events):
                 await self.app.push_screen_wait(FoundScreen(game, key))
+        for key in game.first_statuses(result.events):  # (the first time one takes hold of you, ever: its card)
+            await self.app.push_screen_wait(InfoScreen(game, f"status:{key}"))
         while game.state.pending_perks:
             if not await self._level_up():
                 break  # (put off: the perks wait as the choices)
@@ -1075,10 +1232,32 @@ class GameScreen(Screen):
             return
         self._record_shown(marker)
         shopping = any(e.kind == "shop" for e in result.events) or at_the_counter
-        if shopping and game.state.room.shop:  # the counter again, after a purchase, a haggle or a sale there
+        if counter is not None and counter.is_attached:  # (the window's still up: it says what came of it)
+            await counter.told(pending.events, result.narration)
+        elif shopping and game.state.room.shop:  # the counter again, after a purchase, a haggle or a sale there
             arg = action.id.partition(":")[2] if action else ""
             self.open_shop(int(arg) if arg.isdigit() else 0)
         await self.suggest_later()
+
+    async def _rolls(self, events: list[Event], primary: Event | None, narration: Static, quiet: bool = False) -> None:
+        """The dice of a turn (or a part of one: rules.theirs) in the story, over what's said of it: the one rolled in
+        the dice window lit in its colour, the rest rolling out in their lines (a foe's fast; `quiet`, without what
+        came of them sounding: DiceLine.play)."""
+        for event in events:
+            if not event.dice:
+                continue
+            if event is primary:
+                effects.flash(self.add_line(roll_text(event), "mechanic", before=narration), tone(event))
+            else:
+                line = DiceLine("", classes="mechanic")
+                await self.query_one("#story").mount(line, before=narration)
+                await line.play(event, fast=event.dice.actor == "monster", quiet=quiet)
+
+    def _sound_theirs(self) -> None:
+        """The sounds of the foes' go (their_sounds), now: as they swing on the stage (_stage_theirs)."""
+        moments, self.their_sounds = self.their_sounds, []
+        for moment in moments:
+            sound.play(moment)
 
     def action_shop_counter(self) -> None:
         """Clicked the shopkeeper: her shop, if you're in it."""
@@ -1092,7 +1271,12 @@ class GameScreen(Screen):
                 self.counter_open = True
                 self.press(chosen)  # (a purchase or a haggle is a turn; "Sell…" opens its list first)
 
-        self.app.push_screen(ShopScreen(self.game, selected), done)
+        self.app.push_screen(ShopScreen(self.game, selected, opener=self), done)
+
+    def counter_turn(self, action: Action) -> None:
+        """Something done at the shop's counter, its window staying up (ShopScreen.act): a turn as any other, its
+        roll and what came of it told in the window (ShopScreen.told), not over it."""
+        self.press(action)
 
     async def _level_up(self) -> bool:
         """The level-up window, until you pick a perk (it can't be put off now). Whether you did: a run saved while
@@ -1142,6 +1326,7 @@ class GameScreen(Screen):
         state = game.state
         self.add_floor_header(f"Floor {state.floor} of {state.floors_total}", game.theme.name, before=narration)
         self.app.push_screen(FloorScreen(state.floor, state.floors_total, game.theme, boss_here(state, self.game.content)))
+        self.set_timer(SETTLE_AFTER, collector.settle)  # (the old floor swept away while its card's read)
 
     def _toasts(self, events: list[Event]) -> None:
         for event in events:
@@ -1169,14 +1354,18 @@ class GameScreen(Screen):
         roll, shifting the words in and out."""
         return self.query_one("#story")
 
-    async def _roll_feedback(self, events: list[Event], hp_before: int, gold_before: int | None = None) -> None:
+    async def _roll_feedback(self, events: list[Event], hp_before: int, gold_before: int | None = None,
+                             hp_after: int | None = None) -> None:
         """How the turn went, at a glance: the story's border lights up in its colour (and blinks and shakes for a
-        natural 20 or 1), damage rises off the monster, and your hearts show what you lost or gained."""
+        natural 20 or 1), damage rises off the monster (big, on the stage, in a fight there: _stage_mine), and your
+        hearts show what you lost or gained (by `hp_after`, your go's, before the foes have theirs)."""
         how = overall(events)
         if how:
             effects.pulse(self.story_frame(), how, blinks=3 if how in (GREAT, AWFUL) else 1)
         hits = [e for e in events if e.kind == "hit" and e.data.get("damage")]
-        if hits:
+        if self.fight is not None:
+            pass  # (the stage's own numbers say it)
+        elif hits:
             crit = any(e.dice and e.dice.crit for e in hits)
             dealt = sum(e.data["damage"] for e in hits)
             await self._pop_over_scene(f" -{dealt}{'!' if crit else ''} ",
@@ -1184,7 +1373,7 @@ class GameScreen(Screen):
         elif any(e.kind == "miss" for e in events):
             await self._pop_over_scene(" MISS ", "bold #c8c8e0 on #23274a")
         player = self.game.state.player
-        change = player.hp - hp_before
+        change = (player.hp if hp_after is None else hp_after) - hp_before
         if change:  # just under the HP numbers, on the story's top border, sliding right
             hud = self.query_one("#hud").region
             x = hud.x + 1 + len(hearts(player.hp, player.max_hp)) + len(f" {player.hp}/{player.max_hp}") - 2
@@ -1239,14 +1428,20 @@ class GameScreen(Screen):
         """The picture on Here's tile for `key` (a monster, a fixture), if it has one on show."""
         return next((p for p in self.query(".here-art").results(Picture) if p.key == key and p.display), None)
 
-    async def _fight_animations(self, events: list[Event], before: tuple | None, room_before: int) -> None:
+    async def _fight_animations(self, events: list[Event], before: tuple | None, room_before: int,
+                                last: bool = True) -> None:
         """Flash white when hit, lunge when attacking, dissolve when it dies (or a ghost finds rest): on its tile, and
-        on the stage too in a fight there, where a kill breaks it apart and shows the spoils (_stage_blows)."""
+        on the stage too in a fight there (_stage_mine, _stage_theirs). A fight's turn comes in two parts, your go then
+        the foes' (rules.theirs): `last` is whether these are the last of the turn's (gone any other way than slain,
+        a thief off with what it grabbed, it only shows then)."""
         game = self.game
         if before is None or game.state.room_id != room_before:
             return
         kinds = {e.kind for e in events}
-        gone = game.state.room.monster is None
+        monster = game.state.room.monster
+        theirs = any(e.data.get("theirs") for e in events)
+        gone = any(e.kind == "defeat" and e.data.get("monster") == before[0] for e in events) or last and (
+            monster is None or (monster.key, monster.name) != before)
         picture = self._tile_picture(before[0])
         steps: list[tuple[str, int, bool]] = []
         if "hit" in kinds:
@@ -1261,8 +1456,8 @@ class GameScreen(Screen):
             steps = [s for s in steps if s[0] == "idle"]  # ASCII art can still flash
         moments = [self._play_scene(picture, steps)] if steps and picture is not None else []
         fight = self.fight
-        if fight is not None and fight.monster.key == before[0] and (steps or gone):
-            moments.append(self._stage_blows(fight, kinds, gone, events))
+        if fight is not None and (gone or kinds & STAGE_KINDS or last and not game.state.in_combat):
+            moments.append(self._stage_theirs(fight, events) if theirs else self._stage_mine(fight, events, last))
         if moments:
             self.animating = True
             try:
@@ -1270,59 +1465,132 @@ class GameScreen(Screen):
             finally:
                 self.animating = False
 
-    async def _stage_blows(self, fight: encounter.Fight, kinds: set[str], gone: bool, events: list[Event]) -> None:
-        """A turn of the fight on the stage: the foe flashes white when hit and lunges when it goes for you; slain, it
-        holds for a beat, breaks apart, and its spoils come up (_spoils). Gone any other way (a thief off with what it
-        grabbed), the room just sweeps back in."""
-        state = self.game.state
+    async def _stage_mine(self, fight: encounter.Fight, events: list[Event], last: bool) -> None:
+        """Your go on the stage: the foe you hit flashes white and the damage rises off it, big (a miss says so).
+        One slain holds a beat and breaks apart where it stood (any of the others a blast finished, likewise). Then:
+        the fight won, its spoils (_spoils); the one you faced down, the next of the fight comes at you (_next_foe)."""
         art = self.query_one("#stage-art", Static)
-        if not gone:
-            fight.update(state, state.room.monster, state.known_weak.get(state.room.monster.key, []))
-        else:
-            fight.monster = fight.monster.model_copy(update={"hp": 0})
-            fight.seen = None
-        moved = False
+        kinds = {e.kind for e in events}
         if "hit" in kinds:
             for flash in (True, False, True, False):
-                art.update(fight.still(0, "idle", flash=flash))
+                self.show_frame(fight.still(0, "idle", flash=flash), art)
                 await asyncio.sleep(0.06)
-            moved = True
-        if not gone and kinds & {"monster_hit", "monster_miss", "evade", "dodge"}:  # (they went for you: each its own
-            # swing, if it has one, the Goblin King's pan coming down, or a lunge; all at once, in a crowd)
-            striking = {e.data["foe"] for e in events if "foe" in e.data} or None
-            swung = list(fight.swing(striking, monster_pose(state.room.monster)))
+        hits = [e for e in events if e.kind == "hit" and e.data.get("damage")]
+        pops = []
+        if hits:
+            crit = any(e.dice and e.dice.crit for e in hits)
+            pops = [(f"-{sum(e.data['damage'] for e in hits)}{'!' if crit else ''}",
+                     encounter.GOLD if crit else encounter.WHITE, *fight.over())]
+        elif "miss" in kinds:
+            pops = [("MISS", encounter.GREY, *fight.over())]
+        if pops:
+            async for frame, _ in effects.paced(fight.popping(pops)):
+                self.show_frame(frame, art)
+        await self._fallen(fight, events, last)
+
+    async def _stage_theirs(self, fight: encounter.Fight, events: list[Event]) -> None:
+        """The foes' go on the stage, after yours: each that went for you in its own swing (the Goblin King's pan
+        coming down) or a lunge, all at once in a crowd; what they took off you rising big over the stage as it
+        flushes red. Then any a burn finished breaks apart, as on your go."""
+        art = self.query_one("#stage-art", Static)
+        kinds = {e.kind for e in events}
+        self._sound_theirs()  # (their blows land as they swing)
+        striking = frozenset(e.data["foe"] for e in events if "foe" in e.data)
+        pose = monster_pose(fight.monster)
+        if kinds & {"monster_hit", "monster_miss", "evade", "dodge"}:
+            swung = list(fight.swing(striking or None, pose))
             lunge = [(fight.still(0, "lunge"), 0.07), (fight.still(1, "lunge"), 0.07)]
             async for text, _ in effects.paced(swung or lunge):
-                art.update(text)
-            moved = True
-        if gone:
-            await self._spoils(fight, events, slain="defeat" in kinds)
-        elif moved:
-            art.update(fight.still(0, monster_pose(state.room.monster)))  # (as it stands now)
+                self.show_frame(text, art)
+        pops, hurt = [], False
+        for foe in fight.lineup():  # (each that went for you: what it took off you, in red over it, or its miss)
+            blows = [e for e in events if e.data.get("foe") == foe.place]
+            dealt = sum(e.data.get("damage", 0) for e in blows if e.kind == "monster_hit")
+            if dealt:
+                pops.append((f"-{dealt}", "#ff4b4b", *fight.over(foe)))
+                hurt = True
+            elif any(e.kind in ("monster_miss", "evade", "dodge") for e in blows):
+                pops.append(("MISS", encounter.GREY, *fight.over(foe)))
+        if pops:
+            async for frame, _ in effects.paced(fight.popping(pops, hurt=hurt, pose=pose)):
+                self.show_frame(frame, art)
+        await self._fallen(fight, events, True)
 
-    async def _spoils(self, fight: encounter.Fight, events: list[Event], slain: bool = True) -> None:
-        """A foe slain on the stage: the killing blow holds a beat, the foe breaks into pixels, and what it paid comes
-        up over the dimmed room: the XP bar filling, the gold and souls, the style it was won in, and each thing it
-        dropped in its rarity's colour, a sound for each. Then the room sweeps back in, and it's over (and at once, for
-        one that wasn't `slain`)."""
+    async def _fallen(self, fight: encounter.Fight, events: list[Event], last: bool) -> None:
+        """After a part of a fight's turn on the stage: those of it slain in it break apart where they stood (the one
+        you faced last); then the fight's over (its spoils, or just the room again: _spoils), or the one you face has
+        changed (the next comes at you: _next_foe), or it stands as it is now."""
+        state = self.game.state
+        art = self.query_one("#stage-art", Static)
+        fallen = [e for e in events if e.kind == "defeat" and "fallen" in e.data]
+        places = {e.data["fallen"] for e in fallen}
+        facing = fight.monster
+        for other in [m for m in fight.others if m.place in places]:  # (a burn, a blast: one of the others)
+            await self._break_apart(fight, other)
+        slain = facing.place in places
+        if slain:
+            await self._break_apart(fight, facing)
+        now = state.room.monster
+        if last and not state.in_combat:  # (the fight's over: won, or the last of it gone another way)
+            await self._spoils(fight)
+            return
+        if now is None or (now.place, now.name) != (facing.place, facing.name):
+            xp = next((e.data.get("xp", 0) for e in fallen if e.data["fallen"] == facing.place), 0)
+            spot = fight.over(facing)
+            fight = self._next_foe()
+            if fight is not None and xp:
+                async for frame, _ in effects.paced(fight.popping([(f"+{xp}XP", encounter.GOLD, *spot)])):
+                    self.show_frame(frame, art)
+            return
+        fight.update(state, now, state.known_weak.get(now.key, []))
+        self.show_frame(fight.still(0, monster_pose(now)), art)  # (as it stands now)
+
+    async def _break_apart(self, fight: encounter.Fight, who: MonsterState) -> None:
+        """A foe slain on the stage: the killing blow holds a beat (white, the one you faced), then it breaks into
+        pixels where it stood."""
+        art = self.query_one("#stage-art", Static)
+        if who is fight.monster:
+            self.show_frame(fight.still(0, "idle", flash=True, banner=False), art)
+            await asyncio.sleep(0.22)
+        sound.play("shatter")
+        for frame in fight.shatter(who=who):
+            self.show_frame(frame, art)
+            await asyncio.sleep(0.055)
+
+    def _next_foe(self) -> encounter.Fight | None:
+        """The one you faced is down, and the next of its fight comes at you: the fight on the stage made again for
+        it (its own clips, every foe's place along the stage), on the same room (its picture isn't drawn again)."""
+        if self.plan is None or not self.plan.stage_rows:
+            return None
+        fight = self.fight_view(*self.stage_size)
+        if fight is not None:
+            self.show_frame(fight.still(0, monster_pose(fight.monster)))
+            self.looping = fight.loops()
+            if self.looping and self._loop_timer is None:
+                self._loop_timer = self.set_interval(1 / CLIP_FPS, self.loop_step, name="loop")
+        self.stage_shown = None
+        return fight
+
+    async def _spoils(self, fight: encounter.Fight) -> None:
+        """A fight won on the stage: what it paid comes up over the dimmed room, the whole fight's (every foe beaten
+        in it: fight_events): the XP bar filling, the gold and souls, the style it was won in, and each thing dropped
+        in its rarity's colour, a sound for each. It stays till a key or a click (or SPOILS_HOLD seconds), then the
+        room sweeps back in, and it's over (and at once, for a fight with nothing slain in it)."""
         state, content = self.game.state, self.game.content
         art = self.query_one("#stage-art", Static)
         last = fight.empty()
-        if slain:
-            art.update(fight.still(0, "idle", flash=True, banner=False))
-            await asyncio.sleep(0.22)
-            sound.play("shatter")
-            for frame in fight.shatter():
-                art.update(frame)
-                await asyncio.sleep(0.055)
-        spoils = encounter.Spoils.of(events, fight.monster.name) if slain else None
+        beaten = [e.data["monster"] for e in self.fight_events if e.kind == "defeat" and "xp" in e.data]
+        name = fight.monster.name if beaten[-1:] == [fight.monster.key] else \
+            content.monster(beaten[-1]).name if beaten else ""
+        spoils = encounter.Spoils.of(self.fight_events, name)
+        self.fight_events = []
         self.refresh_music()  # (the floor's music back under the spoils, not after them)
         self.refresh_hud()
         if spoils is not None:
             player, back = state.player, last
             for i in range(1, 9):
                 last = encounter.spoils_text(back, spoils, content, player.level, player.xp, step=0, fill=i / 8)
-                art.update(last)
+                self.show_frame(last, art)
                 await asyncio.sleep(0.04)
             if spoils.levels:
                 sound.play("level_up")
@@ -1331,22 +1599,46 @@ class GameScreen(Screen):
             # tile's dissolve is done)
             for step in range(1, 2 + len(spoils.drops)):
                 last = encounter.spoils_text(back, spoils, content, player.level, player.xp, step=step)
-                art.update(last)
+                self.show_frame(last, art)
                 if step == 1 and (spoils.all_gold or spoils.styles):
                     sound.play("coin")
                 elif step > 1:
                     key = spoils.drops[step - 2]
                     sound.play("rare_drop" if loot.rare(content.item(key)) else "item")
                 await asyncio.sleep(0.3)
-            await asyncio.sleep(1.0)
+            await self._hold(lambda hint: encounter.spoils_text(back, spoils, content, player.level, player.xp,
+                                                                hint=hint))
+            last = encounter.spoils_text(back, spoils, content, player.level, player.xp)
         self.fight = self.fight_key = None
         width, height = self.stage_size
         room = picture_text(state, content, width, height) if self._sprites_on() else None
         if room is not None:
             for frame in encounter.wipe(last, room, side=-1):
-                art.update(frame)
+                self.show_frame(frame, art)
                 await asyncio.sleep(0.035)
         self.stage_shown = None  # (the room, drawn afresh with the rest of the turn)
+
+    async def _hold(self, card) -> None:
+        """The spoils held up till you've read them: `card(hint)` with how to go on, until a key (Enter, Esc), a
+        click, or a move made (later), or SPOILS_HOLD seconds."""
+        seconds = paused(SPOILS_HOLD)
+        if not seconds:
+            return
+        self.show_frame(card("▸ Enter or click to go on"))
+        self.holding = asyncio.Event()
+        try:
+            await asyncio.wait_for(self.holding.wait(), seconds)
+        except TimeoutError:
+            pass
+        finally:
+            self.holding = None
+
+    def release(self) -> bool:
+        """A key or a click while the spoils are held up: on we go. Whether they were."""
+        if self.holding is None:
+            return False
+        self.holding.set()
+        return True
 
     async def _encounter(self, fighting: bool, room_before: int) -> None:
         """A fight starting (one walked into, an ambush, one you started): the foe comes in onto the dimmed stage, its
@@ -1371,7 +1663,7 @@ class GameScreen(Screen):
         self.animating = True
         called = False  # (a boss's entrance big over everything first, then quietly here: ui/boss_intro.py)
         intro = BossIntro.made(state, content, state.room.monster, state.known_weak.get(known.key, []),
-                               self.app.size, side) if boss and big_intro(self.game.config) else None
+                               self.app.size, side, self.ahead) if boss and big_intro(self.game.config) else None
         if intro is not None:
             done = asyncio.Event()
             self.app.push_screen(intro, lambda _: done.set())
@@ -1380,7 +1672,7 @@ class GameScreen(Screen):
             called = True
         try:
             async for frame, _, cue in effects.paced(fight.entrance(side, quiet=called)):
-                art.update(frame)
+                self.show_frame(frame, art)
                 if cue:
                     sound.play(cue)
                 if cue and cue == fight.sting:
@@ -1389,6 +1681,39 @@ class GameScreen(Screen):
             await asyncio.sleep(0.15)
         finally:
             self.animating = False
+
+    def _wipe_way(self, room_before: int) -> str | None:
+        """The way you walked, if the next room wipes in (_room_wipe): not into a fight (its entrance plays), nor a
+        journey of several rooms, nor down the stairs (the floor's card does)."""
+        state, plan = self.game.state, self.plan
+        if state.room_id == room_before or state.in_combat or not plan or not plan.stage_rows or \
+                not self._sprites_on() or self.stage_still is None:
+            return None
+        return next((w for w, e in state.rooms[room_before].exits.items() if e.to == state.room_id), None) \
+            if 0 <= room_before < len(state.rooms) and state.floor == self.stage_floor else None
+
+    async def _room_wipe(self, room_before: int) -> None:
+        """Walked through a door: the next room sweeps across the stage from the way you went (from the right going
+        east, from the top going north), with a bright seam where they meet (the map and Here have moved on already,
+        and your step's sounded: _turn)."""
+        state, content, plan = self.game.state, self.game.content, self.plan
+        way = self._wipe_way(room_before)
+        if way is None:
+            return
+        width, height = plan.stage_width, 2 * plan.stage_rows
+        new = picture_text(state, content, width, height)
+        if new is None:
+            return
+        side, up = {"east": (1, 0), "west": (-1, 0), "north": (0, 1), "south": (0, -1)}[way]
+        art = self.query_one("#stage-art", Static)
+        self.animating = True
+        try:
+            for frame in encounter.wipe(self.stage_still, new, side=side or 1, up=up):
+                self.show_frame(frame, art)
+                await asyncio.sleep(0.03)
+        finally:
+            self.animating = False
+        self.prepared = ((state.floor, state.room_id, width, height), new)  # (drawn: the stage keeps it)
 
     def refresh_around_stage(self) -> None:
         """Everything but the stage brought up to date (the status bar, Here, the map, the buttons), while the stage
@@ -1480,6 +1805,7 @@ class GameScreen(Screen):
         stand). The first such move counts; one after it, before the turn's done, doesn't. Moves made during a turn's
         animations (a fight coming in, its spoils: seconds, now) used to be lost, and the map seemed not to take
         clicks. Whether it was kept."""
+        self.release()  # (a fight's spoils held up: a move made goes on from them)
         if self.queued is not None:
             return False
         self.queued = call
@@ -1491,8 +1817,10 @@ class GameScreen(Screen):
 
     def panel(self, name: str) -> Panel:
         """One of the panels F1-F7 open (see panels.PANEL_KEYS), for this game."""
+        from .grid import ChartScreen  # (the floor on parchment, in full, in every layout: the grid builds on this)
+
         screens = {"help": HelpScreen, "inventory": InventoryScreen, "character": CharacterScreen,
-                   "look": LookScreen, "map": MapScreen, "bestiary": BestiaryScreen, "journal": JournalScreen}
+                   "look": LookScreen, "map": ChartScreen, "bestiary": BestiaryScreen, "journal": JournalScreen}
         return screens[name]() if name == "help" else screens[name](self.game)
 
     def can_open_panel(self, name: str) -> bool:
@@ -1524,6 +1852,18 @@ class GameScreen(Screen):
             return
 
         self.app.push_screen(InfoScreen(self.game, term_id), self._picked)
+
+    def action_arrow(self, direction: str) -> None:
+        """An arrow key: go that way, or, while there's something typed, ← and → move the cursor in it (↑ and ↓ still
+        go: there's nowhere up or down for a cursor in one line, and words left typed had them do nothing)."""
+        command = self.query_one("#command", Input)
+        if command.value and direction in ("west", "east"):
+            if direction == "west":
+                command.action_cursor_left()
+            else:
+                command.action_cursor_right()
+            return
+        self.action_go(direction)
 
     def action_go(self, direction: str) -> None:
         """Clicked an arrow on the pad: go that way, as if you'd picked its choice. A locked door (no choice of its own)
@@ -1569,10 +1909,38 @@ class GameScreen(Screen):
         self.run_turn(f"Travel to {state.rooms[room_id].name}",
                       Action(f"travel:{room_id}", f"Travel to {state.rooms[room_id].name}"))
 
+    def action_switch_layout(self) -> None:
+        """F9 (or the ☰ menu): the next layout (tabs, the grid, classic), and the run carries on in it as it was, its
+        story and all; it's kept in Settings for next time. Not mid-turn."""
+        from .tabs import game_screen  # (the layouts build on this module)
+
+        if self.busy or self.game.state.over:
+            if self.busy:
+                self.notify("Once this turn is done.", timeout=2)
+            return
+        if config.touch():
+            self.notify("Played by touch, it's this layout, made for a finger.", timeout=4)
+            return
+        now = self.game.config.layout
+        layout = LAYOUTS[(LAYOUTS.index(now) + 1) % len(LAYOUTS)] if now in LAYOUTS else LAYOUTS[0]
+        settings = self.app.config.model_copy(update={"layout": layout})
+        config.save_config(settings)
+        self.app.config = self.game.config = settings
+        screen = game_screen(self.game, False, *self.app.size, switched=True)
+        shown = {"TabsScreen": "tabs", "GridScreen": "grid"}.get(type(screen).__name__, "classic")
+        self.switching = True
+        self.app.switch_screen(screen)
+        if shown == layout:
+            screen.notify(f"{LAYOUT_NAMES[layout]}. F9 for the next.", title="Layout", timeout=3)
+        else:
+            screen.notify(f"{LAYOUT_NAMES[layout]} wants a bigger window: classic till then. F9 for the next.",
+                          title="Layout", timeout=5)
+
     def action_leave(self) -> None:
         """Esc twice: to the title (the game's saved). Once only asks, so an Esc meant for a panel or the command
         palette never throws you out of a run."""
         if self.busy:
+            self.release()  # (Esc on a fight's spoils: on we go)
             return
         now = time.monotonic()
         if now - self.leave_asked > LEAVE_WINDOW:

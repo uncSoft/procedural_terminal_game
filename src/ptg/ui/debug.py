@@ -42,7 +42,7 @@ from textual.events import Click
 from textual.widget import Widget
 from textual.widgets import Button, DataTable, Input, ProgressBar, Select, Static, TabbedContent, TabPane, Tree
 
-from .. import __version__, integrity, loot, model3d, powers, sound, testrooms
+from .. import __version__, integrity, loot, model3d, powers, sound, testrooms, world
 from .boss_intro import wanted as big_intro
 from ..config import DEFAULT_CLAUDE_MODEL, DEFAULT_URLS, Config, home, load_game, save_config
 from ..content import Content, load_content
@@ -374,7 +374,7 @@ def overview(app) -> Group:
 # --- Monsters and items -------------------------------------------------------------------------------------------
 
 class MonstersTab(TableTab):
-    columns = ("Monster", "Tier", "HP", "Def", "Atk", "Dmg", "XP", "Weak to", "Art", "Drawn by")
+    columns = ("Monster", "Tier", "HP", "Def", "Atk", "Dmg", "XP", "Floors", "Weak to", "Art", "Drawn by")
 
     def rows(self):
         self.content = load_content()
@@ -384,6 +384,7 @@ class MonstersTab(TableTab):
             tier = "boss" if m.boss else "ghost" if m.ghost else str(m.tier)
             art = "sprite" if frame_count(m.key) else Text("ascii", style=DIM)
             yield m.key, [Text(m.name, style="bold"), tier, m.hp, m.defense, m.attack, m.damage, m.xp,
+                          floors_short(world.met_on(self.content, m.key)) or Text("placed", style=DIM),
                           listed(m.weak, "-"), art, self.credits.get(m.key, {}).get("by", "")]
 
     def detail(self, key: str):
@@ -396,6 +397,8 @@ class MonstersTab(TableTab):
                         ("Thinks", "yes: it can be talked to" if m.intelligent else "no"),
                         ("Heavy blow", tell(m.name, m.tell)),
                         ("Lives in", listed(lives(m.key, m.tags, m.ghost, themes, m.tier, m.dungeons), "-")),
+                        ("Turns up on", floors_long(world.met_on(self.content, key))
+                         or "nowhere by the rules: only where it's put (a character, a lair, a party)"),
                         ("Drawn by", credit_line(self.credits.get(m.key)))])]
         if m.desc:
             parts.append(Text(f"\n{m.desc}", style="italic"))
@@ -411,7 +414,7 @@ class MonstersTab(TableTab):
 
 
 class ItemsTab(TableTab):
-    columns = ("Item", "Kind", "Tier", "Damage", "Defense", "Heal", "Art", "Drawn by")
+    columns = ("Item", "Kind", "Tier", "Damage", "Defense", "Heal", "Where", "Art", "Drawn by")
 
     def rows(self):
         self.content = load_content()
@@ -419,7 +422,8 @@ class ItemsTab(TableTab):
         for i in self.content.items.values():
             art = "sprite" if frame_count(f"item_{i.key}") else Text("-", style=DIM)
             yield i.key, [Text(i.name, style="bold"), i.kind, i.tier or "-", i.damage or "-", i.defense or "-",
-                          i.heal or "-", art, self.credits.get(i.key, {}).get("by", "")]
+                          i.heal or "-", where_short(turns_up(self.content, i.key)) or Text("nowhere", style=WARN),
+                          art, self.credits.get(i.key, {}).get("by", "")]
 
     def detail(self, key: str):
         i = self.content.item(key)
@@ -444,6 +448,31 @@ class ItemsTab(TableTab):
         if not frame_count(f"item_{key}"):
             parts.append(Text("\nNo art yet: draw some in the Monster & Item Maker.", style=DIM))
         return f"item_{key}", "", Group(*parts)
+
+
+# How a monster turns up on a floor (world.met_on), in a mark and in words.
+MET_MARKS = {"boss": "★", "stairs": "⚑", "group": "×", "roams": ""}
+MET_WORDS = {"roams": "in its rooms", "group": "in groups", "stairs": "by the stairs", "boss": "its boss"}
+
+
+def floors_short(met: dict[int, set[str]]) -> str:
+    """The floors a monster turns up on, a mark for how: "1× 2⚑ 3★" (in groups; by the stairs; the boss)."""
+    return " ".join(f"{floor}{''.join(MET_MARKS[how] for how in ('boss', 'stairs', 'group') if how in ways)}"
+                    for floor, ways in sorted(met.items()))
+
+
+def floors_long(met: dict[int, set[str]]) -> str:
+    return "; ".join(f"floor {floor}: {', '.join(MET_WORDS[how] for how in MET_WORDS if how in ways)}"
+                     for floor, ways in sorted(met.items()))
+
+
+def where_short(places: list[str]) -> str:
+    """Where an item turns up, in a few words: its floors, then anywhere else ("1 2 3 · chests · shops")."""
+    floors = sorted({int(word) for place in places if place.startswith("floor ")
+                     for word in place.split()[1:2] if word.isdigit()})
+    rest = [place.split(" ", 2)[-1] if place.startswith("floor ") else place for place in places]
+    others = list(dict.fromkeys(r for r in rest if not r.isdigit() and not r.startswith("floor")))
+    return " · ".join(filter(None, [" ".join(map(str, floors)), *others[:3]]))
 
 
 def turns_up(content: Content, key: str) -> list[str]:

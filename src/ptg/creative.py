@@ -339,7 +339,7 @@ def _apply_effect(state: GameState, content: Content, rng: random.Random, effect
             return [Event("secret", "You uncover something hidden: " + ", ".join(f.name for f in hidden) + ".")]
         return [Event("info", "There turns out to be nothing hidden here.", data={"nothing": True})]
     if effect == "find_item":  # it lies there, to take or leave, like any find
-        key = loot.one_of(rng, content, loot.FINDS)
+        key = loot.give(rng, content, state.rares, rng.choice(loot.FINDS))
         if key is None:
             return [Event("info", "You turn up nothing worth keeping.", data={"nothing": True})]
         return [Event("find", f"You turn up {a(content.item(key).name)}.", data=inventory.lay(state, key, "find",

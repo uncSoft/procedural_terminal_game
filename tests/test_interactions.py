@@ -668,3 +668,19 @@ def test_the_interpreter_hears_of_gifts_a_character_would_take(content):
     state.player.inventory.append("rubber_duck")
     said = {a.id: a.label for a in interactions.unlisted(state, content)}
     assert said[f"give:rubber_duck@monster:{npcs.SWOOGY}"] == "Calm Swoogy down with the Rubber Duck"
+
+
+def test_a_spare_weapon_used_on_a_foe_is_thrown(content):
+    """The Use menu on a foe said a spare War Pick "won't work": it's a throw (combat.throw), the one in your hand
+    still isn't."""
+    from ptg.interactions import Use, plan
+
+    state = generate(3)
+    state.player.inventory += ["war_pick", "gulliver_helper_sword"]  # (shiny: a bribe, to a calm one)
+    monster = put_monster(state, content, key="the_hollowed", hp=200)
+    monster.hostile = True
+    for key, name in (("war_pick", "the War Pick"), ("gulliver_helper_sword", "the Gulliver - Helper Sword")):
+        spare = plan(state, content, Use("use", key, "monster:the_hollowed"))
+        assert spare and spare.label.startswith(f"Throw {name} at") and "lose" in spare.hint
+    held = plan(state, content, Use("use", state.player.weapon, "monster:the_hollowed"))
+    assert held is None or held.refusal

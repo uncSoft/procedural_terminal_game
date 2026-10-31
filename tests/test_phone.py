@@ -17,6 +17,7 @@ from ptg.ui.screens import COMPACT_TITLE, STACKED_TITLE, TitleScreen
 from ptg.world import generate
 
 UPRIGHT, SIDEWAYS = (41, 44), (90, 19)
+TABLET = (106, 62)  # an iPad Pro held upright, at the page's 16-pixel font
 
 
 @pytest.fixture(autouse=True)
@@ -47,6 +48,51 @@ async def test_the_title_stacks_its_name_and_its_menu_on_a_phone_held_upright():
     async with app.run_test(size=(110, 40)) as pilot:  # (room for it in a line: as it was)
         await pilot.pause(0.4)
         assert str(app.screen.query_one("#splash").render()).count("\n") == COMPACT_TITLE.count("\n")
+
+
+async def test_by_touch_theres_no_palette_key_under_the_keyboard_button_nor_a_cmd_hint():
+    """On JT's iPad the footer's ^p palette sat under the page's keyboard button, and the title told a finger to press
+    Cmd + or −."""
+    app = app_for()
+    async with app.run_test(size=(140, 46)) as pilot:
+        await pilot.pause(0.4)
+        assert not app.ENABLE_COMMAND_PALETTE
+        assert "Narrator" in str(app.screen.query_one("#narrator-info").render())
+        assert "Cmd +" not in str(app.screen.query_one("#narrator-info").render())
+
+
+async def test_on_the_web_the_titles_storm_is_pictures_at_twice_the_pixels_and_steps_aside_for_settings(
+        monkeypatch):
+    """The storm drawn by the art layer (ui/art_layer.py), each frame a PNG at twice a terminal's pixels each way,
+    stretched over its cells as the half blocks were; taken away while Settings is over it, and back after."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    from ptg.ui import art_layer
+
+    sent = []
+    monkeypatch.setattr(art_layer, "active", lambda app: True)
+    monkeypatch.setattr(art_layer, "_send", lambda app, message: sent.append(message))
+    app = app_for()
+    async with app.run_test(size=(140, 46)) as pilot:
+        await pilot.pause(1.0)
+        title = app.screen
+        shows = [m for m in sent if m["id"] == "title" and m["do"] == "show"]
+        assert len(shows) >= 2 and all(m["fill"] for m in shows)  # (the rain falls: a new picture each beat)
+        x, y, w, h = shows[-1]["region"]
+        image = Image.open(io.BytesIO(base64.b64decode(shows[-1]["png"])))
+        assert (image.width, image.height) == (2 * w, 4 * h)
+        assert title.query_one("#title-scene").region.width == w  # (under it, cells of night)
+        sent.clear()
+        title.action_setup()
+        await pilot.pause(0.6)
+        assert sent and (sent[0]["do"], sent[0]["id"]) == ("hide", "title")
+        assert not [m for m in sent if m["do"] == "show"]  # (nothing drawn over Settings)
+        app.pop_screen()
+        await pilot.pause(0.6)
+        assert [m for m in sent if m["do"] == "show" and m["id"] == "title"]
 
 
 async def test_the_campfire_is_one_column_on_a_phone_held_upright():
@@ -231,6 +277,31 @@ async def test_a_folding_phone_opened_out_gets_the_wide_phone_screen():
         stage, story, side = (screen.query_one(b).region for b in ("#stage-box", "#story", "#side"))
         assert story.y >= stage.bottom and side.x >= stage.right  # (the picture and the story; the rest beside them)
         assert all(inside(app, screen.query_one(b)) for b in REGIONS)
+
+
+async def test_a_tablet_held_upright_is_one_column_and_stays_so_while_its_keyboard_is_up():
+    """JT's iPad upright had the picture in a corner, and the space under it waiting on the story: it's one column now,
+    as on a phone, the picture the screen's width. Its keyboard coming up (shorter, as wide) leaves it as it is;
+    turned on its side, it's two columns."""
+    from ptg.ui.phone import PhoneScreen
+
+    app = spore_bed(TABLET)
+    async with app.run_test(size=TABLET) as pilot:
+        screen = await free(app, pilot)
+        assert isinstance(screen, PhoneScreen) and screen.upright
+        assert screen.query_one("#stage-box").region.width == TABLET[0]
+        assert all(inside(app, screen.query_one(b)) for b in REGIONS)
+        await pilot.resize_terminal(TABLET[0], 40)  # (the keyboard up)
+        await pilot.pause(0.5)
+        assert app.screen is screen and screen.upright
+        await pilot.resize_terminal(TABLET[0], TABLET[1])
+        await pilot.resize_terminal(142, 45)  # (on its side)
+        for _ in range(50):
+            await pilot.pause(0.1)
+            if app.screen is not screen:
+                break
+        turned = await free(app, pilot)
+        assert isinstance(turned, PhoneScreen) and turned is not screen and not turned.upright
 
 
 @pytest.mark.parametrize("layout", ["classic", "grid", "tabs"])

@@ -277,6 +277,27 @@ Next: the fight's moments in the art layer too (the swing, the shatter, the entr
 on a phone through it (today it needs 68x24); Here's and the Pack's frames as art; portrait crowds (the boss at the
 back, its party in front); real-device checks on an iPhone and the Fold 8.
 
+### On a real iPad (31 Oct)
+
+The `ios/` app on JT's iPad Pro 12.9" (the page's 16-pixel font: about 142x45 on its side, 106x62 upright), and the
+iPad Air simulator. What it showed, and what changed:
+
+- **The choices were a row short** on every phone and tablet (the box's rule took a row); tall screens (44 rows or
+  more) get four rows of buttons.
+- **Upright, the picture sat in a corner** (the wide layout's 58x19, the space under it waiting on the story). A tablet
+  held upright (44 rows or more, taller than wide, a row two pixels) is one column now, as a phone is: the picture the
+  screen's width, twice the size (`phone.upright`). The layout's decided again only when the width changes, so the
+  keyboard coming up (shorter, as wide) doesn't swap it.
+- **The title's storm** goes through the art layer: each frame a PNG made ready with the rest (8-9 KB at 2x),
+  at twice a terminal's pixels each way (at the fights' four the dithering went to noise and the watcher's sprite grew
+  past its own pixels), stretched over its cells as the half blocks were (`fill`), hidden under Settings.
+- **The footer's ^p palette** sat under the page's keyboard button: by touch there's no command palette (a finger has
+  no Ctrl+P). And the title's "Cmd + or −" hint is gone by touch.
+
+Still to do: the floor card's picture through the art layer; strips of the stage's half blocks above and below its
+picture (the picture keeps square pixels, and the page's cells are taller than two of them); the campfire upright
+(two columns, half empty).
+
 ## Pictures (`mobile-view/`)
 
 - `phone-stage-today-vs-art-layer.png`: the Spore Bed fight on a 375-pixel phone, today's half blocks against the art

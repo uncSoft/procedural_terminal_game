@@ -10,7 +10,7 @@ from textual.binding import Binding
 from textual.errors import NoWidget
 
 from .. import sound
-from ..config import Config, hosted, load_game, save_config
+from ..config import Config, hosted, load_game, save_config, touch
 from ..content import load_content
 from ..game import Game
 from ..llm import LLM, LLMError, make_llm
@@ -40,6 +40,9 @@ class PTGApp(App):
     def __init__(self, config: Config | None, seed: int | None = None, setup: bool = False,
                  resume: bool = False, daily: bool = False, event: str | None = None, debug: bool = False,
                  test_room: tuple[str, str, int] | None = None) -> None:
+        # No command palette by touch: a finger has no Ctrl+P, and the footer's key for it sat under the page's
+        # keyboard button (on an iPad).
+        self.ENABLE_COMMAND_PALETTE = not touch()
         super().__init__()
         self.needs_setup = config is None or setup
         self.config = config or Config()

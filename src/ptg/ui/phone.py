@@ -2,7 +2,7 @@
 
 Every box is a fixed size, set by the screen's size alone, so nothing moves while you play: a room with more in it,
 a fight starting, a longer choice, none of them push another box along. Upright (a phone held in the hand, under 60
-columns) it's one column: the status bar; the room's picture (the fight, in one); the tabs, Story, Here, Pack, Map
+columns, or a tablet held upright: `upright`) it's one column: the status bar; the room's picture (the fight, in one); the tabs, Story, Here, Pack, Map
 and Sheet, and the one they show, the story while you play; the ways out, an arrow each; and the choices as big
 buttons two across at your thumb, every one of them (Here's own first, so Attack is never a tab away), then the
 command line. Wide (a folding phone opened out, a tablet, a phone on its side) it's two: the picture and the story on
@@ -34,7 +34,15 @@ WIDE_SIDE = 0.46  # wide: the right column's share of the width
 TAB_ROWS = 2  # a tab two rows tall, for a finger
 WAYS_ROWS = 2
 CHOICE_ROWS = 8  # three rows of buttons two rows tall (a row between), two across; more scroll
+TALL_CHOICE_ROWS, TALL = 11, 44  # four rows of them on a screen of TALL rows or more (an iPad: they had room to spare)
 TOUCH_CLASSIC = {"on": False}  # the ☰ menu's Layout: the classic screen instead, for comparing (this run's session)
+
+
+def upright(width: int, height: int) -> bool:
+    """Whether a screen is laid out in one column: a phone held in the hand (under PHONE columns), or a tablet held
+    upright (TALL rows or more, and taller than it's wide, a row being two pixels). JT's iPad upright had the picture
+    in a corner, the space under it waiting on the story: across the whole screen it's twice the size."""
+    return width < PHONE or (height >= TALL and 2 * height > width)
 
 
 class PhoneButton(Static):
@@ -59,10 +67,11 @@ class PhoneScreen(TabsScreen):
         super().__init__(game, fresh, switched)
         self.tab = "story"
         self.upright = True
+        self.across = 0  # the width it was laid out for (a keyboard coming up changes only the height)
         self.tabs_shown: tuple | None = None
 
     def compose(self) -> ComposeResult:
-        self.upright = self.app.size.width < PHONE
+        self.upright, self.across = upright(*self.app.size), self.app.size.width
         if not self.upright:
             self.tab = "here"
         with Horizontal(id="hud-row"):
@@ -110,11 +119,14 @@ class PhoneScreen(TabsScreen):
         width, height = self.size
         if not width:
             return
-        if (width < PHONE) != self.upright:  # (turned, or folded: laid out the other way)
-            self.call_later(self.rearrange)
-            return
+        if width != self.across:  # (turned, or folded: laid out the other way if it's crossed the line)
+            self.across = width
+            if upright(width, height) != self.upright:
+                self.call_later(self.rearrange)
+                return
         rows = height - 1  # (less the status bar)
-        decide = CHOICE_ROWS + 1  # (and the command line)
+        choice_rows = TALL_CHOICE_ROWS if rows >= TALL else CHOICE_ROWS
+        decide = choice_rows + 2  # (and the command line, and the rule over them: without it the last row was cut)
         if self.upright:
             side, stage_width = width, width
             stage_rows = max(STAGE_LEAST, min(STAGE_MOST, round(STAGE_SHARE * rows)))
@@ -128,7 +140,7 @@ class PhoneScreen(TabsScreen):
             story = rows - stage_rows
         # (the picture's own rows: its box has a rule on top with the room's name)
         self.plan = Plan(width, height, not self.upright, True, True, side, stage_rows - 1, stage_width,
-                         CHOICE_ROWS, WAYS_ROWS, pane, story)
+                         choice_rows, WAYS_ROWS, pane, story)
         self.lately_lines = 0  # (notifications are toasts: there's no docked journal)
         self.set_class(True, "touch")
         self.set_class(True, "compact")

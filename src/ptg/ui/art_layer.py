@@ -47,16 +47,19 @@ def _send(app, message: dict) -> None:
         write({"type": MESSAGE, **message})
 
 
-def show(app, art_id: str, widget, image, chips: list | None = None, rows: int | None = None) -> None:
-    """`image` drawn over `widget`'s cells (where it is on the screen now; its first `rows` of them, if said), fitted
-    to them, its pixels kept square and sharp; `chips`, words over it (a foe's next move: (column, row, words,
-    ground, ink) inside the widget)."""
+def show(app, art_id: str, widget, image, chips: list | None = None, rows: int | None = None,
+         fill: bool = False) -> None:
+    """`image` (or its `png`, made ready) drawn over `widget`'s cells (where it is on the screen now; its first `rows`
+    of them, if said), fitted to them, its pixels kept square and sharp, or with `fill`, stretched to them all (a
+    picture drawn for cells two pixels tall, as the half blocks would have stretched it); `chips`, words over it (a
+    foe's next move: (column, row, words, ground, ink) inside the widget)."""
     region = widget.content_region
     height = region.height if rows is None else min(rows, region.height)
     if not region.width or height <= 0:
         return
     _send(app, {"do": "show", "id": art_id, "region": [region.x, region.y, region.width, height],
-                "screen": [app.size.width, app.size.height], "png": png(image), "chips": chips or []})
+                "screen": [app.size.width, app.size.height], "png": image if isinstance(image, str) else png(image),
+                "chips": chips or [], "fill": fill})
 
 
 def hide(app, art_id: str) -> None:

@@ -412,7 +412,8 @@
       (() => {
         // The art layer (ui/art_layer.py): a picture the game sends as an image, drawn on a canvas over the cells it
         // would have filled (the terminal's own cell size, from its screen), fitted and centred, its pixels square
-        // and sharp; words over it (a foe's next move) as chips. "hide" takes it away.
+        // and sharp (or stretched to them all: "fill"); words over it (a foe's next move) as chips. "hide" takes it
+        // away.
         const terminal = document.getElementById("terminal");
         window.ptgArt = (() => {
           const layers = new Map(); // a picture's id -> {root, canvas, image, chips, cell}
@@ -434,7 +435,7 @@
             const ctx = canvas.getContext("2d");
             ctx.imageSmoothingEnabled = false;
             const scale = Math.min(canvas.width / image.width, canvas.height / image.height);
-            const w = image.width * scale, h = image.height * scale;
+            const [w, h] = layer.fill ? [canvas.width, canvas.height] : [image.width * scale, image.height * scale];
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(image, Math.round((canvas.width - w) / 2), Math.round((canvas.height - h) / 2), w, h);
             root.querySelectorAll(".chip").forEach((chip) => chip.remove());
@@ -474,6 +475,7 @@
               left: c.x + x * c.w + "px", top: c.y + y * c.h + "px", width: w * c.w + "px", height: h * c.h + "px",
             });
             layer.chips = message.chips;
+            layer.fill = message.fill; // (stretched to its cells, as half blocks would: the title's storm)
             layer.cell = c;
             layer.image.src = "data:image/png;base64," + message.png;
           };

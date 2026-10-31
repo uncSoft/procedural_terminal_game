@@ -5,12 +5,15 @@ from __future__ import annotations
 import random
 import time
 
+from rich.segment import Segment
+from rich.style import Style
 from rich.text import Text
 from textual import on, work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Center, Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
+from textual.strip import Strip
 from textual.widgets import Button, Footer, Input, Label, Select, Static
 
 from .. import sound, title_scene
@@ -22,13 +25,14 @@ from ..config import (
     hosted,
     load_game,
     read_save,
+    touch,
 )
 from ..llm import LLMError
 from ..llm.narrator import intro
 from ..llm.openai_compat import OpenAICompatLLM
 from ..meta import run_summary
 from ..models import GameState
-from . import storm
+from . import art_layer, storm
 from .panels import Panel
 from .storm import StormView
 from .widgets import Clickable
@@ -69,7 +73,8 @@ class TitleScreen(Screen):
 
     Every frame is made before the storm starts (the rain's in each light, and several whole strikes, each with its
     own bolt, watcher and distance), all in a tenth of a second, as ready-made lines (ui/storm.py): from then on a
-    beat only swaps one for another, so nothing the screen does waits on drawing, and the thunder keeps time."""
+    beat only swaps one for another, so nothing the screen does waits on drawing, and the thunder keeps time. On the
+    web they're ready-made pictures instead, at twice the pixels, that the art layer draws over a block of night."""
 
     BINDINGS = [Binding("n", "new", "Play"), Binding("c", "continue", "Continue"), Binding("s", "setup", "Settings")]
     BEAT = 0.15  # seconds a frame of the rain (served, slower: each frame goes down the wire to the browser)
@@ -88,6 +93,10 @@ class TitleScreen(Screen):
     TEXT_SIZE = "Text too small or too big? Cmd + or − (Ctrl on Windows) in a browser; your terminal's own font " \
         "size in a terminal."  # (a served game's page takes ?fontsize= too: web/app_index.html)
     LEAST_ROWS = 10  # a picture any smaller isn't worth the room
+    # On the web the art layer draws the storm (ui/art_layer.py), at twice a terminal's pixels each way: sharper, and
+    # still pixels (at the fights' four the dithering turned to noise, and the watcher's sprite grew past its own).
+    WEB_PIXELS = 2
+    NIGHT = Style(bgcolor=title_scene.COOL[0])  # the cells under the web's picture
 
     def __init__(self) -> None:
         super().__init__()
@@ -100,6 +109,9 @@ class TitleScreen(Screen):
         self.next_strike = 0.0
         self.played = 0
         self.rng = random.Random()
+        self.web = False  # the art layer draws it: each frame is a PNG, and the view a block of night under it
+        self.placeholder: list = []
+        self.sent: str | None = None  # the PNG on the page
 
     def compose(self) -> ComposeResult:
         with Vertical(id="title-wrap"):
@@ -125,12 +137,15 @@ class TitleScreen(Screen):
     def on_screen_resume(self) -> None:
         self.refresh_menu()
         sound.music("title_music", fade_in=1.0)
+        self.show()
 
     def on_screen_suspend(self) -> None:
         sound.stop_music(only=("title_music",))  # (the game's own may have started already)
+        self.hide_picture()  # (the page's picture would sit over whatever's put on top)
 
     def on_unmount(self) -> None:
         sound.stop_music(only=("title_music",))
+        self.hide_picture()
 
     def on_resize(self) -> None:
         self.fit_scene()
@@ -145,17 +160,30 @@ class TitleScreen(Screen):
         width = min(self.app.size.width - 4, 160)
         rows = min(self.app.size.height - (self.STACKED_CHROME if stacked else self.CHROME), width // 3)
         roomy = rows >= self.LEAST_ROWS and self.app.config.art == "sprites"
-        scene = title_scene.scene(width, 2 * rows) if roomy else None
+        self.web = art_layer.active(self.app)
+        pixels = self.WEB_PIXELS if self.web else 1
+        scene = title_scene.scene(pixels * width, pixels * 2 * rows) if roomy else None
         view = self.query_one("#title-scene", StormView)
         view.display = scene is not None
         if scene is self.scene:
             return
         self.scene, self.frames, self.strikes, self.steps, self.strike = scene, {}, [], [], None
+        self.hide_picture()
         if scene is not None:
-            self.frames[(title_scene.DARK, 0)] = storm.lines(scene.grid(title_scene.DARK, 0))
+            if self.web:
+                night = Strip([Segment(" " * width, self.NIGHT)], width)
+                self.placeholder = [night] * rows
+            self.frames[(title_scene.DARK, 0)] = self.made(scene, title_scene.DARK)
             self.next_strike = time.monotonic() + 1.5
             self.make_ready(scene)
         self.show()
+
+    def made(self, scene: title_scene.Scene, light: int, rain: int = 0, bolt: bool = False,
+             watcher: bool = False):
+        """A frame made ready to show: its lines of half blocks, or on the web its picture as the page takes it."""
+        if self.web:
+            return art_layer.png(scene.image(light, rain, bolt, watcher).convert("RGB"))
+        return storm.lines(scene.grid(light, rain, bolt, watcher))
 
     @work(thread=True, exclusive=True, group="storm")
     def make_ready(self, scene: title_scene.Scene) -> None:
@@ -164,12 +192,12 @@ class TitleScreen(Screen):
         frames = {}
         for light in title_scene.LIGHTS:
             for phase in range(self.PHASES):
-                frames[(light, phase)] = storm.lines(scene.grid(light, self.rain(scene, phase)))
+                frames[(light, phase)] = self.made(scene, light, self.rain(scene, phase))
         strikes = []
         for _ in range(self.STRIKES):
             scene.strike(self.rng.randrange(1_000_000))
             strikes.append({"distance": scene.distance, "frames": {
-                (light, bolt, watcher): storm.lines(scene.grid(light, 0, bolt, watcher))
+                (light, bolt, watcher): self.made(scene, light, 0, bolt, watcher)
                 for light, bolt, watcher, _ in self.STRIKE if bolt or watcher}})
         if scene is self.scene:
             self.frames, self.strikes = frames, strikes
@@ -215,9 +243,25 @@ class TitleScreen(Screen):
         if (bolt or watcher) and self.strike:
             frame = self.strike["frames"].get((light, bolt, watcher))
         frame = frame or self.frames.get((light, self.phase)) or self.frames.get((title_scene.DARK, 0))
-        if frame:
+        if frame and self.web:
+            self.query_one("#title-scene", StormView).show(self.placeholder)
+            if frame is not self.sent:
+                self.sent = frame
+                self.call_after_refresh(self.send, frame)  # (where the view is once it's laid out at its size)
+        elif frame:
             self.query_one("#title-scene", StormView).show(frame)
         self.query_one("#splash", Static).set_class(light == title_scene.FLASH, "lit")
+
+    def send(self, frame: str) -> None:
+        """On the web, a frame of the storm drawn over its cells, unless a newer one's come since, or another screen
+        has (nothing's drawn under it)."""
+        if frame is self.sent and self.app.screen is self:
+            art_layer.show(self.app, "title", self.query_one("#title-scene", StormView), frame, fill=True)
+
+    def hide_picture(self) -> None:
+        if self.web and self.sent is not None:
+            art_layer.hide(self.app, "title")
+        self.sent = None
 
     # --- the menu ---
 
@@ -242,7 +286,8 @@ class TitleScreen(Screen):
         play.label = "New run" if state else "Play"
         first.focus()
         info = Text(f"Narrator: {describe_backend(self.app.config)}")
-        info.append(f"\n{self.TEXT_SIZE}", style="#6c6f99")
+        if not touch():  # (a phone's or a tablet's text is the page's to size: it has no Cmd + or −)
+            info.append(f"\n{self.TEXT_SIZE}", style="#6c6f99")
         self.query_one("#narrator-info", Static).update(info)
 
     @on(Button.Pressed)

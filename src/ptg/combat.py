@@ -24,6 +24,11 @@ INTENT_WEIGHTS = {
 }
 VENOM = 0.25  # how often a venomous bite poisons you (a deadly one always does)
 PURE_DROP = 0.25  # how often a venomous monster, slain, leaves a Pure
+# How often a slain monster leaves a potion, a small key, a bomb (an everyday one's chance, an elite's). Run 66 found
+# 18 potions and 13 keys, and ended with 6 potions and 10 keys: a floor's keys are placed with its locks
+# (loot.ESSENTIAL) and wardens carry one, so a monster's is a spare; and a third of a potion a kill was more than any
+# fight needed.
+POTION_DROP, KEY_DROP, BOMB_DROP = (0.15, 0.15), (0.04, 0.15), (0.12, 0.25)
 VENOMOUS = {"venom", "venom_spit", "deadly_venom"}
 # What a monster's tricks look like over its head, with its next blow (foresee): the words for each.
 TRICK_WORDS = {"steal": "grabs", "tangle": "vines", "venom": "venom", "venom_spit": "spit", "deadly_venom": "venom!",
@@ -835,11 +840,12 @@ def _give_back(state: GameState, content: Content, monster: MonsterState) -> lis
 def _drops(state: GameState, content: Content, rng: random.Random, monster: MonsterState) -> list[str]:
     """What a slain monster leaves: sometimes a potion, a small key or a bomb, a Pure from a venomous one, and
     whatever it was keeping (_kept)."""
-    drops = [loot.pick(rng, content, loot.DROP)] if rng.random() < 0.3 else []
+    elite = bool(monster.elite)
+    drops = [loot.pick(rng, content, loot.DROP)] if rng.random() < POTION_DROP[elite] else []
     drops += _kept(state, content, rng, monster)
-    if rng.random() < (0.5 if monster.elite else 0.25):
+    if rng.random() < KEY_DROP[elite]:
         drops.append("small_key")
-    if rng.random() < (0.25 if monster.elite else 0.12):
+    if rng.random() < BOMB_DROP[elite]:
         drops.append("bomb")
     tricks = tricks_of(monster, content)
     if tricks & VENOMOUS and "pure" in content.items and rng.random() < PURE_DROP:

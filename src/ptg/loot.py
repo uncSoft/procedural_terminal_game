@@ -94,6 +94,10 @@ STOCK = {"potion": 2, "cure": 2}  # how many of a ware she has: one of anything 
 BEFORE_STATUS_SHOP_CHANCE = 1.0
 LIGHTS = ("torch", "oil_flask")  # on a dark floor and the one above it, she always has these, two of each (light.py)
 SNAKESKIN, SNAKESKIN_PRICE = "shed_snakeskin", 80
+# What a floor down adds to a ware's price: a quarter (it was a tenth, and gold found grows with the floor, so run 66
+# had 866 gold at the end and nothing to spend it on); and a shrine's full heal, a floor down (run 66 paid 10 on
+# floor 5).
+PRICE_RISE, SHRINE_GOLD = 0.25, 10
 SHINY_WARES = ["potion 2+", "gear 3+", "rare", "rare"]
 FINDS = ["food 0", "food 0", "potion 1", "escape 1", "trinket"]  # what a stunt that pays off can turn up
 EVERYDAY = "floor"  # the place of a floor's scattered loot, a monster's drop or a find: no rare things here
@@ -258,15 +262,20 @@ def wares(rng: random.Random, content: Content, rares: list[str], keeper: str, f
 
 
 def price(item: ItemDef, floor: int, shiny: bool = False) -> int:
-    """What a ware costs: by what it is and how good, a tenth more on each floor down, more for something rare, and
-    a quarter more again at Granny Kamultruk's. In fives, rounded up (she's a shopkeeper)."""
+    """What a ware costs: by what it is and how good, a quarter more on each floor down (PRICE_RISE), more for
+    something rare, and a quarter more again at Granny Kamultruk's. In fives, rounded up (she's a shopkeeper)."""
     base = {"bomb": 12, "small_key": 15}.get(item.key)
     if base is None:
         base = {"potion": 15 + 20 * (item.tier - 1), "food": 6 + 6 * item.tier, "escape": 20, "cure": 45,
                 "weapon": 5 + 20 * item.tier, "armor": 5 + 20 * item.tier}.get(role(item), 20 + 10 * item.tier)
         base *= 1.6 if rare(item) else 1
-    cost = base * (1 + 0.1 * (floor - 1)) * (1.25 if shiny else 1)
+    cost = base * (1 + PRICE_RISE * (floor - 1)) * (1.25 if shiny else 1)
     return max(5, 5 * math.ceil(cost / 5 - 1e-9))
+
+
+def shrine_price(floor: int) -> int:
+    """What a shrine asks for a full heal: SHRINE_GOLD a floor down."""
+    return SHRINE_GOLD * floor
 
 
 def where(content: Content, key: str) -> list[str]:

@@ -12,7 +12,7 @@ Each verb has a planner that says what that comes to, here and now:
                                shopkeeper buys it), and the rest it hands back
             to a monster       a bribe (one that talks takes gold, shiny things and food) or a lure (a beast, with
                                what it's weak to): a wits roll, and it's handed over only if it works
-            to the shrine      gold: its 10 gold for a full heal
+            to the shrine      gold: its 10 gold a floor down for a full heal
     show    to a monster       something it can't take its eyes off (a distract power, or a shiny, bright or loud
                                thing it's weak to) costs it its next attack, once a fight; a calm one just looks
     pour    on a monster       a splash, thrown (holy water, oil); on your weapon, a coating (RECIPES); on you, drunk
@@ -74,7 +74,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable
 
-from . import dice, inventory, light, npcs, powers
+from . import dice, inventory, light, loot, npcs, powers
 from .combat import (bomb_monster, defeat, discover, distract, fortune, holds_its_ground, provoked, throw,
                      thrown_damage)
 from .content import Content, ItemDef
@@ -330,9 +330,10 @@ def _plan_give(state, content, view, use, target) -> Row | None:
     if target.kind == "fixture" and target.key == "shrine":
         if use.subject != "gold":
             return Row(refusal="The shrine wants gold, or blood.")
-        if use.amount and use.amount < 10:
-            return Row(refusal="The shrine wants 10 gold, no less.")
-        return Row(alias="shrine_gold", label="Offer 10 gold at the shrine", hint="full heal")
+        price = loot.shrine_price(state.floor)
+        if use.amount and use.amount < price:
+            return Row(refusal=f"The shrine wants {price} gold, no less.")
+        return Row(alias="shrine_gold", label=f"Offer {price} gold at the shrine", hint="full heal")
     if target.kind != "monster":
         return Row(refusal=f"There's no one there to give {what} to.")
     if use.subject in inventory.PICKUPS:  # (bombs and small keys are for walls, doors and chests)

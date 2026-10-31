@@ -131,7 +131,7 @@ def test_potions_come_in_twos_and_a_poison_floors_shop_has_two_pure(content):
         counts = {key: count for key, _, count in wares}
         assert counts["pure"] == 2 and all(n == 2 for k, n in counts.items() if loot.role(content.item(k)) == "potion")
         assert all(n == 1 for k, n in counts.items() if loot.role(content.item(k)) not in ("potion", "cure"))
-    assert loot.price(content.item("pure"), 4) == 60 and loot.price(content.item("pure"), 4, shiny=True) == 75
+    assert loot.price(content.item("pure"), 4) == 80 and loot.price(content.item("pure"), 4, shiny=True) == 100
     assert "pure" not in [k for k, _, _ in loot.wares(rng, content, [], loot.SHOPKEEPER, 2)]  # (no poison up there)
 
 

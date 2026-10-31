@@ -566,6 +566,58 @@ def test_resting_beside_someone_or_in_a_shop_brings_no_ambush(content):
     assert ambushed
 
 
+def test_a_rest_brings_one_of_the_floors_own_down_on_you_and_none_once_theyre_gone(content):
+    """Run 66: 8 of 27 rests ambushed, by monsters that came from nowhere however empty the floor, each swinging
+    first (one rest at 14 HP left JT on 1)."""
+    from ptg.rules import REST_AMBUSH, WANDERERS, rest_risk, wanderers
+
+    state = generate(1)
+    state.room.monster = None
+    out = wanderers(state, content)
+    assert out and all(r is not state.room and not (r.monster.warden or r.is_boss or r.secret) for r in out)
+    assert rest_risk(state, content) == REST_AMBUSH * min(1, len(out) / WANDERERS)
+    for turn in range(400):
+        state.turn, state.room.rested, state.room.monster, state.player.hp = turn, False, None, 5
+        before = {r.id: r.monster for r in wanderers(state, content)}
+        events = perform(state, content, "rest")
+        if events[0].kind == "ambush":
+            break
+    else:
+        raise AssertionError("no rest was ever ambushed")
+    came = next(i for i, monster in before.items() if monster is state.room.monster)  # one of theirs...
+    assert state.rooms[came].monster is None and len(wanderers(state, content)) == len(before) - 1  # ...from there
+    assert events[0].text.startswith("You doze off") and not any(e.kind == "monster_hit" for e in events)
+    assert state.player.hp >= 5 and state.in_combat  # some rest first, and no free swing: it's your go
+    state.room.monster = None
+    for room in wanderers(state, content)[1:]:
+        room.monster = None
+    assert 0 < rest_risk(state, content) < REST_AMBUSH  # one left: less of a risk
+    wanderers(state, content)[0].monster = None
+    assert rest_risk(state, content) == 0  # none left: resting is safe
+    state.room.rested = False
+    assert next(a for a in available_actions(state, content) if a.id == "rest").hint == "safe here"
+    for turn in range(40):
+        state.turn, state.room.rested, state.player.hp = 400 + turn, False, 5
+        assert perform(state, content, "rest")[0].kind == "rest"
+
+
+def test_a_shrines_full_heal_costs_more_deeper(content):
+    """Run 66 healed in full at shrines on floors 2, 4 and 5 for 10 gold each, with hundreds to spare."""
+    from ptg.rules import why_not
+
+    state = generate(1)
+    state.room.monster = None
+    state.room.fixture, state.room.fixture_used, state.player.gold, state.player.hp = "shrine", False, 45, 5
+    assert next(a for a in available_actions(state, content) if a.id == "shrine_gold").label == \
+        "Offer 10 gold at the shrine"
+    state.floor = 5
+    assert "shrine_gold" not in ids(state, content) and why_not(state, content, "shrine_gold") == \
+        "The shrine wants 50 gold, and you have 45."
+    state.player.gold = 60
+    perform(state, content, "shrine_gold")
+    assert state.player.gold == 10 and state.player.hp == state.player.max_hp
+
+
 def test_a_hit_always_hurts(content):
     """King Mouse, cut down to 1d12+4-5, hit for 0 damage on a roll of 1."""
     import random

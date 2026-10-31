@@ -31,6 +31,9 @@ from .world import build_floor, monster_for, party, tier_for
 ASK_DC = 12  # getting a calm creature to tell you what it knows (wits)
 BARTER_DC = 12  # talking a shopkeeper down (wits): a third off; fail, and it's a quarter dearer (once a ware)
 BARTER_DOWN, BARTER_UP = 2 / 3, 1.25
+# How likely a rest is to bring something down on you, with WANDERERS or more of the floor's monsters still about
+# elsewhere: less as you thin them out, and never once they're gone (rest_risk). It's one of them that comes.
+REST_AMBUSH, WANDERERS = 0.25, 4
 TIP = "a tip!"  # the hint on a choice that something you were told about is here
 
 # Traits are earned by how you play: (name, style counter, threshold, what it does)
@@ -205,7 +208,7 @@ def available_actions(state: GameState, content: Content) -> list[Action]:
             actions.append(Action(f"bomb:{direction}", f"Bomb the {direction} wall",
                                   f"{sign} · {count}" if sign else count))
     if not room.rested and player.hp < player.max_hp and room.vent != "live":
-        actions.append(Action("rest", "Rest a while", "safe here" if safe_to_rest(state) else "risky"))
+        actions.append(Action("rest", "Rest a while", "risky" if rest_risk(state, content) else "safe here"))
     if room.monster:  # last of all: it isn't fighting you (and one click shouldn't end a quest)
         monster = room.monster
         actions.append(Action("attack", f"Attack {the(monster.name)}", "it's calm · no reward" if monster.rewarded
@@ -336,8 +339,9 @@ def _fixture_actions(state: GameState, content: Content) -> list[Action]:
         actions = list(pray)
         if player.hp > 6:
             actions.append(Action("shrine_blood", "Offer blood at the shrine", "-6 HP, +1 Fate"))
-        if player.gold >= 10 and player.hp < player.max_hp:  # (at full health it would take your gold for nothing)
-            actions.append(Action("shrine_gold", "Offer 10 gold at the shrine", "full heal"))
+        price = loot.shrine_price(state.floor)
+        if player.gold >= price and player.hp < player.max_hp:  # (at full health it would take your gold for nothing)
+            actions.append(Action("shrine_gold", f"Offer {price} gold at the shrine", "full heal"))
         return actions
     if room.fixture == "chest":
         actions = []
@@ -1529,7 +1533,8 @@ def why_not(state: GameState, content: Content, action_id: str) -> str:
         if verb == "shrine_blood":
             return "You're too weak to give blood."
         if verb == "shrine_gold":
-            return (f"The shrine wants 10 gold, and you have {player.gold}." if player.gold < 10
+            price = loot.shrine_price(state.floor)
+            return (f"The shrine wants {price} gold, and you have {player.gold}." if player.gold < price
                     else "You're not hurt: the shrine would take your gold for nothing.")
     if verb.startswith("lenny"):
         if not (monster and monster.key == npcs.LENNY):
@@ -1742,26 +1747,47 @@ def safe_to_rest(state: GameState) -> bool:
     return state.room.monster is not None or state.room.shop is not None
 
 
+def wanderers(state: GameState, content: Content) -> list[Room]:
+    """The rooms on this floor, other than yours, whose monster might come looking for you while you rest: an
+    everyday one (no warden, boss, elite, character or ghost), still hostile, not shut away (a secret room, a shop, a
+    boss's room)."""
+    def wanders(monster: MonsterState) -> bool:
+        known = content.monster(monster.key)
+        return monster.hostile and not (monster.warden or monster.elite or monster.ghost_of or monster.tier
+                                        or known.boss or known.named)
+    return [r for r in state.rooms if r is not state.room and r.monster is not None and wanders(r.monster)
+            and not (r.secret or r.shop or r.is_boss)]
+
+
+def rest_risk(state: GameState, content: Content) -> float:
+    """How likely a rest here is to bring one of the floor's wanderers down on you: REST_AMBUSH with WANDERERS or
+    more about, a share of it with fewer, none once they're gone or with someone keeping watch (safe_to_rest). Run 66
+    had 8 of 27 rests ambushed, by monsters that came from nowhere, however empty the floor."""
+    if safe_to_rest(state):
+        return 0.0
+    return REST_AMBUSH * min(1.0, len(wanderers(state, content)) / WANDERERS)
+
+
 def _rest(state: GameState, content: Content, rng: random.Random) -> list[Event]:
     room, player = state.room, state.player
     room.rested = True
-    if not safe_to_rest(state) and rng.random() < 0.25:
-        room.monster = monster_for(rng, content, state.theme, tier_for(state.floor, state.floors_total),
-                                   met=state.met, floor=state.floor)
-        room.others = party(rng, content, room.monster, state.floor)
-        who = room.monster.name if content.monster(room.monster.key).named else a(room.monster.name)
-        events = [Event("ambush", f"While you rest, {who} creeps up on you!",
-                        data={"monster": room.monster.key})] + stand_firm_warning(state, content)
-        for foe in foes(state):
-            events += [] if state.over else monster_turn(state, content, rng, foe)
-        return events
+    risk = rest_risk(state, content)
+    ambushed = risk > 0 and rng.random() < risk
     cook = powers.holders(state, content, "cook")
     rested = dice.roll("1d6", rng) + player.wits + state.floor + 4 * bool(cook)
     sick = statuses.hindered(state)
     if sick:  # (it's hard to rest with venom in you)
         rested //= 2
+    if ambushed:  # (you got some rest before it found you)
+        rested //= 2
     healed = min(rested, player.max_hp - player.hp)
     player.hp += healed
+    if ambushed:  # one of the floor's own, from wherever it was (and its fight with it): you're up before it strikes
+        came = rng.choice(wanderers(state, content))
+        room.monster, room.others, came.monster, came.others = came.monster, came.others, None, []
+        return [Event("ambush", f"You doze off (+{healed} HP, {player.hp}/{player.max_hp}), and wake to "
+                                f"{a(room.monster.name)} creeping up on you!", data={"monster": room.monster.key})] + \
+            stand_firm_warning(state, content)
     meal = f" A hot meal cooked in your {cook[0].name} helps." if cook else ""
     uneasy = f" Being {sick}, you barely sleep: it does you half the good." if sick else ""
     events = [Event("rest", f"You rest for a while and recover {healed} HP ({player.hp}/{player.max_hp}).{meal}"
@@ -1802,7 +1828,7 @@ def _fixture(state: GameState, content: Content, rng: random.Random, verb: str) 
             events += statuses.cure(state, key, how)
         return events
     if verb == "shrine_gold":
-        player.gold -= 10
+        player.gold -= loot.shrine_price(state.floor)
         healed = player.max_hp - player.hp
         player.hp = player.max_hp
         return [Event("shrine", f"The coins vanish into the shrine and warmth floods through you (+{healed} HP).")]

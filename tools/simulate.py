@@ -8,13 +8,13 @@
     uv run --frozen python tools/simulate.py --venom dire_wolf,orc  # as if they bit with venom: what poison does
     uv run --frozen python tools/simulate.py --deep             # five floors, as a run goes once you've won one
 
-Per floor: how many runs reached it, died on it, and what they took down the stairs (HP, level, gold, potions). Then
-what killed them, and the run as a whole. The plain bot is thorough and never misses a warning, but never improvises,
-shops or bombs a wall; the players with habits miss warnings, hoard potions, walk past things and rush the stairs.
-Between them they bracket a person, they don't forecast one: compare a change's report with the last one (docs/plans/
-combat-and-balance.md has the baseline). The plain bot plays a newcomer's adventurer; --veteran gives it a veteran's
-(tests/bot.py veteran: every blessing, the Rabbit's Foot, perks picked as the owner's run picked them). --fights adds
-how the fights went, by floor and kind of foe: how many rounds, the HP they cost, and how hard you hit."""
+Per floor: how many runs reached it, died on it, and what they took down the stairs (HP, level, gold, potions, keys,
+bombs). Then what killed them, and the run as a whole. The plain bot is thorough and never misses a warning, but never
+improvises, shops or bombs a wall; the players with habits miss warnings, hoard potions, walk past things and rush the
+stairs. Between them they bracket a person, they don't forecast one: compare a change's report with the last one
+(docs/plans/combat-and-balance.md has the baseline). The plain bot plays a newcomer's adventurer; --veteran gives it a
+veteran's (tests/bot.py veteran: every blessing, the Rabbit's Foot, perks picked as the owner's run picked them).
+--fights adds how the fights went, by floor and kind of foe: how many rounds, the HP they cost, and how hard you hit."""
 
 from __future__ import annotations
 
@@ -96,12 +96,14 @@ def run(seed: int, content, player: str = "bot", max_turns: int = 900, veteran_r
         if state.floor != floor:  # down the stairs: how you went
             player = state.player
             left[floor] = {"hp": player.hp / player.max_hp, "level": player.level, "gold": player.gold,
-                           "potions": potions(state), "turns": turns_in[floor]}
+                           "potions": potions(state), "keys": player.keys, "bombs": player.bombs,
+                           "turns": turns_in[floor]}
         if state.status == "dead" and monster is not None:
             killer = monster.name
     return {"seed": seed, "status": state.status, "floor": state.floor, "level": state.player.level,
             "turns": state.turn, "left": left, "killer": killer, "gold": state.player.gold,
-            "potions": potions(state), "kills": state.player.kills, "poison": poison,
+            "potions": potions(state), "keys": state.player.keys, "bombs": state.player.bombs,
+            "kills": state.player.kills, "poison": poison,
             "died_poisoned": state.status == "dead" and bool(state.player.statuses), "fights": fights}
 
 
@@ -115,7 +117,7 @@ def report(results: list[dict], floors: int, fights: bool = False) -> str:
     stuck = sum(r["status"] == "playing" for r in results)
     lines = [f"{n} bot runs · won {won} ({100 * won / n:.0f}%) · stuck {stuck}", ""]
     lines.append(f"{'floor':>5} {'reached':>8} {'died':>6} {'death%':>7} {'HP% at stairs':>14} {'level':>6} "
-                 f"{'gold':>6} {'potions':>8} {'turns':>6}")
+                 f"{'gold':>6} {'potions':>8} {'keys':>5} {'bombs':>6} {'turns':>6}")
     for floor in range(1, floors + 1):
         reached = [r for r in results if r["floor"] >= floor]
         died = [r for r in reached if r["status"] == "dead" and r["floor"] == floor]
@@ -125,6 +127,7 @@ def report(results: list[dict], floors: int, fights: bool = False) -> str:
         if out:  # (the last floor has no stairs: it ends with its boss)
             row += (f"{100 * median([o['hp'] for o in out]):>13.0f}% {median([o['level'] for o in out]):>6.1f} "
                     f"{median([o['gold'] for o in out]):>6.0f} {median([o['potions'] for o in out]):>8.1f} "
+                    f"{median([o['keys'] for o in out]):>5.1f} {median([o['bombs'] for o in out]):>6.1f} "
                     f"{median([o['turns'] for o in out]):>6.0f}")
         else:
             row += f"{'—':>14}"
@@ -143,7 +146,9 @@ def report(results: list[dict], floors: int, fights: bool = False) -> str:
                  f"median turns {median([r['turns'] for r in results]):.0f} · "
                  f"median kills {median([r['kills'] for r in results]):.0f} · "
                  f"median gold unspent {median([r['gold'] for r in results]):.0f} · "
-                 f"median potions left {median([r['potions'] for r in results]):.1f}")
+                 f"median potions left {median([r['potions'] for r in results]):.1f} · "
+                 f"keys {median([r['keys'] for r in results]):.1f} · "
+                 f"bombs {median([r['bombs'] for r in results]):.1f}")
     lines += poison_lines(results, floors)
     lines += fight_lines(results, floors) if fights else []
     return "\n".join(lines)

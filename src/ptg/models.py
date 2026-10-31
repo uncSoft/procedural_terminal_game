@@ -163,6 +163,7 @@ class Player(BaseModel):
     keys: int = 0  # small keys, for chests
     weapon: str = "rusty_sword"
     armor: str | None = None
+    helm: str | None = None  # (on your head: a save from before helms has none)
     inventory: list[str] = Field(default_factory=lambda: ["healing_potion"])
     kills: int = 0
     fate: int = 1
@@ -193,9 +194,14 @@ class Player(BaseModel):
     def attack_bonus(self) -> int:
         return self.might + self.level
 
+    @property
+    def gear(self) -> list[str]:
+        """What you have on, hand, body and head: your weapon, then your armor and helm if you wear them."""
+        return [k for k in (self.weapon, self.armor, self.helm) if k]
+
     def defense(self, content: Content) -> int:
-        armor = content.item(self.armor).defense if self.armor else 0
-        return 10 + self.agility + armor + (1 if "iron_skin" in self.perks else 0)
+        worn = sum(content.item(k).defense for k in (self.armor, self.helm) if k)  # (armor's and helm's, each)
+        return 10 + self.agility + worn + (1 if "iron_skin" in self.perks else 0)
 
     def stat(self, name: str) -> int:
         return {"might": self.might, "agility": self.agility, "wits": self.wits}.get(name, 0)

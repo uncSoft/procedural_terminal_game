@@ -42,6 +42,19 @@ def test_a_save_that_cant_be_continued_says_why(content, profile):
     assert read_save() == (None, "")  # finished: nothing to explain
 
 
+def test_a_save_from_before_helms_still_continues(content, profile):
+    """A run saved before there was a head slot has no helm in it: it's picked up all the same, bareheaded."""
+    state = start_run(profile, content, "Old", seed=5)
+    state.player.armor = "chain_shirt"
+    save_game(state)
+    data = json.loads(save_path().read_text())
+    del data["player"]["helm"]
+    save_path().write_text(json.dumps(data))
+    back = load_game()
+    assert back is not None and back.player.helm is None and back.player.armor == "chain_shirt"
+    assert back.player.defense(content) == state.player.defense(content)
+
+
 async def test_the_game_screen_gets_no_stand_in_for_a_recap(content, profile):
     """Offline, "Previously…" was the last narration again, just under the story that ends with it."""
     state = start_run(profile, content, "Back", seed=5)

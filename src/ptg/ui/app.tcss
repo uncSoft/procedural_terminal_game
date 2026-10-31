@@ -1111,13 +1111,18 @@ Panel {
     height: auto;
 }
 
-#levelup-face {
+/* Your face in its frame (ui/panels.py hero_face): a level-up's, the sheet's, the Tabs layout's sheet pane's. */
+.hero-face {
     width: auto;
     height: auto;
     border: round #ffd166;
     border-title-color: #ffb000;
     border-title-align: center;
     padding: 0 1;
+    margin-right: 2;
+}
+
+#levelup-face {
     margin-right: 3;
 }
 
@@ -1699,8 +1704,15 @@ LogTab .debug-detail {
 }
 
 /* The character sheet (ui/panels.py CharacterScreen): stat boxes in a row, then two columns, like a tabletop sheet. */
-.sheet-header {
+.sheet-top {
+    height: auto;
     margin-bottom: 1;
+    align-vertical: middle;
+}
+
+.sheet-top .sheet-header {
+    width: 1fr;
+    height: auto;
 }
 
 #sheet-stats {

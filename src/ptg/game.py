@@ -192,12 +192,12 @@ class Game:
 
     def first_finds(self, events: list[Event]) -> list[str]:
         """What came your way in these events that's never been yours before, in any run: taken, bought, won or
-        given (into your pack, your hand, onto your back or a counter: not moved from one to another), each once, in
-        the order it came. The first time a thing is yours it has a card of its own (ui/model_view.py FoundScreen).
-        Noted in the profile as it's found; a test room notes nothing (it writes nothing there), so there everything
-        found is new."""
+        given (into your pack, your hand, onto your back or head or a counter: not moved from one to another), each
+        once, in the order it came. The first time a thing is yours it has a card of its own (ui/model_view.py
+        FoundScreen). Noted in the profile as it's found; a test room notes nothing (it writes nothing there), so
+        there everything found is new."""
         seen, new = self.profile.marks(), []
-        mine = ("pack", "weapon", "armor", "counter")
+        mine = ("pack", *powers.GEAR, "counter")
         for event in events:
             key = event.data.get("item", "")
             if event.data.get("to") in mine and event.data.get("from") not in mine and key in self.content.items \

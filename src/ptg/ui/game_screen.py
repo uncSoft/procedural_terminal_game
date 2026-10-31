@@ -418,7 +418,7 @@ class GameScreen(Screen):
         monster, player = state.room.monster, state.player
         return (monster.hp, monster.intent, monster.guarding, monster.stunned, bool(monster.stolen_item or
                 monster.stolen_gold), tuple(state.known_weak.get(monster.key, [])), player.level, player.weapon,
-                player.armor, player.max_hp)
+                player.armor, player.helm, player.max_hp)
 
     def fight_view(self, width: int, height: int) -> encounter.Fight | None:
         """The fight on the stage (encounter.Fight), while a monster's after you and the stage has the room for it

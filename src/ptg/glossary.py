@@ -95,7 +95,7 @@ def build(state: GameState, content: Content, bestiary: dict | None = None) -> d
             add(state_monster.ghost_of, term)
 
     # Items: full names for anything; short names for what you carry or can see.
-    nearby = [player.weapon, *([player.armor] if player.armor else []), *player.inventory, *room.items]
+    nearby = [*player.gear, *player.inventory, *room.items]
     for key, item in content.items.items():
         term = Term(f"item:{key}", "item", item.name, item_summary(content, key))
         add(item.name, term)
@@ -197,6 +197,7 @@ def monster_summary(state: GameState, content: Content, key: str, entry: dict | 
 def item_stats(item) -> str:
     """What an item is and does, its powers aside: "weapon, 1d8 damage", "restores 8 HP"."""
     return {"weapon": f"weapon, {item.damage} damage", "armor": f"armor, +{item.defense} defense",
+            "helm": f"helm, +{item.defense} defense",
             "consumable": "escape" if item.escape else f"restores {item.heal} HP",
             "key": "key", "trinket": "trinket: use it creatively"}[item.kind]
 

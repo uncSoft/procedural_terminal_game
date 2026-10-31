@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from ..content import Content
 from ..events import Event
 from ..models import GameState
+from ..powers import GEAR
 
 SENTENCE_END = re.compile(r"[.!?…]+[\"'”’)]*\s+|\n+")
 ECHO = re.compile(r"^\W*(setting|recently|this turn|room|player typed|facts|how you described|location|exits)\b.{0,40}:",
@@ -102,7 +103,7 @@ class Rules:
         known = [e.text for e in events] + state.journal[-6:]
         known += [content.themes[state.theme].blurb, content.archetypes[room.archetype].blurb, room.name]
         known += [f.name for f in room.features] + [content.item(k).name for k in room.items]
-        known += [content.item(k).name for k in [player.weapon, player.armor, *player.inventory] if k]
+        known += [content.item(k).name for k in [*player.gear, *player.inventory]]
         known += [room.monster.name, content.monster(room.monster.key).desc,
                   *content.monster(room.monster.key).tags] if room.monster else []
         known += room.history  # what happened here: the Rat King you killed in this room isn't made up
@@ -112,7 +113,7 @@ class Rules:
                         {m.name.lower() for m in content.monsters.values()}, key=len, reverse=True)
         travel = {e.data["direction"] for e in events if e.kind == "enter" and e.data.get("direction")}
         lying = sorted({content.item(k).name for k in room.items})
-        packed = sorted({content.item(k).name for k in player.inventory if content.item(k).kind in ("weapon", "armor")})
+        packed = sorted({content.item(k).name for k in player.inventory if content.item(k).kind in GEAR})
         return cls(set(room.exits), opening or bool(arrived and arrived.data.get("first")), " ".join(known).lower(),
                    things, room.name.lower(), travel, lying, packed, any(e.kind in OUTCOMES for e in events))
 

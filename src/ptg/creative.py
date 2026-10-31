@@ -62,7 +62,7 @@ def available_props(state: GameState, content: Content) -> list[Prop]:
              for i, f in room.visible_features() if not f.used]  # a prop that's done its stunt is spent
     if room.fixture and f"prop:{room.fixture}" not in room.creative_uses:  # the chest to hurl, the fountain to dunk in
         props.append(Prop(FIXTURE_NAMES[room.fixture], "fixture", room.fixture, FIXTURE_TAGS[room.fixture]))
-    for key in dict.fromkeys([player.weapon, *([player.armor] if player.armor else []), *player.inventory]):
+    for key in dict.fromkeys([*player.gear, *player.inventory]):
         item = content.item(key)
         props.append(Prop(item.name, "item", key, item.tags))
     for key in dict.fromkeys(room.items):

@@ -488,7 +488,9 @@ class ClickableBox(Vertical):
         await self.run_action(self.action)
 
 
-ITEM_COLORS = {"weapon": "#c8c8e0", "armor": "#8fa8ff", "consumable": "#ff4b4b", "trinket": "#ffb000", "key": "#ffd166"}
+ITEM_COLORS = {"weapon": "#c8c8e0", "armor": "#8fa8ff", "helm": "#8fa8ff", "consumable": "#ff4b4b",
+               "trinket": "#ffb000", "key": "#ffd166"}
+GEAR_ICONS = {"weapon": "⚔", "armor": "⛨", "helm": "⛑"}  # what you have on, hand, body and head (inventory.WORN)
 
 
 def item_note(content: Content, key: str) -> str:
@@ -502,7 +504,8 @@ def item_note(content: Content, key: str) -> str:
     if item.kind == "trinket" and shown:
         return curse + powers.SHORT[shown[0]] + (f" ({item.damage})" if shown[0] == "throw" else "")
     wards = "".join(f" · {w}" for w in powers.ward_words(item))
-    return curse + {"weapon": f"{item.damage} damage", "armor": f"+{item.defense} defense", "key": "a key",
+    return curse + {"weapon": f"{item.damage} damage", "armor": f"+{item.defense} defense",
+                    "helm": f"+{item.defense} defense", "key": "a key",
                     "consumable": "escape a fight" if item.escape else f"heals {item.heal}" if item.heal else
                     f"cures {' and '.join(item.cures)}" if item.cures else "a consumable",
                     "trinket": "trinket"}[item.kind] + wards
@@ -550,6 +553,20 @@ BLANKS = {
         "..bccccccb..",
         "..bccccccb..",
         "..bbbbbbbb..",
+        "............",
+        "............",
+    ],
+    "helm": [
+        "............",
+        "............",
+        "....bbbb....",
+        "...bccccb...",
+        "..bccccccb..",
+        "..bccccccb..",
+        ".bccbbbbccb.",
+        ".bcb.bb.bcb.",
+        ".bcb.bb.bcb.",
+        ".bb..aa..bb.",
         "............",
         "............",
     ],

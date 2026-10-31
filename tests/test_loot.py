@@ -32,8 +32,8 @@ def test_rare_things_turn_up_only_where_theyre_kept_and_only_once(content):
     assert "sword_still_in_the_stone" not in str(loot.candidates(content, "rare", "chest"))  # found = ["secret"]
     assert "the_compensator" not in str(loot.candidates(content, "rare -2", "warden"))  # tier 3: not from floor 1
     rares, rng = [], random.Random(3)
-    got = [loot.produce(rng, content, rares, loot.SECRET, "secret") for _ in range(12)]
     secret_rares = [k for tier in loot.candidates(content, "rare", "secret").values() for k in tier]
+    got = [loot.produce(rng, content, rares, loot.SECRET, "secret") for _ in range(len(secret_rares) + 2)]
     assert sorted(got[:len(secret_rares)]) == sorted(secret_rares)  # each once...
     assert all(content.item(k).heal for k in got[len(secret_rares):])  # ...then a good potion instead
     assert "dropped by" not in str(loot.where(content, "snitch")) and "secret rooms" in loot.where(content, "weighted_dice")
@@ -47,8 +47,25 @@ def test_roles_come_from_the_data(content):
     assert roles["oil_flask"] == "trinket" and roles["warren_key"] == "key"
 
 
+def test_helms_turn_up_wherever_armor_does(content):
+    """An "armor" slot is anything you wear, body armor or a helm; "helm", only helms; "gear", all three. A helm you
+    have on is gear you have already."""
+    assert loot.role(content.item("hard_hat")) == "helm" and loot.role(content.item("leather_jerkin")) == "armor"
+    worn = loot.candidates(content, "armor 1")[1]
+    assert "hard_hat" in worn and "leather_jerkin" in worn
+    assert loot.candidates(content, "helm 1") == {1: [k for k in worn if content.item(k).kind == "helm"]}
+    assert "hard_hat" in loot.candidates(content, "gear 1")[1]
+    rng = random.Random(2)
+    assert {"hard_hat", "leather_jerkin"} <= {loot.pick(rng, content, "armor 1") for _ in range(100)}
+    state = generate(1)
+    state.player.helm = "hard_hat"
+    assert "hard_hat" in loot.owned(state, content)
+
+
 def test_slots_read_tiers_and_keep_some_items_by_name(content):
-    assert loot.candidates(content, "gear 2") == {2: ["war_pick", "chain_shirt", "the_butcher_s_cleaver"]}  # (no Snitch: rare)
+    assert loot.candidates(content, "gear 2") == {2: ["war_pick", "chain_shirt", "the_butcher_s_cleaver",
+                                                      "smouldering_poker", "salted_harpoon", "studded_leather",
+                                                      "ratskin_cloak", "horned_helm"]}  # (no Snitch, no Spork: rare)
     assert loot.candidates(content, "potion 2+") == {2: ["greater_healing_potion", "firebird_plume"],
                                                  3: ["superior_healing_potion"]}
     trinkets = [k for keys in loot.candidates(content, "trinket").values() for k in keys]
@@ -60,7 +77,7 @@ def test_slots_read_tiers_and_keep_some_items_by_name(content):
 def test_a_slot_with_one_item_gives_it_without_a_roll(content):
     rng = random.Random(5)
     before = rng.getstate()
-    assert loot.pick(rng, content, "armor 2") == "chain_shirt"
+    assert loot.pick(rng, content, "helm 2") == "horned_helm"
     assert rng.getstate() == before  # so a seed's dungeon only changes where there's something new to choose
 
 

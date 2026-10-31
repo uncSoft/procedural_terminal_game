@@ -128,8 +128,8 @@ kbd { font-family: var(--mono); font-size: 11px; color: var(--dim); border: 1px 
 .input:focus { outline: none; border-color: var(--amber); }
 .input.bad { border-color: var(--red); }
 textarea.input { min-height: 78px; resize: vertical; }
-.segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-.segmented button { border: 0; border-right: 1px solid var(--line); background: var(--panel); padding: 7px 13px; font-weight: 600; font-size: 14px; white-space: nowrap; }
+.segmented { display: inline-flex; flex-wrap: wrap; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.segmented button { border: 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); margin-bottom: -1px; background: var(--panel); padding: 7px 13px; font-weight: 600; font-size: 14px; white-space: nowrap; }
 .segmented button[data-frame] { padding: 7px 11px; }
 .segmented button:last-child { border-right: 0; }
 .segmented button[aria-pressed="true"] { background: var(--amber); color: #1a1200; }
@@ -359,13 +359,13 @@ footer { color: var(--dim); font-size: 13px; text-align: center; padding: 16px; 
 
         <div class="fields" id="item-fields" hidden>
           <div class="field"><span>Kind</span>
-            <div class="segmented" data-segment="kind" data-values="weapon,armor,consumable,trinket"></div></div>
+            <div class="segmented" data-segment="kind" data-values="weapon,armor,helm,consumable,trinket"></div></div>
           <div class="field"><span>Tier</span>
             <div class="row"><div class="segmented" data-segment="tier" data-values="0,1,2,3"></div>
               <button class="btn quiet" id="item-defaults">Use tier defaults</button></div>
             <small class="typical" id="item-typical"></small></div>
           <label class="field third" data-for="weapon"><span>Damage</span><input class="input" data-f="damage" placeholder="1d8"></label>
-          <label class="field third" data-for="armor"><span>Defense bonus</span><input class="input" type="number" min="1" data-f="defense"></label>
+          <label class="field third" data-for="armor helm"><span>Defense bonus</span><input class="input" type="number" min="1" data-f="defense"></label>
           <label class="field third" data-for="consumable" data-heal><span>Heals</span><input class="input" type="number" min="0" data-f="heal"></label>
           <label class="field toggle" data-for="consumable"><input type="checkbox" data-f="escape"> Lets you escape a fight instead</label>
           <div class="field"><span>Tags <small>(used for stunts and monster weaknesses)</small></span>
@@ -482,6 +482,7 @@ const FALLBACK = {
               "3": {hp: 22, defense: 13, attack: 5, xp: 45, damage: "1d10"}},
     item: {weapon: {"1": {damage: "1d8"}, "2": {damage: "1d10"}, "3": {damage: "2d6"}},
            armor: {"1": {defense: 1}, "2": {defense: 2}, "3": {defense: 3}},
+           helm: {"1": {defense: 1}, "2": {defense: 1}, "3": {defense: 3}},
            consumable: {"1": {heal: 8}, "2": {heal: 16}, "3": {heal: 24}}}},
   kinds: {undead: ["The Sunken Crypt"], aquatic: ["The Sunken Crypt"], vermin: ["The Sunken Crypt", "The Goblin Warren"],
           goblinoid: ["The Goblin Warren", "The Overgrown Ruins"], beast: ["The Goblin Warren", "The Overgrown Ruins"],
@@ -510,6 +511,7 @@ const blanks = (size = SIZE) => Array.from({length: FRAMES}, () => blank(size));
 const uid = () => crypto.randomUUID ? crypto.randomUUID() : "c" + b64url(crypto.getRandomValues(new Uint8Array(16)));
 const secret = () => b64url(crypto.getRandomValues(new Uint8Array(18)));
 const ref = () => (library && library.reference) || FALLBACK.reference;
+const itemRef = kind => ref().item[kind] || FALLBACK.reference.item[kind];  // (a library.json from before helms has none)
 const kinds = () => (library && library.kinds) || FALLBACK.kinds;
 const dungeons = () => (library && library.dungeons) || FALLBACK.dungeons;  // the floors, each a dungeon
 const short = d => d.name.split(",")[0];  // "Norfel", not "Norfel, Domain of Serpentis"
@@ -896,7 +898,7 @@ $("colour-picker").addEventListener("change", e => {  // a colour you settle on 
 $("clear-custom").addEventListener("click", () => { store({custom: []}); buildPalettes(); });
 
 // --- details ---------------------------------------------------------------------------------------------------------
-const KIND_LABELS = {weapon: "Weapon", armor: "Armor", consumable: "Consumable", trinket: "Trinket"};
+const KIND_LABELS = {weapon: "Weapon", armor: "Armor", helm: "Helm", consumable: "Consumable", trinket: "Trinket"};
 function buildSegments() {
   document.querySelectorAll("[data-segment]").forEach(box => {
     box.replaceChildren(...box.dataset.values.split(",").map(v => {
@@ -948,7 +950,7 @@ function applyMonsterDefaults() { Object.assign(current.fields, ref().monster[ti
 function applyItemDefaults() {
   const f = current.fields, tier = tierRef(f.tier), r = ref().item;
   if (f.kind === "weapon") f.damage = r.weapon[tier].damage;
-  if (f.kind === "armor") f.defense = r.armor[tier].defense;
+  if (f.kind === "armor" || f.kind === "helm") f.defense = itemRef(f.kind)[tier].defense;
   if (f.kind === "consumable" && !f.escape) f.heal = r.consumable[tier].heal;
 }
 $("tier-defaults").addEventListener("click", () => { applyMonsterDefaults(); showDetails(); refreshPreview(); saveSoon(); });
@@ -1014,9 +1016,10 @@ function showDetails() {
     $("lives").textContent = w.text;
     $("lives").classList.toggle("warn", w.warn);
   } else {
-    box.querySelectorAll("[data-for]").forEach(el => { el.hidden = el.dataset.for !== f.kind || (el.hasAttribute("data-heal") && !!f.escape); });
+    box.querySelectorAll("[data-for]").forEach(el => { el.hidden = !el.dataset.for.split(" ").includes(f.kind) || (el.hasAttribute("data-heal") && !!f.escape); });
     const r = ref().item, tier = tierRef(f.tier);
     const typical = {weapon: `damage ${r.weapon[tier].damage}`, armor: `+${r.armor[tier].defense} defense`,
+                     helm: `+${itemRef("helm")[tier].defense} defense, worn on the head beside armor`,
                      consumable: `heals ${r.consumable[tier].heal}`, trinket: "no stats: its tags and description do the work"}[f.kind];
     $("item-typical").textContent = `Typical for tier ${tier}: ${typical}`;
   }
@@ -1033,7 +1036,7 @@ function describe(type, f) {
     if ((f.tags || []).includes("npc")) parts.push("an NPC");
     return parts.join(" · ");
   }
-  const power = f.kind === "weapon" ? `damage ${f.damage || "?"}` : f.kind === "armor" ? `+${f.defense ?? "?"} defense`
+  const power = f.kind === "weapon" ? `damage ${f.damage || "?"}` : f.kind === "armor" || f.kind === "helm" ? `+${f.defense ?? "?"} defense`
     : f.kind === "consumable" ? (f.escape ? "escape" : `heals ${f.heal ?? "?"}`) : "";
   return [KIND_LABELS[f.kind] || f.kind || "Item", `tier ${f.tier ?? 0}`, power, (f.tags || []).join(", ")].filter(Boolean).join(" · ");
 }
@@ -1120,6 +1123,7 @@ function problems(c) {
   } else {
     if (f.kind === "weapon" && !f.damage) return "A weapon needs damage dice.";
     if (f.kind === "armor" && !(f.defense > 0)) return "Armor needs a defense bonus above 0.";
+    if (f.kind === "helm" && !(f.defense > 0)) return "A helm needs a defense bonus above 0.";
     if (f.kind === "consumable" && !f.escape && !(f.heal > 0)) return "A consumable should heal, or let you escape.";
     if (c.smallHand && !hasPixels(c.small[0])) return "The small version is empty: draw it, or start it again from the drawing.";
     if (c.smallHand && count > 2) for (let i = 1; i < count; i++) if (!hasPixels(c.small[i]))
@@ -1475,9 +1479,9 @@ function choices(type) {  // what look tells Claude it can pick from, and the ty
     "Floors, each a dungeon (pick them with dungeons; pick none and it's every one its creature type fits): "
       + dungeons().map(d => `${d.key} (${d.name}${d.floor ? `, always floor ${d.floor}: tier 3 and up only` : ""}; its creatures: ${d.tags.join(", ")})`).join("; ") + ".",
     `Weaknesses: ${WEAKNESSES.join(", ")}, or others.`];
-  const typical = kind => Object.entries(r.item[kind]).map(([t, s]) => `tier ${t} ${Object.values(s)[0]}`).join(", ");
-  return [`Typical numbers: weapon damage ${typical("weapon")}; armor defense ${typical("armor")}; consumable heals ${typical("consumable")}.`,
-          `Kinds: weapon, armor, consumable, trinket. Tags: ${ITEM_TAGS.join(", ")}, or others.`];
+  const typical = kind => Object.entries(itemRef(kind)).map(([t, s]) => `tier ${t} ${Object.values(s)[0]}`).join(", ");
+  return [`Typical numbers: weapon damage ${typical("weapon")}; armor defense ${typical("armor")}; helm defense ${typical("helm")}; consumable heals ${typical("consumable")}.`,
+          `Kinds: weapon, armor (worn on the body), helm (worn on the head, beside armor), consumable, trinket. Tags: ${ITEM_TAGS.join(", ")}, or others.`];
 }
 const strip = () => picture(shownFrames(current));  // the frames the game plays, side by side (an empty frame 2 bobs)
 
@@ -1592,7 +1596,7 @@ const STUDIO_TOOLS = {
       const keys = dungeons().map(d => d.key), wrong = next.dungeons.filter(k => !keys.includes(k));
       if (wrong.length) throw new Problem(`dungeons are floors by key: ${keys.join(", ")} (not ${wrong.join(", ")}).`);
     }
-    if (has("kind")) { if (!KIND_LABELS[input.kind]) throw new Problem("kind is weapon, armor, consumable or trinket."); next.kind = input.kind; }
+    if (has("kind")) { if (!KIND_LABELS[input.kind]) throw new Problem("kind is weapon, armor, helm, consumable or trinket."); next.kind = input.kind; }
     if (has("damage")) { const d = words("damage", 20).replace(/\s+/g, ""); if (!DICE.test(d)) throw new Problem("damage is dice, like 1d6 or 2d4+1."); next.damage = d; }
     if (next.kind && next.kind !== f.kind) { delete f.damage; delete f.defense; delete f.heal; delete f.escape; f.kind = next.kind; applyItemDefaults(); }
     if ("tier" in next) f.tier = next.tier;

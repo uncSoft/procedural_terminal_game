@@ -31,9 +31,9 @@ too, and fate: room for that many more Fate tokens). settle_stats applies the di
 using it up takes it back. (Extra max HP comes with as much HP, and extra Fate with a token, only the first time a
 thing gives it.)
 
-Carrying means in your pack, but a weapon or armor works only while it's on: in your hand or on your back, not as a
-spare in your pack. Two of the same item count once. A curse a shrine has lifted is gone (see inventory.py). (The Lucky
-Rabbit's Foot's extra Fate is older than this and lives in Player.max_fate.)
+Carrying means in your pack, but a weapon, armor or a helm works only while it's on: in your hand, on your back or
+on your head, not as a spare in your pack. Two of the same item count once. A curse a shrine has lifted is gone (see
+inventory.py). (The Lucky Rabbit's Foot's extra Fate is older than this and lives in Player.max_fate.)
 """
 
 from __future__ import annotations
@@ -80,15 +80,16 @@ PICKED_UP = {"bomb": "for walls and monsters", "small_key": "opens a chest"}  # 
 ROLLS = {"luck": (1, None), "seeker": (1, {"search"}), "careful": (2, {"disarm"}), "unseen": (2, {"dodge", "flee"}),
          "eloquent": (1, {"talk", "ask", "barter"})}
 GOBLINS = {"goblin", "goblinoid"}  # monster tags a goblin-bane weapon bites
-GEAR = ("weapon", "armor")  # what works only while it's on
+GEAR = ("weapon", "armor", "helm")  # what works only while it's on: in your hand, on your back, on your head
+WEAR = ("armor", "helm")  # the gear you wear, body and head: it comes off (a weapon only changes hands)
 
 
 def carried(state: GameState, content: Content) -> list[ItemDef]:
-    """Everything that works for you: your weapon and armor, and whatever else is in your pack (a spare weapon or
-    armor does nothing until it's on), each item once."""
+    """Everything that works for you: your weapon, armor and helm, and whatever else is in your pack (a spare piece
+    of gear does nothing until it's on), each item once."""
     player = state.player
     pack = [k for k in player.inventory if content.item(k).kind not in GEAR]
-    keys = dict.fromkeys(k for k in [player.weapon, player.armor, *pack] if k)
+    keys = dict.fromkeys([*player.gear, *pack])
     return [content.item(k) for k in keys]
 
 

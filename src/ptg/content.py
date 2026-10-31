@@ -99,7 +99,7 @@ class Archetype:
 class ItemDef:
     key: str
     name: str
-    kind: Literal["weapon", "armor", "consumable", "key", "trinket"]
+    kind: Literal["weapon", "armor", "helm", "consumable", "key", "trinket"]  # (a helm's worn on your head)
     damage: str = ""
     defense: int = 0
     heal: int = 0
@@ -282,8 +282,8 @@ def _value_error(kind: str, value: object) -> str:
         "tier": (is_int and 1 <= value <= 4, "must be a tier from 1 to 4"),
         "bool": (isinstance(value, bool), "must be true or false"),
         "dice": (isinstance(value, str) and _DICE.match(value), "must be dice like 1d6 or 2d4+1"),
-        "item_kind": (value in ("weapon", "armor", "consumable", "key", "trinket"),
-                      "must be weapon, armor, consumable, key or trinket"),
+        "item_kind": (value in ("weapon", "armor", "helm", "consumable", "key", "trinket"),
+                      "must be weapon, armor, helm, consumable, key or trinket"),
         "color": (value in COLORS, f"must be one of {', '.join(COLORS)}"),
         "powers": (isinstance(value, list) and all(v in POWERS for v in value),
                    f"must be a list of powers the game knows: {', '.join(POWERS)}"),
@@ -501,8 +501,9 @@ def _cross_check(content: Content) -> list[str]:
     for item in content.items.values():
         if item.kind == "weapon" and not item.damage:
             problems.append(f"items.toml [item.{item.key}]: a weapon needs damage, like \"1d6\"")
-        if item.kind == "armor" and item.defense <= 0:
-            problems.append(f"items.toml [item.{item.key}]: armor needs defense above 0")
+        if item.kind in ("armor", "helm") and item.defense <= 0:
+            problems.append(f"items.toml [item.{item.key}]: {'a helm' if item.kind == 'helm' else 'armor'} needs "
+                            "defense above 0")
         if item.kind == "consumable" and not (item.heal or item.escape or item.cures):
             problems.append(f"items.toml [item.{item.key}]: a consumable needs heal, cures or escape = true")
         if "throw" in item.powers and not item.damage:

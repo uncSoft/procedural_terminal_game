@@ -7,7 +7,7 @@ in a sentence meant.
     monster:<key>   whoever's here, monster or character: hostile or not, its mood, HP, where it stands
     keeper:<key>    a shop's keeper, behind her counter (she's no monster: room.shop, not room.monster)
     ware:<i>        a ware on her counter, at its price
-    gear:weapon     the weapon in your hand; gear:armor, the armor on your back
+    gear:weapon     the weapon in your hand; gear:armor, the armor on your back; gear:helm, the helm on your head
     item:<key>      something in your pack (how many)
     bombs, keys     your bombs and small keys (how many); gold, your gold (how much)
     floor:<key>     something lying here (how many; and whether you put it down yourself)
@@ -46,6 +46,7 @@ ALIASES = {"self": {"me", "myself", "yourself", "self", "wound", "wounds"},
            "bombs": {"bomb"}, "keys": {"small", "key"},
            "keeper": {"granny", "shopkeeper", "shopkeep", "merchant", "keeper", "she"},
            "gear:weapon": {"weapon", "blade"}, "gear:armor": {"armor", "armour"},
+           "gear:helm": {"helm", "helmet", "hat"},
            "chest": {"chest", "lock", "trunk"}, "shrine": {"shrine", "altar"},
            "fountain": {"fountain", "water", "basin"}, "stairs": {"stairs", "staircase", "steps", "stair"},
            "shop": {"counter", "shop", "wares"}, "exit": {"door", "doorway", "way", "exit", "passage"},
@@ -127,7 +128,7 @@ class RoomView:
                                 sprite=f"item_{item.key}",
                                 state={"item": item.key, "price": ware.price, "haggled": ware.haggled,
                                        "afford": player.gold >= ware.price}))
-        for slot in ("weapon", "armor"):
+        for slot in inventory.GEAR:
             key = inventory.worn(state, slot)
             if key:
                 item = content.item(key)

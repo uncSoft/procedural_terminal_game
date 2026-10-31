@@ -5,14 +5,15 @@ says what moved where, so the story's cards and the narrator hear of every one a
     {"item": "war_pick", "how": "take", "from": "room", "to": "pack", "slot": "", "replaced": ""}
 
     how       take, find, buy, give, win, story, drop, equip, unequip, sell, use, throw, spend, steal, lose
-    from, to  room (lying where you are), pack, weapon or armor (in your hand, on your back), counter (bombs and small
-              keys), shop, gone (used up), or whoever had it or gets it (a monster's key, a feature's name)
-    slot      weapon or armor, when it goes on or comes off; replaced, what it took the place of
+    from, to  room (lying where you are), pack, weapon, armor or helm (in your hand, on your back, on your head),
+              counter (bombs and small keys), shop, gone (used up), or whoever had it or gets it (a monster's key, a
+              feature's name)
+    slot      weapon, armor or helm, when it goes on or comes off; replaced, what it took the place of
 
-Gear you gain goes in your pack, never on the floor. It goes on by itself only into an empty slot (that's armor, when
-you wear none: there's always a weapon in your hand), and never when it's cursed. Better gear in your pack is a free
-choice, "Equip the War Pick (1d6 → 1d10)  [replaces Rusty Sword · no turn]", and what it replaces goes in your pack;
-any other piece can be put on too, by saying so. A weapon's or armor's powers and stats count only while it's on
+Gear you gain goes in your pack, never on the floor. It goes on by itself only into an empty slot (armor or a helm,
+when you wear none: there's always a weapon in your hand), and never when it's cursed. Better gear in your pack is a
+free choice, "Equip the War Pick (1d6 → 1d10)  [replaces Rusty Sword · no turn]", and what it replaces goes in your
+pack; any other piece can be put on too, by saying so. A piece of gear's powers and stats count only while it's on
 (powers.carried).
 
 Finds lie where they turn up (a feature you search, a chest, a monster's body, Swoogy's game), to take one by one or
@@ -44,6 +45,7 @@ if TYPE_CHECKING:
 
 PICKUPS = {"bomb": "bombs", "small_key": "keys"}  # gained, they go on a counter rather than in your pack
 GEAR = powers.GEAR
+WEAR = powers.WEAR  # what comes off: your armor, your helm
 SELL_SHARE = 0.5  # what a shopkeeper pays for a thing of yours: half what she'd ask for it
 # Saying you leave a thing you carry (drop), for the interpreter and a creative attempt alike
 # (interactions.CARRY_MOVES): it stays where you leave it, not used up.
@@ -58,8 +60,14 @@ def moved(key: str, how: str, source: str, to: str, slot: str = "", replaced: st
 # --- what you have on, and how gear compares ------------------------------------
 
 def worn(state: GameState, slot: str) -> str | None:
-    """What's in a gear slot: the weapon in your hand, or the armor on your back (None for none)."""
-    return state.player.weapon if slot == "weapon" else state.player.armor
+    """What's in a gear slot: the weapon in your hand, the armor on your back or the helm on your head (None for
+    none)."""
+    return getattr(state.player, slot) if slot in GEAR else None
+
+
+def slot_of(state: GameState, key: str) -> str:
+    """The gear slot you have something on in (weapon, armor or helm), or "" if it isn't on you."""
+    return next((slot for slot in GEAR if worn(state, slot) == key), "")
 
 
 def sticky(state: GameState, content: Content, key: str) -> bool:
@@ -81,7 +89,8 @@ def keeps(state: GameState, content: Content, key: str) -> str:
 
 
 def rating(state: GameState, content: Content, key: str) -> float:
-    """How good a piece of gear is, beside another of its kind: its average damage (a weapon) or its defense (armor),
+    """How good a piece of gear is, beside another of its kind: its average damage (a weapon) or its defense (armor,
+    a helm),
     and half a point for each power and each point it adds to your stats (five max HP count as one). A curse costs
     five."""
     item = content.item(key)
@@ -104,7 +113,7 @@ def versus(state: GameState, content: Content, key: str) -> str:
     in a narrow choices box): "1d6 → 1d10", "+1 → +2 defense", or, the slot empty, what it gives: "+2 defense"."""
     item = content.item(key)
     new = gear_words(state, content, key)
-    if item.kind == "armor":
+    if item.kind in WEAR:
         base = f"+{item.defense}"
         new = new.replace(base, f"{base} defense", 1)
     current = worn(state, item.kind)
@@ -143,7 +152,7 @@ def gain(state: GameState, content: Content, key: str, how: str = "take", source
     if item.kind in GEAR and worn(state, item.kind) is None and not sticky(state, content, key):
         gives = versus(state, content, key)
         setattr(player, item.kind, key)
-        on = "put it on" if item.kind == "armor" else "take it in hand"
+        on = "take it in hand" if item.kind == "weapon" else "put it on"
         return [Event(kind or "equip", f"{lead} and {on} ({gives}).",
                       data=moved(key, how, source, item.kind, slot=item.kind))]
     player.inventory.append(key)
@@ -253,31 +262,31 @@ def equip(state: GameState, content: Content, key: str) -> list[Event]:
 
 
 def unequip(state: GameState, content: Content, slot: str) -> list[Event]:
-    """Take off your armor, into your pack. (A weapon isn't taken off: there's always one in your hand. Take up
-    another instead.)"""
+    """Take off your armor or your helm, into your pack. (A weapon isn't taken off: there's always one in your hand.
+    Take up another instead.)"""
     player = state.player
-    key = player.armor if slot == "armor" else None
+    key = worn(state, slot) if slot in WEAR else None
     if key is None:
         return [Event("info", "You can't do that right now.")]
     name = content.item(key).name
     if sticky(state, content, key):
         return [Event("info", f"{cap(the(name))} won't come off: it's cursed. Praying at a shrine would lift the "
                               "curse.")]
-    player.armor = None
+    setattr(player, slot, None)
     player.inventory.append(key)
     return [Event("unequip", f"You take off {the(name)} and put it in your pack.",
-                  data=moved(key, "unequip", "armor", "pack", slot="armor"))]
+                  data=moved(key, "unequip", slot, "pack", slot=slot))]
 
 
 def drop(state: GameState, content: Content, key: str) -> list[Event]:
-    """Leave something you carry here (free, and not in a fight): from your pack, or the armor off your back. Not a
-    key, nor what a character's waiting for, nor anything cursed; and not the weapon in your hand (take up another
-    first)."""
+    """Leave something you carry here (free, and not in a fight): from your pack, or the armor off your back or the
+    helm off your head. Not a key, nor what a character's waiting for, nor anything cursed; and not the weapon in your
+    hand (take up another first)."""
     player, room = state.player, state.room
     name = content.item(key).name
     if state.in_combat:
         return [Event("info", "Not in the middle of a fight.")]
-    source = "pack" if key in player.inventory else "armor" if key == player.armor else ""
+    source = "pack" if key in player.inventory else slot_of(state, key) if slot_of(state, key) in WEAR else ""
     if not source:
         if key == player.weapon:
             return [Event("info", f"You'd have nothing to fight with: take up another weapon before you leave "
@@ -290,11 +299,11 @@ def drop(state: GameState, content: Content, key: str) -> list[Event]:
         player.inventory.remove(key)
         text = f"You leave {the(name)} here."
     else:
-        player.armor = None
+        setattr(player, source, None)
         text = f"You take off {the(name)} and leave it here."
     room.items.append(key)
     room.left.append(key)
-    return [Event("drop", text, data=moved(key, "drop", source, "room", slot="armor" if source == "armor" else ""))]
+    return [Event("drop", text, data=moved(key, "drop", source, "room", slot=source if source in WEAR else ""))]
 
 
 def give(state: GameState, key: str, to: str, how: str = "give") -> dict:
@@ -315,8 +324,9 @@ def consume(state: GameState, key: str, how: str = "use", source: str = "pack") 
 
 
 def lose(state: GameState, content: Content, key: str) -> tuple[dict | None, str]:
-    """Something taken off you (a story's [take]): from your pack first, then your back, a counter, or your hand, if
-    there's another weapon in your pack to take up instead. The move (None if you had none to lose), and a note."""
+    """Something taken off you (a story's [take]): from your pack first, then a counter, your back or your head, or
+    your hand, if there's another weapon in your pack to take up instead. The move (None if you had none to lose),
+    and a note."""
     player, name = state.player, content.item(key).name
     if key in player.inventory:
         player.inventory.remove(key)
@@ -324,9 +334,10 @@ def lose(state: GameState, content: Content, key: str) -> tuple[dict | None, str
     if key in PICKUPS and getattr(player, PICKUPS[key]):
         setattr(player, PICKUPS[key], getattr(player, PICKUPS[key]) - 1)
         return moved(key, "lose", "counter", "gone"), f"lost {the(name)}"
-    if key == player.armor:
-        player.armor = None
-        return moved(key, "lose", "armor", "gone", slot="armor"), f"lost {the(name)}"
+    slot = slot_of(state, key)
+    if slot in WEAR:
+        setattr(player, slot, None)
+        return moved(key, "lose", slot, "gone", slot=slot), f"lost {the(name)}"
     spares = [k for k in player.inventory if content.item(k).kind == "weapon"]
     if key == player.weapon and spares:
         spare = max(spares, key=lambda k: rating(state, content, k))
@@ -357,11 +368,11 @@ def unsellable(state: GameState, content: Content, key: str) -> str:
 
 
 def sell(state: GameState, content: Content, key: str) -> list[Event]:
-    """Sell something from your pack, or the armor off your back, at a shop, for half what she'd ask for it. (Not the
-    weapon in your hand: take up another first.)"""
+    """Sell something from your pack, or the armor off your back or the helm off your head, at a shop, for half what
+    she'd ask for it. (Not the weapon in your hand: take up another first.)"""
     player, shop = state.player, state.room.shop
     name = content.item(key).name
-    source = "pack" if key in player.inventory else "armor" if key == player.armor else ""
+    source = "pack" if key in player.inventory else slot_of(state, key) if slot_of(state, key) in WEAR else ""
     if shop is not None and not source and key == player.weapon:
         keeper = content.monster(shop.keeper).name
         return [Event("info", f"{keeper} won't take {the(name)} out of your hand. Take up another weapon first.",
@@ -377,11 +388,11 @@ def sell(state: GameState, content: Content, key: str) -> list[Event]:
     if source == "pack":
         player.inventory.remove(key)
     else:
-        player.armor = None
+        setattr(player, source, None)
     player.gold += price
     keeper = content.monster(shop.keeper).name
     return [Event("sell", f"{keeper} gives you {price} gold for {the(name)} ({player.gold} gold now).",
-                  data=moved(key, "sell", source, "shop", slot="armor" if source == "armor" else ""))]
+                  data=moved(key, "sell", source, "shop", slot=source if source in WEAR else ""))]
 
 
 def lift_curses(state: GameState, content: Content) -> list[str]:
@@ -395,7 +406,7 @@ def lift_curses(state: GameState, content: Content) -> list[str]:
 def carried_keys(state: GameState) -> list[str]:
     """Everything you carry, on you or in your pack, each once."""
     player = state.player
-    return list(dict.fromkeys(k for k in [player.weapon, player.armor, *player.inventory] if k))
+    return list(dict.fromkeys([*player.gear, *player.inventory]))
 
 
 # --- the choices -------------------------------------------------------------------
@@ -419,24 +430,27 @@ def choices(state: GameState, content: Content) -> list[Action]:
     return actions
 
 
-WORN = {"weapon": "in hand", "armor": "worn"}  # how moves marks what you have on: "Drop the Chain Shirt (worn)"
+# How moves marks what you have on, hand, body and head: "Drop the Chain Shirt (worn)", "Sell the Hard Hat (on head)".
+# (The sheet and the panels say it so too.)
+WORN = {"weapon": "in hand", "armor": "worn", "helm": "on head"}
 
 
 def moves(state: GameState, content: Content) -> list[Action]:
     """What you can do with what you carry that isn't a numbered choice, for the interpreter to match ("wield the hand
     axe", "take off the chain shirt", "drop the bread", "sell my armor") and the panels to offer: put on any gear in
-    your pack (in a fight too, for a turn) or lying here, take off your armor; out of a fight, leave anything here;
-    and at a shop, sell it. What you have on is listed too, marked "(in hand)" or "(worn)", and some will only say why
-    not (it's on already, a key, a curse, the only weapon you have)."""
+    your pack (in a fight too, for a turn) or lying here, take off your armor or helm; out of a fight, leave anything
+    here; and at a shop, sell it. What you have on is listed too, marked "(in hand)", "(worn)" or "(on head)",
+    and some will only say why not (it's on already, a key, a curse, the only weapon you have)."""
     player, actions = state.player, []
     pack = [(k, "") for k in dict.fromkeys(player.inventory)]
     lying = [] if state.in_combat else [(k, "") for k in dict.fromkeys(state.room.items) if k not in player.inventory]
-    on = [(key, f" ({WORN[slot]})") for slot, key in (("weapon", player.weapon), ("armor", player.armor)) if key]
+    on = [(worn(state, slot), f" ({WORN[slot]})") for slot in GEAR if worn(state, slot)]
     for key, mark in pack + lying + on:
         if content.item(key).kind in GEAR:
             actions.append(Action(f"equip:{key}", f"Equip {the(content.item(key).name)}{mark}"))
-    if player.armor:
-        actions.append(Action("unequip:armor", f"Take off {the(content.item(player.armor).name)}"))
+    for slot in WEAR:
+        if worn(state, slot):
+            actions.append(Action(f"unequip:{slot}", f"Take off {the(content.item(worn(state, slot)).name)}"))
     if state.in_combat:
         return actions
     for key, mark in pack + on:
@@ -452,14 +466,15 @@ def moves(state: GameState, content: Content) -> list[Action]:
 def nothing_like(state: GameState, content: Content, verb: str) -> list[Event]:
     """What you're told when you'd equip, take off, drop or sell something you haven't got (the interpreter knew the
     verb, "wield the snitch", but nothing you carry by that name): free, and nothing changes."""
-    player, pack = state.player, list(dict.fromkeys(state.player.inventory))
+    pack = list(dict.fromkeys(state.player.inventory))
     if verb == "equip":
         spares = [the(content.item(k).name) for k in pack if content.item(k).kind in GEAR]
         text = f"Equip which? In your pack: {listing(spares)}." if spares else \
-            "You've no other weapon or armor to equip."
+            "You've no other weapon, armor or helm to equip."
     elif verb == "unequip":
-        text = (f"Only armor comes off, and yours is {the(content.item(player.armor).name)}." if player.armor
-                else "You've no armor on to take off.") + " A weapon stays in your hand till you take up another."
+        on = [the(content.item(worn(state, slot)).name) for slot in WEAR if worn(state, slot)]
+        text = (f"Only armor and helms come off, and you're wearing {listing(on)}." if on else
+                "You've no armor or helm on to take off.") + " A weapon stays in your hand till you take up another."
     elif verb == "drop":
         text = "Not in the middle of a fight." if state.in_combat else "You carry nothing like that."
     elif state.room.shop:

@@ -47,8 +47,8 @@ def gained(event: Event) -> bool:
     """Whether an event is something coming your way (picked up, bought, given, won: inventory.moved), not a move
     of what's yours already (putting it on or taking it off)."""
     data = event.data
-    return bool(data.get("item")) and data.get("to") in ("pack", "weapon", "armor", "counter") and \
-        data.get("how") not in ("equip", "unequip") and data.get("from") not in ("pack", "weapon", "armor")
+    return bool(data.get("item")) and data.get("to") in ("pack", *inventory.GEAR, "counter") and \
+        data.get("how") not in ("equip", "unequip") and data.get("from") not in ("pack", *inventory.GEAR)
 
 
 @dataclass
@@ -178,7 +178,7 @@ class StoryEngine:
         if name == "fixture":
             return room.fixture == value
         if name == "has":
-            return value in player.inventory or value in (player.weapon, player.armor)
+            return value in player.inventory or value in player.gear
         if name == "flag":
             return value in state.flags
         if name == "mark":
@@ -324,7 +324,7 @@ class StoryEngine:
                     notes.append(gained.text)  # (told on the card, unless the narrator tells the event)
                     told = gained.text if event.voice == "narrated" else ""
                     out.append(Event(gained.kind, told, data={**gained.data, "told_by": event.voice}))
-            elif verb == "take":  # from your pack, your back, a counter, or your hand if you've another weapon
+            elif verb == "take":  # from your pack, a counter, your back or head, or your hand if you've another weapon
                 lost, note = inventory.lose(state, content, args[0])
                 notes.append(note)
                 if lost:

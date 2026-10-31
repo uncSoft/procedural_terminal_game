@@ -39,7 +39,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="start next door to someone (lenny, swoogy, king_mouse, shop, shiny_shop, a boss, any "
                              "monster) in a run that counts for nothing; `--test-room list` for them all")
     parser.add_argument("--loadout", default="random", metavar="KIT",
-                        help="a test room's kit: new, random, strong, or weapon=..,armor=..,items=a+b,level=N,gold=N")
+                        help="a test room's kit: new, random, strong, or weapon=..,armor=..,helm=..,items=a+b,level=N,"
+                             "gold=N")
     parser.add_argument("--floor", type=int, default=0, help="a test room's floor (1-5: 4 is Norfel, 5 the Underbloom)")
     return parser.parse_args(argv)
 
@@ -104,7 +105,7 @@ def main(argv: list[str] | None = None) -> None:
         for key, words in choices(content).items():
             print(f"  {key:22} {words}")
         print("Kits: " + "; ".join(f"{k} ({v})" for k, v in LOADOUTS.items()) +
-              "; or your own: weapon=war_pick,armor=chain_shirt,items=holy_water+pickle,level=3,gold=50")
+              "; or your own: weapon=war_pick,armor=chain_shirt,helm=hard_hat,items=holy_water+pickle,level=3,gold=50")
         return
     if args.plain:
         try:
@@ -228,7 +229,7 @@ async def play_plain(config: Config, seed: int | None, resume: bool, daily: bool
                 print("\n".join(plain_lines(game.state, content)))
                 continue
             if command in ("inv", "i", "inventory"):
-                print(", ".join(content.item(k).name for k in [p.weapon, p.armor, *p.inventory] if k))
+                print(", ".join(content.item(k).name for k in [*p.gear, *p.inventory]))
                 continue
             if command in ("char", "c"):
                 print(f"Perks: {', '.join(p.perks) or '-'}  Traits: {', '.join(p.traits) or '-'}")

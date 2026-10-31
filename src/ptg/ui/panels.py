@@ -35,8 +35,8 @@ from ..text import cap, the
 from ..sprites import (DEFAULT_WIDTH, SMALL, SPENT, SPLASH_LEAST, frame_count, splash, splash_sizes,
                        splash_text)
 from .theme import PERK_COLORS
-from .widgets import (INK_STYLES, PHONE, TALL, Clickable, Picture, StoryLine, highlight, item_note, item_words,
-                      map_text, power_lines, room_text)
+from .widgets import (GEAR_ICONS, INK_STYLES, PHONE, TALL, Clickable, Picture, StoryLine, highlight, item_note,
+                      item_words, map_text, power_lines, room_text)
 
 PANEL_KEYS = {"f1": "help", "f2": "inventory", "f3": "character", "f4": "look", "f5": "map", "f6": "bestiary",
               "f7": "journal"}  # the panels' keys, on the game screen and in every panel
@@ -431,9 +431,11 @@ class InventoryScreen(Panel):
             return interactions.verbs(state, content, ref)
 
         items = [(player.weapon, f"in hand · {content.item(player.weapon).damage}", verbs("gear:weapon"), True)]
-        if player.armor:
-            items.append((player.armor, f"worn · +{content.item(player.armor).defense} defense",
-                          verbs("gear:armor"), True))
+        for slot in inventory.WEAR:  # (what you wear, body then head)
+            key = inventory.worn(state, slot)
+            if key:
+                where = "head" if slot == "helm" else inventory.WORN[slot]  # (a small tile has no room for "on head")
+                items.append((key, f"{where} · +{content.item(key).defense} defense", verbs(f"gear:{slot}"), True))
         counts: dict[str, int] = {}
         for key in player.inventory:
             counts[key] = counts.get(key, 0) + 1
@@ -499,7 +501,7 @@ class InventoryScreen(Panel):
         might = f" + {player.might} for your might" if key == player.weapon else ""
         text.append(item_note(content, key) + might + "\n", style=WORDS)
         if equipped:
-            text.append("in your hand\n" if item.kind == "weapon" else "you're wearing it\n", style="#ffb000")
+            text.append(ON_YOU[item.kind] + "\n", style="#ffb000")
         text.append_text(power_lines(content, key))
         if item.desc:
             text.append("\n" + item.desc + "\n", style=f"italic {WORDS}")
@@ -850,11 +852,15 @@ def price_note(ware) -> str:
         (f" ×{ware.count}" if ware.count > 1 else "")
 
 
+ON_YOU = {"weapon": "in your hand", "armor": "you're wearing it", "helm": "it's on your head"}  # what you have on
+
+
 def whereabouts(game: Game, key: str) -> list[str]:
     """Where an item is, as far as you're concerned: in your hand or on you, in your pack (how many), lying here, or
     for sale here (at what price)."""
     player, room = game.state.player, game.state.room
-    places = ["in your hand"] if key == player.weapon else ["you're wearing it"] if key == player.armor else []
+    slot = inventory.slot_of(game.state, key)
+    places = [ON_YOU[slot]] if slot else []
     count = player.inventory.count(key)
     if count:
         places.append("in your pack" + (f" ×{count}" if count > 1 else ""))
@@ -866,13 +872,13 @@ def whereabouts(game: Game, key: str) -> list[str]:
 
 
 def gear_comparison(game: Game, key: str) -> str:
-    """A weapon or armor you haven't got on, beside what you have: "your Rusty Sword: 1d6 → 2d6" (a line, or "" for
-    anything else)."""
-    player, content = game.state.player, game.content
+    """A piece of gear you haven't got on, beside what you have: "your Rusty Sword: 1d6 → 2d6", "your helm: none →
+    +1 defense" (a line, or "" for anything else)."""
+    content = game.content
     item = content.item(key)
-    if item.kind not in ("weapon", "armor") or key in (player.weapon, player.armor):
+    if item.kind not in inventory.GEAR or inventory.slot_of(game.state, key):
         return ""
-    worn = content.items.get(player.weapon if item.kind == "weapon" else player.armor)
+    worn = content.items.get(inventory.worn(game.state, item.kind))
     if item.kind == "weapon":
         mine, this = (worn.damage if worn else "none"), item.damage
     else:
@@ -923,7 +929,9 @@ class Sheet(Vertical):
     def compose(self) -> ComposeResult:
         state = self.game.state
         if self.header:
-            yield Static(self._header(state), classes="sheet-header")
+            size = face_size(self.inner, self.app.size.height // 3)
+            yield Horizontal(*([hero_face(self.game, size)] if size else []),
+                             Static(self._header(state), classes="sheet-header"), classes="sheet-top")
         stats = Grid(*[self._stat_card(line) for line in self._stats(state)], id="sheet-stats")
         stats.styles.grid_size_columns = 6 if self.inner >= 90 else 3 if self.inner >= 48 else 2
         yield stats
@@ -947,14 +955,7 @@ class Sheet(Vertical):
     # --- the parts of the sheet ----------------------------------------------------------------------------------
 
     def _header(self, state: GameState) -> Text:
-        player = state.player
-        text = Text(player.name, style="bold #ffb000")
-        text.append(f"  {epithet(state)}", style="italic #ffd166")
-        text.append(f"\nLevel {player.level}", style="bold")
-        text.append("   ")
-        text.append_text(xp_bar(player))
-        text.append(f"   ·   ¤ {player.gold} gold   ·   ☽ {state.souls} souls this descent", style=WORDS)
-        return text
+        return header_text(state)
 
     def _stats(self, state: GameState) -> list[sheet.Line]:
         content = self.game.content
@@ -1003,7 +1004,7 @@ class Sheet(Vertical):
         table = Table.grid(padding=(0, 1), expand=True)
         table.add_column(no_wrap=True)
         table.add_column(ratio=1)
-        icons = {"in hand": "⚔", "worn": "⛨"}
+        icons = {inventory.WORN[slot]: icon for slot, icon in GEAR_ICONS.items()}  # (hand, body, head)
         for effect in sheet.carried_effects(state, content):
             words = link(content, effect.item, style=CURSE if effect.cursed else LINK)
             if effect.worn:
@@ -1052,6 +1053,18 @@ class Sheet(Vertical):
 
     def _growth(self, state: GameState, new: str = "") -> Text:
         return growth_text(state, self.game.content, new)
+
+
+def header_text(state: GameState) -> Text:
+    """Who you are, at the top of your sheet (beside your face): your name and epithet, level and XP, gold and souls."""
+    player = state.player
+    text = Text(player.name, style="bold #ffb000")
+    text.append(f"  {epithet(state)}", style="italic #ffd166")
+    text.append(f"\nLevel {player.level}", style="bold")
+    text.append("   ")
+    text.append_text(xp_bar(player))
+    text.append(f"\n¤ {player.gold} gold   ·   ☽ {state.souls} souls this descent", style=WORDS)
+    return text
 
 
 def growth_text(state: GameState, content: Content, new: str = "") -> Text:
@@ -1421,8 +1434,24 @@ class FloorScreen(Panel):
         self.action_close()
 
 
-PORTRAIT = "hero_portrait"  # your face (data/sprites, art only): a level-up shows it
+PORTRAIT = "hero_portrait"  # your face (data/sprites, art only): a level-up and your sheet show it
 PORTRAIT_LOOP = [0, 0, 0, 1, 1, 0, 0, 0, 3, 3, 0, 0, 2]  # IDLE seconds a frame: ahead, a glance left, right, a blink
+
+
+def hero_face(game: Game, size: int, **kwargs) -> Vertical:
+    """Your face (PORTRAIT, its eyes glancing about), `size` pixels across, in a frame with your name on it: a
+    level-up's, your sheet's (Sheet, and the Tabs layout's sheet pane)."""
+    face = Picture(PORTRAIT, "portrait", size, loop=PORTRAIT_LOOP, content=game.content,
+                   ascii=Text("\n" * (size // 4) + " " * (size // 2 - 1) + "@", style="bold #ffd166"),
+                   sprites=game.config.art == "sprites")
+    frame = Vertical(face, classes="hero-face", **kwargs)
+    frame.border_title = game.state.player.name
+    return frame
+
+
+def face_size(columns: int, rows: int = 99) -> int:
+    """How big a face fits beside words `columns` wide (and `rows` tall at most): 24 pixels, 12, or none."""
+    return 24 if columns >= 76 and rows >= 14 else 12 if columns >= 40 else 0
 GAIN_STEP = 0.14  # seconds between a level-up's gains appearing, one row after another
 
 
@@ -1497,12 +1526,7 @@ class LevelUpScreen(Panel):
             with VerticalScroll(id="levelup-body"):
                 with Horizontal(id="levelup-top"):
                     if face:
-                        with Vertical(id="levelup-face") as frame:
-                            frame.border_title = self.game.state.player.name
-                            yield Picture(PORTRAIT, "portrait", face, loop=PORTRAIT_LOOP, content=self.game.content,
-                                          ascii=Text("\n" * (face // 4) + " " * (face // 2 - 1) + "@",
-                                                     style="bold #ffd166"),
-                                          sprites=self.game.config.art == "sprites")
+                        yield hero_face(self.game, face, id="levelup-face")
                     yield Static(self._gains(0), id="levelup-gains")
                 yield Static(Text("CHOOSE A PERK  ", style="bold #ff4f9a")
                              + Text("1-3, ← → or a click to look at one · Enter, or the same again, to take it",
@@ -1795,9 +1819,8 @@ class InfoScreen(Panel):
         ideas = [TAG_IDEAS[t] for t in item.tags if t in TAG_IDEAS]
         if ideas:
             text.append("\n\nIdeas: " + "; ".join(ideas[:3]), style="#ff4f9a")
-        player = game.state.player
-        self._offer(f"floor:{key}" if key in game.state.room.items else "gear:weapon" if key == player.weapon else
-                    "gear:armor" if key == player.armor else f"item:{key}")
+        slot = inventory.slot_of(game.state, key)
+        self._offer(f"floor:{key}" if key in game.state.room.items else f"gear:{slot}" if slot else f"item:{key}")
         return text, item.name
 
     def _feature(self, ref: str) -> tuple[Text, str]:

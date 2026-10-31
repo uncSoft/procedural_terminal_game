@@ -281,8 +281,8 @@ found = ["secret"]
 # drawn by JT (2026-10-23)
 [item.adamant_stewpot]
 name = "Adamant Stewpot"
-kind = "armor"
-defense = 3
+kind = "helm"
+defense = 2
 tier = 3
 tags = ["metal", "heavy", "shiny", "pot", "rare"]
 desc = "A cookpot forged from a metal far too precious to cook in, so naturally its last owner cooked in it every night. Wear it, cook in it, hit things with it. A good pot is all three."
@@ -497,7 +497,7 @@ powers = ["dazzle"]
 # drawn by BelleDaBest (2026-10-23)
 [item.hard_hat]
 name = "Hard Hat"
-kind = "armor"
+kind = "helm"
 defense = 1
 tier = 1
 tags = ["shiny", "bright", "hard", "plastic"]
@@ -639,3 +639,182 @@ damage = "2d8"
 tier = 3
 tags = ["heavy", "shiny", "sharp", "metal", "holy"]
 desc = "A beautiful silver longsword with feathered wings for a crossguard, in honour of Kensuke. A little mollusk lives in the gilded frame of its hilt, and it pokes its eyes out on stalks to watch your back. It blinks when it thinks nobody is looking and shakes when enemies are near"
+
+# --- A new round of gear (2026-10-30): weapons, body armor and helms where the tiers had gaps ---------------------
+# Weapons: tier 1 had two everyday ones, tier 4 had only Serpentis's Bloodbath, and nothing exploited food, salt or
+# water, and nothing below Bloodbath fire, though 26 monsters are weak to it. Body armor: one tier 2 piece, no tier 4.
+# Helms (a slot of their own now): the Hard Hat and the Stewpot only.
+
+[item.frying_pan]
+name = "Frying Pan"
+kind = "weapon"
+damage = "1d8"
+tier = 1
+tags = ["heavy", "metal", "kitchen", "loud"]
+desc = "Cast iron, seasoned by forty years of breakfasts. Every hit rings out like a dinner gong, and things down here have learned what the gong means."
+
+[item.stale_baguette]
+name = "Stale Baguette"
+kind = "weapon"
+damage = "1d6+1"
+tier = 1
+tags = ["food", "heavy"]
+desc = "Three days old and hard as a table leg. It hits like one too, and anything hungry would much rather eat it than fight you."
+
+[item.smouldering_poker]
+name = "Smouldering Poker"
+kind = "weapon"
+damage = "1d8"
+tier = 2
+tags = ["fire", "metal"]
+desc = "A fireplace poker from a hearth that went out a hundred years ago. Nobody told the poker. Its tip still glows orange, and it sizzles when it touches anything damp."
+
+[item.salted_harpoon]
+name = "Salted Harpoon"
+kind = "weapon"
+damage = "1d10"
+tier = 2
+tags = ["sharp", "metal", "salt", "water"]
+desc = "A whaler's harpoon, crusted white with sea salt from a sea that's very far from here. Slugs faint at the sight of it."
+
+[item.spork_of_destiny]
+name = "Spork of Destiny"
+kind = "weapon"
+damage = "1d8+1"
+tier = 2
+tags = ["sharp", "metal", "shiny", "kitchen", "rare"]
+powers = ["cook"]
+found = ["chest", "warden"]
+desc = "Half spoon, half fork, all destiny. It was foretold that one would come who could eat soup AND salad with it. You stab with the fork end, and at camp it makes even dungeon stew taste like home."
+
+[item.bell_clapper_maul]
+name = "Bell-Clapper Maul"
+kind = "weapon"
+damage = "2d6+1"
+tier = 3
+tags = ["heavy", "metal", "loud"]
+desc = "The clapper out of a drowned chapel's great bell, with a handle bolted on. Every blow tolls. The things down here hate the sound almost as much as your ears do."
+
+[item.zweihander]
+name = "Zweihander"
+kind = "weapon"
+damage = "2d8+1"
+tier = 4
+tags = ["sharp", "heavy", "metal"]
+desc = "A two-handed greatsword, taller than you are, and it knows it. You don't so much swing it as start it moving and steer."
+
+[item.thunder_maul]
+name = "Thunder Maul"
+kind = "weapon"
+damage = "3d6"
+tier = 4
+tags = ["heavy", "loud", "metal"]
+desc = "A stone maul with a storm sealed inside the head. You can feel it grumbling through the handle, and when it lands, the whole room hears the thunder."
+
+[item.dawnbreaker]
+name = "Dawnbreaker"
+kind = "weapon"
+damage = "2d8+2"
+tier = 4
+tags = ["sharp", "holy", "light", "shiny", "metal", "rare"]
+found = ["secret"]
+desc = "A blade that remembers the sun. Down here, where nothing has seen a sunrise in a thousand years, it glows like one, and the dark things scatter from it squealing."
+
+[item.barrel_armor]
+name = "Barrel Armor"
+kind = "armor"
+defense = 2
+tier = 1
+tags = ["wood", "heavy", "loud"]
+stats = {agility = -1}
+desc = "A barrel with the bottom knocked out and two holes for your arms. It stops a surprising amount of stabbing, but you clonk when you walk and you can't touch your toes."
+
+[item.studded_leather]
+name = "Studded Leather"
+kind = "armor"
+defense = 2
+tier = 2
+tags = ["leather", "metal"]
+desc = "Thick leather covered in iron studs. Half armor, half fashion statement, and the fashion half is doing most of the talking."
+
+[item.ratskin_cloak]
+name = "Ratskin Cloak"
+kind = "armor"
+defense = 1
+tier = 2
+tags = ["leather", "smelly"]
+powers = ["unseen"]
+desc = "Stitched from a hundred rat pelts. You smell exactly like the dungeon now, so the dungeon forgets you're there. Easy to slip away in. Hard to make friends in."
+
+[item.full_plate]
+name = "Full Plate"
+kind = "armor"
+defense = 4
+tier = 4
+tags = ["metal", "heavy", "loud", "shiny"]
+stats = {agility = -1}
+desc = "A knight's whole wardrobe in steel, from collar to knees. Almost nothing gets through it. You will hear yourself coming, and so will everything else."
+
+[item.dragonscale_coat]
+name = "Dragonscale Coat"
+kind = "armor"
+defense = 4
+tier = 4
+tags = ["shiny", "hard", "rare"]
+wards = ["burn"]
+found = ["chest", "secret"]
+desc = "Red scales from something that breathed fire, still faintly warm to the touch. Flames slide off you like water off a duck, and you smell slightly of campfire."
+
+[item.colander]
+name = "Colander"
+kind = "helm"
+defense = 1
+tier = 1
+tags = ["metal", "kitchen", "shiny"]
+powers = ["eloquent"]
+desc = "A pasta strainer, worn with total confidence. It keeps out about a third of a club and lets in a pleasant breeze. Nobody argues with someone who wears a colander like that."
+
+[item.bucket_helm]
+name = "Bucket"
+kind = "helm"
+defense = 2
+tier = 1
+tags = ["metal", "loud"]
+stats = {wits = -1}
+desc = "An old mop bucket with two eye holes punched in it. Surprisingly sturdy. You can't see much, and everything you say comes out echoey."
+
+[item.horned_helm]
+name = "Horned Helm"
+kind = "helm"
+defense = 1
+tier = 2
+tags = ["metal", "scary"]
+stats = {might = 1}
+desc = "Two horns, one helmet, zero historical accuracy. Putting it on makes you want to shout and break things, and you're better at both."
+
+[item.great_helm]
+name = "Great Helm"
+kind = "helm"
+defense = 2
+tier = 3
+tags = ["metal", "heavy"]
+desc = "A steel bucket with a slot to look through. You see about a hand's width of the world, and all of it is angry, but very little of it can reach your head."
+
+[item.plague_doctors_mask]
+name = "Plague Doctor's Mask"
+kind = "helm"
+defense = 1
+tier = 3
+tags = ["leather", "smelly"]
+wards = ["stun"]
+desc = "A long leather beak stuffed with dried herbs. Spores and dizzy-making clouds stop at the herbs, so nothing that bursts in your face can knock you senseless. You look like a very serious crow."
+
+[item.stray_halo]
+name = "Stray Halo"
+kind = "helm"
+defense = 2
+tier = 4
+tags = ["holy", "light", "shiny", "rare"]
+powers = ["luck"]
+found = ["secret"]
+desc = "A ring of soft gold light that floats an inch above your head. Nobody remembers whose it was. It seems to have decided it's yours now, and things just go a little better for you."

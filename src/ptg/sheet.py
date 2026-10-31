@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from . import powers
+from . import inventory, powers
 from .content import Content
 from .models import MAX_FATE, GameState
 
@@ -91,9 +91,10 @@ def hp_line(state: GameState, content: Content) -> Line:
 def defense_line(state: GameState, content: Content) -> Line:
     player = state.player
     parts = [Part("base", 10), Part("agility", player.agility)]
-    if player.armor:
-        armor = content.item(player.armor)
-        parts.append(Part(armor.name, armor.defense, armor.key))
+    for key in (player.armor, player.helm):  # (what you wear, body then head: each its own part)
+        if key:
+            worn = content.item(key)
+            parts.append(Part(worn.name, worn.defense, worn.key))
     if "iron_skin" in player.perks:
         parts.append(Part("Iron Skin", 1))
     return Line("Defense", player.defense(content), [p for p in parts if p.value or p.name == "base"])
@@ -159,24 +160,24 @@ class Effect:
 
     item: str
     name: str
-    worn: str  # "in hand", "worn", or "" for the pack
+    worn: str  # where it's on, "in hand", "worn" or "on head" (inventory.WORN), or "" for the pack
     says: list[str]
     cursed: bool = False
 
 
 def carried_effects(state: GameState, content: Content) -> list[Effect]:
-    """Everything working on you now: your weapon and armor, and each thing in your pack that does something while
-    you carry it (its powers, its stats), cursed ones marked. A thing that only does something when used (a potion,
-    a bomb) isn't listed: it's not working on you."""
-    player = state.player
+    """Everything working on you now: your weapon, armor and helm, and each thing in your pack that does something
+    while you carry it (its powers, its stats), cursed ones marked. A thing that only does something when used (a
+    potion, a bomb) isn't listed: it's not working on you."""
     effects = []
     for item in powers.carried(state, content):
         held = powers.powers_of(state, item)
         says = []
-        worn = "in hand" if item.key == player.weapon else "worn" if item.key == player.armor else ""
-        if worn == "in hand":
+        slot = inventory.slot_of(state, item.key)
+        worn = inventory.WORN.get(slot, "")
+        if slot == "weapon":
             says.append(f"{item.damage} damage")
-        elif worn == "worn":
+        elif slot:
             says.append(f"+{item.defense} defense")
         says += [powers.POWERS[p] for p in held if p in powers.CARRYING]
         if item.stats:

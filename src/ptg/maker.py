@@ -123,9 +123,9 @@ description of how it looks and behaves, which the game's narrator reads.
 Pick its floors every time: kept to none, a monster turns up on every floor that has its creature type, and a beast
 or a goblinoid is on nearly all of them. Keep it to the one or two that suit it, or to the ones the person asks for.
 Norfel, always the fourth floor, only draws tier 3 and up.
-Items: a name; a kind (weapon: damage dice; armor: a defense bonus; consumable: heals, or lets you escape a fight;
-trinket: no numbers, its tags and description do the work); a tier, 0 to 3; tags (used for stunts and for monster
-weaknesses); and a description.
+Items: a name; a kind (weapon: damage dice; armor: a defense bonus, worn on the body; helm: a defense bonus, worn on
+the head, beside armor; consumable: heals, or lets you escape a fight; trinket: no numbers, its tags and description
+do the work); a tier, 0 to 3; tags (used for stunts and for monster weaknesses); and a description.
 look shows the choices for each and the typical numbers for each tier.
 
 HOW TO WORK
@@ -185,8 +185,8 @@ TOOLS = [
      "description": "Set the creation's details; leave out what stays the same. Monsters: name, tier, hp, defense, "
                     "attack, damage, xp, tags (creature types, plus any extra tags), dungeons (the floors it shows up on, by "
                     "key: look lists them; [] for every floor its creature types fit), weak, intelligent, tell, desc. "
-                    "Items: name, kind, tier, damage (weapons), defense (armor), heal or escape (consumables), tags, "
-                    "desc. tier_defaults: true sets the typical numbers for its tier first.",
+                    "Items: name, kind, tier, damage (weapons), defense (armor, helms), heal or escape (consumables), "
+                    "tags, desc. tier_defaults: true sets the typical numbers for its tier first.",
      "input_schema": {"type": "object", "properties": {
          "name": {"type": "string"}, "tier": {"type": "integer"}, "hp": {"type": "integer"},
          "defense": {"type": "integer"}, "attack": {"type": "integer"}, "damage": {"type": "string"},
@@ -194,7 +194,7 @@ TOOLS = [
          "dungeons": {"type": "array", "items": {"type": "string"}},
          "weak": {"type": "array", "items": {"type": "string"}}, "intelligent": {"type": "boolean"},
          "tell": {"type": "string"}, "desc": {"type": "string"},
-         "kind": {"type": "string", "enum": ["weapon", "armor", "consumable", "trinket"]},
+         "kind": {"type": "string", "enum": ["weapon", "armor", "helm", "consumable", "trinket"]},
          "heal": {"type": "integer"}, "escape": {"type": "boolean"}, "tier_defaults": {"type": "boolean"}}}},
     {"name": "new_creation",
      "description": "Start a fresh board for a new monster or item. What's on the board now stays in the person's My "

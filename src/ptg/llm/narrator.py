@@ -30,7 +30,8 @@ def offline_answer(state: GameState, content: Content) -> str:
     carried = [f"{content.item(key).name}{f' ×{n}' if n > 1 else ''}" for key, n in Counter(player.inventory).items()]
     carried += [f"{n} {word}{'s' if n > 1 else ''}" for n, word in ((player.gold, "gold"), (player.bombs, "bomb"),
                                                                  (player.keys, "small key")) if n]
-    armor = f"wear {the(content.item(player.armor).name)}" if player.armor else "wear no armor"
+    worn = [the(content.item(k).name) for k in (player.armor, player.helm) if k]
+    armor = f"wear {' and '.join(worn)}" if worn else "wear no armor"
     return (f"You are {health_word(player.hp, player.max_hp)}. You wield {the(content.item(player.weapon).name)} and "
             f"{armor}. In your pack: {', '.join(carried) or 'nothing'}.")
 

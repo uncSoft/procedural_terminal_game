@@ -40,10 +40,11 @@ from ..room_picture import look_of
 from ..world import map_glyph, render_map
 from .game_screen import GameScreen
 from .here import DEAD_VERB, DIE, PLAIN_VERB, VERB_STYLES, Thing, verb_lines
-from .panels import growth_text, item_note
+from .panels import face_size, growth_text, header_text, hero_face, item_note
 from .plan import Plan
 from .widgets import (
     ARROWS,
+    GEAR_ICONS,
     MAP_LEGEND,
     MAP_STYLES,
     ChoiceItem,
@@ -899,15 +900,17 @@ class TabsScreen(GameScreen):
     def pane_pack(self, width: int, rows: int) -> list[Widget]:
         state, content = self.game.state, self.game.content
         player = state.player
-        from .. import interactions
+        from .. import interactions, inventory
 
         def verbs(ref: str) -> list[Action]:
             return interactions.verbs(state, content, ref)
 
         items = [(player.weapon, f"⚔ in hand · {content.item(player.weapon).damage}", verbs("gear:weapon"), True)]
-        if player.armor:
-            items.append((player.armor, f"⛨ worn · +{content.item(player.armor).defense} defense",
-                          verbs("gear:armor"), True))
+        for slot in inventory.WEAR:  # (what you wear, body then head)
+            key = inventory.worn(state, slot)
+            if key:
+                items.append((key, f"{GEAR_ICONS[slot]} {inventory.WORN[slot]} · +{content.item(key).defense} defense",
+                              verbs(f"gear:{slot}"), True))
         counts: dict[str, int] = {}
         for key in player.inventory:
             counts[key] = counts.get(key, 0) + 1
@@ -932,7 +935,10 @@ class TabsScreen(GameScreen):
     def pane_sheet(self, width: int, rows: int) -> list[Widget]:
         state, content = self.game.state, self.game.content
         stats, rolls = sheet_text(state, content)
-        return [Static(rule("STATUS", width), classes="pane-text"), Static(status_lines(state, content),
+        size = face_size(width, rows)
+        top = [Horizontal(hero_face(self.game, size), Static(header_text(state), classes="sheet-header"),
+                          classes="sheet-top")] if size else []
+        return [*top, Static(rule("STATUS", width), classes="pane-text"), Static(status_lines(state, content),
                                                                             classes="pane-text"),
                 Static("", classes="pane-gap"), Static(rule("STATS", width), classes="pane-text"),
                 Static(stats, classes="pane-text"), Static("", classes="pane-gap"),

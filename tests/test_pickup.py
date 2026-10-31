@@ -7,7 +7,7 @@ from dataclasses import replace
 import pytest
 
 from conftest import put_monster
-from ptg import inventory, powers
+from ptg import inventory, powers, sheet
 from ptg.content import ItemDef
 from ptg.llm.interpreter import offline_interpret
 from ptg.inventory import gain
@@ -105,8 +105,9 @@ def typed(state, content, words):
 # --- gear: into your pack, and an offer to put it on ---------------------------------
 
 @pytest.mark.parametrize("worn, better", [
-    ("leather_jerkin", "king_mouses_vest"), ("hard_hat", "king_mouses_vest"),  # King Mouse's trophy (F4)
-    ("scale_hauberk", "moonsilver_vest"), ("adamant_stewpot", "moonsilver_vest"),  # the secret room's prize
+    ("leather_jerkin", "king_mouses_vest"),  # King Mouse's trophy (F4)
+    ("scale_hauberk", "moonsilver_vest"),  # the secret room's prize
+    ("hard_hat", "adamant_stewpot"),  # a helm for a better helm
     ("silvered_blade", "the_compensator"), ("silvered_blade", "sword_still_in_the_stone"),  # same tier, better
     ("war_pick", "snitch"),  # as good, and goblin-bane
 ])
@@ -143,7 +144,7 @@ def test_the_offer_says_by_how_much_and_what_it_replaces(content):
 CHOICE_ROW = 79  # a choice's row in the choices box at 100x30: the box less its border, padding and the arrow pad
 
 
-@pytest.mark.parametrize("slot", ["weapon", "armor"])
+@pytest.mark.parametrize("slot", ["weapon", "armor", "helm"])
 def test_the_offers_numbers_fit_a_100x30_choices_box(content, slot):
     """'1. Equip the Sword Still in the Stone (replaces Silve…': the comparison was cut off (F4). What it replaces is
     in the hint, after the numbers."""
@@ -206,6 +207,62 @@ def test_taking_your_armor_off_and_putting_it_back_on(content):
     assert state.player.armor is None and "chain_shirt" in state.player.inventory
     assert "equip:chain_shirt" in ids(state, content)  # anything beats nothing
     assert typed(state, content, "put on the chain shirt") == "equip:chain_shirt"
+
+
+# --- a helm: on your head, beside your armor --------------------------------------------
+
+def test_a_helm_goes_on_your_head_beside_your_armor(content):
+    """Helms and armor, not one armor piece: the Hard Hat no longer fights the Chain Shirt for your back. Your head's
+    empty, so it goes straight on, and its defense adds to your armor's, each its own part of the sum."""
+    state = clear_room()
+    state.player.armor = "chain_shirt"
+    events = gain(state, content, "hard_hat")
+    assert (state.player.armor, state.player.helm) == ("chain_shirt", "hard_hat") and events[0].kind == "equip"
+    assert events[0].text == "You take the Hard Hat and put it on (+1 defense & +1 searching)."
+    assert events[0].data["to"] == events[0].data["slot"] == "helm"
+    chain, hat = content.item("chain_shirt").defense, content.item("hard_hat").defense
+    assert state.player.defense(content) == 10 + state.player.agility + chain + hat
+    line = sheet.defense_line(state, content)
+    assert [(p.name, p.value) for p in line.parts][-2:] == [("Chain Shirt", chain), ("Hard Hat", hat)]
+    assert line.total == state.player.defense(content)
+    worn = {e.item: e.worn for e in sheet.carried_effects(state, content)}
+    assert worn == {"rusty_sword": "in hand", "chain_shirt": "worn", "hard_hat": "on head"}
+    assert ("Hard Hat", 1) in powers.roll_bonuses(state, content, "search")  # (its seeker works up there)
+
+
+def test_a_better_helm_waits_for_you_to_say_and_a_helm_comes_off(content):
+    state = clear_room()
+    gain(state, content, "hard_hat")
+    gain(state, content, "adamant_stewpot")  # better, but you've a hat on: into your pack, with an offer
+    assert state.player.helm == "hard_hat" and "adamant_stewpot" in state.player.inventory
+    offer = next(a for a in available_actions(state, content) if a.id == "equip:adamant_stewpot")
+    assert offer.hint == "replaces Hard Hat · no turn" and "→ +2 defense" in offer.label
+    perform(state, content, "equip:adamant_stewpot")
+    assert state.player.helm == "adamant_stewpot" and "hard_hat" in state.player.inventory
+    assert state.player.armor is None  # (your back's another slot)
+    assert typed(state, content, "take off my helmet") == typed(state, content, "remove the stewpot") == "unequip:helm"
+    events = perform(state, content, "unequip:helm")
+    assert state.player.helm is None and "adamant_stewpot" in state.player.inventory
+    assert (events[0].data["from"], events[0].data["slot"]) == ("helm", "helm")
+    perform(state, content, "equip:hard_hat")
+    events = perform(state, content, "drop:hard_hat")  # off your head and left here
+    assert state.player.helm is None and state.room.items == ["hard_hat"] and events[0].data["from"] == "helm"
+
+
+def test_a_cursed_helm_sticks_to_your_head(content):
+    helm = ItemDef(key="grinning_helm", name="Grinning Helm", kind="helm", defense=2, tier=2, powers=["cursed"])
+    content = replace(content, items={**content.items, helm.key: helm})
+    state = clear_room()
+    gain(state, content, "grinning_helm")
+    assert state.player.helm is None and "equip:grinning_helm" not in ids(state, content)  # never on by itself
+    perform(state, content, "equip:grinning_helm")  # say so, and on it goes...
+    assert state.player.helm == "grinning_helm"
+    assert perform(state, content, "unequip:helm")[0].kind == "info"  # ...for good
+    assert perform(state, content, "drop:grinning_helm")[0].kind == "info"
+    gain(state, content, "hard_hat")
+    assert perform(state, content, "equip:hard_hat")[0].kind == "info" and state.player.helm == "grinning_helm"
+    gain(state, content, "chain_shirt")  # (your back's free, curse or no)
+    assert state.player.armor == "chain_shirt"
 
 
 def test_gear_lying_here_can_be_put_on_straight_away(content):

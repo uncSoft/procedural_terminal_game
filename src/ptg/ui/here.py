@@ -76,7 +76,7 @@ def item_short(content: Content, key: str) -> str:
 
 
 def compare(state: GameState, content: Content, key: str) -> tuple[str, str]:
-    """A weapon or armor against the one you have on: better, like it or worse (or you've none)."""
+    """A piece of gear against the one you have on in its slot: better, like it or worse (or you've none)."""
     item = content.item(key)
     now = inventory.worn(state, item.kind)
     if not now:

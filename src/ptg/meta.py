@@ -142,7 +142,7 @@ def record_end(profile: Profile, state: GameState) -> int:
                            epitaph=state.epitaph or fallback_epitaph(state), epithet=epithet(state),
                            traits=player.traits, perks=player.perks)
         if state.status == "dead" and not state.daily:
-            carried = [k for k in [player.weapon, player.armor, *player.inventory] if k]
+            carried = [*player.gear, *player.inventory]
             profile.add_ghost(state.run_id, player.name, player.level, state.floor, carried, player.gold,
                               state.epitaph or fallback_epitaph(state), state.cause)
     return souls

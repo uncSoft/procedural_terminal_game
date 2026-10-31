@@ -71,7 +71,9 @@ OBJECT_ENDS = {"with", "from", "in", "into", "on", "onto", "to", "at", "and", "t
                "under", "by", "near", "behind", "against", "while", "before", "after", "until", "so", "as"}
 ARTICLES = {"the", "a", "an", "my", "your", "his", "her", "its", "this", "that", "some", "our"}
 AFTER_A_MOVE = {"here", "there", "now", "please", "quickly", "again"}  # said after the thing, they change nothing
-SLOT_WORDS = {"armor": "(worn)", "armour": "(worn)", "weapon": "(in hand)", "weapons": "(in hand)"}  # inventory.WORN
+SLOT_WORDS = {"armor": "(worn)", "armour": "(worn)", "weapon": "(in hand)", "weapons": "(in hand)",
+              "helm": "(on head)", "helmet": "(on head)", "hat": "(on head)"}  # inventory.WORN
+TAKE_OFF = {"(worn)": "unequip:armor", "(on head)": "unequip:helm"}  # what you wear, by its mark
 ASK_WORDS = {"ask", "question", "inquire", "interrogate", "quiz", "pester"}
 TALK_WORDS = {"talk", "chat", "speak", "greet", "hello", "hi", "hey", "hiya", "howdy", "converse", "chatter"}
 WATCH_WORDS = {"watch", "follow", "observe", "trail"}
@@ -166,13 +168,13 @@ def _carried(raw: str, words: list[str], actions: list[Action]) -> tuple[Intent,
 
 
 def _slot(words: list[str], actions: list[Action], prefix: str) -> Action | None:
-    """"Drop my armor", "sell my weapon", "take off my armour": what you have on in that slot (inventory.moves marks
+    """"Drop my armor", "sell my weapon", "take off my helmet": what you have on in that slot (inventory.moves marks
     it). Not to equip: "swap weapons" means one in your pack, not the one in your hand."""
     marks = tuple({SLOT_WORDS[w] for w in words if w in SLOT_WORDS})
     if not marks or prefix == "equip:":
         return None
     if prefix == "unequip:":
-        return next((a for a in actions if a.id == "unequip:armor"), None) if "(worn)" in marks else None
+        return next((a for a in actions if a.id in {TAKE_OFF.get(m) for m in marks}), None)
     return next((a for a in actions if a.id.startswith(prefix) and a.label.endswith(marks)), None)
 
 

@@ -638,8 +638,8 @@ FLAT_NAMES = {"key", "card", "cards", "book", "scroll", "map", "letter", "page",
 
 def guess(item: ItemDef, frame: Image.Image) -> str:
     """A new item's way, from what it is and how it's drawn (the first frame of its sprite): a glass jar with
-    something in it, a jar; a round, upright thing drawn symmetrical (a potion, a pot, a bomb), turned; a key, a
-    page, a blade, or anything drawn as a flat rectangle (a book, a card, a chip), a slab; armor, food and soft
+    something in it, a jar; a round, upright thing drawn symmetrical (a potion, a pot, a bomb, a helm), turned; a key,
+    a page, a blade, or anything drawn as a flat rectangle (a book, a card, a chip), a slab; armor, food and soft
     things, puffed; else a thin drawing a slab and a full one puffed. It picks what was picked by hand for nine
     items in ten (tests/test_model3d.py): a better way goes in its line in ways.toml, and `ptg models <item>`."""
     tags, words = set(item.tags), set(item.name.lower().replace("'", " ").replace("-", " ").split())
@@ -653,7 +653,7 @@ def guess(item: ItemDef, frame: Image.Image) -> str:
     symmetric = len(set(body) & mirrored) / len(set(body) | mirrored)
     if "jar" in words or ("bottle" in words and "liquid" not in tags):
         return "jar"
-    if symmetric >= 0.75 and (tags & {"liquid", "glass", "pot"} or words & TURNED):
+    if symmetric >= 0.75 and (tags & {"liquid", "glass", "pot"} or words & TURNED or item.kind == "helm"):
         return "turned"
     if words & SOFT_NAMES:
         return "puffed"

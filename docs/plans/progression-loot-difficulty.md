@@ -154,7 +154,7 @@ kept as made: tier 4, so floors 1–3 never draw them as ordinary monsters.
 |---|---|---|
 | Hand | one weapon | the same |
 | Body | armor | the same |
-| **Head** | a hat or helm | the Hard Hat competed with the Chain Shirt for the body |
+| **Head** | a hat or helm | ✅ done 2026-10-30 (`Player.helm`); the Hard Hat used to compete with the Chain Shirt for the body |
 | **Trinkets ×2** | rings, charms, dice… only *worn* trinkets work | every carried trinket works |
 | **Pack ×6** | everything else; potions and food stack 3 to a slot | unlimited |
 

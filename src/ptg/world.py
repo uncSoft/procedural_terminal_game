@@ -57,7 +57,7 @@ def generate(seed: int, player_name: str = "Adventurer", content: Content | None
     themes = [fixed.get(floor) or themes[(floor - 1) % len(themes)] for floor in range(1, floors + 1)]
     state = GameState(seed=seed, theme=themes[0], themes=themes, rooms=[], floors_total=floors,
                       player=player or Player(name=player_name), ghost=ghost)
-    for key in (k for k in [state.player.weapon, state.player.armor, *state.player.inventory] if k in content.items):
+    for key in (k for k in [*state.player.gear, *state.player.inventory] if k in content.items):
         loot.noted(content, state.rares, key)  # (what you start with is this run's one of it: a blessing's Rabbit's Foot)
     build_floor(state, content)
     return state
@@ -533,7 +533,7 @@ def _lair(state: GameState, content: Content, rooms: list[Room], end_id: int) ->
     door = next(d for d, (dx, dy) in DELTA.items() if (rooms[by].x + dx, rooms[by].y + dy) == (x, y))
     archetype, keeper = content.archetypes[archetype_key], content.monster(who)
     # (the last one who came: their gear's still on them)
-    wrapped = [loot.give(rng, content, state.rares, "gear 3", most=loot.most_gear(state))]
+    wrapped = [loot.give(rng, content, state.rares, "gear 3+", most=loot.most_gear(state))]
     room = Room(id=len(rooms), x=x, y=y, name=archetype.names[0], archetype=archetype.key,
                 distance=rooms[by].distance + 1,
                 features=[Feature(name=archetype.features[0], loot=[k for k in wrapped if k]),

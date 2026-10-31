@@ -51,7 +51,7 @@ from textual.events import Click, Enter, Leave
 from textual.widget import Widget
 from textual.widgets import Footer, Input, Static
 
-from .. import interactions, npcs, sprites
+from .. import interactions, inventory, npcs, sprites
 from . import parchment
 from ..events import Action
 from ..room_picture import look_of
@@ -1289,8 +1289,8 @@ class GridScreen(GameScreen):
             return "nothing ails you" if item.cures else "not now"
         if item.kind == "key":
             return "it opens something"
-        if item.kind in ("weapon", "armor"):
-            return "not as good" if item.kind == "armor" or item.damage else "spare"
+        if item.kind in inventory.GEAR:
+            return "not as good" if item.kind != "weapon" or item.damage else "spare"
         return "use it on something"
 
     def action_more_things(self) -> None:

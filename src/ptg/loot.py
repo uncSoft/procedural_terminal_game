@@ -4,9 +4,10 @@ Monster & Item Maker, say) drops without any code changes.
 Every place that hands out an item asks for a slot: a role and the tiers it allows, or an item by name.
 
     weapon 1      a tier-1 weapon                       food 0        tier-0 food (Stale Bread)
-    armor 3+      armor of tier 3 or more               escape 1+     something to get out of a fight, tier 1 up
-    gear 2        a tier-2 weapon or armor              trinket       any trinket (they have no stats to rank)
-    potion 2+     a healing potion, tier 2 or more      lucky_charm   that very item
+    armor 3+      armor or a helm, tier 3 or more       escape 1+     something to get out of a fight, tier 1 up
+    helm 2        a tier-2 helm                         trinket       any trinket (they have no stats to rank)
+    gear 2        a tier-2 weapon, armor or helm        lucky_charm   that very item
+    potion 2+     a healing potion, tier 2 or more
 
     rare -2       a rare thing of tier 2 or less (see below)
 
@@ -43,7 +44,8 @@ import random
 
 from .content import FOUND_IN, Content, ItemDef
 
-GEAR = ("weapon", "armor")
+GEAR = ("weapon", "armor", "helm")
+ARMOR = ("armor", "helm")  # what an "armor" slot gives: anything you wear, body armor or a helm
 PICKUP_KEYS = ("bomb", "small_key")
 BY_NAME_ONLY = {"lucky_charm", *PICKUP_KEYS}
 
@@ -51,8 +53,8 @@ FLOORS = {  # each floor spreads these through its rooms (see world._place_loot)
     1: ["gear 1", "potion 1", "potion 1", "food 0", "bomb", "small_key"],
     2: ["gear 2", "potion 1", "escape 1+", "food 1+", "bomb", "small_key"],  # loot spread out is found more: a potion less
     3: ["potion 2+", "potion 1", "potion 1", "gear 2", "small_key"],
-    4: ["potion 2+", "potion 2+", "potion 1", "gear 3", "small_key", "pure"],  # (Pure: in an egg, a shed skin...)
-    5: ["potion 3+", "potion 2+", "potion 2+", "gear 3", "small_key"],
+    4: ["potion 2+", "potion 2+", "potion 1", "gear 3+", "small_key", "pure"],  # (Pure: in an egg, a shed skin...)
+    5: ["potion 3+", "potion 2+", "potion 2+", "gear 3+", "small_key"],
 }
 DUNGEON_TRINKETS = {"sunken_crypt": "holy_water", "goblin_warren": "bag_of_marbles", "overgrown_ruins": "oil_flask",
                     "norfel": "holy_water", "underbloom": "oil_flask"}  # (Serpentis hates it; a torch drinks it)
@@ -118,8 +120,8 @@ PLACES = [*[(f"floor {f}", FLOORS[f], EVERYDAY) for f in FLOORS],
 
 
 def role(item: ItemDef) -> str:
-    """The part an item plays in loot: weapon, armor, potion, food, escape, cure (Pure: a slain venomous monster's,
-    and floor 4's shops), trinket or key."""
+    """The part an item plays in loot: weapon, armor, helm, potion, food, escape, cure (Pure: a slain venomous
+    monster's, and floor 4's shops), trinket or key."""
     if item.kind != "consumable":
         return item.kind
     if item.escape:
@@ -171,7 +173,7 @@ def allowed(item: ItemDef, place: str) -> bool:
 
 
 def most_gear(state) -> int:
-    """The best weapon or armor (its tier) anything on this floor gives: GEAR_ABOVE its monsters' tier."""
+    """The best gear (its tier) anything on this floor gives: GEAR_ABOVE its monsters' tier."""
     from .world import tier_for  # (world places loot: it imports this module)
 
     return tier_for(state.floor, state.floors_total) + GEAR_ABOVE
@@ -180,11 +182,11 @@ def most_gear(state) -> int:
 def candidates(content: Content, slot: str, place: str = EVERYDAY, taken=(), most: float = math.inf
                ) -> dict[int, list[str]]:
     """The items a slot can give in a place, by tier, lowest first, leaving out the one-of-a-kind things this run has
-    had (`taken`), and any weapon or armor above the tier `most` (most_gear)."""
+    had (`taken`), and any gear above the tier `most` (most_gear)."""
     if slot in content.items:
         return {} if slot in taken else {content.item(slot).tier: [slot]}
     name, _, tiers = slot.partition(" ")
-    roles = GEAR if name == "gear" else (name,)
+    roles = {"gear": GEAR, "armor": ARMOR}.get(name, (name,))
     low, high = _tiers(tiers)
     found: dict[int, list[str]] = {}
     for item in content.items.values():
@@ -217,7 +219,7 @@ def one_of(rng: random.Random, content: Content, slots: list[str], place: str = 
 
 def owned(state, content: Content) -> list[str]:
     """The gear you have already, worn or carried: no use finding a second of it (run 59's two Iron Helms)."""
-    keys = [state.player.weapon, state.player.armor, *state.player.inventory]
+    keys = [*state.player.gear, *state.player.inventory]
     return [k for k in dict.fromkeys(keys) if k in content.items and role(content.item(k)) in GEAR]
 
 
@@ -265,7 +267,7 @@ def wares(rng: random.Random, content: Content, rares: list[str], keeper: str, f
     if keeper == SHINY:
         slots = SHINY_WARES
     else:
-        slots = [f"potion -{floor}", f"gear {min(floor, 3)}", rng.choice(["bomb", "small_key"]),
+        slots = [f"potion -{floor}", f"gear {min(floor, 4)}", rng.choice(["bomb", "small_key"]),
                  f"rare -{floor}" if rng.random() < GRISTLE_RARE else "trinket"]
     out: list[tuple[str, int, int]] = []
     for slot in slots:
@@ -288,7 +290,7 @@ def price(item: ItemDef, floor: int, shiny: bool = False) -> int:
     base = {"bomb": 12, "small_key": 15}.get(item.key)
     if base is None:
         base = {"potion": 15 + 20 * (item.tier - 1), "food": 6 + 6 * item.tier, "escape": 20, "cure": 45,
-                "weapon": 5 + 20 * item.tier, "armor": 5 + 20 * item.tier}.get(role(item), 20 + 10 * item.tier)
+                **dict.fromkeys(GEAR, 5 + 20 * item.tier)}.get(role(item), 20 + 10 * item.tier)
         base *= 1.6 if rare(item) else 1
     cost = base * (1 + PRICE_RISE * (floor - 1)) * (1.25 if shiny else 1)
     return max(5, 5 * math.ceil(cost / 5 - 1e-9))

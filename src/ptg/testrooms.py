@@ -13,8 +13,8 @@ a torch to burn it and the Ring she wants (matriarch). His tooth is only ever on
 up), so there's no room for it on the floor above him.
 
 Kits (`loadout`): "new" (a new adventurer), "random" (gear, level and perks about where a run is by that floor),
-"strong" (the best of everything), or your own: "weapon=war_pick,armor=chain_shirt,items=holy_water+pickle,level=3,
-gold=50,bombs=2,keys=1" (anything left out is a new adventurer's).
+"strong" (the best of everything), or your own: "weapon=war_pick,armor=chain_shirt,helm=hard_hat,
+items=holy_water+pickle,level=3,gold=50,bombs=2,keys=1" (anything left out is a new adventurer's).
 """
 
 from __future__ import annotations
@@ -48,7 +48,8 @@ LOADOUTS = {"new": "a new adventurer", "random": "random gear, as a run would ha
 LEVELS = {1: 1, 2: 3, 3: 5, 4: 6, 5: 7}  # about where a run is on each floor (5: where one would be, down that far)
 STRONG = {"weapon": "silvered_blade", "armor": "scale_hauberk", "level": 5, "gold": 200, "bombs": 3, "keys": 2,
           "items": ["superior_healing_potion"] * 3 + ["holy_water", "smoke_bomb"]}
-FIELDS = ("weapon", "armor", "items", "level", "gold", "bombs", "keys")  # a kit of your own
+FIELDS = ("weapon", "armor", "helm", "items", "level", "gold", "bombs", "keys")  # a kit of your own
+GEAR_WORDS = {"weapon": "a weapon", "armor": "armor", "helm": "a helm"}  # (what a kit's gear has to be)
 
 
 def choices(content: Content) -> dict[str, str]:
@@ -178,7 +179,7 @@ def kit(content: Content, state, loadout: str, floor: int, rng: random.Random, n
         gear = min(floor, DUNGEONS)  # (no tier-4 gear but the rare)
         spec = {"level": LEVELS[floor], "gold": 20 * floor + rng.randint(0, 20),
                 "weapon": loot.pick(rng, content, f"weapon {gear}") or "rusty_sword",
-                "armor": loot.pick(rng, content, f"armor {gear}"),
+                "armor": wearing(rng, content, "armor", gear), "helm": wearing(rng, content, "helm", gear),
                 "items": [k for k in [loot.pick(rng, content, f"potion {max(1, floor - 1)}"), "healing_potion",
                                       loot.pick(rng, content, "food 1+" if floor > 1 else "food 0"),
                                       loot.pick(rng, content, "trinket")] if k]}
@@ -195,18 +196,25 @@ def kit(content: Content, state, loadout: str, floor: int, rng: random.Random, n
         _offer_perks(state, content)
         choose_perk(state, content, rng.choice(state.pending_perks))
     player.xp = LEVEL_XP[player.level - 1]
-    for key in [spec.get("weapon"), spec.get("armor"), *spec.get("items", [])]:
+    for key in [*(spec.get(field) for field in GEAR_WORDS), *spec.get("items", [])]:
         if key and key not in content.items:
             raise ValueError(f"there's no item {key!r} (the debug screen's Items tab has every item's key)")
-    for field in ("weapon", "armor"):
+    for field in GEAR_WORDS:
         if spec.get(field):
             if content.item(spec[field]).kind != field:
-                raise ValueError(f"{spec[field]!r} isn't {'a weapon' if field == 'weapon' else 'armor'}")
+                raise ValueError(f"{spec[field]!r} isn't {GEAR_WORDS[field]}")
             setattr(player, field, spec[field])
     if "items" in spec:
         player.inventory = list(spec["items"])
     player.gold, player.bombs, player.keys = (int(spec.get(k, getattr(player, k))) for k in ("gold", "bombs", "keys"))
     return player
+
+
+def wearing(rng: random.Random, content: Content, kind: str, tier: int) -> str | None:
+    """Armor or a helm of a tier, for a random kit (or None, with none of that tier). Not loot.pick's "armor N": that
+    gives helms too (loot.ARMOR)."""
+    keys = [k for k in loot.candidates(content, f"{kind} {tier}").get(tier, []) if content.item(k).kind == kind]
+    return rng.choice(keys) if keys else None
 
 
 def custom(spec: str) -> dict:
@@ -215,9 +223,9 @@ def custom(spec: str) -> dict:
     for part in filter(None, (p.strip() for p in spec.split(","))):
         field, _, value = part.partition("=")
         field, value = field.strip(), value.strip()
-        if field not in FIELDS or not value or (field in FIELDS[3:] and not value.isdigit()):
-            raise ValueError(f"{part!r}: a kit is weapon=, armor=, items= (joined with +), or a number for level=, "
-                             "gold=, bombs= or keys=")
+        if field not in FIELDS or not value or (field in FIELDS[4:] and not value.isdigit()):
+            raise ValueError(f"{part!r}: a kit is weapon=, armor=, helm=, items= (joined with +), or a number for "
+                             "level=, gold=, bombs= or keys=")
         out[field] = [v.strip() for v in value.split("+") if v.strip()] if field == "items" else value
     return out
 
@@ -244,7 +252,7 @@ def describe(content: Content, state: GameState) -> list[tuple[str, str]]:
         "A shrine" if state.test_room == "poison" else \
         f"{cap(the(room.name))}, pitch dark, {a(room.monster.name)} in it" if state.test_room in DARK_ROOMS \
         else room.monster.name
-    gear = [content.item(k).name for k in (player.weapon, player.armor) if k]
+    gear = [content.item(k).name for k in player.gear]
     pack = {}
     for key in player.inventory:
         pack[content.item(key).name] = pack.get(content.item(key).name, 0) + 1

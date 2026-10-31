@@ -234,9 +234,9 @@ def reference(monsters: dict, items: dict) -> dict:
         damage = max({m["damage"] for m in same}, key=[m["damage"] for m in same].count)
         monster[str(tier)] = {f: round(median(m[f] for m in same)) for f in ("hp", "defense", "attack", "xp")}
         monster[str(tier)]["damage"] = damage
-    item = {"weapon": {}, "armor": {}, "consumable": {}}
-    defaults = {"weapon": ["1d8", "1d10", "2d6"], "armor": [1, 2, 3], "consumable": [8, 16, 24]}
-    field = {"weapon": "damage", "armor": "defense", "consumable": "heal"}
+    item = {"weapon": {}, "armor": {}, "helm": {}, "consumable": {}}
+    defaults = {"weapon": ["1d8", "1d10", "2d6"], "armor": [1, 2, 3], "helm": [1, 1, 2], "consumable": [8, 16, 24]}
+    field = {"weapon": "damage", "armor": "defense", "helm": "defense", "consumable": "heal"}
     for kind in item:
         for tier in (1, 2, 3):
             values = [i[field[kind]] for i in items.values() if i["kind"] == kind and i.get("tier") == tier

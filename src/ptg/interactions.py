@@ -22,7 +22,7 @@ Each verb has a planner that says what that comes to, here and now:
                                lights the room; on you, it's eaten or drunk; on a monster, it's thrown, shown or given
     open    a chest or a door  a small key if you have one, else the chest's lock is picked; smash forces it (a door
                                won't give); search, a feature: what's in it, not some random find
-    equip, unequip, drop, sell  inventory.py's moves (unequip names the slot: "unequip:armor")
+    equip, unequip, drop, sell  inventory.py's moves (unequip names the slot: "unequip:armor", "unequip:helm")
 
 Never a key, nor what someone's waiting for, nor a curse that won't let go (inventory.keeps): they're refused.
 
@@ -282,7 +282,7 @@ def _plan_throw(state, content, view, use, target) -> Row | None:
     if why:
         return Row(refusal=why)
     if use.subject not in state.player.inventory:
-        return None  # (tossing the weapon in your hand, or the armor on your back, about is a stunt)
+        return None  # (tossing the weapon in your hand, or what you wear, about is a stunt)
     return Row(run=_toss, label=f"Throw {_name(state, content, use)} down", hint="it lands here")
 
 
@@ -298,7 +298,7 @@ def _at_creature(state, content, view, use, target: Ref) -> Row | None:
         return Row(refusal=why)
     if use.subject == player.weapon and use.subject not in player.inventory:
         return Row(refusal="That's the weapon in your hand: you'd have nothing left to fight with.")
-    if use.subject == player.armor and use.subject not in player.inventory:
+    if inventory.slot_of(state, use.subject) in inventory.WEAR and use.subject not in player.inventory:
         return Row(refusal=f"You're wearing {the(item.name)}.")
     if item.escape:
         return Row(alias=f"use:{use.subject}", label=f"Throw {the(item.name)} down", hint="get away")
@@ -934,8 +934,8 @@ def verbs(state: GameState, content: Content, ref_id: str) -> list[Action]:
             offer("refill", "Fill your torch" if key == light.OIL else "Fill it with oil")
         if kind == "item" and item.kind in inventory.GEAR:
             offer(f"equip:{key}", "Equip", inventory.versus(state, content, key))
-        if kind == "gear" and ref.state["slot"] == "armor":
-            offer("unequip:armor", "Take off")
+        if kind == "gear" and ref.state["slot"] in inventory.WEAR:
+            offer(f"unequip:{ref.state['slot']}", "Take off")
         if not inventory.keeps(state, content, key) and key != (state.player.weapon if kind == "gear" else None):
             offer(f"drop:{key}", "Drop")
             if not inventory.unsellable(state, content, key):
@@ -1082,7 +1082,7 @@ def _aimed(state: GameState, view: RoomView, use: Use) -> Use | None:
 
 
 def carry_id(state: GameState, content: Content, use: Use) -> str | None:
-    """A move with what you carry, as inventory.py's action: "equip:war_pick", "unequip:armor", "drop:stale_bread"."""
+    """A move with what you carry, as inventory.py's action: "equip:war_pick", "unequip:helm", "drop:stale_bread"."""
     key = use.subject
     if key not in content.items or key in inventory.PICKUPS:
         return None
@@ -1090,7 +1090,8 @@ def carry_id(state: GameState, content: Content, use: Use) -> str | None:
     if use.verb == "equip":
         return f"equip:{key}" if item.kind in inventory.GEAR else None
     if use.verb == "unequip":
-        return "unequip:armor" if key == state.player.armor else None
+        slot = inventory.slot_of(state, key)
+        return f"unequip:{slot}" if slot in inventory.WEAR else None
     return f"{use.verb}:{key}"
 
 

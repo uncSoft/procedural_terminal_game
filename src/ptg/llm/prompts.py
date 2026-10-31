@@ -80,7 +80,7 @@ The FACTS were decided by dice and rules. Narrate them faithfully:
 - Nothing moves, opens, shuts or changes hands unless the facts say so: no doors slam behind the player, and what's
   dropped or found stays where it lies ("not picked up" means it lies there still) until the facts say the player
   takes it. What the player holds and wears changes only when the facts say so too:
-  never narrate a weapon drawn, swapped or put away, or armor put on or off.
+  never narrate a weapon drawn, swapped or put away, or armor or a helm put on or off.
 - If a heavy blow is coming, end on the monster's wind-up so the player can react to it.
 - If the player asked a question, answer it in character using only the facts and the player status.
 - What a character says to the player is shown beside your words, in the character's own: never quote a character
@@ -182,10 +182,11 @@ def player_status(state: GameState, content: Content) -> str:
     player = state.player
     weapon = content.item(player.weapon)
     armor = content.item(player.armor).name if player.armor else "none"
+    helm = content.item(player.helm).name if player.helm else "none"
     carrying = ", ".join(content.item(k).name + (f" ×{n}" if n > 1 else "")
                          for k, n in Counter(player.inventory).items()) or "nothing"
     return (f"Player {player.name}: level {player.level}, HP {player.hp}/{player.max_hp}, might {player.might}, "
-            f"agility {player.agility}, wits {player.wits}. Weapon: {weapon.name}. Armor: {armor}. "
+            f"agility {player.agility}, wits {player.wits}. Weapon: {weapon.name}. Armor: {armor}. Helm: {helm}. "
             f"Carrying: {carrying}. Gold: {player.gold}. Bombs: {player.bombs}. Small keys: {player.keys}. "
             f"Fate tokens: {player.fate}.{ailing(state)}")
 

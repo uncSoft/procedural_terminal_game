@@ -32,7 +32,7 @@ FEATURE_GLYPHS = {
     "flagstone": "▫", "wall": "▒", "bedroll": "≈", "boots": "ь", "dice": "⁘", "rack": "‡", "gap": "▒",
 }
 
-ITEM_GLYPHS = {"weapon": ")", "armor": "[", "consumable": "!", "key": "♀", "trinket": "("}
+ITEM_GLYPHS = {"weapon": ")", "armor": "[", "helm": "^", "consumable": "!", "key": "♀", "trinket": "("}
 FIXTURE_GLYPHS = {"shrine": "†", "chest": "■", "fountain": "◊", "stairs": ">", "shop": "¤"}
 
 

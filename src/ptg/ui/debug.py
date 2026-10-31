@@ -869,6 +869,7 @@ def run_summary(state: GameState | None, where: str, content: Content) -> Group:
               ("Gold", p.gold), ("Fate", f"{p.fate}/{p.max_fate()}"),
               ("Weapon", content.item(p.weapon).name if p.weapon in content.items else p.weapon),
               ("Armor", content.item(p.armor).name if p.armor in content.items else p.armor or "none"),
+              ("Helm", content.item(p.helm).name if p.helm in content.items else p.helm or "none"),
               ("Pack", listed(content.item(k).name if k in content.items else k for k in p.inventory)),
               ("Perks", listed(p.perks)), ("Traits", listed(p.traits)), ("Blessings", listed(p.blessings)),
               ("Gift", content.unlocks[p.gift].name if p.gift in content.unlocks else p.gift or "none"),
@@ -1198,7 +1199,7 @@ class TestRoomsTab(DebugTab):
             yield Select([(words, key) for key, words in testrooms.LOADOUTS.items()] + [("a kit of your own", "own")],
                          value="random", allow_blank=False, compact=True, id="test-kit")
         with Horizontal(classes="debug-toolbar"):
-            yield Input(placeholder="weapon=war_pick,armor=chain_shirt,items=holy_water+pickle,level=3,gold=50",
+            yield Input(placeholder="weapon=war_pick,armor=chain_shirt,helm=hard_hat,items=holy_water+pickle,level=3",
                         compact=True, disabled=True, id="test-own")
             yield Button("↻ Another", compact=True, id="test-another")
             yield Button("Go", variant="primary", compact=True, id="test-go")

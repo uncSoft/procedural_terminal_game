@@ -261,8 +261,8 @@ MORE_KEYS = (("F1-F7", "in any panel too: that panel instead"),
              ("PgUp PgDn", "read back through the story"),
              ("Ctrl+L", "redraw the screen (if letters or art ever come out garbled)"),
              ("n s e w", "go north, south, east or west"),
-             ("Text size", "Cmd + or − (Ctrl on Windows) in a browser, or A− A+ at its bottom right; in a terminal, "
-                           "its own font size"))
+             ("Text size", "Cmd + or − (Ctrl on Windows) in a browser, or ?fontsize=14 on its address; in a "
+                           "terminal, its own font size"))
 MOUSE = ("Click a choice, a coloured word, a picture (for its card), or the dice (once to roll, again to carry on).",
          "Click a status on the bar at the top (☠ Poisoned, ♨ Burning, ☼ your torch) for what it does.",
          "Click a room on the map you've been in to go back there.",
@@ -1224,7 +1224,7 @@ class BestiaryScreen(Panel):
             names = [ListItem(Label(content.monster(k).name)) for k, _ in self.entries if k in content.monsters]
             yield ListView(*names, id="beast-list")
             yield VerticalScroll(Picture("", "monster", content=content, sprites=self.game.config.art == "sprites",
-                                         id="beast-art", classes="panel-sprite"),
+                                         action="screen.watch()", id="beast-art", classes="panel-sprite"),
                                  Static("", id="beast-detail"), id="beast-body")
 
     def on_mount(self) -> None:
@@ -1238,11 +1238,21 @@ class BestiaryScreen(Panel):
     def highlighted(self, event: ListView.Highlighted) -> None:
         self.show(event.list_view.index or 0)
 
+    def action_watch(self) -> None:
+        """Its picture tapped: the creature up close, its own animations big (ui/creature.py)."""
+        from .creature import CreatureView
+
+        index = self.query_one("#beast-list", ListView).index or 0
+        if self.entries and self.entries[index][0] in self.game.content.monsters:
+            self.app.push_screen(CreatureView(self.game.content, self.entries[index][0]))
+
     def show(self, index: int) -> None:
         content = self.game.content
         key, entry = self.entries[index]
         monster = content.monster(key)
-        self.query_one("#beast-art", Picture).become(key)  # (its ASCII art, with sprites off or no sprite yet)
+        art = self.query_one("#beast-art", Picture)
+        art.become(key)  # (its ASCII art, with sprites off or no sprite yet)
+        art.tooltip = "Tap to watch it move"
         text = Text()
         text.append(f"{monster.name}\n", style="bold #ffb000")
         if monster.desc:

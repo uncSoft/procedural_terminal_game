@@ -44,6 +44,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from . import sound
+from .ui.art_layer import MESSAGE as ART_MESSAGE
 from .config import Config
 
 DEFAULT_MODEL = "claude-haiku-5-5"  # a few cents a run (docs/plans/cross-platform-and-mobile.md)
@@ -270,15 +271,15 @@ def make_server(data: Path, host: str, port: int, public_url: str, password: str
             environment = super()._build_environment(width, height)
             # (textual-serve asks for 60 frames a second; the game's animations step every 70 ms or more)
             environment.update(PTG_HOME=str(self.home), PTG_HOSTED="1", PTG_SOUND=sound.WEB, TEXTUAL_FPS="30",
-                               PTG_TOUCH="1" if self.touch else "0")
+                               PTG_TOUCH="1" if self.touch else "0", PTG_ART="web")  # (the page draws pictures)
             return environment
 
         async def on_meta(self, data: bytes) -> None:
             """The game's messages to textual-serve, and its sounds, which textual-serve doesn't know (it would
             drop them): those go on to the page, for it to play (sound.Browser)."""
             meta = json.loads(data)
-            if meta.get("type") == sound.MESSAGE:
-                await self.remote_write_str(json.dumps([sound.MESSAGE, meta]))
+            if meta.get("type") in (sound.MESSAGE, ART_MESSAGE):  # (a sound to play, a picture to draw)
+                await self.remote_write_str(json.dumps([meta["type"], meta]))
             else:
                 await super().on_meta(data)
 

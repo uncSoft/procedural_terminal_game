@@ -24,11 +24,11 @@ from ..glossary import Lexicon
 from ..llm.interpreter import looks
 from ..models import OPPOSITE, LogEntry, MonsterState
 from ..outcome import AWFUL, BAD, GOOD, GREAT, overall, tone, verdict
-from ..room_picture import look_of, picture_text
+from ..room_picture import look_of, picture_image, picture_text
 from ..rules import no_go, no_way
 from ..sprites import CLIP_FPS, DEATH_FRAMES, clips, splash_sizes
 from ..text import cap, mid_sentence, the
-from . import collector, effects
+from . import art_layer, collector, effects
 from .boss_intro import BossIntro, fits
 from .boss_intro import wanted as big_intro
 from .dice import DiceScreen
@@ -239,6 +239,9 @@ class GameScreen(Screen):
         self.stage_beat = 0
         self._stage_timer = None
         self.looping = False  # a fight on the stage with clips of its own: played through, a frame a tick (loop_step)
+        self.hires: tuple | None = None  # on the web, (its key, the fight made at the art layer's pixels: send_stage)
+        self.hires_rooms: dict = {}  # on the web, (the stage's key, its frame) -> the room drawn at those pixels
+        self.art_hidden = True  # whether the stage's picture is off the page (or was never sent)
         self.loop_tick = 0
         self._loop_timer = None
         self.fight: encounter.Fight | None = None  # the fight on the stage, while there's one (encounter.py)
@@ -388,6 +391,7 @@ class GameScreen(Screen):
         box = self.query_one("#stage-box")
         box.display = plan.stage_rows > 0
         if not box.display:
+            self.hide_stage_art()
             return
         state, room = game.state, game.state.room
         monster = room.monster
@@ -463,10 +467,98 @@ class GameScreen(Screen):
         self.looping = fight is not None and fight.loops()
         if self.looping and self._loop_timer is None:
             self._loop_timer = self.set_interval(1 / CLIP_FPS, self.loop_step, name="loop")
+        self.send_stage(0)
 
     def show_frame(self, frame, art: Static | None = None) -> None:
-        """A frame on the stage: laid out again only if it isn't the size of what's there (effects.show_frame)."""
+        """A frame on the stage: laid out again only if it isn't the size of what's there (effects.show_frame). The
+        stage's moments play in half blocks for now: the art layer's picture steps aside for them."""
+        if self.animating:
+            self.hide_stage_art()
         self.frame_shown = effects.show_frame(art or self.query_one("#stage-art", Static), frame, self.frame_shown)
+
+    # --- the art layer: on the web, the stage drawn as an image at its own pixels (ui/art_layer.py) ---
+
+    def send_stage(self, frame: int = 0, tick: int | None = None) -> None:
+        """On the web, the stage's picture as it stands, as an image: the room, or the fight in it (its banner stays
+        words, under the picture; the words over the foes' heads go with it, for the page to draw). What takes long
+        to draw at those pixels (a room, a fight's copy) is drawn off the screen's thread and sent once it's ready.
+        Not while the stage plays a moment of its own, nor under another screen."""
+        if not art_layer.active(self.app) or not self._sprites_on() or not self.plan or not self.plan.stage_rows:
+            return
+        if self.animating or self.app.screen is not self:
+            return
+        art, scale, state = self.query_one("#stage-art", Static), art_layer.SCALE, self.game.state
+        width, rows = self.plan.stage_width, self.plan.stage_rows
+        fight = self.fight
+        if fight is not None and state.in_combat:
+            art_rows = rows - fight.banner_rows
+            key = (state.floor, state.room_id, fight.monster.key, fight.monster.name, width, rows)
+            if self.hires is None or self.hires[0] != key:
+                self.hires = (key, None)
+                snapshot, monster = state.model_copy(deep=True), fight.monster
+                self.run_worker(lambda: self._make_hires(key, snapshot, monster, width * scale, art_rows * scale + 2),
+                                thread=True, group="hires", exclusive=True)
+                return
+            hires = self.hires[1]
+            if hires is None:
+                return
+            hires.monster, hires.seen = fight.monster, fight.seen  # (as the stage last showed it: the text fight's)
+            hires.others, hires.others_seen = fight.others, fight.others_seen
+            image = hires.image(frame, monster_pose(fight.monster), tick)
+            image = image.crop((0, 0, image.width, 2 * art_rows * scale))
+            art_layer.show(self.app, "stage", art, image, fight.chips, rows=art_rows)
+        else:
+            key = (self.stage_shown, frame)
+            image = self.hires_rooms.get(key)
+            if image is None:
+                snapshot = state.model_copy(deep=True)
+                self.run_worker(lambda: self._make_room(key, snapshot, width * scale, 2 * rows * scale, frame),
+                                thread=True, group=f"hires-room-{frame}", exclusive=True)
+                return
+            art_layer.show(self.app, "stage", art, image)
+        self.art_hidden = False
+
+    def _make_hires(self, key: tuple, state, monster: MonsterState, width: int, rows: int) -> None:
+        """A copy of the fight at the art layer's pixels, made off the screen's thread (send_stage)."""
+        hires = encounter.Fight(state, self.game.content, monster, width, rows, state.known_weak.get(monster.key, []))
+        app = self.app
+
+        def keep() -> None:
+            if self.hires and self.hires[0] == key:
+                self.hires = (key, hires)
+                self.send_stage()
+        try:
+            app.call_from_thread(keep)
+        except RuntimeError:  # (the game's gone)
+            pass
+
+    def _make_room(self, key: tuple, state, width: int, height: int, frame: int) -> None:
+        """The room drawn at the art layer's pixels, off the screen's thread (send_stage)."""
+        image = picture_image(state, self.game.content, width, height, frame)
+        app = self.app
+
+        def keep() -> None:
+            self.hires_rooms[key] = image
+            while len(self.hires_rooms) > 8:
+                self.hires_rooms.pop(next(iter(self.hires_rooms)))
+            if key[0] == self.stage_shown:
+                self.send_stage(frame)
+        try:
+            app.call_from_thread(keep)
+        except RuntimeError:
+            pass
+
+    def hide_stage_art(self) -> None:
+        """The stage's picture off the page (a moment playing in half blocks, the stage gone, a screen over it)."""
+        if not self.art_hidden and art_layer.active(self.app):
+            art_layer.hide(self.app, "stage")
+        self.art_hidden = True
+
+    def on_screen_suspend(self) -> None:
+        self.hide_stage_art()  # (the page's picture would sit over whatever's put on top)
+
+    def on_screen_resume(self) -> None:
+        self.send_stage()
 
     def loop_step(self) -> None:
         """A tick of a fight's own clips on the stage: every foe's idle (or its windup, a heavy blow coming) played
@@ -481,6 +573,7 @@ class GameScreen(Screen):
         self.loop_tick += 1
         beat = self.loop_tick // LOOP_BEATS % 2
         self.show_frame(fight.still(beat, monster_pose(fight.monster), tick=self.loop_tick))
+        self.send_stage(beat, tick=self.loop_tick)
 
     def stage_step(self) -> None:
         """A beat of the stage's idle animation: the other frame, while this screen's in front and nothing else is
@@ -496,6 +589,7 @@ class GameScreen(Screen):
             return
         self.stage_beat += 1
         self.show_frame(frames[self.stage_beat % 2])
+        self.send_stage(self.stage_beat % 2)
 
     def _second_frame(self, frames: list, state) -> None:
         """The stage's second frame, drawn in a worker thread, then kept, if the stage still shows the same room (or
@@ -706,9 +800,22 @@ class GameScreen(Screen):
         self.refresh_choices()
 
     def action_stage_card(self) -> None:
-        """Clicked the room's picture: look around (or, on a fight's spoils, go on from them)."""
-        if not self.release():
-            self.action_panel("look")
+        """Clicked the room's picture: look around (or, on a fight's spoils, go on from them); in a fight, the foe you
+        face up close, its own animations big (ui/creature.py)."""
+        if self.release():
+            return
+        state = self.game.state
+        if state.in_combat and not self.busy:
+            self.action_watch(state.room.monster.key, state.room.monster.name)
+            return
+        self.action_panel("look")
+
+    def action_watch(self, key: str, name: str = "") -> None:
+        """A creature up close: its own animations played big (ui/creature.py)."""
+        from .creature import CreatureView
+
+        if key in self.game.content.monsters:
+            self.app.push_screen(CreatureView(self.game.content, key, name))
 
     def action_menu(self) -> None:
         """A short screen's ☰: the panels the footer's F-keys open, and sound on or off."""
@@ -1926,8 +2033,10 @@ class GameScreen(Screen):
             if self.busy:
                 self.notify("Once this turn is done.", timeout=2)
             return
-        if config.touch():
-            self.notify("Played by touch, it's this layout, made for a finger.", timeout=4)
+        if config.touch():  # (the phone's screen and this one, in turn: ui/phone.py)
+            from .phone import swap_touch_layout
+
+            swap_touch_layout(self)
             return
         now = self.game.config.layout
         layout = LAYOUTS[(LAYOUTS.index(now) + 1) % len(LAYOUTS)] if now in LAYOUTS else LAYOUTS[0]

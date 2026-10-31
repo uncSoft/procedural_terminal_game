@@ -1674,6 +1674,14 @@ def picture_text(state: GameState, content: Content, width: int, height: int, ro
     return text.copy()
 
 
+def picture_image(state: GameState, content: Content, width: int, height: int, frame: int = 0):
+    """The room you're in as an image, `width` by `height` pixels: the art layer's, which draws it at its own pixels
+    on the web (ui/art_layer.py). A few times picture_text's work: drawn off the screen's thread."""
+    if Image is None:
+        return None
+    return Picture(state, content, width, height, state.room, frame).draw().convert("RGBA")
+
+
 def _picture_text(state: GameState, content: Content, width: int, height: int, room: Room, compass: bool,
                   frame: int) -> Text:
     picture = Picture(state, content, width, height, room, frame)

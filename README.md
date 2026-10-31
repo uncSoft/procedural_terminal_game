@@ -519,9 +519,12 @@ The game's page is made for phones too (`src/ptg/web/app_index.html`). It picks 
 columns, keeps the game above the phone's keyboard, and scrolls with a swipe. Taps play the game, so the keyboard
 stays down until the keyboard button (bottom right) is tapped; a keyboard plugged in types either way. A browser
 played with a finger tells its game so (`PTG_TOUCH=1`), whatever the screen's size. Add `?fontsize=12` to a game's
-address to pick the size yourself, or the A− A+ at the page's bottom right (kept in the browser; the game starts
-again from its title, the run saved). The narrow layout for phone screens is planned in
-`docs/plans/cross-platform-and-mobile.md`.
+address to pick the size yourself. (Buttons to change it on the page reloaded it, and the game with it, so they're
+gone.) Played with a finger, the game is laid out for it (`ui/phone.py`): every box a fixed size, the room's picture
+on top, tabs for the story, Here, the pack, the map and the sheet, and the choices as big buttons; and on the web the
+pictures are drawn as images at their own pixels over the terminal (the art layer, `ui/art_layer.py`). Tap a foe on
+the stage, or a creature in the bestiary, to watch its animations up close (`ui/creature.py`). The plan is
+`docs/plans/mobile-view.md`.
 
 Try it on your own machine (saves go in `./players`):
 

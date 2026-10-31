@@ -241,6 +241,7 @@ class Fight:
         room = 2 * (self.rows - self.banner_rows) - 1  # (as tall as it is, its next move over its head)
         crowd = len([m for m in state.room.others if m.hostile and m.hp > 0])
         self.looks: dict[str, Look] = {}  # each kind of foe's art among the others (look), worked out once
+        self.chips: list[tuple] = []  # the words over their heads as last drawn (see _intent)
         self.share = FOE_SHARE if not crowd else 0.95 / (crowd + 1)  # (each foe's slice of the stage)
         self.wide = self.width * self.share * 1.3 if crowd else None  # (in a crowd, as wide as its slice, or a bit)
         # (in a crowd, every foe's clips at one size, the biggest they all fit, so they keep their sizes side by side)
@@ -647,7 +648,9 @@ class Fight:
         return min(letters, SPELL * (beats + 1)), glint, cue
 
     def _intent(self, lines: list[Text], foe, offset: int) -> None:
-        """Its next move (combat.foresee) over its head, in the colour of what it means."""
+        """Its next move (combat.foresee) over its head, in the colour of what it means. Each is kept in `chips` too
+        (its column, row, words and colours), for the art layer to draw over the picture (ui/art_layer.py)."""
+        self.chips = []
         seen = self.seen
         if seen is None or not self.top_rows:
             return
@@ -656,6 +659,7 @@ class Fight:
         words = Text(f" {said} ", style=Style(color=ink, bgcolor=ground, bold=True))
         top = (self.feet() - (self.stature(foe)[1] if foe is not None else 0)) // 2
         _write(lines, max(0, top - 1), words, self.centre() + offset)
+        self.chips.append((self.centre() + offset, max(0, top - 1), words.plain, ground, ink))
         for monster, theirs in zip(self.others, self.others_seen):  # (the others': their mark, and its damage)
             if theirs is None:
                 continue
@@ -664,6 +668,13 @@ class Fight:
             short = theirs.mark + (f" {theirs.low}-{theirs.high}" if theirs.high else f" {theirs.words}".rstrip())
             _write(lines, max(0, head - 1), Text(f" {short} ", style=Style(color=ink, bgcolor=ground)),
                    self.centre(monster))
+            self.chips.append((self.centre(monster), max(0, head - 1), f" {short} ", ground, ink))
+
+    def image(self, frame: int = 0, pose: str = "idle", tick: int | None = None):
+        """The fight as it stands, as a picture (no words on it): the art layer's (ui/art_layer.py), from a copy of the
+        fight made at its pixels (GameScreen.send_stage)."""
+        foe = self.foe(frame, pose, False, "idle", tick)
+        return self.canvas(foe, frame=frame, tick=tick)
 
     def _banner(self, lines: list[Text]) -> None:
         """Under its feet: its traits, its name and how dangerous it looks; its health, how it is and what you know."""

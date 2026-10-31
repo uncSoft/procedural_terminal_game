@@ -86,7 +86,7 @@ class TitleScreen(Screen):
     CHROME = 13  # rows besides the picture: the name, the tagline, the menu, what's under it, the footer
     STACKED_CHROME = 23  # the same on a phone held upright: the name in three lines, the menu two by two
     TEXT_SIZE = "Text too small or too big? Cmd + or − (Ctrl on Windows) in a browser; your terminal's own font " \
-        "size in a terminal."  # (a served game's page has its own A− A+ too: web/app_index.html)
+        "size in a terminal."  # (a served game's page takes ?fontsize= too: web/app_index.html)
     LEAST_ROWS = 10  # a picture any smaller isn't worth the room
 
     def __init__(self) -> None:

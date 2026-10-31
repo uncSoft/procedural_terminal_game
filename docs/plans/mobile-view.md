@@ -250,8 +250,32 @@ columns, `widgets.PHONE`) joins `-narrow` and `-wide`, and these windows now fit
 - **Character sheet:** under 48 inner columns each roll's sources go on a line of their own.
 - **Floor card and Look:** their pictures are drawn down to 28 and 30 columns (a phone upright has 31 and 33).
 
-Still to do in Phase A: the game screen itself (`PhoneScreen`: the stage's share, Here's tiles, choices as big
-buttons, the tabs), and the landscape stage.
+### The phone spike (30 Oct, evening)
+
+JT, after playing it on the Fold 8 unfolded ("very playable"): the real phone view from the mockup, the A− A+ buttons
+gone (they reloaded the page, and the game with it), nothing hopping about, and tapping a boss (in every layout) or a
+bestiary entry to see its animations big. Built:
+
+- **`PhoneScreen`** (`ui/phone.py`), what a touch screen plays on: every box a fixed size, set by the screen's size
+  alone, so a fight starting, a full room or a long choice never moves another box. Upright (under 60 columns): the
+  status bar, the stage, the tabs (Story, Here, Pack, Map, Sheet, two rows tall), their one pane, the ways out, the
+  choices as big buttons two across (every one, Here's own first, so Attack is button 1), the command line. Wide (the
+  Fold opened out, a phone on its side): the stage and the story on the left, the tabs, the ways and the buttons on the
+  right. Turned or folded across the line, it's laid out again, mid-fight too. The ☰ menu's Layout swaps the classic
+  screen in, to compare.
+- **The art layer** (`ui/art_layer.py`, the page's `window.ptgArt`): on the web the stage's room and fight go to the
+  page as PNGs at four art pixels a cell, drawn on a canvas over their cells; the fight's banner stays words under the
+  picture and the foes' next moves are chips over it. Rooms and the fight's copy at those pixels are drawn off the
+  screen's thread. A fight's moments (blows, falls, wipes, spoils) still play in half blocks, the picture stepping
+  aside for them; anything put over the game (dice, panels, the viewer) hides it.
+- **The creature viewer** (`ui/creature.py`): tap the stage in a fight (any layout), a creature in a tabs or phone
+  frame, or a bestiary picture: its own clips play in turn (entrance, idle, attack, windup) at the biggest size the
+  screen has room for, cropped to the columns they use; a creature without clips stands in its poses. On the web, at
+  its own pixels.
+
+Next: the fight's moments in the art layer too (the swing, the shatter, the entrance, the spoils), and the boss intro
+on a phone through it (today it needs 68x24); Here's and the Pack's frames as art; portrait crowds (the boss at the
+back, its party in front); real-device checks on an iPhone and the Fold 8.
 
 ## Pictures (`mobile-view/`)
 

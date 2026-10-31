@@ -634,6 +634,40 @@ TabsScreen .secret-banner { border-top: none; border-bottom: none; background: #
 TabsScreen .secret-banner.shop { border-top: none; border-bottom: none; background: #0c2a18; }
 TabsScreen .continued { border-top: none; border-bottom: none; background: #141a3c; padding: 0; }
 
+/* The game screen made for a finger (ui/phone.py PhoneScreen): every box a fixed size, set as it's laid out, so
+   nothing moves while you play. Upright one column (the picture, the tabs and their pane, the ways, the buttons);
+   wide two (the picture and the story; the tabs, the ways and the buttons). Its rules start PhoneScreen.touch, to
+   come after the classic screen's compact and touch ones it would otherwise get. */
+PhoneScreen.touch { background: #0e0c18; }
+PhoneScreen.touch #main { layout: horizontal; }
+PhoneScreen.touch.upright #main { layout: vertical; }
+PhoneScreen.touch #left { padding: 0; height: 100%; }
+PhoneScreen.touch.upright #left { width: 100%; height: auto; }
+PhoneScreen.touch #side { display: block; padding: 0; height: 100%; }
+PhoneScreen.touch.upright #side { width: 100%; height: 1fr; }
+PhoneScreen.touch #stage-box { width: 100%; }
+PhoneScreen.touch #stage { padding: 0; width: 100%; }
+PhoneScreen.touch #story { border: none; padding: 0 1; background: #0e0c18; height: 1fr; }
+PhoneScreen.touch.upright #story { height: 100%; }
+PhoneScreen.touch #pane-box { width: 100%; }
+PhoneScreen.touch #pane { border: none; padding: 0 1; height: 100%; background: #0e0c18; }
+PhoneScreen.touch #phone-tabs { height: 2; width: 100%; background: #14122a; }
+PhoneScreen.touch .phone-tab { width: 1fr; height: 2; content-align: center middle; text-align: center; }
+PhoneScreen.touch #ways { display: block; layout: horizontal; height: 2; width: 100%; margin: 0; }
+PhoneScreen.touch .way { width: 1fr; height: 2; background: #1c1a36; content-align: center middle; margin: 0 1 0 0; }
+PhoneScreen.touch #decide { border: none; border-top: heavy #feae34; padding: 0; background: #0e0c18; }
+PhoneScreen.touch #choices { layout: grid; grid-size: 2; grid-columns: 1fr 1fr; grid-rows: 2; grid-gutter: 1 1;
+                             height: 1fr; background: #0e0c18; padding: 0; }
+PhoneScreen.touch .phone-choice { height: 2; width: 100%; background: #24224a; padding: 0 1; }
+PhoneScreen.touch .phone-choice.-first { background: #6e1f2a; }
+PhoneScreen.touch .phone-choice:hover { background: #2e2c5a; }
+PhoneScreen.touch .phone-note { column-span: 2; height: 2; width: 100%; padding: 0 1; content-align: left middle; }
+PhoneScreen.touch #command { height: 1; border: none; background: #1c2040; padding: 0 1; }
+PhoneScreen.touch #hud { display: none; }
+PhoneScreen.touch #hud-short, PhoneScreen.touch #hud-menu { display: block; }
+PhoneScreen.touch #shims { display: none; }
+PhoneScreen.touch.upright .focus { layout: vertical; }  /* (Here's and the Pack's thing in focus: its words under it) */
+
 /* The grid (ui/grid.py GridScreen): every box's height is set from the screen as it's laid out (grid.share), and
    whether the decision is beside the story or under it; these are their looks. The big buttons' frames and urgent or
    open shades are set as they're made (BigButton); hovered, each takes a tint of its own colour (grid.tint(colour,

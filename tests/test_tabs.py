@@ -43,7 +43,7 @@ def test_a_big_enough_screen_gets_tabs_and_the_rest_the_classic_one(monkeypatch)
     assert type(game_screen(a_game(), True, 152, 28)) is GameScreen  # (too short)
     assert type(game_screen(a_game("classic"), True, 200, 60)) is GameScreen  # (the player's choice)
     monkeypatch.setenv("PTG_TOUCH", "1")
-    assert type(game_screen(a_game(), True, 200, 60)) is GameScreen  # (a finger: mobile comes later)
+    assert type(game_screen(a_game(), True, 200, 60)).__name__ == "PhoneScreen"  # (a finger: ui/phone.py)
 
 
 def test_the_big_map_names_the_rooms_youve_been_and_gives_up_when_the_floor_is_too_big():

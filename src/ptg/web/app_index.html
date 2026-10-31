@@ -58,6 +58,25 @@
         font-size: 16px;
       }
 
+      /* The art layer (ui/art_layer.py): a picture drawn over the cells it would have filled; taps go through it. */
+      .ptg-art {
+        position: absolute;
+        pointer-events: none;
+        z-index: 5;
+      }
+      .ptg-art canvas {
+        position: absolute;
+        left: 0;
+        top: 0;
+        image-rendering: pixelated;
+      }
+      .ptg-art .chip {
+        position: absolute;
+        white-space: pre;
+        font-weight: bold;
+        font-family: "Roboto Mono", monospace;
+        transform: translateX(-50%);
+      }
       .dialog-container {
         position: absolute;
         width: 100vw;
@@ -166,41 +185,6 @@
         color: #0b0b14;
       }
 
-      /* Text smaller or bigger (A− A+): bottom right, faint till the mouse is on it; left of the keyboard by touch */
-      body #text-size {
-        display: none;
-        position: absolute;
-        right: 4px;
-        bottom: 26px;
-        z-index: 30;
-        gap: 2px;
-        opacity: 0.45;
-        transition: opacity 0.2s;
-      }
-      body #text-size:hover {
-        opacity: 1;
-      }
-      body.-first-byte #text-size {
-        display: flex;
-      }
-      body.touch #text-size {
-        right: 52px;
-        bottom: 4px;
-        opacity: 0.8;
-      }
-      body.-closed #text-size {
-        display: none;
-      }
-      body #text-size button {
-        margin: 0;
-        padding: 2px 8px;
-        border: 1px solid #7b8cff;
-        border-radius: 5px;
-        background: rgba(18, 18, 31, 0.85);
-        color: #7b8cff;
-        font: bold 13px "Roboto Mono", Menlo, monospace;
-        touch-action: manipulation;
-      }
     </style>
     <script>
       function getStartUrl() {
@@ -247,10 +231,6 @@
       data-sounds-url="{{ sounds_url }}"
       data-sounds="{{ sounds }}"
     >
-      <div id="text-size">
-        <button type="button" tabindex="-1" data-step="-1" title="Smaller text (the game starts again from the title: your run is saved)">A−</button>
-        <button type="button" tabindex="-1" data-step="1" title="Bigger text (the game starts again from the title: your run is saved)">A+</button>
-      </div>
       <button type="button" id="keyboard" tabindex="-1" aria-label="Keyboard" aria-pressed="false">
         <svg width="26" height="18" viewBox="0 0 26 18" fill="none" aria-hidden="true">
           <rect x="1" y="1" width="24" height="16" rx="2" stroke="currentColor" stroke-width="2" />
@@ -271,29 +251,15 @@
 
         // A phone gets at least 40 columns (Roboto Mono is 0.6 of its size wide), whichever way it's turned: by touch
         // it's picked for the screen's short side too, as it's never picked again (a phone loaded sideways would
-        // otherwise keep a size too big for it upright). A ?fontsize= in the address wins, then the size last
-        // picked with A− A+ (kept in this browser).
-        const KEPT = "ptg-font-size";
-        let kept = null;
-        try { kept = Number(localStorage.getItem(KEPT)) || null; } catch (e) { /* (no storage: the size picked) */ }
-        if (!terminal.dataset.fontSize && kept) terminal.dataset.fontSize = kept;
+        // otherwise keep a size too big for it upright). A ?fontsize= in the address wins. (There were A− A+ buttons:
+        // the terminal's size is set as it's made, so they loaded the page again, and the game with it. The size they
+        // kept is forgotten.)
+        try { localStorage.removeItem("ptg-font-size"); } catch (e) { /* (no storage: nothing kept) */ }
         if (!terminal.dataset.fontSize) {
           const across = touch ? Math.min(innerWidth, screen.width, screen.height) : innerWidth;
           terminal.dataset.fontSize = Math.max(11, Math.min(16, Math.floor(across / 40 / 0.6)));
         }
         const size = Number(terminal.dataset.fontSize);
-        // A− A+: the text a size smaller or bigger, kept for next time. The terminal's size is set as it's made, so
-        // the page loads again with it (the game with it: from the title, its run saved).
-        document.querySelectorAll("#text-size button").forEach((step) => {
-          step.addEventListener("click", () => {
-            const next = Math.max(8, Math.min(32, size + Number(step.dataset.step)));
-            try { localStorage.setItem(KEPT, String(next)); } catch (e) { /* (kept for this load only) */ }
-            const url = new URL(window.location.href);
-            url.searchParams.set("fontsize", String(next));
-            url.searchParams.delete("delay");
-            window.location.href = url.pathname + "?" + url.searchParams.toString();
-          });
-        });
         if (touch) {
           terminal.dataset.sessionWebsocketUrl = terminal.dataset.touchWebsocketUrl;
           document.body.classList.add("touch");
@@ -419,6 +385,99 @@
             if (touch) keyboardButton();
           });
         });
+      })();
+    </script>
+
+    <script>
+      (() => {
+        // The art layer (ui/art_layer.py): a picture the game sends as an image, drawn on a canvas over the cells it
+        // would have filled (the terminal's own cell size, from its screen), fitted and centred, its pixels square
+        // and sharp; words over it (a foe's next move) as chips. "hide" takes it away.
+        const terminal = document.getElementById("terminal");
+        window.ptgArt = (() => {
+          const layers = new Map(); // a picture's id -> {root, canvas, image, chips, cell}
+          const cell = (columns, rows) => {
+            const screen = terminal.querySelector(".xterm-screen");
+            if (!screen) return null;
+            const box = screen.getBoundingClientRect();
+            const home = terminal.getBoundingClientRect();
+            return { w: box.width / columns, h: box.height / rows, x: box.left - home.left, y: box.top - home.top };
+          };
+          const paint = (layer) => {
+            const { root, canvas, image } = layer;
+            const width = root.clientWidth, height = root.clientHeight, ratio = window.devicePixelRatio || 1;
+            if (!image.width || !width) return;
+            canvas.width = Math.round(width * ratio);
+            canvas.height = Math.round(height * ratio);
+            canvas.style.width = width + "px";
+            canvas.style.height = height + "px";
+            const ctx = canvas.getContext("2d");
+            ctx.imageSmoothingEnabled = false;
+            const scale = Math.min(canvas.width / image.width, canvas.height / image.height);
+            const w = image.width * scale, h = image.height * scale;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(image, Math.round((canvas.width - w) / 2), Math.round((canvas.height - h) / 2), w, h);
+            root.querySelectorAll(".chip").forEach((chip) => chip.remove());
+            for (const [column, row, words, ground, ink] of layer.chips || []) {
+              const chip = document.createElement("span");
+              chip.className = "chip";
+              chip.textContent = words;
+              Object.assign(chip.style, {
+                left: column * layer.cell.w + "px", top: row * layer.cell.h + "px", lineHeight: layer.cell.h + "px",
+                fontSize: Math.round(layer.cell.h * 0.62) + "px", background: ground, color: ink,
+              });
+              root.appendChild(chip);
+            }
+          };
+          const draw = (message) => {
+            if (message.do === "hide") {
+              const gone = layers.get(message.id);
+              if (gone) gone.root.remove();
+              layers.delete(message.id);
+              return;
+            }
+            const c = cell(message.screen[0], message.screen[1]);
+            if (!c) return;
+            let layer = layers.get(message.id);
+            if (!layer) {
+              const root = document.createElement("div");
+              root.className = "ptg-art";
+              const canvas = document.createElement("canvas");
+              root.appendChild(canvas);
+              terminal.appendChild(root);
+              layer = { root, canvas, image: new Image() };
+              layer.image.onload = () => paint(layer);
+              layers.set(message.id, layer);
+            }
+            const [x, y, w, h] = message.region;
+            Object.assign(layer.root.style, {
+              left: c.x + x * c.w + "px", top: c.y + y * c.h + "px", width: w * c.w + "px", height: h * c.h + "px",
+            });
+            layer.chips = message.chips;
+            layer.cell = c;
+            layer.image.src = "data:image/png;base64," + message.png;
+          };
+          const clear = () => {
+            layers.forEach((layer) => layer.root.remove());
+            layers.clear();
+          };
+          return { draw, clear, layers };
+        })();
+
+        // textual.js opens the game's websocket: this hears the game's pictures on it too, and clears them when the
+        // game's gone.
+        const Socket = window.WebSocket;
+        window.WebSocket = class extends Socket {
+          constructor(...args) {
+            super(...args);
+            this.addEventListener("message", (event) => {
+              if (typeof event.data === "string" && event.data.startsWith('["ptg_art"')) {
+                window.ptgArt.draw(JSON.parse(event.data)[1]);
+              }
+            });
+            this.addEventListener("close", () => window.ptgArt.clear());
+          }
+        };
       })();
     </script>
 

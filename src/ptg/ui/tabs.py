@@ -82,11 +82,13 @@ WORDS, DIM, FAINT, ACCENT, PINK, GOLD = "#c8c8e0", "#6c6f99", "#2a2d4a", "#ffb00
 
 
 def game_screen(game, fresh: bool, width: int, height: int, switched: bool = False) -> GameScreen:
-    """The game screen to play `game` on: the one the player chose (the tabs, or the grid: ui/grid.py), unless they
-    play by touch or the terminal is too small for it, and then the classic one. `switched`: the run's own screen,
-    in another layout (GameScreen.action_switch_layout)."""
-    if config.touch():
-        return GameScreen(game, fresh, switched)
+    """The game screen to play `game` on: the one the player chose (the tabs, or the grid: ui/grid.py), unless the
+    terminal is too small for it, and then the classic one; played by touch, the phone's (ui/phone.py).
+    `switched`: the run's own screen, in another layout (GameScreen.action_switch_layout)."""
+    if config.touch():  # (made for a finger: ui/phone.py; the ☰ menu's Layout swaps the classic one in, to compare)
+        from .phone import TOUCH_CLASSIC, PhoneScreen
+
+        return GameScreen(game, fresh, switched) if TOUCH_CLASSIC["on"] else PhoneScreen(game, fresh, switched)
     if game.config.layout == "grid":
         from .grid import MIN_COLUMNS as GRID_COLUMNS, MIN_ROWS as GRID_ROWS, GridScreen  # (grid builds on this module)
 
@@ -785,9 +787,11 @@ class TabsScreen(GameScreen):
         down, the one in the frame underlined. `turning`: a thing with a 3D model turns in the frame instead (the
         pack's: ui/model_view.py), its picture still on its thumbnail."""
         focus = next((t for t in things if t.id == focus_id), things[0])
+        watch = focus.kind == "monster" and focus.sprite in self.game.content.monsters
+        action = f"screen.watch('{focus.sprite}')" if watch else \
+            f"screen.lookup('{self.lookup_id(focus)}')"  # (a creature: up close, moving; anything else: its card)
         picture: Widget = Picture(focus.sprite, focus.kind, 24, pose=focus.pose, content=self.game.content,
-                                  loop=focus.loop, action=f"screen.lookup('{self.lookup_id(focus)}')",
-                                  classes="here-art focus-art")
+                                  loop=focus.loop, action=action, classes="here-art focus-art")
         if turning and focus.kind == "item" and self._sprites_on() and model3d.available(focus.sprite):
             from .model_view import CALM, SHOWN, ModelView
 

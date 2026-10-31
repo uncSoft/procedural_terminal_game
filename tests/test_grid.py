@@ -40,7 +40,7 @@ def test_the_grid_is_a_layout_you_can_choose(monkeypatch):
     assert type(game_screen(grid, True, 100, 30)) is GameScreen  # too small for it
     assert isinstance(game_screen(SimpleNamespace(config=Config(layout="tabs")), True, 160, 45), TabsScreen)
     monkeypatch.setenv("PTG_TOUCH", "1")
-    assert type(game_screen(grid, True, 160, 45)) is GameScreen  # played by touch
+    assert type(game_screen(grid, True, 160, 45)).__name__ == "PhoneScreen"  # played by touch: made for a finger
 
 
 @pytest.mark.parametrize("size", [(110, 32), (130, 40), (160, 45), (200, 52), (240, 70), (320, 90)])

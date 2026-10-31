@@ -322,6 +322,26 @@
             }));
           }
         }, { passive: false });
+        // iOS holds a tap back as a hover when what's under it changes as the mouse comes over (Textual lights the
+        // button under the mouse, so on an iPhone every button took two taps). There, a tap that didn't travel is the
+        // mouse's own press and release, sent to the terminal at once, and iOS's own mouse events for it never come.
+        // (Android sends its mouse events straight away: it's left as it is.)
+        const ios = /iP(hone|ad|od)/.test(navigator.userAgent)
+          || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform)); // (an iPad says it's a Mac)
+        if (ios) {
+          terminal.addEventListener("touchend", (event) => {
+            const at = event.changedTouches[0];
+            if (!finger || !at || event.touches.length || zoomed()) return;
+            if (Math.abs(at.clientY - finger.y) >= row || Math.abs(at.clientX - finger.x) >= row) return; // (a swipe)
+            const screen = terminal.querySelector(".xterm-screen");
+            if (!screen) return;
+            if (event.cancelable) event.preventDefault();
+            const where = { clientX: at.clientX, clientY: at.clientY, bubbles: true, cancelable: true, view: window };
+            screen.dispatchEvent(new MouseEvent("mousemove", where));
+            screen.dispatchEvent(new MouseEvent("mousedown", { ...where, button: 0, buttons: 1 }));
+            screen.dispatchEvent(new MouseEvent("mouseup", { ...where, button: 0, buttons: 0 }));
+          }, { passive: false });
+        }
         function measure() {
           const probe = document.createElement("span");
           probe.textContent = "W";
@@ -664,6 +684,8 @@
           if (heard.length > 20) heard.shift();
           const gain = Number(message.gain) || 0;
           if (message.do === "play") play(message.file, gain);
+          // In the iPhone app (ios/), each sound played is passed on too, so its blows can be felt as well as heard.
+          if (message.do === "play") window.webkit?.messageHandlers?.ptg?.postMessage({ sound: message.file });
           else if (message.do === "loop") loop(message.file, gain, Number(message.fade_in) || 0,
                                                Number(message.fade_out) || 0);
           else if (message.do === "stop") stop(Number(message.fade) || 0);

@@ -17,3 +17,8 @@ ui_dump.json
 
 # local experiments
 .scratch/
+
+# the iPhone app's (ios/): Xcode's per-user state and build output
+ios/**/xcuserdata/
+ios/build/
+ios/DerivedData/

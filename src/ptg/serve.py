@@ -123,7 +123,8 @@ HEAD = """<!doctype html>
   :root {{ color-scheme: dark; }}
   body {{ margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0b0b14; color: #e8e8f4;
           font: 16px/1.5 Menlo, Monaco, "Courier New", monospace; }}
-  form {{ width: min(26rem, calc(100vw - 2rem)); padding: 1.5rem; border: 3px double #7b8cff; background: #12121f; }}
+  form {{ box-sizing: border-box; width: min(26rem, calc(100vw - 2rem)); padding: 1.5rem; border: 3px double #7b8cff;
+          background: #12121f; }}
   h1 {{ margin: 0 0 .25rem; font-size: 1.1rem; color: #7b8cff; letter-spacing: .05em; }}
   p {{ margin: 0 0 1rem; color: #9a9cc0; }}
   label {{ display: block; margin: .75rem 0 .25rem; color: #ffb000; }}

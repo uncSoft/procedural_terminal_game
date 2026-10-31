@@ -855,15 +855,19 @@ def _drops(state: GameState, content: Content, rng: random.Random, monster: Mons
 
 def _kept(state: GameState, content: Content, rng: random.Random, monster: MonsterState) -> list[str]:
     """What a monster was keeping, which it leaves slain or talked down: the rare thing that names it as the one that
-    drops it, or else (now and then, from an elite; a third of the time, from the warden by the stairs) something
-    rare. A warden always leaves something: a small key or a bomb, if not that."""
+    drops it, or else (a third of the time, from the warden by the stairs; now and then, from an elite, but never
+    gear: loot.NO_GEAR) something rare. A warden always leaves something: a small key or a bomb, if not that."""
     own = [i.key for i in content.items.values() if monster.key in i.found and i.key not in state.rares]
     warden = monster.warden  # (not whatever crept up on you while you rested by the stairs)
     if own:
         state.rares.append(own[0])
         return own[:1]
-    if (warden or monster.elite) and rng.random() < (loot.WARDEN_DROP if warden else loot.ELITE_DROP):
-        kept = loot.produce(rng, content, state.rares, loot.WARDEN[min(state.floor, 3)], "warden",
-                            loot.owned(state, content))
+    slots = loot.WARDEN[min(state.floor, 3)]
+    if warden and rng.random() < loot.WARDEN_DROP:
+        kept = loot.produce(rng, content, state.rares, slots, "warden", loot.owned(state, content),
+                            loot.most_gear(state))
         return [kept] if kept else []
+    if monster.elite and not warden and rng.random() < loot.ELITE_DROP:  # (nothing rare left that isn't gear: nothing)
+        kept = loot.pick(rng, content, rng.choice(slots), "warden", state.rares, most=loot.NO_GEAR)
+        return [loot.noted(content, state.rares, kept)] if kept else []
     return [rng.choice(loot.WARDEN_ELSE)] if warden else []

@@ -151,6 +151,53 @@ def test_no_room_is_a_treasure_trove_and_a_stash_is_its_floors_best_and_no_bette
                         (seed, floor, room.name)
 
 
+def test_no_gear_on_a_floor_is_more_than_a_tier_above_its_monsters(content):
+    """A floor-1 secret room or Granny Kamultruk's counter could give the Moonsilver Vest or the Sword Still in the
+    Stone, tier 3, the best there is but Bloodbath."""
+    from ptg.world import tier_for
+
+    for seed in range(80):
+        state = generate(seed, content=content)
+        for floor in (1, 2):
+            if floor > 1:
+                state.floor = floor
+                build_floor(state, content)
+            most = tier_for(floor, state.floors_total) + loot.GEAR_ABOVE
+            things = [k for r in state.rooms for k in [*r.items, *(k for f in r.features for k in f.loot)]]
+            things += [w.item for r in state.rooms if r.shop for w in r.shop.wares]
+            gear = [k for k in things if loot.role(content.item(k)) in loot.GEAR]
+            assert all(content.item(k).tier <= most for k in gear), (seed, floor, gear)
+    rng = random.Random(3)
+    secret = {loot.produce(rng, content, [], loot.SECRET, "secret") for _ in range(400)}
+    assert "moonsilver_vest" in secret  # (it's there to be found, deeper)
+    secret = {loot.produce(rng, content, [], loot.SECRET, "secret", most=2) for _ in range(400)}
+    assert not [k for k in secret if loot.role(content.item(k)) in loot.GEAR and content.item(k).tier > 2]
+    shop = {k for _ in range(100) for k, _, _ in loot.wares(rng, content, [], loot.SHINY, 1, most=2)}
+    assert not [k for k in shop if loot.role(content.item(k)) in loot.GEAR and content.item(k).tier > 2]
+
+
+def test_an_elite_leaves_no_gear_but_the_warden_still_can(content):
+    """Four of JT's last eight runs had a Snitch off an elite on floor 2 (a Hulking Orc, a Frenzied Dire Wolf...), and
+    one an Adamant Stewpot off a Hulking Cinder Imp on floor 4: gear comes from where you look, and the warden."""
+    from ptg.combat import _kept
+
+    rng = random.Random(1)
+    rng.random = lambda: 0.0  # (always something rare, if there's anything)
+    for floor in (2, 3, 4):
+        state = generate(1, content=content)
+        state.floor = floor
+        monster = put_monster(state, content)
+        monster.elite = "Hulking"
+        kept = [k for _ in range(10) for k in _kept(state, content, rng, monster)]
+        assert not [k for k in kept if loot.role(content.item(k)) in loot.GEAR], (floor, kept)
+        assert bool(kept) is (floor > 2)  # (nothing rare that isn't gear up there: nothing)
+    state = generate(1, content=content)
+    state.floor = 2
+    monster = put_monster(state, content)
+    monster.warden = True
+    assert _kept(state, content, rng, monster) == ["snitch"]
+
+
 def state_key(content, state):
     return content.themes[state.theme].key_item
 

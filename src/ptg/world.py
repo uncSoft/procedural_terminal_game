@@ -391,7 +391,9 @@ def _place_loot(rng, content: Content, state: GameState, theme, rooms: list[Room
         room = rng.choice([r for r, open_ in zip(deep, bare) if open_] or deep)
         rng.choice(bare[deep.index(room)] or room.features).loot.append(theme.key_item)
 
-    found = [loot.give(rng, content, state.rares, slot) for slot in loot.FLOORS.get(state.floor, ["potion 1"])]
+    most = loot.most_gear(state)
+    found = [loot.give(rng, content, state.rares, slot, most=most)
+             for slot in loot.FLOORS.get(state.floor, ["potion 1"])]
     found.append(loot.DUNGEON_TRINKETS.get(theme.key, "oil_flask"))
     found = sorted(filter(None, found), key=lambda key: key not in loot.ESSENTIAL)  # (stable: the rest keep order)
     spots = _spots(rng, others)
@@ -411,8 +413,8 @@ def _place_loot(rng, content: Content, state: GameState, theme, rooms: list[Room
     stash = loot.STASH.get(state.floor, loot.STASH[max(loot.STASH)])
     stash_room.features.append(Feature(
         name=rng.choice(HIDDEN_FEATURES), hidden=True, gold=rng.randint(15, 30) * state.floor,
-        loot=[key for key in [loot.produce(rng, content, state.rares, stash, "stash", loot.owned(state, content))]
-              if key],
+        loot=[key for key in [loot.produce(rng, content, state.rares, stash, "stash", loot.owned(state, content),
+                                           most)] if key],
     ))
 
 
@@ -465,7 +467,8 @@ def _secret_room(rng: random.Random, content: Content, state: GameState, theme, 
     room = Room(id=len(rooms), x=x, y=y, name=f"Hidden {name}", archetype=archetype.key,
                 distance=min(r.distance for r in near) + 1, secret=True,
                 features=[Feature(name=rng.choice(archetype.features), gold=rng.randint(10, 20) * state.floor)])
-    prize = loot.produce(rng, content, state.rares, loot.SECRET, "secret", loot.owned(state, content))
+    prize = loot.produce(rng, content, state.rares, loot.SECRET, "secret", loot.owned(state, content),
+                         loot.most_gear(state))
     if prize:
         room.items.append(prize)
     if rng.random() < 0.3:  # something got here first, and won't share
@@ -504,7 +507,8 @@ def _shop(state: GameState, content: Content, rooms: list[Room], end_id: int) ->
                 shop=Shop(keeper=keeper, wares=[Ware(item=k, price=p, count=n) for k, p, n in
                                                 loot.wares(rng, content, state.rares, keeper, state.floor,
                                                            cure_for=status,
-                                                           lights=theme.dark or bool(below and below.dark))]))
+                                                           lights=theme.dark or bool(below and below.dark),
+                                                           most=loot.most_gear(state))]))
     rooms[by].exits[door] = Exit(to=room.id, locked=True, key="small_key")
     room.exits[OPPOSITE[door]] = Exit(to=by)
     return room
@@ -528,7 +532,8 @@ def _lair(state: GameState, content: Content, rooms: list[Room], end_id: int) ->
     x, y, by = rng.choice(nooks)
     door = next(d for d, (dx, dy) in DELTA.items() if (rooms[by].x + dx, rooms[by].y + dy) == (x, y))
     archetype, keeper = content.archetypes[archetype_key], content.monster(who)
-    wrapped = [loot.give(rng, content, state.rares, "gear 3")]  # (the last one who came: their gear's still on them)
+    # (the last one who came: their gear's still on them)
+    wrapped = [loot.give(rng, content, state.rares, "gear 3", most=loot.most_gear(state))]
     room = Room(id=len(rooms), x=x, y=y, name=archetype.names[0], archetype=archetype.key,
                 distance=rooms[by].distance + 1,
                 features=[Feature(name=archetype.features[0], loot=[k for k in wrapped if k]),

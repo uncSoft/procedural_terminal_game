@@ -1729,7 +1729,7 @@ def _open_chest(state: GameState, content: Content, rng: random.Random, how: str
                 else "The chest bursts open under your blows, and something inside cracks.")
         events.insert(0, Event("chest", text, dice=roll, data={"rerollable": True}))
     key = loot.produce(rng, content, state.rares, loot.CHESTS.get(state.floor, loot.CHESTS[3]), "chest",
-                       loot.owned(state, content))
+                       loot.owned(state, content), loot.most_gear(state))
     gold = rng.randint(5, 15) * state.floor
     player.gold += gold
     if key is None:

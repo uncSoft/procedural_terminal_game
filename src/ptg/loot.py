@@ -101,6 +101,13 @@ PRICE_RISE, SHRINE_GOLD = 0.25, 10
 SHINY_WARES = ["potion 2+", "gear 3+", "rare", "rare"]
 FINDS = ["food 0", "food 0", "potion 1", "escape 1", "trinket"]  # what a stunt that pays off can turn up
 EVERYDAY = "floor"  # the place of a floor's scattered loot, a monster's drop or a find: no rare things here
+# The best weapon or armor anything on a floor gives, its tier: one above the floor's monsters' (world.tier_for), so a
+# floor-1 stash, chest, secret room or Granny Kamultruk can give tier 2 but not the Moonsilver Vest or the Sword Still
+# in the Stone (tier 3, the best there is but Bloodbath), which secret rooms and her counter gave from floor 1. And an
+# elite (a Hulking Orc, a Frenzied Dire Wolf) leaves no gear at all: gear comes from where you look, and from the
+# warden by the stairs, not from the floor's crowd (four of JT's last eight runs had a Snitch off an elite on floor 2,
+# one an Adamant Stewpot off a Hulking Cinder Imp). NO_GEAR as the most: none.
+GEAR_ABOVE, NO_GEAR = 1, -1
 
 PLACES = [*[(f"floor {f}", FLOORS[f], EVERYDAY) for f in FLOORS],
           *[(f"floor {f} stashes", STASH[f], "stash") for f in STASH],
@@ -163,9 +170,17 @@ def allowed(item: ItemDef, place: str) -> bool:
     return place != EVERYDAY if "rare" in item.tags else True
 
 
-def candidates(content: Content, slot: str, place: str = EVERYDAY, taken=()) -> dict[int, list[str]]:
+def most_gear(state) -> int:
+    """The best weapon or armor (its tier) anything on this floor gives: GEAR_ABOVE its monsters' tier."""
+    from .world import tier_for  # (world places loot: it imports this module)
+
+    return tier_for(state.floor, state.floors_total) + GEAR_ABOVE
+
+
+def candidates(content: Content, slot: str, place: str = EVERYDAY, taken=(), most: float = math.inf
+               ) -> dict[int, list[str]]:
     """The items a slot can give in a place, by tier, lowest first, leaving out the one-of-a-kind things this run has
-    had (`taken`)."""
+    had (`taken`), and any weapon or armor above the tier `most` (most_gear)."""
     if slot in content.items:
         return {} if slot in taken else {content.item(slot).tier: [slot]}
     name, _, tiers = slot.partition(" ")
@@ -173,17 +188,19 @@ def candidates(content: Content, slot: str, place: str = EVERYDAY, taken=()) -> 
     low, high = _tiers(tiers)
     found: dict[int, list[str]] = {}
     for item in content.items.values():
-        if item.key in BY_NAME_ONLY or item.key in taken or not allowed(item, place):
+        if item.key in BY_NAME_ONLY or item.key in taken or not allowed(item, place) or \
+                role(item) in GEAR and item.tier > most:
             continue
         if (rare(item) if name == "rare" else role(item) in roles) and low <= item.tier <= high:
             found.setdefault(item.tier, []).append(item.key)
     return dict(sorted(found.items()))
 
 
-def pick(rng: random.Random, content: Content, slot: str, place: str = EVERYDAY, taken=()) -> str | None:
+def pick(rng: random.Random, content: Content, slot: str, place: str = EVERYDAY, taken=(), most: float = math.inf
+         ) -> str | None:
     """An item for a slot (a tier, then an item of it), or None if the game has nothing that fits. Rare things are
     hand-placed already, so each is as likely as the next: a lone tier-0 joke shouldn't be half of every prize."""
-    tiers = list(candidates(content, slot, place, taken).values())
+    tiers = list(candidates(content, slot, place, taken, most).values())
     if not tiers:
         return None
     if slot.startswith("rare"):
@@ -192,9 +209,10 @@ def pick(rng: random.Random, content: Content, slot: str, place: str = EVERYDAY,
     return keys[0] if len(keys) == 1 else rng.choice(keys)
 
 
-def one_of(rng: random.Random, content: Content, slots: list[str], place: str = EVERYDAY, taken=()) -> str | None:
+def one_of(rng: random.Random, content: Content, slots: list[str], place: str = EVERYDAY, taken=(),
+           most: float = math.inf) -> str | None:
     """A chest's or a stash's single item: one of its slots, then an item for that slot."""
-    return pick(rng, content, rng.choice(slots), place, taken)
+    return pick(rng, content, rng.choice(slots), place, taken, most)
 
 
 def owned(state, content: Content) -> list[str]:
@@ -204,26 +222,28 @@ def owned(state, content: Content) -> list[str]:
 
 
 def produce(rng: random.Random, content: Content, rares: list[str], slots: list[str], place: str,
-            have: list[str] = ()) -> str | None:
-    """One of a special place's slots, filled; a one-of-a-kind thing it gives is noted in `rares` so it never comes
-    twice, and gear you `have` already isn't given again if anything else fits: if the slot drawn has only what you
-    have, the others are tried first (a chest's "weapon 3+" with your Silvered Blade the only one gave a second)."""
+            have: list[str] = (), most: float = math.inf) -> str | None:
+    """One of a special place's slots, filled (no gear above the tier `most`: most_gear); a one-of-a-kind thing it
+    gives is noted in `rares` so it never comes twice, and gear you `have` already isn't given again if anything else
+    fits: if the slot drawn has only what you have, the others are tried first (a chest's "weapon 3+" with your
+    Silvered Blade the only one gave a second)."""
     key = None
     if have:
         taken = [*rares, *have]
-        key = one_of(rng, content, slots, place, taken) or \
-            next((k for slot in slots for k in [pick(rng, content, slot, place, taken)] if k), None)
-    key = key or one_of(rng, content, slots, place, rares)
+        key = one_of(rng, content, slots, place, taken, most) or \
+            next((k for slot in slots for k in [pick(rng, content, slot, place, taken, most)] if k), None)
+    key = key or one_of(rng, content, slots, place, rares, most)
     if key is None:  # nothing left for here: every one of it has turned up already
         key = pick(rng, content, INSTEAD.get(place, INSTEAD_OF_RARE), place, rares)
     return noted(content, rares, key)
 
 
-def give(rng: random.Random, content: Content, rares: list[str], slot: str, place: str = EVERYDAY) -> str | None:
+def give(rng: random.Random, content: Content, rares: list[str], slot: str, place: str = EVERYDAY,
+         most: float = math.inf) -> str | None:
     """A slot filled for this run, as `produce` fills a special place's (a floor's scattered loot, a lucky find, the
     gear on the Matriarch's last visitor): a one-of-a-kind thing this run has had already is never given again, and
     one it gives is noted; with none left, a potion."""
-    key = pick(rng, content, slot, place, rares)
+    key = pick(rng, content, slot, place, rares, most)
     if key is None and slot.partition(" ")[0] in (*GEAR, "gear", "trinket"):
         key = pick(rng, content, INSTEAD_OF_RARE, place, rares)
     return noted(content, rares, key)
@@ -237,10 +257,11 @@ def noted(content: Content, rares: list[str], key: str | None) -> str | None:
 
 
 def wares(rng: random.Random, content: Content, rares: list[str], keeper: str, floor: int,
-          cure_for: str = "", lights: bool = False) -> list[tuple[str, int, int]]:
+          cure_for: str = "", lights: bool = False, most: float = math.inf) -> list[tuple[str, int, int]]:
     """What a shopkeeper lays out on her counter (rare things noted in `rares`, as anywhere), with their prices and
     how many: potions come in twos (STOCK). On a floor with a status of its own (`cure_for`: floor 4's poison), she
-    always has its cure, two of it; on a dark floor or the one above it (`lights`), torches and lamp oil (LIGHTS)."""
+    always has its cure, two of it; on a dark floor or the one above it (`lights`), torches and lamp oil (LIGHTS). No
+    gear above the tier `most` (most_gear)."""
     if keeper == SHINY:
         slots = SHINY_WARES
     else:
@@ -248,7 +269,7 @@ def wares(rng: random.Random, content: Content, rares: list[str], keeper: str, f
                  f"rare -{floor}" if rng.random() < GRISTLE_RARE else "trinket"]
     out: list[tuple[str, int, int]] = []
     for slot in slots:
-        key = produce(rng, content, rares, [slot], "shop")
+        key = produce(rng, content, rares, [slot], "shop", most=most)
         if key and key not in [k for k, _, _ in out]:
             out.append((key, price(content.item(key), floor, keeper == SHINY), STOCK.get(role(content.item(key)), 1)))
     for item in sorted(content.items.values(), key=lambda i: i.key):

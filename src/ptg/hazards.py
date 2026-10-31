@@ -57,7 +57,7 @@ def shape(state: GameState, content: Content, rooms: list[Room], end_id: int) ->
         vent = rng.choice(spots)
         _become(rng, content, vent, VENT)
         vent.vent = "live"
-        key = loot.produce(rng, content, state.rares, [rng.choice(CACHE_SLOTS)], "chest")
+        key = loot.produce(rng, content, state.rares, [rng.choice(CACHE_SLOTS)], "chest", most=loot.most_gear(state))
         vent.features.append(Feature(name=CACHE, loot=[key] if key else [], gold=rng.randint(10, 25), trapped=True))
 
 

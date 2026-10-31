@@ -94,10 +94,10 @@ def test_a_new_item_drops_where_its_kind_and_tier_do(content):
     axe = ItemDef(key="moon_axe", name="Moon Axe", kind="weapon", damage="1d8", tier=1, tags=["sharp"])
     content = with_items(content, axe)
     found = Counter()
-    for seed in range(60):
+    for seed in range(150):  # (ten tier-1 pieces share floor 1's gear, and half the time its dungeon's own has it)
         state = generate(seed, content=content)
         found.update(k for room in state.rooms for f in room.features for k in f.loot)
-    assert found["moon_axe"] and found["hand_axe"]  # they share floor 1's tier-1 weapon
+    assert found["moon_axe"] and found["hand_axe"]  # they share floor 1's tier-1 gear
     assert "floor 1" in loot.where(content, "moon_axe")
 
 
@@ -191,6 +191,35 @@ def test_no_gear_on_a_floor_is_more_than_a_tier_above_its_monsters(content):
     assert not [k for k in secret if loot.role(content.item(k)) in loot.GEAR and content.item(k).tier > 2]
     shop = {k for _ in range(100) for k, _, _ in loot.wares(rng, content, [], loot.SHINY, 1, most=2)}
     assert not [k for k in shop if loot.role(content.item(k)) in loot.GEAR and content.item(k).tier > 2]
+
+
+def test_a_dungeon_lays_out_its_own_gear_the_best_its_floor_allows(content):
+    """JT: the new gear "we have to incorporate into the loot tables". The Crypt's floor gear is the Bucket where it's
+    tier 1, the Salted Harpoon where it's tier 2, the Bell-Clapper Maul (a drowned chapel's bell) where it's 3: in
+    place of the floor's other gear, never on top of it (more gear made a newcomer's run far easier); once had, a
+    piece never comes again."""
+    assert all(content.item(k).kind in ("weapon", "armor", "helm") and not loot.rare(content.item(k))
+               for gear in loot.DUNGEON_GEAR.values() for k in gear)
+    rng = random.Random(1)
+    rares = []
+    assert loot.dungeon_gear(rng, content, rares, "sunken_crypt", "gear 1") == "bucket_helm"
+    assert loot.dungeon_gear(rng, content, rares, "sunken_crypt", "gear 2") == "salted_harpoon"
+    assert loot.dungeon_gear(rng, content, rares, "sunken_crypt", "gear 3+", most=4) == "bell_clapper_maul"
+    assert loot.dungeon_gear(rng, content, rares, "sunken_crypt", "gear 3") is None and \
+        rares == ["bucket_helm", "salted_harpoon", "bell_clapper_maul"]
+    assert loot.dungeon_gear(rng, content, [], "goblin_warren", "gear 2") is None  # (its kitchen's tier 1: floor 1's)
+    assert loot.dungeon_gear(rng, content, [], "norfel", "gear 3") is None  # (Norfel has its own: the Pure, the skin)
+    assert "The Sunken Crypt's own gear" in loot.where(content, "bell_clapper_maul")
+    laid = 0
+    for seed in range(20):  # on floor 1, in place of its gear
+        state = generate(seed, content=content)
+        mine = [k for r in state.rooms if not r.secret for f in r.features if not f.hidden for k in f.loot
+                if k in loot.DUNGEON_GEAR.get(state.theme, [])]  # (a stash or a secret room may hold better)
+        gear = [k for r in state.rooms if not r.secret for f in r.features if not f.hidden for k in f.loot
+                if loot.role(content.item(k)) in loot.GEAR]
+        assert all(content.item(k).tier == 1 for k in mine) and len(gear) <= 1, (seed, mine, gear)
+        laid += bool(mine)
+    assert 4 <= laid <= 16  # (half the time: the rest still turns up)
 
 
 def test_an_elite_leaves_no_gear_but_the_warden_still_can(content):

@@ -77,3 +77,23 @@ weighted_dice = "dice"
 x_64gb_ddr5_ram_kit = { way = "slab", thick = 1.5 }
 philter_of_light = "turned"
 gulliver_helper_sword = "slab"  # (guessed as it came in: change it, then ptg models gulliver_helper_sword)
+barrel_armor = "turned"  # (guessed as it came in: change it, then ptg models barrel_armor)
+bell_clapper_maul = "slab"  # (guessed as it came in: change it, then ptg models bell_clapper_maul)
+bucket_helm = "turned"  # (guessed as it came in: change it, then ptg models bucket_helm)
+colander = "turned"  # (guessed as it came in: change it, then ptg models colander)
+dawnbreaker = "slab"  # (guessed as it came in: change it, then ptg models dawnbreaker)
+dragonscale_coat = "puffed"  # (guessed as it came in: change it, then ptg models dragonscale_coat)
+frying_pan = "puffed"  # (guessed as it came in: change it, then ptg models frying_pan)
+full_plate = "puffed"  # (guessed as it came in: change it, then ptg models full_plate)
+great_helm = "turned"  # (guessed as it came in: change it, then ptg models great_helm)
+horned_helm = "puffed"
+plague_doctors_mask = "puffed"  # (guessed as it came in: change it, then ptg models plague_doctors_mask)
+ratskin_cloak = "puffed"  # (guessed as it came in: change it, then ptg models ratskin_cloak)
+salted_harpoon = "slab"  # (guessed as it came in: change it, then ptg models salted_harpoon)
+smouldering_poker = "slab"  # (guessed as it came in: change it, then ptg models smouldering_poker)
+spork_of_destiny = "slab"  # (guessed as it came in: change it, then ptg models spork_of_destiny)
+stale_baguette = "slab"  # (guessed as it came in: change it, then ptg models stale_baguette)
+stray_halo = { way = "slab", thick = 1.5 }
+studded_leather = "puffed"  # (guessed as it came in: change it, then ptg models studded_leather)
+thunder_maul = "puffed"  # (guessed as it came in: change it, then ptg models thunder_maul)
+zweihander = "slab"  # (guessed as it came in: change it, then ptg models zweihander)

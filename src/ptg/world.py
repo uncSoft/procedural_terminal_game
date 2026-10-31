@@ -392,8 +392,12 @@ def _place_loot(rng, content: Content, state: GameState, theme, rooms: list[Room
         rng.choice(bare[deep.index(room)] or room.features).loot.append(theme.key_item)
 
     most = loot.most_gear(state)
-    found = [loot.give(rng, content, state.rares, slot, most=most)
+    own = dice.stream(state.seed, "dungeon gear", state.floor)  # (its own gear's pick, on a stream of its own)
+    found = [loot.dungeon_gear(own, content, state.rares, theme.key, slot, most)
+             if slot.startswith("gear ") and own.random() < loot.DUNGEON_GEAR_CHANCE else None
              for slot in loot.FLOORS.get(state.floor, ["potion 1"])]
+    found = [key or loot.give(rng, content, state.rares, slot, most=most)
+             for key, slot in zip(found, loot.FLOORS.get(state.floor, ["potion 1"]))]
     found.append(loot.DUNGEON_TRINKETS.get(theme.key, "oil_flask"))
     found = sorted(filter(None, found), key=lambda key: key not in loot.ESSENTIAL)  # (stable: the rest keep order)
     spots = _spots(rng, others)

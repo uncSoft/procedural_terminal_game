@@ -53,11 +53,22 @@ FLOORS = {  # each floor spreads these through its rooms (see world._place_loot)
     1: ["gear 1", "potion 1", "potion 1", "food 0", "bomb", "small_key"],
     2: ["gear 2", "potion 1", "escape 1+", "food 1+", "bomb", "small_key"],  # loot spread out is found more: a potion less
     3: ["potion 2+", "potion 1", "potion 1", "gear 2", "small_key"],
-    4: ["potion 2+", "potion 2+", "potion 1", "gear 3+", "small_key", "pure"],  # (Pure: in an egg, a shed skin...)
+    4: ["potion 2+", "potion 2+", "potion 1", "gear 3", "small_key", "pure"],  # (Pure: in an egg, a shed skin...)
     5: ["potion 3+", "potion 2+", "potion 2+", "gear 3+", "small_key"],
 }
 DUNGEON_TRINKETS = {"sunken_crypt": "holy_water", "goblin_warren": "bag_of_marbles", "overgrown_ruins": "oil_flask",
                     "norfel": "holy_water", "underbloom": "oil_flask"}  # (Serpentis hates it; a torch drinks it)
+# A dungeon's own gear, as it has its own trinket: on its floor, half the time (DUNGEON_GEAR_CHANCE), the piece of gear
+# lying about (its "gear N" in FLOORS) is one of these when one's of that tier and the run hasn't had it, instead of
+# anything else of it. So the gear's the same in number and tier (and the rest still turns up), and it's where it
+# belongs: the Crypt's drowned chapel lost its bell's clapper and lets the
+# sea in (bail with a bucket), the Warren's goblins cook, the Ruins burn and keep cellars and old knights' helms, and
+# the Underbloom's spores knock you senseless unless herbs are in the way.
+DUNGEON_GEAR = {"sunken_crypt": ["bell_clapper_maul", "salted_harpoon", "bucket_helm"],
+                "goblin_warren": ["frying_pan", "stale_baguette", "colander"],
+                "overgrown_ruins": ["smouldering_poker", "great_helm", "barrel_armor"],
+                "underbloom": ["plague_doctors_mask"]}
+DUNGEON_GEAR_CHANCE = 0.5
 STASH = {  # each floor's hidden stash holds one of its floor's ("rare -1": a rare thing of tier 1 or less)
     1: ["weapon 2", "armor 2", "potion 2", "lucky_charm", "rare -1"],
     2: ["weapon 2", "armor 2", "potion 2", "lucky_charm", "rare -2"],
@@ -296,6 +307,20 @@ def price(item: ItemDef, floor: int, shiny: bool = False) -> int:
     return max(5, 5 * math.ceil(cost / 5 - 1e-9))
 
 
+def dungeon_gear(rng: random.Random, content: Content, rares: list[str], theme: str, slot: str,
+                 most: float = math.inf) -> str | None:
+    """A dungeon's own piece of gear for its floor's gear `slot` ("gear 2": DUNGEON_GEAR): the best of its tiers
+    (none above `most`, most_gear) this run hasn't had (noted in `rares`, as gear is: one of a kind); None if none
+    fits, and the slot is filled as ever."""
+    low, high = _tiers(slot.partition(" ")[2])
+    fits = [key for key in DUNGEON_GEAR.get(theme, []) if key in content.items and key not in rares
+            and low <= content.item(key).tier <= min(high, most)]
+    if not fits:
+        return None
+    best = max(content.item(key).tier for key in fits)
+    return noted(content, rares, rng.choice([key for key in fits if content.item(key).tier == best]))
+
+
 def shrine_price(floor: int) -> int:
     """What a shrine asks for a full heal: SHRINE_GOLD a floor down."""
     return SHRINE_GOLD * floor
@@ -307,6 +332,8 @@ def where(content: Content, key: str) -> list[str]:
              if any(key in keys for slot in slots for keys in candidates(content, slot, place).values())]
     found += [f"{content.themes[theme].name}'s own trinket" for theme, trinket in DUNGEON_TRINKETS.items()
               if trinket == key and theme in content.themes]
+    found += [f"{content.themes[theme].name}'s own gear" for theme, gear in DUNGEON_GEAR.items()
+              if key in gear and theme in content.themes]
     item = content.item(key)
     found += [f"dropped by {content.monster(place).name}" for place in item.found if place not in FOUND_IN]
     return found

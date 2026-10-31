@@ -7,7 +7,8 @@ pixel letters), the odds ("roll 8 or better · 65%"), your bonuses and what a hi
 twenty faces in a row, the ones that would fail in red and the ones that would succeed in green (a 1 always fails, a
 20 always succeeds), so the odds are plain before you roll; they flicker as it tumbles, and the face it lands on
 lights up. Then the sum, the verdict in big letters, and what came of it. On a smaller screen the same, in a column:
-the target a line, the verdict in words; on a tiny one, a smaller die and no row of faces.
+the target a line, the verdict in words; on a tiny one, a smaller die and no row of faces; and on a short, wide one (a
+phone on its side, 18 rows) the die on the left and the words beside it (SIDE).
 
 The box keeps one size from the roll to the verdict (the verdict's rows and the Fate button's row are there from the
 start, empty till they're wanted), and it fits the screen."""
@@ -43,6 +44,8 @@ ROOMY = (110, 42)  # (columns, rows) from which the dice have a table of their o
 BIG_LETTERS = 48  # rows from which the verdict's pixel letters are twice as big, and the die has room round it for a
 BURST_ROOM = 4  # critical's burst of light, this many pixels
 ROOMY_WIDTH = 112  # the most columns the box takes
+SIDE = 80  # columns from which a short screen (a phone on its side) has the die on the left and the rest beside it
+SIDE_WIDTH = 96  # the most columns the box takes then
 # The die's twenty faces in a row (see faces_strip): each face's colour, by how it would go, and a dark of it under.
 FACE_INKS = {"crit": ("#ffd166", "#3a3010"), "good": ("#4cff8a", "#12301e"), "bad": ("#ff4b4b", "#34151d"),
              "fumble": ("#ff2a6d", "#3a0f1e")}
@@ -126,6 +129,7 @@ class DiceScreen(ModalScreen[str]):
         self.stage = "ready"  # ready -> rolling -> done
         self.die = SIZE  # how big the dice are drawn (smaller on a tiny screen: see compose)
         self.roomy = False  # a table of its own (see ROOMY)
+        self.side = False  # the die on the left and the rest beside it (a short, wide screen: see SIDE)
         self.cell = 0  # the columns each face takes in the row of faces (0: no row)
         self.scale = 1  # how big the verdict's pixel letters are
         self.pad = 0  # the pixels of room round the die, for a critical's burst of light
@@ -140,32 +144,47 @@ class DiceScreen(ModalScreen[str]):
         inner = (min(width - 8, ROOMY_WIDTH) if self.roomy else min(width, 76)) - 6  # (less its frame and padding)
         self.cell = 0 if height < TINY else min(4, (inner + 1) // 20 - 1)
         self.cell = self.cell if self.cell >= 2 else 0
-        with Vertical(id="dice-box", classes="roomy" if self.roomy else "") as box:
+        self.side = not self.roomy and height < TINY and width >= SIDE  # (a phone on its side: 18 rows don't hold it)
+        with Vertical(id="dice-box", classes="roomy" if self.roomy else "side" if self.side else "") as box:
             box.border_title = ornate(f"{roll.label} check")
             if self.roomy:
                 box.styles.width = min(width - 8, ROOMY_WIDTH)
+            elif self.side:
+                box.styles.width = min(width - 4, SIDE_WIDTH)
             yield Static(Text(self.summary, style="italic #c8c8e0"), id="dice-summary")
+            if self.side:  # the die on the left, and what's at stake and what came of it beside it
+                with Horizontal(id="dice-main"):
+                    yield Static(self._idle_faces(), id="dice-faces")
+                    with Vertical(id="dice-words"):
+                        yield from self._words()
+                return
             if self.roomy:
                 with Horizontal(id="dice-main"):
                     yield Static(self._idle_faces(), id="dice-faces")
                     yield Static(self.stakes(), id="dice-stakes")
             else:
                 yield Static(self._idle_faces(), id="dice-faces")
-                yield Static(self.target_line(), id="dice-target")
-            if self.cell:
-                yield Static(faces_strip(roll, self.cell), id="dice-strip")
-            yield Static("", id="dice-bonuses")
-            verdict = Static("", id="dice-verdict")
-            if self.roomy:  # (its rows kept from the start, so the box doesn't grow when it's stamped)
-                verdict.styles.height = (5 * self.scale + 2) // 2
-            yield verdict
-            if roll.hits_for or roll.effects:  # (its row kept from the start, so the box doesn't grow)
-                yield Static(" ", id="dice-damage")
-            with Center():  # (its row is kept for it: it shows when a failed roll can be rerolled)
-                yield Clickable(Text(" "), action="screen.reroll", id="dice-fate")
-            hint = advantage_hint(roll)
-            yield Static(Text(f"[space] or click to roll the dice   {hint}".rstrip(), style="#ffb000"),
-                         id="dice-prompt")
+            yield from self._words()
+
+    def _words(self) -> ComposeResult:
+        """Everything but the die: the target in a line (beside the die on a big screen, it's its stakes), the faces in
+        a row, the bonuses, the verdict, what a hit deals, the Fate button's row and how to go on."""
+        roll = self.roll
+        if not self.roomy:
+            yield Static(self.target_line(), id="dice-target")
+        if self.cell:
+            yield Static(faces_strip(roll, self.cell), id="dice-strip")
+        yield Static("", id="dice-bonuses")
+        verdict = Static("", id="dice-verdict")
+        if self.roomy:  # (its rows kept from the start, so the box doesn't grow when it's stamped)
+            verdict.styles.height = (5 * self.scale + 2) // 2
+        yield verdict
+        if roll.hits_for or roll.effects:  # (its row kept from the start, so the box doesn't grow)
+            yield Static(" ", id="dice-damage")
+        with Center():  # (its row is kept for it: it shows when a failed roll can be rerolled)
+            yield Clickable(Text(" "), action="screen.reroll", id="dice-fate")
+        hint = advantage_hint(roll)
+        yield Static(Text(f"[space] or click to roll the dice   {hint}".rstrip(), style="#ffb000"), id="dice-prompt")
 
     def target_line(self) -> Text:
         """What you need, in a line (a smaller screen's): the target, the odds, what a hit deals."""

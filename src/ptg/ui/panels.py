@@ -35,8 +35,8 @@ from ..text import cap, the
 from ..sprites import (DEFAULT_WIDTH, SMALL, SPENT, SPLASH_LEAST, frame_count, splash, splash_sizes,
                        splash_text)
 from .theme import PERK_COLORS
-from .widgets import (INK_STYLES, TALL, Clickable, Picture, StoryLine, highlight, item_note, item_words, map_text,
-                      power_lines, room_text)
+from .widgets import (INK_STYLES, PHONE, TALL, Clickable, Picture, StoryLine, highlight, item_note, item_words,
+                      map_text, power_lines, room_text)
 
 PANEL_KEYS = {"f1": "help", "f2": "inventory", "f3": "character", "f4": "look", "f5": "map", "f6": "bestiary",
               "f7": "journal"}  # the panels' keys, on the game screen and in every panel
@@ -58,6 +58,8 @@ USES = ("use", "throw", "distract", "reveal")  # the actions that do something w
 SOFT, DIM, WORDS = "#9a9cc0", "#6c6f99", "#c8c8e0"  # a panel's quieter lines: notes, hints, plain words
 FLOOR_WORDS = 64  # how wide a floor card's words run under its picture: lines you can read at a glance
 FLOOR_BESIDE = 40  # how wide they run beside it, on a screen with more room across than down
+SHEET_STACKED = 48  # inner columns under which a character sheet's rolls have their sources on a line of their own
+LOOK_LEAST = 30  # the narrowest the room's picture is drawn when you look around (a phone held upright has 33)
 
 
 def ornate(title: str) -> str:
@@ -130,6 +132,7 @@ class Panel(ModalScreen[str | None]):
         if self.opening_sound:
             sound.play(self.opening_sound)
         self.box.add_class(self.size_class)
+        self.set_class(config.touch(), "touch")  # (played with a finger: what's tapped is bigger, see app.tcss)
         if self.panel_name in PANEL_KEYS.values():  # one of F1-F7's: its title spaced out, in its own colour
             box = self.box
             box.border_title = ornate(str(box.border_title or ""))
@@ -405,8 +408,12 @@ class InventoryScreen(Panel):
         """How `count` tiles sit on this screen, (their pictures' size, the box's width): full size, three across, if
         the screen's wide enough for that and a picture in full beside them, and tall enough for two rows of them (or
         all there are); else small, three across, or fewer on a narrow screen (and with ASCII art, whose glyph is only
-        a lot of space at full size). Sets the columns."""
+        a lot of space at full size); on a phone held upright, small, in one row across that scrolls, the picked one
+        in full under it. Sets the columns."""
         width, height = self.app.size
+        if width < PHONE:
+            self.columns = max(1, count)
+            return SMALL, width
         full = shelf_width(3, DEFAULT_WIDTH) + box_frame(height)[0] + 2  # (the side's padding)
         tall = box_rows(height) >= min(2, -(-count // 3)) * TILE[DEFAULT_WIDTH][1]
         if width >= full + 30 and tall and self.game.config.art == "sprites":
@@ -436,18 +443,22 @@ class InventoryScreen(Panel):
         self.items = items
         size, width = self.plan(len(items))
         height = self.app.size.height
-        side = width - box_frame(height)[0] - shelf_width(self.columns, size) - 2  # (less the side's padding)
+        phone = width < PHONE  # (the shelf a row across the top, the picked one in full under it)
+        side = width - box_frame(height)[0] - (0 if phone else shelf_width(self.columns, size) + 2)
+        rows = detail_rows(height) - (TILE[SMALL][1] + 1 if phone else 0)
         with Horizontal(classes="panel-box inventory-box") as box:
             box.border_title = f"Inventory · ¤ {player.gold} gold"
             box.styles.width = width
             with VerticalScroll(id="inv-shelf") as shelf:
-                shelf.styles.width = shelf_width(self.columns, size)
+                shelf.styles.width = "100%" if phone else shelf_width(self.columns, size)
                 grid = Grid(*[item_tile(i, self.game, key, note, size, equipped)
                               for i, (key, note, _, equipped) in enumerate(items)], id="inv-grid")
                 grid.styles.grid_size_columns = self.columns
+                if phone:
+                    grid.styles.width = shelf_width(self.columns, size)
                 yield grid
             with Vertical(id="inv-side"):
-                art = Picture("", "item", side, detail_rows(height), content=content,
+                art = Picture("", "item", side, rows, content=content,
                               sprites=self.game.config.art == "sprites", id="inv-art")
                 art.display = art.sprites  # (an ASCII glyph would only be a lot of space)
                 yield art
@@ -455,7 +466,7 @@ class InventoryScreen(Panel):
                     from .model_view import SHOWN, ModelView, CALM
 
                     model = ModelView(spin=SHOWN, fps=CALM, id="inv-model")
-                    model.styles.height, model.display = min(detail_rows(height), side // 2), False
+                    model.styles.height, model.display = max(4, min(rows, side // 2)), False
                     yield model
                 with VerticalScroll(id="inv-words"):
                     yield Static("", id="inv-detail")
@@ -594,8 +605,12 @@ class ShopScreen(Panel):
         """How the shop sits on this screen, (the box's width, the wares' picture size, the shopkeeper's or 0 when
         there's no room for her, the side's width): she and her wares at full size if there's room for them and a ware
         in full beside them, giving way in this order: the wares small, then her small, then her not at all, then the
-        wares one to a row. Sets the columns."""
+        wares one to a row; on a phone held upright, the wares small in a row across that scrolls, the picked one in
+        full under it. Sets the columns."""
         width, height = self.app.size
+        if width < PHONE:
+            self.columns = max(1, len(self.game.state.room.shop.wares))
+            return width, SMALL, 0, width - box_frame(height)[0]
         tall = box_rows(height) >= min(2, -(-len(self.game.state.room.shop.wares) // 2)) * TILE[DEFAULT_WIDTH][1]
         box = min(width, SHOP_WIDTH)
         inside = box - box_frame(height)[0] - 2  # (the side's padding)
@@ -625,17 +640,21 @@ class ShopScreen(Panel):
                 if keeper_size == DEFAULT_WIDTH:  # (a narrow column has room for her name, not all she is)
                     says.append("\n" + keeper.desc, style=f"italic {WORDS}")
                 yield Static(says, id="shop-says")
+            phone = self.app.size.width < PHONE
             with VerticalScroll(id="shop-shelf") as shelf:
-                shelf.styles.width = shelf_width(self.columns, size)
+                shelf.styles.width = "100%" if phone else shelf_width(self.columns, size)
                 if shop.wares:
                     grid = Grid(*[item_tile(i, self.game, w.item, price_note(w), size)
                                   for i, w in enumerate(shop.wares)], id="shop-grid")
                     grid.styles.grid_size_columns = self.columns
+                    if phone:
+                        grid.styles.width = shelf_width(self.columns, size)
                     yield grid
                 else:
                     yield Static(Text("Sold out. She's counting your gold.", style=DIM))
             with Vertical(id="shop-side"):
-                art = Picture("", "item", side, detail_rows(self.app.size.height), content=content,
+                rows = detail_rows(self.app.size.height) - (TILE[SMALL][1] + 1 if phone else 0)
+                art = Picture("", "item", side, rows, content=content,
                               sprites=sprites, id="shop-art")
                 art.display = sprites
                 yield art
@@ -1001,10 +1020,7 @@ class Sheet(Vertical):
         wrap in their own column). A roll that's changed since `was` is lit."""
         content = self.game.content
         before = {line.label: line.total for line in sheet.roll_lines(was, content)} if was is not None else {}
-        table = Table.grid(padding=(0, 1), expand=True)
-        table.add_column(no_wrap=True)
-        table.add_column(justify="right", no_wrap=True)
-        table.add_column(ratio=1)
+        rows = []
         for line in sheet.roll_lines(state, content):
             sources = Text()
             for i, part in enumerate(p for p in line.parts if p.value):
@@ -1017,8 +1033,22 @@ class Sheet(Vertical):
             if line.label in before and before[line.label] != line.total:
                 total = Text(f"▲{line.total:+d}" if line.total > before[line.label] else f"▼{line.total:+d}",
                              style="bold reverse #4cff8a" if line.total > before[line.label] else "bold reverse #ff4b4b")
-            table.add_row(Text(line.label, style="bold"), total, sources)
-        return Group(Text("YOUR ROLLS ", style="bold #ff4f9a") + Text("d20 +", style=DIM), table)
+            rows.append((Text(line.label, style="bold"), total, sources))
+        heading = Text("YOUR ROLLS ", style="bold #ff4f9a") + Text("d20 +", style=DIM)
+        if self.inner < SHEET_STACKED:  # (a phone held upright: each roll's sources under it, not in a column of 10)
+            lines = []
+            for label, total, sources in rows:
+                lines.append(Text.assemble(label, " ", total))
+                if sources.plain:
+                    lines.append(Text("  ") + sources)
+            return Group(heading, *lines)
+        table = Table.grid(padding=(0, 1), expand=True)
+        table.add_column(no_wrap=True)
+        table.add_column(justify="right", no_wrap=True)
+        table.add_column(ratio=1)
+        for row in rows:
+            table.add_row(*row)
+        return Group(heading, table)
 
     def _growth(self, state: GameState, new: str = "") -> Text:
         return growth_text(state, self.game.content, new)
@@ -1149,7 +1179,7 @@ class LookScreen(Panel):
     def picture(self) -> Text | None:
         """The room as you see it (see room_picture), as wide as the panel and as tall as the screen allows."""
         width = min(LOOK_PICTURE, self.app.size.width - 8)  # a wider line would wrap, and a picture can't
-        if self.game.config.art != "sprites" or width < 36:
+        if self.game.config.art != "sprites" or width < LOOK_LEAST:
             return None
         rows = max(10, min(20, self.app.size.height - 28))
         return picture_text(self.game.state, self.game.content, width, 2 * rows)
@@ -1201,6 +1231,7 @@ class BestiaryScreen(Panel):
         if self.entries:
             self.show(0)
         else:
+            self.query_one("#beast-list").display = False  # (an empty list is only a column of nothing)
             self.query_one("#beast-detail", Static).update(Text("Nothing yet. Go meet something.", style=DIM))
 
     @on(ListView.Highlighted)
@@ -1866,7 +1897,7 @@ class PickScreen(Panel):
         self.words, self.options = title, options
 
     def compose(self) -> ComposeResult:
-        with Vertical(classes="panel-box pick-box") as box:
+        with VerticalScroll(classes="panel-box pick-box") as box:  # (it scrolls if there are more than fit)
             box.border_title = self.words
             if not self.options:
                 yield Static(Text("Nothing to pick.", style=DIM))
@@ -1894,7 +1925,7 @@ class MenuScreen(Panel):
               ("Quests", "journal"), ("Bestiary", "bestiary"), ("Help", "help"))
 
     def compose(self) -> ComposeResult:
-        with Vertical(classes="panel-box menu-box") as box:
+        with VerticalScroll(classes="panel-box menu-box") as box:  # (it scrolls where tall rows don't all fit)
             box.border_title = "Menu"
             for label, name in (*self.PANELS, (f"Sound: {'on' if self.app.config.sound else 'off'}", "sound"),
                                 (f"Layout: {self.app.config.layout} (F9)", "layout")):

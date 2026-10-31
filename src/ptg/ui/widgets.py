@@ -46,8 +46,9 @@ INK_STYLES = {  # the same, as inks that read on parchment (the journal: see pan
 }
 
 # How big the screen is. Every screen, a pop-up's too, gets a class for its width and one for its height (PTGApp's
-# breakpoints) to style itself by in app.tcss: -narrow or -wide, and -tiny, -short or -tall. Code that sizes things
-# goes by the same lines.
+# breakpoints) to style itself by in app.tcss: -phone, -narrow or -wide, and -tiny, -short or -tall. Code that sizes
+# things goes by the same lines.
+PHONE = 60  # columns below which a screen is -phone (a phone held upright: about 41 at the served page's font)
 WIDE = 88  # columns from which a screen is -wide: room for two columns side by side
 TALL = 34  # rows from which a screen is -tall: room for a blank line between things (below it, boxes drop them)
 TINY = 28  # rows below which a screen is -tiny (from there to TALL, -short): the smaller pictures, nothing to spare

@@ -312,7 +312,7 @@ def side_by_side(texts: list[Text], gap: int = 3) -> Text:
 
 # --- splash art: a floor's picture, on its card -------------------------------------
 
-SPLASH_LEAST = 32  # the narrowest a splash is drawn, shrunk: on a screen too small for that, a card is words only
+SPLASH_LEAST = 28  # the narrowest a splash is drawn, shrunk (a phone held upright has 31): any smaller, words only
 
 
 @lru_cache(maxsize=16)

@@ -39,6 +39,18 @@ COMPACT_TITLE = """\
 ╔═╗┬─┐┌─┐┌─┐┌─┐┌┬┐┬ ┬┬─┐┌─┐┬    ╔╦╗┌─┐┬─┐┌┬┐┬┌┐┌┌─┐┬    ╔═╗┌─┐┌┬┐┌─┐
 ╠═╝├┬┘│ ││  ├┤  │││ │├┬┘├─┤│     ║ ├┤ ├┬┘│││││││├─┤│    ║ ╦├─┤│││├┤
 ╩  ┴└─└─┘└─┘└─┘─┴┘└─┘┴└─┴ ┴┴─┘   ╩ └─┘┴└─┴ ┴┴┘└┘┴ ┴┴─┘  ╚═╝┴ ┴┴ ┴└─┘"""
+TITLE_WORDS = ((0, 30), (32, 54), (56, 68))  # where each word of the name is, in COMPACT_TITLE's columns
+
+
+def stacked_title() -> str:
+    """The name's three words one under another, each centred: for a screen too narrow for it in a line (a phone
+    held upright)."""
+    lines = [line.ljust(68) for line in COMPACT_TITLE.split("\n")]
+    widest = max(b - a for a, b in TITLE_WORDS)
+    return "\n".join(" " * ((widest - (b - a)) // 2) + line[a:b].rstrip() for a, b in TITLE_WORDS for line in lines)
+
+
+STACKED_TITLE = stacked_title()
 
 
 def describe_backend(config: Config) -> str:
@@ -72,6 +84,7 @@ class TitleScreen(Screen):
     FLASH_AT = 0.13  # when the flash comes, from the strike's start: what the thunder's timed to
     THUNDER_AFTER = (0.0, 0.35, 0.9)  # how long after the flash the thunder comes, struck close, near or far
     CHROME = 13  # rows besides the picture: the name, the tagline, the menu, what's under it, the footer
+    STACKED_CHROME = 23  # the same on a phone held upright: the name in three lines, the menu two by two
     TEXT_SIZE = "Text too small or too big? Cmd + or − (Ctrl on Windows) in a browser; your terminal's own font " \
         "size in a terminal."  # (a served game's page has its own A− A+ too: web/app_index.html)
     LEAST_ROWS = 10  # a picture any smaller isn't worth the room
@@ -127,8 +140,10 @@ class TitleScreen(Screen):
     def fit_scene(self) -> None:
         """The picture as big as the screen has room for under the name and over the menu, or none at all; its
         first frame now, the rest made ready in the background."""
+        stacked = self.app.size.width < len(COMPACT_TITLE.split("\n")[0]) + 2  # (the name in a line doesn't fit)
+        self.query_one("#splash", Static).update(Text(STACKED_TITLE if stacked else COMPACT_TITLE))
         width = min(self.app.size.width - 4, 160)
-        rows = min(self.app.size.height - self.CHROME, width // 3)
+        rows = min(self.app.size.height - (self.STACKED_CHROME if stacked else self.CHROME), width // 3)
         roomy = rows >= self.LEAST_ROWS and self.app.config.art == "sprites"
         scene = title_scene.scene(width, 2 * rows) if roomy else None
         view = self.query_one("#title-scene", StormView)

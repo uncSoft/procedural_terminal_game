@@ -22,7 +22,7 @@ from ..models import DEEPEST, GameState
 from ..profile import Profile
 from ..sprites import DEFAULT_WIDTH, SMALL, engrave, frames, sprite_text
 from ..story import load_library
-from .widgets import TALL, Clickable, Picture
+from .widgets import PHONE, TALL, Clickable, Picture
 
 CAMPFIRE = r"""
        )   (
@@ -123,8 +123,10 @@ class HubScreen(Screen):
         self.speak()
 
     def on_resize(self) -> None:
-        """The fire at full size on a tall screen, half size on a short one."""
-        self.query_one("#campfire", Picture).fit(DEFAULT_WIDTH, None if self.size.height >= TALL else SMALL // 2)
+        """The fire at full size on a tall screen, half size on a short one, or on a phone held upright (the cards
+        are under it there)."""
+        roomy = self.size.height >= TALL and self.size.width >= PHONE
+        self.query_one("#campfire", Picture).fit(DEFAULT_WIDTH, None if roomy else SMALL // 2)
 
     def on_screen_resume(self) -> None:
         self.refresh_all()

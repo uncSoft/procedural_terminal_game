@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phone Layout Mockup</title>
+<style>
+  /* A mockup, at a 375x812 phone's real size: the terminal's text at the served page's 15 px font (41 columns), the
+     stage's art drawn as an image (the art layer) at 2 px an art pixel. Colours are the game's. */
+  :root {
+    --bg: #0e0c18; --panel: #14122a; --rule: #3a4466; --text: #c8c8e0; --dim: #8b9bb4; --gold: #fee761;
+    --orange: #feae34; --red: #e43b44; --blue: #6c8cff; --green: #63c74d; --pink: #ff4fa3; --band: #1b1830;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; background: #05040b; color: var(--text); font: 15px/18px "Roboto Mono", Menlo,
+         monospace; display: flex; gap: 40px; flex-wrap: wrap; align-items: flex-start; }
+  figure { margin: 0; }
+  figcaption { color: var(--dim); font: 13px/18px -apple-system, system-ui, sans-serif; margin-top: 10px; width: 375px; }
+  .phone { width: 375px; height: 812px; background: var(--bg); border-radius: 36px; overflow: hidden; position: relative;
+           outline: 10px solid #1d1b29; display: flex; flex-direction: column; padding: 44px 3px 22px; }
+  .phone.wide { width: 812px; height: 375px; flex-direction: row; padding: 10px 40px 10px 44px; }
+  .row { height: 18px; white-space: pre; overflow: hidden; }
+  .status { color: var(--text); display: flex; justify-content: space-between; padding: 0 6px; }
+  .status b { color: var(--red); font-weight: 700; }
+  .status .lv { color: var(--pink); }
+  .stage { position: relative; border-top: 1px solid var(--rule); }
+  .stage img { display: block; width: 100%; image-rendering: pixelated; }
+  .stage .intent { position: absolute; top: 6px; display: flex; gap: 6px; left: 8px; }
+  .stage .intent span { background: #5a1f2e; color: #fff; padding: 0 4px; font-size: 13px; }
+  .stage .intent span.heavy { background: var(--red); }
+  .banner { background: var(--band); padding: 0 6px; }
+  .banner .boss { color: var(--orange); font-weight: 700; }
+  .banner .bar { color: var(--red); }
+  .tabs { display: flex; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+  .tabs span { flex: 1; text-align: center; color: var(--dim); height: 26px; line-height: 26px; }
+  .tabs span.on { color: var(--gold); border-bottom: 2px solid var(--gold); }
+  .story { flex: 1; padding: 4px 8px; overflow: hidden; }
+  .story p { margin: 0 0 6px; }
+  .story .you { color: var(--gold); font-weight: 700; }
+  .story .hit { background: #2c6b2f; color: #fff; padding: 0 4px; font-size: 13px; }
+  .story em { color: var(--red); font-style: normal; }
+  .story .torch { color: var(--green); font-weight: 700; }
+  .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 8px 6px; border-top: 1px solid var(--orange); }
+  .choices span { height: 40px; line-height: 40px; padding: 0 8px; background: #24224a; color: #fff; overflow: hidden;
+                  white-space: nowrap; text-overflow: ellipsis; }
+  .choices span.attack { background: var(--red); }
+  .choices span.more { background: none; color: var(--orange); text-align: right; }
+  .input { display: flex; gap: 6px; padding: 0 6px; color: var(--dim); align-items: center; height: 30px; }
+  .input .kb { margin-left: auto; border: 1px solid var(--blue); color: var(--blue); padding: 0 6px; }
+  .col { display: flex; flex-direction: column; }
+  .intro { flex: 1; position: relative; }
+  .intro img { width: 100%; image-rendering: pixelated; display: block; }
+  .intro .epithet { position: absolute; top: 18px; width: 100%; text-align: center; color: #ecdcb2; font-style: italic;
+                    font-size: 13px; }
+  .intro .skip { position: absolute; bottom: 8px; width: 100%; text-align: center; color: var(--dim); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<figure>
+  <div class="phone">
+    <div class="row status"><span><b>♥38/38</b> ⛨15 ✦1 ¤200 <span class="lv">Lv5</span> F5/5</span><span>≡</span></div>
+    <div class="stage">
+      <img src="art-stage-portrait.png" alt="The Spore Bed fight, drawn at the stage's own pixels">
+      <div class="intent"><span class="heavy">▼ ⚔ 2-12</span><span>⚔ 1-2</span><span>⚔ 1-2</span><span>⚔ 1-2</span></div>
+    </div>
+    <div class="row banner"><span class="boss">BOSS</span> The Humongous Fungus <span class="bar">████████</span> 100</div>
+    <div class="tabs"><span class="on">Story</span><span>Here · 4</span><span>Pack</span><span>Map</span><span>Sheet</span></div>
+    <div class="story">
+      <p><span class="you">▍ Attack · The Spore Mother</span></p>
+      <p><span class="hit">✓ HIT</span> → 14 damage</p>
+      <p>You hit the Spore Mother with your Bloodbath. Her cap splits and she sags into the threads. The
+        <em>Humongous Fungus</em> swells till it glows white: a heavy blow is coming.</p>
+      <p>Your <span class="torch">torch</span> is lit (4 flames left).</p>
+    </div>
+    <div class="choices">
+      <span class="attack">1 Attack</span><span>2 Burn</span>
+      <span>3 Dodge</span><span>4 Use…</span>
+      <span>5 Face the Rot Gill</span><span class="more">+3 more ▸</span>
+    </div>
+    <div class="input">Type, or tap a choice<span class="kb">⌨</span></div>
+  </div>
+  <figcaption><b>Portrait, 375x812 (41 columns).</b> The art layer draws the stage at 180x126 art pixels across the
+    top; everything else stays the terminal's text. One pane under it, picked by tabs (the story while you play),
+    and the choices as big buttons at your thumb.</figcaption>
+</figure>
+
+<figure>
+  <div class="phone">
+    <div class="intro">
+      <img src="art-intro-portrait.png" alt="The Humongous Fungus called out by name, big">
+      <div class="epithet">── The Biggest Living Thing Under the World ──</div>
+      <div class="skip">tap to skip</div>
+    </div>
+  </div>
+  <figcaption><b>The boss intro, portrait.</b> A phone today never sees it (it needs 60 columns). With the art layer the
+    whole screen is the stage: a tall room, the four in it, its name burning in over them.</figcaption>
+</figure>
+
+<figure>
+  <div class="phone wide">
+    <div class="col" style="width: 405px;">
+      <div class="stage" style="border-top: none;">
+        <img src="art-stage-landscape.png" alt="The Spore Bed fight, landscape">
+        <div class="intent"><span class="heavy">▼ ⚔ 2-12</span><span>⚔ 1-2</span><span>⚔ 1-2</span><span>⚔ 1-2</span></div>
+      </div>
+      <div class="row banner"><span class="boss">BOSS</span> The Humongous Fungus <span class="bar">██████</span> 100</div>
+    </div>
+    <div class="col" style="flex: 1; margin-left: 8px;">
+      <div class="row status"><span><b>♥38/38</b> ⛨15 ¤200 <span class="lv">Lv5</span> F5/5</span><span>≡</span></div>
+      <div class="tabs"><span class="on">Story</span><span>Here</span><span>Pack</span><span>Map</span></div>
+      <div class="story" style="font-size: 14px; line-height: 17px;">
+        <p><span class="you">▍ Attack · The Spore Mother</span> <span class="hit">✓ HIT</span> → 14</p>
+        <p>Her cap splits and she sags into the threads. The <em>Humongous Fungus</em> swells till it glows
+          white: a heavy blow is coming.</p>
+      </div>
+      <div class="choices" style="padding: 6px 0;">
+        <span class="attack">1 Attack</span><span>2 Burn</span><span>3 Dodge</span><span class="more">+5 more ▸</span>
+      </div>
+    </div>
+  </div>
+  <figcaption style="width: 812px;"><b>Landscape, 812x375 (90 columns by 19 rows).</b> Today the stage disappears here.
+    With the art layer it takes the left half at 202x144 art pixels; the story and the choices take the right.</figcaption>
+</figure>
+
+</body>
+</html>

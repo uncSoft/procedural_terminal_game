@@ -278,6 +278,41 @@ async def test_a_creature_without_clips_stands_in_its_poses_and_the_bestiary_ope
         await pilot.press("escape")
 
 
+async def test_on_the_web_a_fights_moments_stay_pictures_and_never_drop_to_half_blocks(monkeypatch):
+    """JT: a foe going for you "changes the background art to the super low res version while they attack and grow
+    large - its fighting with the resolution for a frame or two over and over". A fight's moments (each foe's swing,
+    the numbers rising) go to the page as pictures too, frame by frame, from the copy at the layer's pixels: the
+    stage's picture never steps aside for them."""
+    from ptg.rules import available_actions
+    from ptg.ui import art_layer
+
+    sent = []
+    monkeypatch.setattr(art_layer, "active", lambda app: True)
+    monkeypatch.setattr(art_layer, "_send", lambda app, message: sent.append(message))
+    app = spore_bed((120, 40))
+    async with app.run_test(size=(120, 40)) as pilot:
+        screen = await into_the_spore_bed(app, pilot)
+        for _ in range(60):  # (the fight's copy at the layer's pixels is made off the screen's thread)
+            await pilot.pause(0.1)
+            if screen.hires_now() is not None:
+                break
+        assert screen.hires_now() is not None
+        state = screen.game.state
+        state.player.hp = state.player.max_hp = 500
+        sent.clear()
+        screen.press(next(a for a in available_actions(state, screen.game.content) if a.id == "dodge"))
+        for _ in range(150):
+            await pilot.pause(0.1)
+            if type(app.screen).__name__ == "DiceScreen":
+                await pilot.press("space")
+            elif app.screen is screen and not screen.busy:
+                break
+        stage = [m["do"] for m in sent if m["id"] == "stage"]
+        after = stage[stage.index("show"):]  # (from the dice window's going: it hid the stage while it was over it)
+        assert "hide" not in after  # (never stepped aside for half blocks)
+        assert len(after) >= 12  # (four foes' swings and numbers, a frame at a time)
+
+
 async def test_on_the_web_the_stage_goes_to_the_page_as_an_image_with_its_words_over_it(monkeypatch):
     """The art layer (ui/art_layer.py): the room's picture, then the fight's, each a PNG and where it goes in cells;
     the foes' next moves as chips; hidden while another screen's over it."""

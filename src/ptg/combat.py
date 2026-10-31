@@ -598,13 +598,22 @@ def fell(state: GameState, content: Content, rng: random.Random, foe: MonsterSta
 
 def foes_turn(state: GameState, content: Content, rng: random.Random) -> list[Event]:
     """After your go, each foe still standing has its own (the one you face first, then the others in turn), then a
-    fight's turn of their statuses: a burn can finish one (fell), a mending heals."""
+    fight's turn of their statuses: a burn can finish one (fell), a mending heals. Each foe's go is marked as its own
+    (`go`: 0, 1, 2... with your HP before it on its first event, `hp_before`), so the screen can play them one after
+    another, a beat apart: run 66's Humongous Fungus and its three all swung at once, and the stage and the story
+    jumbled them together."""
     events: list[Event] = []
-    for foe in foes(state):
+    for go, foe in enumerate(foes(state)):
         if state.over:
             return events
         if foe.hp > 0 and foe.hostile:
-            events += monster_turn(state, content, rng, foe)
+            hp = state.player.hp
+            its = monster_turn(state, content, rng, foe)
+            for event in its:
+                event.data["go"] = go
+            if its:
+                its[0].data["hp_before"] = hp
+            events += its
     for foe in [m for m in [state.room.monster, *state.room.others] if m is not None and m.hp > 0]:
         events += statuses.monster_tick(foe)
         if foe.hp <= 0 and not state.over:

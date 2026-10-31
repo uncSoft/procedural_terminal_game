@@ -287,6 +287,29 @@ def test_the_foes_goes_are_marked_theirs_with_your_hp_before_them(content):
     assert all(e.data.get("theirs") for e in events[events.index(theirs[0]):] if e.kind.startswith("monster_"))
 
 
+def test_each_foe_goes_in_turn_its_go_marked_its_own_with_your_hp_before_it(content):
+    """JT: the Fungus and its three "all attack at the same time, bunging up the animations and flow... each take
+    turns attacking with a beat between". Each foe's go is its own (`go`), your HP before it on its first event, so
+    the screen can play them one by one (game_screen.goes)."""
+    from ptg.ui.game_screen import goes
+
+    state = generate(7)
+    crowd(state, content, hp=40)
+    state.player.hp = state.player.max_hp = 200
+    events = perform(state, content, "dodge")
+    theirs = [e for e in events if e.data.get("theirs")]
+    parts = goes(theirs)
+    marked = [part for part in parts if "go" in part[0].data]
+    assert [part[0].data["go"] for part in marked] == list(range(len(marked))) and len(marked) >= 2
+    assert all(len({e.data.get("go") for e in part}) == 1 for part in parts)  # (a go doesn't spill into the next)
+    hp = 200
+    for part in marked:  # your HP before each, as it was after the one before
+        assert part[0].data["hp_before"] == hp
+        hp -= sum(e.data.get("damage", 0) for e in part if e.kind == "monster_hit")
+    assert {e.data["foe"] for part in marked for e in part if "foe" in e.data} == \
+        {m.place for m in [state.room.monster, *state.room.others] if m is not None}
+
+
 def test_a_whole_fights_spoils_add_up(content):
     from ptg.events import Event
 

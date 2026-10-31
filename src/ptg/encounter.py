@@ -228,6 +228,10 @@ class Fight:
     cry: str = ""  # its own sound as it lands, instead of the fight's sting (MonsterDef.cry: the Matriarch's screech)
     others: list = field(default_factory=list)  # the rest of the fight (copies), beside the one you face
     others_seen: list = field(default_factory=list)  # their next moves
+    # The art layer's copy of a fight (GameScreen.send_stage), drawn at its pixels: how many to one of the stage's own
+    # (a blow's number, a shatter's spread, scaled up to match), and its frames given as pictures, not half blocks.
+    pixels: int = 1
+    pictures: bool = False
 
     def __post_init__(self, state: GameState) -> None:
         self.banner_rows = 2 if self.rows >= 10 else 1
@@ -516,6 +520,8 @@ class Fight:
             canvas = self._reddened(canvas, hurt)
         for pop in pops:
             pop.draw(canvas)
+        if self.pictures:  # (the art layer's: the picture alone, its words drawn by the page or left to the cells)
+            return canvas
         lines = self._text(canvas)
         if card is not None:
             self._card(lines, card, glint)
@@ -563,8 +569,9 @@ class Fight:
         return out
 
     def scale_of_pops(self) -> int:
-        """How big a blow's number is drawn: twice its glyphs, on a stage with the room for it."""
-        return 2 if self.rows >= 12 and self.width >= 60 else 1
+        """How big a blow's number is drawn: twice its glyphs, on a stage with the room for it (at the art layer's
+        pixels, as many times again)."""
+        return (2 if self.rows >= 12 and self.width >= 60 else 1) * self.pixels
 
     def over(self, monster: MonsterState | None = None) -> tuple[int, int]:
         """Where a blow's number rises from on a foe (the one you face, unless it says): over its chest, in pixels
@@ -919,13 +926,16 @@ class Fight:
                 seed = (x * 73 + y * 151) % 97 / 97  # (each bit its own way, the same each time)
                 if seed > fade + 0.15:
                     continue  # (gone)
-                dx = round(-side * step * (0.6 + 1.6 * seed) * self.scale) if step > 1 else 0
-                dy = round(step * step * (0.15 + 0.35 * seed) - step * (1.4 - seed))
+                dx = round(-side * step * (0.6 + 1.6 * seed) * self.scale * self.pixels) if step > 1 else 0
+                dy = round((step * step * (0.15 + 0.35 * seed) - step * (1.4 - seed)) * self.pixels)
                 tx, ty = x0 + x + dx, y0 + y + dy
                 if 0 <= tx < canvas.width and 0 <= ty < canvas.height:
                     k = 0.35 + 0.65 * fade
                     px[tx, ty] = (int(r * k + 255 * (1 - k) * (step < 3)), int(g * k + 255 * (1 - k) * (step < 3)),
                                   int(b * k + 255 * (1 - k) * (step < 3)), 255)
+            if self.pictures:
+                yield canvas
+                continue
             lines = self._text(canvas)
             for row in range(len(lines) - self.banner_rows, len(lines)):
                 lines[row] = _band(self.width)

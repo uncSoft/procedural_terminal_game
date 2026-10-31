@@ -566,7 +566,8 @@ def finish_turn(state, content, rng, events, took_turn, was_in_combat, room_befo
 
 def theirs(events: list[Event], hp: int) -> None:
     """A fight's turn after your go: the foes' goes, their burns and mending, marked as theirs, so the screen can
-    show your go and then theirs, a beat apart, with your HP between them (`hp`, on the first)."""
+    show your go and then theirs, a beat apart, with your HP between them (`hp`, on the first). Each foe's go is
+    marked its own too (combat.foes_turn's `go`), to be played in turn."""
     for event in events:
         event.data["theirs"] = True
     if events:

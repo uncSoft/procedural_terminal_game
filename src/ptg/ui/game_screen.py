@@ -82,9 +82,22 @@ LEAVE_WINDOW = 2.0  # seconds for the second Esc that leaves for the title
 NARRATION_STEP = 0.12  # seconds between repaints of narration still arriving: re-colouring it every word costs
 MUSIC_AFTER_STING = 0.8  # seconds after a fight's sting (its foe landing) that its music comes in
 THEIR_BEAT = 0.45  # seconds between your go in a fight and the foes' goes after it (rules.theirs)
+FOE_BEAT = 0.35  # seconds between one foe's go and the next's (combat.foes_turn): the Fungus's four, one at a time
 SPOILS_HOLD = 6.0  # the most seconds a fight's spoils stay up, unless a key or a click goes on sooner
 # What a fight's turn shows on the stage: your blows and the foes', and those that end one.
 STAGE_KINDS = {"hit", "miss", "defeat", "pacify", "monster_hit", "monster_miss", "evade", "dodge"}
+
+
+def goes(events: list[Event]) -> list[list[Event]]:
+    """The foes' part of a fight's turn (rules.theirs) in its parts: each foe's go (combat.foes_turn's `go`), then
+    whatever came after them (their burns and mending, the next coming at you), in order."""
+    parts: list[list[Event]] = []
+    for event in events:
+        if parts and parts[-1][0].data.get("go") == event.data.get("go"):
+            parts[-1].append(event)
+        else:
+            parts.append([event])
+    return parts
 
 
 def paused(seconds: float) -> float:
@@ -520,7 +533,8 @@ class GameScreen(Screen):
 
     def _make_hires(self, key: tuple, state, monster: MonsterState, width: int, rows: int) -> None:
         """A copy of the fight at the art layer's pixels, made off the screen's thread (send_stage)."""
-        hires = encounter.Fight(state, self.game.content, monster, width, rows, state.known_weak.get(monster.key, []))
+        hires = encounter.Fight(state, self.game.content, monster, width, rows, state.known_weak.get(monster.key, []),
+                                pixels=art_layer.SCALE, pictures=True)
         app = self.app
 
         def keep() -> None:
@@ -547,6 +561,57 @@ class GameScreen(Screen):
             app.call_from_thread(keep)
         except RuntimeError:
             pass
+
+    def hires_now(self) -> encounter.Fight | None:
+        """On the web, the copy of the fight at the art layer's pixels (send_stage), standing as the stage's fight
+        does, to draw a moment's frames from (moment); None without the art layer, or if it isn't made for this foe
+        (yet: the next to come at you has its own made after)."""
+        fight, state = self.fight, self.game.state
+        if fight is None or self.hires is None or self.hires[1] is None or not art_layer.active(self.app) or \
+                not self._sprites_on() or not self.plan or not self.plan.stage_rows:
+            return None
+        key = (state.floor, state.room_id, fight.monster.key, fight.monster.name, self.plan.stage_width,
+               self.plan.stage_rows)
+        if self.hires[0] != key:
+            return None
+        hires = self.hires[1]
+        hires.monster, hires.seen, hires.others, hires.others_seen = (fight.monster, fight.seen, fight.others,
+                                                                      fight.others_seen)
+        return hires
+
+    async def moment(self, frames) -> None:
+        """A moment of a fight on the stage (a blow's flash, a swing, the numbers rising, a foe breaking apart):
+        `frames(fight)`'s, each (picture, seconds), in half blocks, and on the web the same from the copy at the art
+        layer's pixels, frame for frame, over them. Without that copy, its picture steps aside for the half blocks.
+        JT: a heavy blow's swing "changes the background art to the super low res version... fighting with the
+        resolution for a frame or two over and over"."""
+        art = self.query_one("#stage-art", Static)
+        hires = self.hires_now()
+        if hires is None:
+            self.hide_stage_art()
+        pictures = iter(frames(hires)) if hires is not None else iter(())
+        async for frame in effects.paced(frames(self.fight)):
+            self.frame_shown = effects.show_frame(art, frame[0], self.frame_shown)
+            picture = next(pictures, None)
+            if picture is not None:
+                self._send_picture(art, picture[0])
+
+    def show_still(self, frame, picture) -> None:
+        """One frame of a fight on the stage, in half blocks and (`picture`, from the art layer's copy) on the web."""
+        art = self.query_one("#stage-art", Static)
+        self.frame_shown = effects.show_frame(art, frame, self.frame_shown)
+        if picture is not None:
+            self._send_picture(art, picture)
+        elif self.animating:
+            self.hide_stage_art()
+
+    def _send_picture(self, art: Static, picture) -> None:
+        """A picture from the art layer's copy of the fight, over the stage's picture rows (its banner stays words)."""
+        fight, rows = self.fight, self.plan.stage_rows
+        art_rows = rows - fight.banner_rows if fight is not None else rows
+        picture = picture.crop((0, 0, picture.width, 2 * art_rows * art_layer.SCALE))
+        art_layer.show(self.app, "stage", art, picture, fight.chips if fight is not None else None, rows=art_rows)
+        self.art_hidden = False
 
     def hide_stage_art(self) -> None:
         """The stage's picture off the page (a moment playing in half blocks, the stage gone, a screen over it)."""
@@ -1260,19 +1325,25 @@ class GameScreen(Screen):
         await self._purse_feedback(purse_before)
         await self._fight_animations(mine, before, room_before, last=not theirs)
         if theirs and game.state.room_id == room_before:
-            await asyncio.sleep(paused(THEIR_BEAT))
             staged = self.fight is not None  # (their blows sound as they swing on the stage, not as their dice land)
-            await self._rolls(theirs, primary, narration, quiet=staged)
-            self.query_one("#hud", Hud).show(game.state, game.content)
-            moments = [effects.roll_sound(e) for e in theirs if e.dice] if staged else []
-            self.their_sounds = list(dict.fromkeys([*moments, *filter(None, map(effects.event_sound, theirs))]))
-            if not staged:
-                self._sound_theirs()
-            await self._roll_feedback(theirs, between if between is not None else hp_before)
             facing = game.state.room.monster
             now = (facing.key, facing.name) if facing is not None and any(e.kind == "face" for e in mine) else before
-            await self._fight_animations(theirs, now, room_before)
-            self._sound_theirs()  # (any the stage didn't get to)
+            parts, hp = goes(theirs), between if between is not None else hp_before
+            for n, part in enumerate(parts):  # each foe's go in turn, a beat apart, your HP after each; then the rest
+                await asyncio.sleep(paused(THEIR_BEAT if n == 0 else FOE_BEAT))
+                last = n == len(parts) - 1
+                after = None if last else next((e.data["hp_before"] for e in parts[n + 1] if "hp_before" in e.data),
+                                               None)
+                await self._rolls(part, primary, narration, quiet=staged)
+                self.query_one("#hud", Hud).show(game.state, game.content, hp=after)
+                moments = [effects.roll_sound(e) for e in part if e.dice] if staged else []
+                self.their_sounds = list(dict.fromkeys([*moments, *filter(None, map(effects.event_sound, part))]))
+                if not staged:
+                    self._sound_theirs()
+                await self._roll_feedback(part, hp, hp_after=after)
+                hp = game.state.player.hp if after is None else after
+                await self._fight_animations(part, now, room_before, last=last)
+                self._sound_theirs()  # (any the stage didn't get to)
         await self._room_wipe(room_before)
         await self._encounter(fighting, room_before)
         await self._fixture_moment(pending.events)
@@ -1562,7 +1633,9 @@ class GameScreen(Screen):
         if "hit" in kinds:
             frame = picture.frame if picture else 0
             steps += [("idle", frame, flash) for flash in (True, False, True, False)]
-        if not gone and kinds & {"monster_hit", "monster_miss", "evade", "dodge"}:
+        strikers = {e.data["foe"] for e in events if "foe" in e.data}  # (a foe's go: its tile lunges if it's yours)
+        if not gone and kinds & {"monster_hit", "monster_miss", "evade", "dodge"} and \
+                (not strikers or monster is not None and monster.place in strikers):
             steps += [("lunge", 0, False), ("lunge", 1, False), ("idle", 0, False)]
         if gone:
             steps += [("death", step, False) for step in range(DEATH_FRAMES)]
@@ -1572,7 +1645,8 @@ class GameScreen(Screen):
         moments = [self._play_scene(picture, steps)] if steps and picture is not None else []
         fight = self.fight
         if fight is not None and (gone or kinds & STAGE_KINDS or last and not game.state.in_combat):
-            moments.append(self._stage_theirs(fight, events) if theirs else self._stage_mine(fight, events, last))
+            moments.append(self._stage_theirs(fight, events, last) if theirs else
+                           self._stage_mine(fight, events, last))
         if moments:
             self.animating = True
             try:
@@ -1584,57 +1658,57 @@ class GameScreen(Screen):
         """Your go on the stage: the foe you hit flashes white and the damage rises off it, big (a miss says so).
         One slain holds a beat and breaks apart where it stood (any of the others a blast finished, likewise). Then:
         the fight won, its spoils (_spoils); the one you faced down, the next of the fight comes at you (_next_foe)."""
-        art = self.query_one("#stage-art", Static)
         kinds = {e.kind for e in events}
         if "hit" in kinds:
-            for flash in (True, False, True, False):
-                self.show_frame(fight.still(0, "idle", flash=flash), art)
-                await asyncio.sleep(0.06)
+            await self.moment(lambda f: [(f.still(0, "idle", flash=flash), 0.06)
+                                         for flash in (True, False, True, False)])
         hits = [e for e in events if e.kind == "hit" and e.data.get("damage")]
-        pops = []
+        pop = None
         if hits:
             crit = any(e.dice and e.dice.crit for e in hits)
-            pops = [(f"-{sum(e.data['damage'] for e in hits)}{'!' if crit else ''}",
-                     encounter.GOLD if crit else encounter.WHITE, *fight.over())]
+            pop = (f"-{sum(e.data['damage'] for e in hits)}{'!' if crit else ''}",
+                   encounter.GOLD if crit else encounter.WHITE)
         elif "miss" in kinds:
-            pops = [("MISS", encounter.GREY, *fight.over())]
-        if pops:
-            async for frame, _ in effects.paced(fight.popping(pops)):
-                self.show_frame(frame, art)
+            pop = ("MISS", encounter.GREY)
+        if pop:
+            await self.moment(lambda f: f.popping([(*pop, *f.over())]))
         await self._fallen(fight, events, last)
 
-    async def _stage_theirs(self, fight: encounter.Fight, events: list[Event]) -> None:
-        """The foes' go on the stage, after yours: each that went for you in its own swing (the Goblin King's pan
-        coming down) or a lunge, all at once in a crowd; what they took off you rising big over the stage as it
-        flushes red. Then any a burn finished breaks apart, as on your go."""
-        art = self.query_one("#stage-art", Static)
+    async def _stage_theirs(self, fight: encounter.Fight, events: list[Event], last: bool = True) -> None:
+        """A foe's go on the stage, after yours (the foes go one at a time: goes): it goes for you in its own swing
+        (the Goblin King's pan coming down) or a lunge, and what it took off you rises big over it as the stage
+        flushes red. Then any a burn finished breaks apart, as on your go; after the `last` part of the turn, the one
+        you face is whoever it is now."""
         kinds = {e.kind for e in events}
         self._sound_theirs()  # (their blows land as they swing)
         striking = frozenset(e.data["foe"] for e in events if "foe" in e.data)
         pose = monster_pose(fight.monster)
         if kinds & {"monster_hit", "monster_miss", "evade", "dodge"}:
-            swung = list(fight.swing(striking or None, pose))
-            lunge = [(fight.still(0, "lunge"), 0.07), (fight.still(1, "lunge"), 0.07)]
-            async for text, _ in effects.paced(swung or lunge):
-                self.show_frame(text, art)
+            facing = not striking or fight.monster.place in striking  # (one of the others: it lunges where it stands)
+
+            def swing(f: encounter.Fight) -> list:
+                lunge = [(f.still(i, "lunge" if facing else pose, striking=striking), 0.07) for i in (0, 1)]
+                return list(f.swing(striking or None, pose)) or lunge
+            await self.moment(swing)
         pops, hurt = [], False
         for foe in fight.lineup():  # (each that went for you: what it took off you, in red over it, or its miss)
             blows = [e for e in events if e.data.get("foe") == foe.place]
             dealt = sum(e.data.get("damage", 0) for e in blows if e.kind == "monster_hit")
             if dealt:
-                pops.append((f"-{dealt}", "#ff4b4b", *fight.over(foe)))
+                pops.append((f"-{dealt}", "#ff4b4b", foe))
                 hurt = True
             elif any(e.kind in ("monster_miss", "evade", "dodge") for e in blows):
-                pops.append(("MISS", encounter.GREY, *fight.over(foe)))
+                pops.append(("MISS", encounter.GREY, foe))
         if pops:
-            async for frame, _ in effects.paced(fight.popping(pops, hurt=hurt, pose=pose)):
-                self.show_frame(frame, art)
-        await self._fallen(fight, events, True)
+            await self.moment(lambda f: f.popping([(words, colour, *f.over(foe)) for words, colour, foe in pops],
+                                                  hurt=hurt, pose=pose))
+        await self._fallen(fight, events, True, settle=last)
 
-    async def _fallen(self, fight: encounter.Fight, events: list[Event], last: bool) -> None:
+    async def _fallen(self, fight: encounter.Fight, events: list[Event], last: bool, settle: bool = True) -> None:
         """After a part of a fight's turn on the stage: those of it slain in it break apart where they stood (the one
         you faced last); then the fight's over (its spoils, or just the room again: _spoils), or the one you face has
-        changed (the next comes at you: _next_foe), or it stands as it is now."""
+        changed (the next comes at you: _next_foe), or it stands as it is now. Not `settle`d (a foe's go with others'
+        still to come: goes), only the breaking apart: the rest waits for the turn's last part."""
         state = self.game.state
         art = self.query_one("#stage-art", Static)
         fallen = [e for e in events if e.kind == "defeat" and "fallen" in e.data]
@@ -1645,6 +1719,8 @@ class GameScreen(Screen):
         slain = facing.place in places
         if slain:
             await self._break_apart(fight, facing)
+        if not settle:
+            return
         now = state.room.monster
         if last and not state.in_combat:  # (the fight's over: won, or the last of it gone another way)
             await self._spoils(fight)
@@ -1658,19 +1734,17 @@ class GameScreen(Screen):
                     self.show_frame(frame, art)
             return
         fight.update(state, now, state.known_weak.get(now.key, []))
-        self.show_frame(fight.still(0, monster_pose(now)), art)  # (as it stands now)
+        hires = self.hires_now()
+        self.show_still(fight.still(0, monster_pose(now)),  # (as it stands now)
+                        hires.still(0, monster_pose(now)) if hires is not None else None)
 
     async def _break_apart(self, fight: encounter.Fight, who: MonsterState) -> None:
         """A foe slain on the stage: the killing blow holds a beat (white, the one you faced), then it breaks into
         pixels where it stood."""
-        art = self.query_one("#stage-art", Static)
         if who is fight.monster:
-            self.show_frame(fight.still(0, "idle", flash=True, banner=False), art)
-            await asyncio.sleep(0.22)
+            await self.moment(lambda f: [(f.still(0, "idle", flash=True, banner=False), 0.22)])
         sound.play("shatter")
-        for frame in fight.shatter(who=who):
-            self.show_frame(frame, art)
-            await asyncio.sleep(0.055)
+        await self.moment(lambda f: ((frame, 0.055) for frame in f.shatter(who=who)))
 
     def _next_foe(self) -> encounter.Fight | None:
         """The one you faced is down, and the next of its fight comes at you: the fight on the stage made again for
